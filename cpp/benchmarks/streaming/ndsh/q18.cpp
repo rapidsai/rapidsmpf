@@ -549,6 +549,7 @@ struct ProgramOptions {
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::optional<double> spill_device_limit{std::nullopt};
     bool use_shuffle_join = false;
+    bool shuffle_customer = false;
     bool spillable_fanout = false;
     std::string output_file;
     std::string input_directory;
@@ -566,7 +567,10 @@ ProgramOptions parse_options(int argc, char** argv) {
                "100000000)\n"
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
-            << "  --use-shuffle-join           Use shuffle join (default: false)\n"
+            << "  --use-shuffle-join           Use shuffle join for lineitem/orders "
+               "(default: false)\n"
+            << "  --shuffle-customer           Also shuffle customer join (for SF3000+, "
+               "default: false)\n"
             << "  --spillable-fanout           Buffer fanout data in spillable "
                "container. "
                "Workaround for rapidsai/rapidsmpf#675 (default: false)\n"
@@ -584,6 +588,7 @@ ProgramOptions parse_options(int argc, char** argv) {
         {"help", no_argument, nullptr, 6},
         {"spill-device-limit", required_argument, nullptr, 7},
         {"spillable-fanout", no_argument, nullptr, 8},
+        {"shuffle-customer", no_argument, nullptr, 9},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -620,6 +625,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             break;
         case 8:
             options.spillable_fanout = true;
+            break;
+        case 9:
+            options.shuffle_customer = true;
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -986,21 +994,69 @@ int main(int argc, char** argv) {
                     );  // o_orderkey, o_custkey, o_orderdate, o_totalprice, l_quantity
                 }
 
-                // Customer join stays as broadcast (customer is small)
+                // Customer join - broadcast for small SF, shuffle for large SF (SF3000+)
                 auto all_joined = ctx->create_channel();
-                nodes.push_back(
-                    rapidsmpf::ndsh::inner_join_broadcast(
-                        ctx,
-                        customer,
-                        orders_x_lineitem,
-                        all_joined,
-                        {0},  // c_custkey
-                        {1},  // o_custkey
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
-                        rapidsmpf::ndsh::KeepKeys::YES
-                    )
-                );  // c_custkey, c_name, o_orderkey, o_orderdate, o_totalprice,
-                    // l_quantity
+                if (cmd_options.shuffle_customer) {
+                    // Shuffle customer by c_custkey
+                    auto customer_shuffled = ctx->create_channel();
+                    nodes.push_back(
+                        rapidsmpf::ndsh::shuffle(
+                            ctx,
+                            customer,
+                            customer_shuffled,
+                            {0},  // c_custkey
+                            num_partitions,
+                            rapidsmpf::OpID{
+                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+                            }
+                        )
+                    );
+
+                    // Shuffle orders_x_lineitem by o_custkey (column 1)
+                    auto orders_x_lineitem_shuffled = ctx->create_channel();
+                    nodes.push_back(
+                        rapidsmpf::ndsh::shuffle(
+                            ctx,
+                            orders_x_lineitem,
+                            orders_x_lineitem_shuffled,
+                            {1},  // o_custkey
+                            num_partitions,
+                            rapidsmpf::OpID{
+                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+                            }
+                        )
+                    );
+
+                    // Shuffle inner join
+                    nodes.push_back(
+                        rapidsmpf::ndsh::inner_join_shuffle(
+                            ctx,
+                            customer_shuffled,
+                            orders_x_lineitem_shuffled,
+                            all_joined,
+                            {0},  // c_custkey
+                            {1},  // o_custkey
+                            rapidsmpf::ndsh::KeepKeys::YES
+                        )
+                    );
+                } else {
+                    // Broadcast join (customer is small at low SF)
+                    nodes.push_back(
+                        rapidsmpf::ndsh::inner_join_broadcast(
+                            ctx,
+                            customer,
+                            orders_x_lineitem,
+                            all_joined,
+                            {0},  // c_custkey
+                            {1},  // o_custkey
+                            rapidsmpf::OpID{
+                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+                            },
+                            rapidsmpf::ndsh::KeepKeys::YES
+                        )
+                    );
+                }  // c_custkey, c_name, o_orderkey, o_orderdate, o_totalprice,
+                   // l_quantity
 
                 // Reorder columns to match expected output
                 auto reordered = ctx->create_channel();
