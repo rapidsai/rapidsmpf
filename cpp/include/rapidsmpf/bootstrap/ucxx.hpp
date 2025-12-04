@@ -39,7 +39,7 @@ bool is_running_with_rrun();
  *
  * @return Number of ranks.
  * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not set
- *         or cannot be parsed.
+ * or cannot be parsed.
  */
 std::int32_t get_nranks();
 

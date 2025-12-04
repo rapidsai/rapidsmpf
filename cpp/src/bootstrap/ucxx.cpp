@@ -46,7 +46,7 @@ std::int32_t get_nranks() {
     } catch (...) {
         RAPIDSMPF_FAIL(
             "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
-            + std::string(nranks_str),
+                + std::string(nranks_str),
             std::runtime_error
         );
     }
