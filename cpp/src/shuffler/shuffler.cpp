@@ -61,7 +61,6 @@ std::size_t postbox_spilling(
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
-
     std::size_t total_spilled{0};
     for (auto [pid, cid, size] : chunk_info) {
         if (size == 0) {  // skip empty data buffers
@@ -87,7 +86,6 @@ std::size_t postbox_spilling(
             break;
         }
     }
-
     RAPIDSMPF_NVTX_MARKER("postbox_spilling::total_spilled", total_spilled);
     return total_spilled;
 }

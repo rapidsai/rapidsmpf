@@ -27,13 +27,11 @@ def export_nsys_rep(nsys_rep_path: Path, *, force_overwrite: bool) -> Path:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
         print(f"Error exporting nsys report: {e.stderr}", file=sys.stderr)
-        sys.exit(1)
     except FileNotFoundError:
         print(
             "Error: 'nsys' command not found. Please ensure NVIDIA Nsight Systems is installed.",
             file=sys.stderr,
         )
-        sys.exit(1)
 
     return sqlite_path
 
@@ -90,7 +88,6 @@ def analyze_spilling(sqlite_path: Path) -> None:
             "Make sure the nsys profile was captured with NVTX tracing enabled.",
             file=sys.stderr,
         )
-        sys.exit(1)
 
     # Query for postbox_spilling ranges (duration events)
     # These have the "amount requested" as payload
@@ -262,21 +259,25 @@ Examples:
     args = parser.parse_args()
     input_path = args.input_file
 
-    if not input_path.exists():
-        print(f"Error: File not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
+    try:
+        if not input_path.exists():
+            print(f"Error: File not found: {input_path}", file=sys.stderr)
 
-    # Determine if we need to export
-    if input_path.suffix == ".nsys-rep":
-        sqlite_path = export_nsys_rep(input_path, force_overwrite=args.force_overwrite)
-    elif input_path.suffix == ".sqlite":
-        sqlite_path = input_path
-    else:
-        print(f"Error: Unsupported file type: {input_path.suffix}", file=sys.stderr)
-        print("Expected .nsys-rep or .sqlite file.", file=sys.stderr)
-        sys.exit(1)
+        # Determine if we need to export
+        if input_path.suffix == ".nsys-rep":
+            sqlite_path = export_nsys_rep(
+                input_path, force_overwrite=args.force_overwrite
+            )
+        elif input_path.suffix == ".sqlite":
+            sqlite_path = input_path
+        else:
+            print(f"Error: Unsupported file type: {input_path.suffix}", file=sys.stderr)
+            print("Expected .nsys-rep or .sqlite file.", file=sys.stderr)
+        analyze_spilling(sqlite_path)
 
-    analyze_spilling(sqlite_path)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

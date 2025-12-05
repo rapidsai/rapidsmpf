@@ -90,14 +90,13 @@ struct rapidsmpf_domain {
  *
  * The optional argument is the payload to annotate (integral or floating-point value).
  *
- * Example:
- * ```
+ * @code
  * void some_function(){
- *    RAPIDSMPF_NVTX_FUNC_RANGE();        // The name `some_function` is used as the
- * message RAPIDSMPF_NVTX_FUNC_RANGE(42);      // With payload
+ *    RAPIDSMPF_NVTX_FUNC_RANGE();        // `some_function` is used as the message
+ *    RAPIDSMPF_NVTX_FUNC_RANGE(42);      // With payload
  *    ...
  * }
- * ```
+ * @endcode
  */
 #define RAPIDSMPF_NVTX_FUNC_RANGE(...) RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(__VA_ARGS__)
 
