@@ -16,12 +16,39 @@
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 enum ResourceType : int {
-    HOST_MEMORY_RESOURCE = 0,
-    PINNED_MEMORY_RESOURCE = 1,
+    NEW_DELETE = 0,
+    HOST_MEMORY_RESOURCE = 1,
+    PINNED_MEMORY_RESOURCE = 2,
 };
 
-std::array<std::string, 2> const ResourceTypeStr{
-    "HostMemoryResource", "PinnedMemoryResource"
+constexpr std::array<ResourceType, 3> RESOURCE_TYPES{
+    ResourceType::NEW_DELETE,
+    ResourceType::HOST_MEMORY_RESOURCE,
+    ResourceType::PINNED_MEMORY_RESOURCE
+};
+
+std::array<std::string, 3> const ResourceTypeStr{
+    "NewDelete", "HostMemoryResource", "PinnedMemoryResource"
+};
+
+class NewDelete final : public rapidsmpf::HostMemoryResource {
+  public:
+    void* allocate(
+        rmm::cuda_stream_view,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) override {
+        return ::operator new(size, std::align_val_t{alignment});
+    }
+
+    void deallocate(
+        rmm::cuda_stream_view,
+        void* ptr,
+        std::size_t,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept override {
+        ::operator delete(ptr, std::align_val_t{alignment});
+    }
 };
 
 // Helper function to create a memory resource based on type
@@ -29,6 +56,8 @@ std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
     const ResourceType& resource_type
 ) {
     switch (resource_type) {
+    case ResourceType::NEW_DELETE:
+        return std::make_unique<NewDelete>();
     case ResourceType::HOST_MEMORY_RESOURCE:
         return std::make_unique<rapidsmpf::HostMemoryResource>();
     case ResourceType::PINNED_MEMORY_RESOURCE:
@@ -184,10 +213,8 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
 void CustomArguments(benchmark::internal::Benchmark* b) {
     // Test different allocation sizes
     for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
-        // Test both memory resource types
-        for (auto resource_type :
-             {ResourceType::HOST_MEMORY_RESOURCE, ResourceType::PINNED_MEMORY_RESOURCE})
-        {
+        // Test all memory resource types
+        for (auto resource_type : RESOURCE_TYPES) {
             b->Args({size, resource_type});
         }
     }
