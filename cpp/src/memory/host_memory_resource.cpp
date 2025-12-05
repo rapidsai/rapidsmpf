@@ -40,19 +40,16 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
 
 }  // namespace
 
-void* HostMemoryResource::do_allocate(
-    std::size_t size, [[maybe_unused]] rmm::cuda_stream_view stream, std::size_t alignment
+void* HostMemoryResource::allocate(
+    rmm::cuda_stream_view, std::size_t size, std::size_t alignment
 ) {
     void* ret = ::operator new(size, std::align_val_t{alignment});
     enable_hugepage_for_region(ret, size);
     return ret;
 }
 
-void HostMemoryResource::do_deallocate(
-    void* ptr,
-    [[maybe_unused]] std::size_t size,
-    rmm::cuda_stream_view stream,
-    std::size_t alignment
+void HostMemoryResource::deallocate(
+    rmm::cuda_stream_view stream, void* ptr, std::size_t, std::size_t alignment
 ) noexcept {
     stream.synchronize();
     ::operator delete(ptr, std::align_val_t{alignment});
