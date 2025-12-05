@@ -66,6 +66,8 @@ class HostMemoryResource {
 
     /**
      * @brief Synchronously deallocates host memory is disabled.
+     *
+     * @throw std::invalid_argument Always.
      */
     void deallocate_sync(void*, std::size_t, std::size_t) {
         RAPIDSMPF_FAIL(
