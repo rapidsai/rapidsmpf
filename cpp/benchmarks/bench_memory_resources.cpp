@@ -48,31 +48,12 @@ class PinnedHostMemoryResource final : public HostMemoryResource {
     rmm::mr::pinned_host_memory_resource mr{};
 };
 
-class CcclPinnedHostMemoryResource final : public HostMemoryResource {
-  public:
-    CcclPinnedHostMemoryResource() : p_mr{p_pool} {}
-
-    void* allocate(size_t bytes) override {
-        return p_mr.allocate_sync(bytes);
-    }
-
-    void deallocate(void* ptr, size_t bytes) noexcept override {
-        p_mr.deallocate_sync(ptr, bytes);
-    }
-
-    rapidsmpf::PinnedMemoryPool p_pool{};
-    rapidsmpf::PinnedMemoryResource p_mr;
-};
-
 enum ResourceType : int {
     NEW_DELETE = 0,
     PINNED = 1,
-    CCCL_PINNED = 2,
 };
 
-static constexpr std::array<std::string, 3> ResourceTypeStr{
-    "new_delete", "pinned", "cccl_pinned"
-};
+static constexpr std::array<std::string, 3> ResourceTypeStr{"new_delete", "pinned"};
 }  // namespace
 
 // Helper function to create a memory resource based on type
@@ -84,8 +65,6 @@ std::unique_ptr<HostMemoryResource> create_host_memory_resource(
         return std::make_unique<NewDeleteHostMemoryResource>();
     case ResourceType::PINNED:
         return std::make_unique<PinnedHostMemoryResource>();
-    case ResourceType::CCCL_PINNED:
-        return std::make_unique<CcclPinnedHostMemoryResource>();
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
     }
@@ -223,9 +202,7 @@ void CustomArguments(benchmark::internal::Benchmark* b) {
     // Test different allocation sizes
     for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
         // Test both memory resource types
-        for (auto resource_type :
-             {ResourceType::NEW_DELETE, ResourceType::PINNED, ResourceType::CCCL_PINNED})
-        {
+        for (auto resource_type : {ResourceType::NEW_DELETE, ResourceType::PINNED}) {
             b->Args({size, resource_type});
         }
     }
