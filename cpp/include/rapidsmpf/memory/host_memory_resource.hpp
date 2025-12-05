@@ -67,7 +67,12 @@ class HostMemoryResource {
     /**
      * @brief Synchronously deallocates host memory is disabled.
      */
-    void deallocate_sync(void*, std::size_t, std::size_t) noexcept {}
+    void deallocate_sync(void*, std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL(
+            "only async stream-ordered allocation must be used in RapidsMPF",
+            std::invalid_argument
+        );
+    }
 
     /**
      * @brief Allocates host memory associated with a CUDA stream.
