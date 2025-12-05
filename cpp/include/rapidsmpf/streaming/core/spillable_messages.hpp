@@ -11,6 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -121,6 +122,16 @@ class SpillableMessages {
      * @return Copy of a map from `MessageId` to `ContentDescription`.
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
+
+    /**
+     * @brief Get the content description of a message by ID.
+     *
+     * @param mid Message identifier.
+     * @return Content description of the message.
+     *
+     * @throws std::out_of_range If the message does not exist.
+     */
+    ContentDescription get_content_description(MessageId mid) const;
 
   private:
     /**

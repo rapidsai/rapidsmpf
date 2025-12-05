@@ -136,6 +136,18 @@ class ContentDescription {
         return spillable_ == other.spillable_ && content_sizes_ == other.content_sizes_;
     }
 
+    /**
+     * @brief Get the highest memory type set in the content description.
+     *
+     * @return The highest memory type set in the content description.
+     */
+    constexpr MemoryType highest_memory_type_set() const noexcept {
+        auto it = std::ranges::find_if(MEMORY_TYPES, [this](MemoryType const& mem_type) {
+            return content_size(mem_type) > 0;
+        });
+        return it == MEMORY_TYPES.end() ? MemoryType::HOST : *it;
+    }
+
   private:
     /// @brief Per memory-type content sizes, in bytes. Omitted memory types are
     /// initialized to zero-size entries.
