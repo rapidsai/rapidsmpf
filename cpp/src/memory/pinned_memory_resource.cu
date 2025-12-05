@@ -45,30 +45,14 @@ struct PinnedMemoryPool::PinnedMemoryPoolImpl {
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
     PinnedMemoryResourceImpl(PinnedMemoryPool& pool) : p_resource{pool.impl_->p_pool} {}
 
-    void* allocate(rmm::cuda_stream_view stream, size_t bytes) {
-        return p_resource.allocate(stream, bytes);
-    }
-
     void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment) {
         return p_resource.allocate(stream, bytes, alignment);
-    }
-
-    void deallocate(rmm::cuda_stream_view stream, void* ptr, size_t bytes) {
-        p_resource.deallocate(stream, ptr, bytes);
     }
 
     void deallocate(
         rmm::cuda_stream_view stream, void* ptr, size_t bytes, size_t alignment
     ) {
         p_resource.deallocate(stream, ptr, bytes, alignment);
-    }
-
-    void* allocate_sync(size_t bytes, size_t alignment) {
-        return p_resource.allocate_sync(bytes, alignment);
-    }
-
-    void deallocate_sync(void* ptr, size_t bytes, size_t alignment) {
-        p_resource.deallocate_sync(ptr, bytes, alignment);
     }
 
     cuda::experimental::pinned_memory_resource p_resource;
@@ -91,21 +75,11 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
         );
     }
 
-    void* allocate(rmm::cuda_stream_view, size_t) {
-        return nullptr;
-    }
-
     void* allocate(rmm::cuda_stream_view, size_t, size_t) {
         return nullptr;
     }
 
-    void deallocate(rmm::cuda_stream_view, void*, size_t) {}
-
     void deallocate(rmm::cuda_stream_view, void*, size_t, size_t) {}
-
-    void* allocate_sync(size_t, size_t) {}
-
-    void deallocate_sync(void*, size_t, size_t) {}
 };
 #endif
 
@@ -135,20 +109,10 @@ PinnedMemoryResource::PinnedMemoryResource(PinnedMemoryPool& pool)
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
-void* PinnedMemoryResource::allocate(rmm::cuda_stream_view stream, size_t bytes) {
-    return impl_->allocate(stream, bytes);
-}
-
 void* PinnedMemoryResource::allocate(
     rmm::cuda_stream_view stream, size_t bytes, size_t alignment
 ) {
     return impl_->allocate(stream, bytes, alignment);
-}
-
-void PinnedMemoryResource::deallocate(
-    rmm::cuda_stream_view stream, void* ptr, size_t bytes
-) noexcept {
-    impl_->deallocate(stream, ptr, bytes);
 }
 
 void PinnedMemoryResource::deallocate(
@@ -157,12 +121,9 @@ void PinnedMemoryResource::deallocate(
     impl_->deallocate(stream, ptr, bytes, alignment);
 }
 
-void* PinnedMemoryResource::allocate_sync(size_t bytes, size_t alignment) {
-    return impl_->allocate_sync(bytes, alignment);
-}
-
-void PinnedMemoryResource::deallocate_sync(void* ptr, size_t bytes, size_t alignment) {
-    impl_->deallocate_sync(ptr, bytes, alignment);
+bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
+    auto cast = dynamic_cast<PinnedMemoryResource const*>(&other);
+    return cast != nullptr && impl_ == cast->impl_;
 }
 
 }  // namespace rapidsmpf

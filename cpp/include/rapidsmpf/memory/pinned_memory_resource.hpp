@@ -5,20 +5,19 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
-#include <optional>
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
 #include <cuda/memory_resource>
 
+#include <rmm/aligned.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/utils.hpp>
 
 
@@ -122,30 +121,15 @@ class PinnedMemoryPool {
     std::unique_ptr<PinnedMemoryPoolImpl> impl_;
 };
 
-/// @brief The default alignment for pinned memory allocations.
-constexpr size_t default_pinned_memory_alignment =
-    cuda::mr::default_cuda_malloc_alignment;
-
 /**
- * @brief A memory resource that allocates/deallocates pinned host memory from a pinned
- * host memory pool. This internally uses
- * `cuda::experimental::pinned_memory_resource`.
+ * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
- * @sa
- * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__resource.html
- *
- * This class provides an interface for allocating and deallocating pinned
- * (page-locked) host memory asynchronously using CUDA streams.
+ * This resource allocates and deallocates pinned host memory asynchronously through
+ * CUDA streams. It offers higher bandwidth and lower latency for device transfers
+ * compared to regular pageable host memory.
  */
-class PinnedMemoryResource {
+class PinnedMemoryResource final : public HostMemoryResource {
   public:
-    /**
-     * @brief Friend function to get the host_accessible property.
-     */
-    friend constexpr void get_property(
-        const PinnedMemoryResource&, cuda::mr::host_accessible
-    ) noexcept {}
-
     /**
      * @brief Constructs a new pinned memory resource.
      *
@@ -162,77 +146,50 @@ class PinnedMemoryResource {
      * Note: This does not deallocate memory that was allocated through this resource.
      * All allocated memory should be explicitly deallocated before destruction.
      */
-    ~PinnedMemoryResource();
+    ~PinnedMemoryResource() override;
 
     /**
-     * @brief Allocates pinned memory asynchronously.
+     * @brief Allocates pinned host memory associated with a CUDA stream.
      *
-     * @param stream The CUDA stream to use for the allocation operation.
-     * @param bytes The number of bytes to allocate.
-     * @return A pointer to the allocated memory, or nullptr if allocation failed.
+     * @param stream CUDA stream associated with the allocation.
+     * @param size Number of bytes to at least allocate.
+     * @param alignment Required alignment.
+     * @return Pointer to the allocated memory.
+     *
+     * @throw std::bad_alloc If the allocation fails.
+     * @throw std::invalid_argument If @p alignment is not a valid alignment.
      */
-    void* allocate(rmm::cuda_stream_view stream, size_t bytes);
+    void* allocate(
+        rmm::cuda_stream_view stream,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) override;
 
     /**
-     * @brief Allocates pinned memory asynchronously with alignment.
+     * @brief Deallocates pinned host memory associated with a CUDA stream.
      *
-     * @param stream The CUDA stream to use for the allocation operation.
-     * @param bytes The number of bytes to allocate.
-     * @param alignment The alignment requirement for the allocation.
-     * @return A pointer to the allocated memory, or nullptr if allocation failed.
-     */
-    void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment);
-
-    /**
-     * @brief Allocates pinned memory synchronously.
-     *
-     * @param bytes The number of bytes to allocate.
-     * @param alignment The alignment requirement for the allocation.
-     * @return A pointer to the allocated memory, or nullptr if allocation failed.
-     */
-    void* allocate_sync(size_t bytes, size_t alignment = default_pinned_memory_alignment);
-
-    /**
-     * @brief Deallocates pinned memory asynchronously.
-     *
-     * @param stream The CUDA stream to use for the deallocation operation.
-     * @param ptr A pointer to the memory to deallocate.
-     * @param bytes The size of the memory to deallocate.
-     */
-    void deallocate(rmm::cuda_stream_view stream, void* ptr, size_t bytes) noexcept;
-
-    /**
-     * @brief Deallocates pinned memory asynchronously with alignment.
-     *
-     * @param stream The CUDA stream to use for the deallocation operation.
-     * @param ptr A pointer to the memory to deallocate.
-     * @param bytes The size of the memory to deallocate.
-     * @param alignment The alignment that was used for allocation.
+     * @param stream CUDA stream associated with operations that used @p ptr.
+     * @param ptr Pointer to the memory to deallocate. May be nullptr.
+     * @param size Number of bytes previously allocated at @p ptr.
+     * @param alignment Alignment originally used for the allocation.
      */
     void deallocate(
-        rmm::cuda_stream_view stream, void* ptr, size_t bytes, size_t alignment
-    ) noexcept;
+        rmm::cuda_stream_view stream,
+        void* ptr,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept override;
 
     /**
-     * @brief Deallocates pinned memory synchronously with alignment.
+     * @brief Compares this resource to another resource.
      *
-     * @param ptr A pointer to the memory to deallocate.
-     * @param bytes The size of the memory to deallocate.
-     * @param alignment The alignment that was used for allocation.
-     */
-    void deallocate_sync(
-        void* ptr, size_t bytes, size_t alignment = default_pinned_memory_alignment
-    );
-
-    /**
-     * @brief equality operator
+     * Two resources are considered equal if memory allocated by one may be
+     * deallocated by the other.
      *
-     * @param other The other pinned memory resource to compare with.
-     * @return True if the two pinned memory resources are equal, false otherwise.
+     * @param other The resource to compare with.
+     * @return true because all instances of this base class are considered equal.
      */
-    bool operator==(const PinnedMemoryResource& other) const noexcept {
-        return impl_ == other.impl_;
-    }
+    [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept override;
 
   private:
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
@@ -240,7 +197,5 @@ class PinnedMemoryResource {
     struct PinnedMemoryResourceImpl;
     std::unique_ptr<PinnedMemoryResourceImpl> impl_;
 };
-
-static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_accessible>);
 
 }  // namespace rapidsmpf
