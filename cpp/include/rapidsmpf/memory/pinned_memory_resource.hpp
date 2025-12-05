@@ -22,7 +22,7 @@
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
-#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
+#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 22060
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR \
     RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 
@@ -48,7 +48,7 @@ inline bool is_pinned_memory_resources_supported() {
 #endif
 }
 
-class PinnedMemoryResource;  // forward declaration
+class PinnedMemoryResource;
 
 /**
  * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
@@ -65,63 +65,6 @@ class PinnedMemoryResource;  // forward declaration
 struct PinnedPoolProperties {};
 
 /**
- * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
- * internally uses `cuda::experimental::pinned_memory_pool`.
- *
- * @sa
- * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__pool.html
- */
-class PinnedMemoryPool {
-    friend class PinnedMemoryResource;
-
-  public:
-    /**
-     * @brief Constructs a new pinned memory pool.
-     *
-     * @param properties Configuration properties for the memory pool.
-     *
-     * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
-     * current CUDA version.
-     */
-    PinnedMemoryPool(PinnedPoolProperties properties = {});
-
-    /**
-     * @brief Constructs a new pinned memory pool.
-     *
-     * @param numa_id The optional NUMA node ID to associate with this pool.
-     * @param properties Configuration properties for the memory pool.
-     *
-     * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
-     * current CUDA version.
-     */
-    PinnedMemoryPool(int numa_id, PinnedPoolProperties properties = {});
-
-    /**
-     * @brief Destroys the pinned memory pool.
-     *
-     * Releases all memory associated with this pool.
-     */
-    ~PinnedMemoryPool();
-
-    /**
-     * @brief Gets the properties used to configure this pool.
-     *
-     * @return A const reference to the pool properties.
-     */
-    [[nodiscard]] constexpr PinnedPoolProperties const& properties() const noexcept {
-        return properties_;
-    }
-
-  private:
-    PinnedPoolProperties properties_;  ///< Configuration properties for this pool.
-
-    // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
-    // only be used by the impl in .cu file.
-    struct PinnedMemoryPoolImpl;
-    std::unique_ptr<PinnedMemoryPoolImpl> impl_;
-};
-
-/**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
  * This resource allocates and deallocates pinned host memory asynchronously through
@@ -131,21 +74,19 @@ class PinnedMemoryPool {
 class PinnedMemoryResource final : public HostMemoryResource {
   public:
     /**
-     * @brief Constructs a new pinned memory resource.
+     * @brief Construct a pinned (page-locked) host memory resource.
      *
-     * @param pool The pinned memory pool to use for allocations.
+     * @param properties Memory pool configuration properties. These are currently
+     * unused but provided for future compatibility.
+     * @param numa_id NUMA node from which memory should be allocated. By default,
+     * the resource uses the NUMA node of the calling thread.
      *
-     * @throws rapidsmpf::cuda_error If the pinned memory resource is not supported for
-     * the current CUDA version.
+     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported on
+     * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(PinnedMemoryPool& pool);
-
-    /**
-     * @brief Destroys the pinned memory resource.
-     *
-     * Note: This does not deallocate memory that was allocated through this resource.
-     * All allocated memory should be explicitly deallocated before destruction.
-     */
+    PinnedMemoryResource(
+        PinnedPoolProperties properties = {}, int numa_id = get_current_numa_node_id()
+    );
     ~PinnedMemoryResource() override;
 
     /**
