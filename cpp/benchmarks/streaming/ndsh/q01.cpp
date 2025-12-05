@@ -154,7 +154,8 @@ rapidsmpf::streaming::Node postprocess_group_by(
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto stream = chunk.stream();
-    auto columns = cudf::table{chunk.table_view()}.release();
+    auto columns =
+        cudf::table{chunk.table_view(), stream, ctx->br()->device_mr()}.release();
     std::ignore = std::move(chunk);
     auto count = std::move(columns.back());
     columns.pop_back();
