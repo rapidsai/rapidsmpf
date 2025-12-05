@@ -11,6 +11,7 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 
@@ -20,6 +21,26 @@ enum class KeepKeys : bool {
     NO,  ///< Key columns do not appear in the output
     YES,  ///< Key columns do appear in the output
 };
+
+/**
+ * @brief Broadcast the concatenation of all input messages to all ranks.
+ *
+ * @note Receives all input chunks, gathers from all ranks, and then provides concatenated
+ * output.
+ *
+ * @param ctx Streaming context
+ * @param ch_in Input channel of `TableChunk`s
+ * @param tag Disambiguating tag for allgather
+ * @param ordered Should the concatenated output be ordered
+ *
+ * @return Message containing the concatenation of all the input table chunks.
+ */
+coro::task<streaming::Message> broadcast(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> ch_in,
+    OpID tag,
+    streaming::AllGather::Ordered ordered = streaming::AllGather::Ordered::YES
+);
 
 /**
  * @brief Perform a streaming inner join between two tables.
