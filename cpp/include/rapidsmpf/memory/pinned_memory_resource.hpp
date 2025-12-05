@@ -22,7 +22,7 @@
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
-#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 22060
+#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR \
     RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 
@@ -132,11 +132,24 @@ class PinnedMemoryResource final : public HostMemoryResource {
      */
     [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept override;
 
+    /**
+     * @brief Enables the `cuda::mr::host_accessible` property
+     *
+     * This property declares that a `HostMemoryResource` provides host accessible memory
+     */
+    friend void get_property(
+        PinnedMemoryResource const&, cuda::mr::device_accessible
+    ) noexcept {}
+
   private:
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
     // only be used by the impl in .cu file.
     struct PinnedMemoryResourceImpl;
     std::unique_ptr<PinnedMemoryResourceImpl> impl_;
 };
+
+static_assert(cuda::mr::resource<PinnedMemoryResource>);
+static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_accessible>);
+static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::device_accessible>);
 
 }  // namespace rapidsmpf
