@@ -81,6 +81,29 @@ streaming::Node sink_channel(
     co_await ch->shutdown();
 }
 
+streaming::Node consume_channel(
+    std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
+) {
+    streaming::ShutdownAtExit c{ch_in};
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        if (msg.holds<streaming::TableChunk>()) {
+            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            ctx->comm()->logger().print(
+                "Consumed chunk with ",
+                chunk.table_view().num_rows(),
+                " rows and ",
+                chunk.table_view().num_columns(),
+                " columns"
+            );
+        }
+    }
+}
+
 streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& chunk,

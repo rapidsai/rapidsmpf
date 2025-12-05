@@ -282,30 +282,6 @@ static __device__ void calculate_charge(double *charge, double discprice, double
     }
     co_await ch_out->drain(ctx->executor());
 }
-
-[[maybe_unused]] rapidsmpf::streaming::Node consume(
-    [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in};
-    co_await ctx->executor()->schedule();
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        ctx->comm()->logger().print(
-            "Consumed chunk with ",
-            chunk.table_view().num_rows(),
-            " rows and ",
-            chunk.table_view().num_columns(),
-            " columns"
-        );
-    }
-}
 }  // namespace
 
 /**

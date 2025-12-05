@@ -61,6 +61,21 @@ namespace detail {
 );
 
 /**
+ * @brief Consume messages from a channel and discard them.
+ *
+ * @param ctx Streaming context
+ * @param ch Channel to consume messages from.
+ *
+ * @note If the channel contains `TableChunk`s, moves them to device and prints small
+ * amount of detail about them (row and column count).
+ *
+ * @return Coroutine representing consuming and discarding messages in channel.
+ */
+[[nodiscard]] streaming::Node consume_channel(
+    std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
+);
+
+/**
  * @brief Ensure a `TableChunk` is on device.
  *
  * @param ctx Streaming context
