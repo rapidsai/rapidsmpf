@@ -170,6 +170,7 @@ add_library(
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
+  src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
   src/memory/pinned_memory_resource.cu
   src/memory/scoped_memory_record.cpp
