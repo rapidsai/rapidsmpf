@@ -129,6 +129,19 @@ coro::task<streaming::Message> broadcast(
     }
 }
 
+streaming::Node broadcast(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> ch_in,
+    std::shared_ptr<streaming::Channel> ch_out,
+    OpID tag,
+    streaming::AllGather::Ordered ordered
+) {
+    streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    co_await ch_out->send(co_await broadcast(ctx, ch_in, tag, ordered));
+    co_await ch_out->drain(ctx->executor());
+}
+
 /**
  * @brief Join a table chunk against a build hash table returning a message of the result.
  *
@@ -249,7 +262,7 @@ streaming::Node inner_join_broadcast(
         build_carrier = build_table.table_view().select(to_keep);
     }
     std::size_t sequence = 0;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
             break;
@@ -282,7 +295,7 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();

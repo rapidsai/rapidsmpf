@@ -12,6 +12,9 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
+#include "rapidsmpf/streaming/core/channel.hpp"
+#include "rapidsmpf/streaming/core/node.hpp"
+
 namespace rapidsmpf::ndsh {
 namespace detail {
 
@@ -28,8 +31,34 @@ namespace detail {
  * @throws std::runtime_error if the `root_path` doesn't name a regular file or a
  * directory. Or if it does name a regular file, but that file doesn't end in `.parquet`.
  */
-[[nodiscard]] std::vector<std::string> list_parquet_files(std::string const& root_path);
+[[nodiscard]] std::vector<std::string> list_parquet_files(std::string const root_path);
+
+/**
+ * @brief Get the path to a given table
+ *
+ * @param input_directory Input directory
+ * @param table_name Name of table to find.
+ *
+ * @return Path to given table.
+ */
+[[nodiscard]] std::string get_table_path(
+    std::string const& input_directory, std::string const& table_name
+);
+
+
 }  // namespace detail
+
+/**
+ * @brief Sink messages into a channel and discard them.
+ *
+ * @param ctx Streaming context
+ * @param ch Channel to discard messages from.
+ *
+ * @return Coroutine representing the shutdown and discard of the channel.
+ */
+[[nodiscard]] streaming::Node sink_channel(
+    std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
+);
 
 /**
  * @brief Ensure a `TableChunk` is on device.
@@ -98,6 +127,5 @@ ProgramOptions parse_arguments(int argc, char** argv);
 std::shared_ptr<streaming::Context> create_context(
     ProgramOptions& arguments, RmmResourceAdaptor* mr
 );
-
 
 }  // namespace rapidsmpf::ndsh

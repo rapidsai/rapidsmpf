@@ -608,42 +608,33 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
 }  // namespace
 
 /**
- * @brief Run a derived version of TPC-H query 1.
+ * @brief Run a derived version of TPC-H query 3.
  *
  * The SQL form of the query is:
  * @code{.sql}
  * select
- *     nation,
- *     o_year,
- *     round(sum(amount), 2) as sum_profit
+ *     l_orderkey,
+ *     sum(l_extendedprice * (1 - l_discount)) as revenue,
+ *     o_orderdate,
+ *     o_shippriority
  * from
- *     (
- *         select
- *             n_name as nation,
- *             year(o_orderdate) as o_year,
- *             l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
- *         from
- *             part,
- *             supplier,
- *             lineitem,
- *             partsupp,
- *             orders,
- *             nation
- *         where
- *             s_suppkey = l_suppkey
- *             and ps_suppkey = l_suppkey
- *             and ps_partkey = l_partkey
- *             and p_partkey = l_partkey
- *             and o_orderkey = l_orderkey
- *             and s_nationkey = n_nationkey
- *             and p_name like '%green%'
- *     ) as profit
+ *     customer,
+ *     orders,
+ *     lineitem
+ * where
+ *     c_mktsegment = 'BUILDING'
+ *     and c_custkey = o_custkey
+ *     and l_orderkey = o_orderkey
+ *     and o_orderdate < '1995-03-15'
+ *     and l_shipdate > '1995-03-15'
  * group by
- *     nation,
- *     o_year
+ *     l_orderkey,
+ *     o_orderdate,
+ *     o_shippriority
  * order by
- *     nation,
- *     o_year desc
+ *     revenue desc,
+ *     o_orderdate
+ * limit 10
  * @endcode{}
  */
 int main(int argc, char** argv) {

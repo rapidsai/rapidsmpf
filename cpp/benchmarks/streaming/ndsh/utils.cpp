@@ -33,7 +33,7 @@
 
 namespace rapidsmpf::ndsh {
 namespace detail {
-std::vector<std::string> list_parquet_files(std::string const& root_path) {
+std::vector<std::string> list_parquet_files(std::string const root_path) {
     auto root_entry = std::filesystem::directory_entry(std::filesystem::path(root_path));
     RAPIDSMPF_EXPECTS(
         root_entry.exists()
@@ -59,7 +59,27 @@ std::vector<std::string> list_parquet_files(std::string const& root_path) {
     return result;
 }
 
+std::string get_table_path(
+    std::string const& input_directory, std::string const& table_name
+) {
+    auto dir = input_directory.empty() ? "." : input_directory;
+    auto file_path = dir + "/" + table_name + ".parquet";
+
+    if (std::filesystem::exists(file_path)) {
+        return file_path;
+    }
+
+    return dir + "/" + table_name + "/";
+}
+
 }  // namespace detail
+
+streaming::Node sink_channel(
+    std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
+) {
+    co_await ctx->executor()->schedule();
+    co_await ch->shutdown();
+}
 
 streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
