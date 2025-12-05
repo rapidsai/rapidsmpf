@@ -579,6 +579,7 @@ int main(int argc, char** argv) {
             // join o_orderkey = l_orderkey
             // Out: o_orderkey, o_orderdate, o_shippriority, l_extendedprice,
             // l_discount
+            // TODO: shuffle join option.
             nodes.push_back(
                 rapidsmpf::ndsh::inner_join_broadcast(
                     ctx,
