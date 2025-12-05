@@ -173,19 +173,23 @@ class HostMemoryResource {
     ) noexcept;
 
     /**
-     * @brief Compares this resource to another.
+     * @brief Compares this resource to another resource.
      *
-     * The default implementation considers resources equal only if they are
-     * the same object. Derived implementations may override this to permit
-     * equivalence between different instances.
+     * The base class is stateless, and all instances behave identically. Any
+     * instance can deallocate memory allocated by any other instance of this
+     * base class, so the comparison always returns true.
      *
-     * @param other Resource to compare with.
-     * @return true if the resources are considered equal, false otherwise.
+     * Derived classes that use different allocation or deallocation strategies
+     * must override this function. Such classes should return true only when
+     * the other resource is compatible with their allocation and free methods.
+     *
+     * @param other The resource to compare with.
+     * @return true because all instances of this base class are considered equal.
      */
     [[nodiscard]] virtual bool do_is_equal(
-        HostMemoryResource const& other
+        [[maybe_unused]] HostMemoryResource const& other
     ) const noexcept {
-        return this == &other;
+        return true;
     }
 
     /**
