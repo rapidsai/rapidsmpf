@@ -82,7 +82,8 @@ class SpillableMessages {
      *
      * @return A deep copy of the referenced `Message`.
      *
-     * @throws std::out_of_range If the message has already been extracted.
+     * @throws std::out_of_range If the message has already been extracted or
+     * the message identifier is invalid.
      * @throws std::runtime_error If required memory cannot be allocated using
      * the provided reservation.
      */
