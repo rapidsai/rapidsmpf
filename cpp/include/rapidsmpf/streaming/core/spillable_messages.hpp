@@ -68,6 +68,28 @@ class SpillableMessages {
     [[nodiscard]] Message extract(MessageId mid);
 
     /**
+     * @brief Create a deep copy of a message without removing it.
+     *
+     * This method duplicates the message identified by `mid` while leaving the
+     * original message intact inside the container. The returned message is a
+     * full deep copy of the payload. If the message is currently being spilled
+     * by another thread, this call waits until spilling completes.
+     *
+     * @param mid Message identifier.
+     * @param reservation Memory reservation used for allocating buffers during
+     * the deep copy. The reservation also determines the memory type of the
+     * returned message.
+     *
+     * @return A deep copy of the referenced `Message`.
+     *
+     * @throws std::out_of_range If the message has already been extracted or
+     * the message identifier is invalid.
+     * @throws std::runtime_error If required memory cannot be allocated using
+     * the provided reservation.
+     */
+    [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
+
+    /**
      * @brief Spill a message's device memory to host memory.
      *
      * Performs an in-place deep copy of the message's payload from device to
