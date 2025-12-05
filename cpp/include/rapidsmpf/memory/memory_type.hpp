@@ -6,6 +6,8 @@
 
 #include <array>
 #include <ostream>
+#include <ranges>
+#include <span>
 
 namespace rapidsmpf {
 
@@ -22,6 +24,23 @@ constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
     {"DEVICE", "HOST"}
 };
+
+/**
+ * @brief Get the lower memory types than or equal to the @p mem_type .
+ *
+ * @param mem_type The memory type.
+ * @return A span of the lower memory types than the given memory type.
+ */
+constexpr std::span<MemoryType const> leq_memory_types(MemoryType mem_type) noexcept {
+    return std::span<MemoryType const>{
+        MEMORY_TYPES.begin() + static_cast<std::size_t>(mem_type), MEMORY_TYPES.end()
+    };
+}
+
+static_assert(std::ranges::equal(leq_memory_types(MemoryType::DEVICE), MEMORY_TYPES));
+static_assert(std::ranges::equal(
+    leq_memory_types(MemoryType::HOST), std::ranges::single_view{MemoryType::HOST}
+));
 
 /**
  * @brief Get the name of a MemoryType.

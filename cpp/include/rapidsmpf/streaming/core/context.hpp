@@ -138,6 +138,13 @@ class Context {
         std::size_t buffer_size
     ) const noexcept;
 
+    /**
+     * @brief Returns the options.
+     *
+     * @return The Options instance.
+     */
+    [[nodiscard]] config::Options const& options() const noexcept;
+
   private:
     config::Options options_;
     std::shared_ptr<Communicator> comm_;

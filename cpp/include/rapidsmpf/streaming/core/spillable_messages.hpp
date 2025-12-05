@@ -123,6 +123,16 @@ class SpillableMessages {
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
 
+    /**
+     * @brief Get the content description of a message by ID.
+     *
+     * @param mid Message identifier.
+     * @return Content description of the message.
+     *
+     * @throws std::out_of_range If the message does not exist.
+     */
+    ContentDescription get_content_description(MessageId mid) const;
+
   private:
     /**
      * @brief Thread-safe item containing a `Message`.

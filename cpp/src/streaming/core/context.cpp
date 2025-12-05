@@ -156,6 +156,10 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
     return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
 }
 
+config::Options const& Context::options() const noexcept {
+    return options_;
+}
+
 std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {
     return spillable_messages_;
 }
