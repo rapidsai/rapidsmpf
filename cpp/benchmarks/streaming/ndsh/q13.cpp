@@ -302,34 +302,42 @@ rapidsmpf::streaming::Node groupby_and_sort(
     auto chunk_stream = chunk.stream();
     auto all_gathered = chunk.table_view();
 
-    auto grouper = cudf::groupby::groupby(
-        all_gathered.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
-    );
+    cudf::table_view grouped_view;
+    std::unique_ptr<cudf::table> grouped;
+    // if there were multiple ranks, we have a concatenated table with the groupby
+    // results after allgather. This needs be grouped again.
+    if (ctx->comm()->nranks() > 1) {
+        auto grouper = cudf::groupby::groupby(
+            all_gathered.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+        );
 
-    std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-    aggs.emplace_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+        aggs.emplace_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
 
-    auto requests = std::vector<cudf::groupby::aggregation_request>();
-    requests.push_back(
-        cudf::groupby::aggregation_request(all_gathered.column(1), std::move(aggs))
-    );
+        auto requests = std::vector<cudf::groupby::aggregation_request>();
+        requests.push_back(
+            cudf::groupby::aggregation_request(all_gathered.column(1), std::move(aggs))
+        );
 
-    auto [keys, results] =
-        grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
-    // Drop chunk, we don't need it.
-    std::ignore = std::move(chunk);
+        auto [keys, results] =
+            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+        // Drop chunk, we don't need it.
+        std::ignore = std::move(chunk);
 
-    auto result = keys->release();
-    for (auto&& r : results) {
-        std::ranges::move(r.results, std::back_inserter(result));
+        auto result = keys->release();
+        for (auto&& r : results) {
+            std::ranges::move(r.results, std::back_inserter(result));
+        }
+        grouped = std::make_unique<cudf::table>(std::move(result));
+        grouped_view = grouped->view();
+    } else {
+        grouped_view = all_gathered;
     }
-    auto grouped = std::make_unique<cudf::table>(std::move(result));
-
 
     // We will only actually bother to do this on rank zero.
     auto sorted = cudf::sort_by_key(
-        grouped->view(),
-        grouped->view().select({1, 0}),
+        grouped_view,
+        grouped_view.select({1, 0}),
         {cudf::order::DESCENDING, cudf::order::ASCENDING},
         {},
         chunk_stream,
@@ -580,7 +588,7 @@ int main(int argc, char** argv) {
                     filter_orders(ctx, orders, filtered_orders)  // o_custkey, o_orderkey
                 );
 
-                std::uint32_t num_partitions = 128;
+                std::uint32_t num_partitions = 128;  // should be configurable?
 
                 auto orders_shuffled = ctx->create_channel();
                 nodes.push_back(
