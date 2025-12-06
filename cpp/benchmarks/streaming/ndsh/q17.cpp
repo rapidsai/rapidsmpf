@@ -239,8 +239,6 @@ rapidsmpf::streaming::Node final_aggregation(
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
 
-    ctx->comm()->logger().print("Final aggregation");
-
     // Process chunks incrementally to avoid OOM
     double local_sum = 0.0;
     while (true) {
@@ -485,7 +483,6 @@ rapidsmpf::streaming::Node round_result(
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("Round result");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto table = chunk.table_view();
@@ -521,7 +518,6 @@ rapidsmpf::streaming::Node write_parquet(
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("write parquet");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto sink = cudf::io::sink_info(output_path);
@@ -705,7 +701,7 @@ int main(int argc, char** argv) {
 
         std::string output_path = cmd_options.output_file;
         std::vector<double> timings;
-        for (int i = 0; i < 1; i++) {
+        for (int i = 0; i < 2; i++) {
             rapidsmpf::OpID op_id{0};
             std::vector<rapidsmpf::streaming::Node> nodes;
             auto start = std::chrono::steady_clock::now();
@@ -834,7 +830,6 @@ int main(int argc, char** argv) {
                         co_await ctx->executor()->schedule();
                         auto msg = co_await ch_in->receive();
                         auto next = co_await ch_in->receive();
-                        ctx->comm()->logger().print("Final avg groupby");
                         RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input");
 
                         auto chunk = rapidsmpf::ndsh::to_device(
@@ -878,40 +873,12 @@ int main(int argc, char** argv) {
                                 requests, chunk_stream, ctx->br()->device_mr()
                             );
 
-                            // Now compute mean = sum / count, then multiply by 0.2
-                            auto sum_col = results[0].results[0]->view();
-                            auto count_col = results[1].results[0]->view();
-
-                            // mean = sum / count
-                            auto mean_col = cudf::binary_operation(
-                                sum_col,
-                                count_col,
-                                cudf::binary_operator::DIV,
-                                cudf::data_type(cudf::type_id::FLOAT64),
-                                chunk_stream,
-                                ctx->br()->device_mr()
-                            );
-
-                            // avg_quantity = 0.2 * mean
-                            auto scalar_02 = cudf::make_numeric_scalar(
-                                cudf::data_type(cudf::type_id::FLOAT64),
-                                chunk_stream,
-                                ctx->br()->device_mr()
-                            );
-                            static_cast<cudf::numeric_scalar<double>*>(scalar_02.get())
-                                ->set_value(0.2, chunk_stream);
-                            auto avg_quantity = cudf::binary_operation(
-                                mean_col->view(),
-                                *scalar_02,
-                                cudf::binary_operator::MUL,
-                                cudf::data_type(cudf::type_id::FLOAT64),
-                                chunk_stream,
-                                ctx->br()->device_mr()
-                            );
-
-                            // Output: p_partkey (as key), avg_quantity
+                            // Output: p_partkey (as key), sum(l_quantity),
+                            // count(l_quantity) Don't compute avg here - do it after
+                            // global aggregation
                             auto result = keys->release();
-                            result.push_back(std::move(avg_quantity));
+                            result.push_back(std::move(results[0].results[0]));  // sum
+                            result.push_back(std::move(results[1].results[0]));  // count
                             local_result =
                                 std::make_unique<cudf::table>(std::move(result));
                         }
@@ -1158,7 +1125,7 @@ int main(int argc, char** argv) {
             RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
         }
         if (comm->rank() == 0) {
-            for (int i = 0; i < 1; i++) {
+            for (int i = 0; i < 2; i++) {
                 comm->logger().print(
                     "Iteration ",
                     i,
@@ -1172,6 +1139,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
     RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm));
     RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
