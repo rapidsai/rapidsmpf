@@ -206,7 +206,7 @@ rapidsmpf::streaming::Node read_lineitem(
 }
 
 /*
-Read the orders table.
+Read the orders table, including the filter on the o_orderdate column.
 
 Output table:
 
