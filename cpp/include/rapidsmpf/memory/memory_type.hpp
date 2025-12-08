@@ -36,6 +36,16 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
 constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}};
 
 /**
+ * @brief Memory types that are valid spill destinations in decreasing order of
+ * preference.
+ *
+ * This array defines the preferred targets for spilling when device memory is
+ * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
+ * earlier entries are considered more desirable spill destinations.
+ */
+constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}};
+
+/**
  * @brief Get the lower memory types than or equal to the @p mem_type .
  *
  * @param mem_type The memory type.
