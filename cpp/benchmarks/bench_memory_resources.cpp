@@ -178,7 +178,6 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
-    // Allocate device memory
     auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
