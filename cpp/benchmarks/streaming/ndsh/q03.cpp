@@ -17,6 +17,7 @@
 #include <cudf/ast/expressions.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/groupby.hpp>
+#include <cudf/hashing.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/merge.hpp>
@@ -44,6 +45,7 @@
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
+#include "bloom_filter.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
@@ -488,6 +490,70 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
     );
     co_await ch_out->drain(ctx->executor());
 }
+
+[[maybe_unused]]
+rapidsmpf::streaming::Node fanout_bounded(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch1_out,
+    std::vector<cudf::size_type> ch1_cols,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch2_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch1_out, ch2_out};
+
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        // Here, we know that copying ch1_cols (a single col) is better than copying
+        // ch2_cols (the whole table)
+        std::vector<coro::task<bool>> tasks;
+        if (!ch1_out->is_shutdown()) {
+            auto msg1 = rapidsmpf::streaming::to_message(
+                msg.sequence_number(),
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(
+                        chunk.table_view().select(ch1_cols),
+                        chunk.stream(),
+                        ctx->br()->device_mr()
+                    ),
+                    chunk.stream()
+                )
+            );
+            tasks.push_back(ch1_out->send(std::move(msg1)));
+        }
+        if (!ch2_out->is_shutdown()) {
+            // TODO: We know here that ch2 wants the whole table.
+            tasks.push_back(ch2_out->send(
+                rapidsmpf::streaming::to_message(
+                    msg.sequence_number(),
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(std::move(chunk))
+                )
+            ));
+        }
+        if (!std::ranges::any_of(
+                rapidsmpf::streaming::coro_results(
+                    co_await coro::when_all(std::move(tasks))
+                ),
+                std::identity{}
+            ))
+        {
+            ctx->comm()->logger().print("Breaking after ", msg.sequence_number());
+            break;
+        };
+    }
+
+    rapidsmpf::streaming::coro_results(
+        co_await coro::when_all(
+            ch1_out->drain(ctx->executor()), ch2_out->drain(ctx->executor())
+        )
+    );
+}
 }  // namespace
 
 /**
@@ -567,6 +633,21 @@ int main(int argc, char** argv) {
                     rapidsmpf::ndsh::KeepKeys::NO
                 )
             );
+            auto bloom_filter_input = ctx->create_channel();
+            auto bloom_filter_output = ctx->create_channel();
+            auto customer_x_orders_input = ctx->create_channel();
+            nodes.push_back(fanout_bounded(
+                ctx, customer_x_orders, bloom_filter_input, {0}, customer_x_orders_input
+            ));
+            nodes.push_back(
+                rapidsmpf::ndsh::build_bloom_filter(
+                    ctx,
+                    bloom_filter_input,
+                    bloom_filter_output,
+                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
+                    cudf::DEFAULT_HASH_SEED
+                )
+            );
             // Out: l_orderkey, l_extendedprice, l_discount
             nodes.push_back(read_lineitem(
                 ctx,
@@ -575,7 +656,17 @@ int main(int argc, char** argv) {
                 arguments.num_rows_per_chunk,
                 arguments.input_directory
             ));
-
+            auto lineitem_output = ctx->create_channel();
+            nodes.push_back(
+                rapidsmpf::ndsh::apply_bloom_filter(
+                    ctx,
+                    bloom_filter_output,
+                    lineitem,
+                    lineitem_output,
+                    {0},
+                    cudf::DEFAULT_HASH_SEED
+                )
+            );
             // join o_orderkey = l_orderkey
             // Out: o_orderkey, o_orderdate, o_shippriority, l_extendedprice,
             // l_discount
@@ -583,8 +674,8 @@ int main(int argc, char** argv) {
             nodes.push_back(
                 rapidsmpf::ndsh::inner_join_broadcast(
                     ctx,
-                    customer_x_orders,
-                    lineitem,
+                    customer_x_orders_input,
+                    lineitem_output,
                     customer_x_orders_x_lineitem,
                     {0},
                     {0},
