@@ -425,6 +425,7 @@ dependencies:
           - myst-nb
           - myst-parser
           - numpydoc
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - pydata-sphinx-theme>=0.15.4
           - sphinx>=8.1.0
           - sphinx-autobuild
