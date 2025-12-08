@@ -53,7 +53,7 @@ class NewDelete final : public rapidsmpf::HostMemoryResource {
 
 // Helper function to create a memory resource based on type
 std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
-    const ResourceType& resource_type
+    ResourceType const& resource_type
 ) {
     switch (resource_type) {
     case ResourceType::NEW_DELETE:
@@ -111,6 +111,39 @@ static void BM_Deallocate(benchmark::State& state) {
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(allocation_size));
     state.SetLabel(
         "deallocate: " + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
+    );
+}
+
+static void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
+
+    auto host_mr = create_host_memory_resource(resource_type);
+    auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+
+    // Allocate device memory
+    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    // Initialize src to avoid optimization removal
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
+    stream.synchronize();
+
+    for (auto _ : state) {
+        void* dst = host_mr->allocate(stream, transfer_size);
+        RAPIDSMPF_CUDA_TRY(
+            cudaMemcpyAsync(dst, src.data(), transfer_size, cudaMemcpyDefault, stream)
+        );
+        stream.synchronize();
+
+        state.PauseTiming();
+        host_mr->deallocate(stream, dst, transfer_size);
+        state.ResumeTiming();
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetLabel(
+        "memcpy device to host (incl. alloc): "
+        + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
 }
 
@@ -236,6 +269,11 @@ void CustomArguments(benchmark::internal::Benchmark* b) {
 }
 
 // Register the benchmarks
+
+BENCHMARK(BM_DeviceToHostCopyInclAlloc)
+    ->Apply(CustomArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK(BM_DeviceToHostCopy)
     ->Apply(CustomArguments)
