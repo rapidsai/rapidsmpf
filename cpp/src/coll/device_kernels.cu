@@ -9,6 +9,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <rapidsmpf/coll/allreduce.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 
@@ -41,14 +42,17 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
 
     auto const count = acc_nbytes / sizeof(T);
 
-    // Input buffer: assume ready as provided by the communicator / AllReduce.
-    auto const* in_bytes = reinterpret_cast<std::byte const*>(in_buf->data());
-    auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
+    // Ensure the accumulator stream waits for the incoming buffer's latest write.
+    cuda_stream_join(acc_buf->stream(), in_buf->stream());
 
     // Destination buffer: use write_access so the latest-write event is updated.
     acc_buf->write_access([&](std::byte* acc_bytes, rmm::cuda_stream_view stream) {
         auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
         auto policy = rmm::exec_policy_nosync(stream);
+
+        // Safe to read from incoming buffer after the stream join above.
+        auto const* in_bytes = reinterpret_cast<std::byte const*>(in_buf->data());
+        auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
 
         thrust::transform(policy, acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
     });
