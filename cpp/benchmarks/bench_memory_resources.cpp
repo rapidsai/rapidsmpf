@@ -243,7 +243,6 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
     rmm::device_buffer src(transfer_size, stream, device_mr.get());
-    rmm::device_buffer dst(transfer_size, stream, device_mr.get());
 
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
