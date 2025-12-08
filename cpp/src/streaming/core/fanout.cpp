@@ -38,7 +38,7 @@ Node send_to_channels(
                                   Channel& ch_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto const& cd = msg_.content_description();
-        auto mem_types = leq_memory_types(cd.highest_memory_type_set());
+        auto const mem_types = leq_memory_types(cd.principal_memory_type());
         auto res = ctx_.br()->reserve_or_fail(msg_sz_, mem_types);
         co_return co_await ch_.send(msg_.copy(res));
     };
@@ -218,7 +218,7 @@ struct UnboundedFanout {
             for (auto const& msg : messages_to_send) {
                 auto const& cd = spillable_messages->get_content_description(msg);
                 // try reserving into all memory types up to the highest memory type set
-                auto mem_types = leq_memory_types(cd.highest_memory_type_set());
+                auto const mem_types = leq_memory_types(cd.principal_memory_type());
                 auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
                 if (!co_await ch_out->send(spillable_messages->copy(msg, res))) {
                     // Failed to send message. Could be that the channel is shut down.

@@ -57,11 +57,15 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
 
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
         rmm::cuda_stream_view stream = br.stream_pool().get_stream();
-        auto cd = msg.content_description();
+        auto const& cd = msg.content_description();
         auto buf_cpy = br.allocate(cd.content_size(), stream, res);
+        // cd needs to be updated to reflect the new buffer
+        ContentDescription new_cd{
+            {{buf_cpy->mem_type(), buf_cpy->size}}, ContentDescription::Spillable::YES
+        };
         rapidsmpf::buffer_copy(*buf_cpy, msg.get<Buffer>(), cd.content_size());
         return Message{
-            msg.sequence_number(), std::move(buf_cpy), std::move(cd), msg.copy_cb()
+            msg.sequence_number(), std::move(buf_cpy), std::move(new_cd), msg.copy_cb()
         };
     };
     for (int i = 0; i < n; ++i) {
@@ -440,6 +444,15 @@ Node many_input_sink(
                 if (msg.empty()) {
                     break;
                 }
+                std::cout << msg.content_description().principal_memory_type() << " "
+                          << msg.content_description().content_size(
+                                 rapidsmpf::MemoryType::DEVICE
+                             )
+                          << " "
+                          << msg.content_description().content_size(
+                                 rapidsmpf::MemoryType::HOST
+                             )
+                          << std::endl;
                 outs[i].push_back(std::move(msg));
             }
         }
@@ -549,7 +562,7 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
 };
 
 TEST_F(SpillingStreamingFanout, Spilling) {
-    auto inputs = make_int_inputs(100);
+    auto inputs = make_buffer_inputs(100, *ctx->br());
     constexpr int num_out_chs = 4;
     constexpr FanoutPolicy policy = FanoutPolicy::UNBOUNDED;
 
@@ -578,7 +591,9 @@ TEST_F(SpillingStreamingFanout, Spilling) {
         SCOPED_TRACE("channel " + std::to_string(c));
         // all messages should be in host memory
         EXPECT_TRUE(std::ranges::all_of(outs[c], [](const Message& m) {
-            return m.content_description().highest_memory_type_set() == MemoryType::HOST;
+            auto const& cd = m.content_description();
+            return cd.principal_memory_type() == MemoryType::HOST
+                   && cd.content_size() == 1024 * sizeof(int);
         }));
     }
 }
