@@ -4,12 +4,13 @@
  */
 
 /**
- * @brief Process launcher for multi-GPU applications (single-node).
+ * @brief Process launcher for multi-GPU applications.
  *
  * rrun is a lightweight alternative to mpirun that:
- * - Launches multiple processes locally without requiring MPI
+ * - Launches multiple processes without requiring MPI
  * - Automatically assigns GPUs to ranks
  * - Provides file-based coordination for inter-process synchronization
+ * - Supports both single-node and multi-node (SSH) deployments
  * - Tags process output with rank numbers (--tag-output feature)
  */
 
@@ -46,17 +47,31 @@ namespace {
 static std::mutex output_mutex;
 
 /**
+ * @brief Host information for multi-node deployment.
+ */
+struct HostInfo {
+    std::string hostname;
+    int slots{1};  // Number of processes to launch on this host
+    std::vector<int> gpus;  // GPU IDs available on this host
+};
+
+/**
  * @brief Configuration for the rrun launcher.
  */
 struct Config {
     int nranks{1};  // Total number of ranks
+    int ppn{-1};  // Processes per node (-1 = auto from hostfile)
     std::string app_binary;  // Application binary path
     std::vector<std::string> app_args;  // Arguments to pass to application
-    std::vector<int> gpus;  // GPU IDs to use
+    std::vector<int> gpus;  // GPU IDs to use (single-node mode)
+    std::vector<HostInfo> hosts;  // Host list for multi-node mode
+    std::string hostfile;  // Path to hostfile
     std::string coord_dir;  // Coordination directory
+    std::string ssh_opts;  // Additional SSH options
     std::map<std::string, std::string> env_vars;  // Environment variables to pass
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
+    bool use_ssh{false};  // Multi-node mode via SSH
     bool tag_output{false};  // Tag output with rank number
 };
 
@@ -84,8 +99,8 @@ std::string generate_session_id() {
 /**
  * @brief Detect available GPUs on the system.
  *
- * Currently using nvidia-smi to detect GPUs. This may be replaced with NVML in the
- * future.
+ * Currently using nvidia-smi to simplify multi-node detection. This will be replaced with
+ * NVML in the future.
  *
  * @return Vector of monotonically increasing GPU indices, as observed in nvidia-smi.
  */
@@ -111,6 +126,98 @@ std::vector<int> detect_gpus() {
 }
 
 /**
+ * @brief Parse hostfile in OpenMPI/Slurm format.
+ *
+ * Format examples:
+ *   node1 slots=4 gpus=0,1,2,3
+ *   node2 slots=4
+ *   node3
+ */
+std::vector<HostInfo> parse_hostfile(std::string const& path) {
+    std::ifstream file(path);
+    if (!file) {
+        throw std::runtime_error("Failed to open hostfile: " + path);
+    }
+
+    std::vector<HostInfo> hosts;
+    std::string line;
+    int line_num = 0;
+
+    while (std::getline(file, line)) {
+        ++line_num;
+
+        // Remove comments
+        auto comment_pos = line.find('#');
+        if (comment_pos != std::string::npos) {
+            line = line.substr(0, comment_pos);
+        }
+
+        // Trim whitespace
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+        // Skip empty lines
+        if (line.empty())
+            continue;
+
+        HostInfo host;
+        std::istringstream iss(line);
+        iss >> host.hostname;
+
+        if (host.hostname.empty()) {
+            std::cerr << "Warning: Empty hostname on line " << line_num << std::endl;
+            continue;
+        }
+
+        // Parse key=value pairs
+        std::string token;
+        while (iss >> token) {
+            auto eq_pos = token.find('=');
+            if (eq_pos == std::string::npos) {
+                std::cerr << "Warning: Invalid token '" << token << "' on line "
+                          << line_num << std::endl;
+                continue;
+            }
+
+            std::string key = token.substr(0, eq_pos);
+            std::string value = token.substr(eq_pos + 1);
+
+            if (key == "slots") {
+                try {
+                    host.slots = std::stoi(value);
+                } catch (...) {
+                    throw std::runtime_error(
+                        "Invalid slots value on line " + std::to_string(line_num)
+                    );
+                }
+            } else if (key == "gpus") {
+                // Parse comma-separated GPU list
+                std::istringstream gpu_stream(value);
+                std::string gpu_id;
+                while (std::getline(gpu_stream, gpu_id, ',')) {
+                    try {
+                        host.gpus.push_back(std::stoi(gpu_id));
+                    } catch (...) {
+                        throw std::runtime_error(
+                            "Invalid GPU ID '" + gpu_id + "' on line "
+                            + std::to_string(line_num)
+                        );
+                    }
+                }
+            }
+        }
+
+        hosts.push_back(host);
+    }
+
+    if (hosts.empty()) {
+        throw std::runtime_error("No valid hosts found in hostfile: " + path);
+    }
+
+    return hosts;
+}
+
+/**
  * @brief Print usage information.
  */
 void print_usage(std::string_view prog_name) {
@@ -121,9 +228,15 @@ void print_usage(std::string_view prog_name) {
         << "  -n <nranks>        Number of ranks to launch (required)\n"
         << "  -g <gpu_list>      Comma-separated list of GPU IDs (e.g., 0,1,2,3)\n"
         << "                     If not specified, auto-detect available GPUs\n\n"
+        << "Multi-Node Options:\n"
+        << "  --hostfile <file>  Path to hostfile (enables SSH mode)\n"
+        << "  --ppn <num>        Processes per node (default: from hostfile slots)\n"
+        << "  --ssh-opts <opts>  Additional SSH options (e.g., '-i ~/.ssh/key')\n"
+        << "  --tag-output      Tag stdout and stderr with rank number\n\n"
         << "Common Options:\n"
-        << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
-        << "  --tag-output       Tag stdout and stderr with rank number\n"
+        << "  -d <coord_dir>     Coordination directory (default: "
+           "/tmp/rrun_<random>)\n"
+        << "                     Must be on shared filesystem for multi-node\n"
         << "  -x, --set-env <VAR=val>\n"
         << "                     Set environment variable for all ranks\n"
         << "                     Can be specified multiple times\n"
@@ -141,6 +254,17 @@ void print_usage(std::string_view prog_name) {
         << "  # Launch with custom environment variables:\n"
         << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
            "./bench_comm\n\n"
+        << "Multi-Node Examples:\n"
+        << "  # Launch using hostfile:\n"
+        << "  rrun --hostfile hosts.txt ./bench_comm -C ucxx\n\n"
+        << "  # Launch 2 processes per node:\n"
+        << "  rrun --hostfile hosts.txt --ppn 2 ./bench_comm -C ucxx\n\n"
+        << "  # Use specific coordination directory:\n"
+        << "  rrun --hostfile hosts.txt -d /shared/nfs/coord ./bench_comm\n\n"
+        << "Hostfile Format:\n"
+        << "  node1 slots=4 gpus=0,1,2,3\n"
+        << "  node2 slots=4 gpus=0,1,2,3\n"
+        << "  # Lines starting with # are comments\n"
         << std::endl;
 }
 
@@ -188,6 +312,25 @@ Config parse_args(int argc, char* argv[]) {
                 throw std::runtime_error("Missing argument for -g");
             }
             cfg.gpus = parse_gpu_list(argv[++i]);
+        } else if (arg == "--hostfile") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --hostfile");
+            }
+            cfg.hostfile = argv[++i];
+            cfg.use_ssh = true;
+        } else if (arg == "--ppn") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --ppn");
+            }
+            cfg.ppn = std::stoi(argv[++i]);
+            if (cfg.ppn <= 0) {
+                throw std::runtime_error("Invalid ppn: " + std::to_string(cfg.ppn));
+            }
+        } else if (arg == "--ssh-opts") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --ssh-opts");
+            }
+            cfg.ssh_opts = argv[++i];
         } else if (arg == "--tag-output") {
             cfg.tag_output = true;
         } else if (arg == "-d") {
@@ -236,26 +379,57 @@ Config parse_args(int argc, char* argv[]) {
         throw std::runtime_error("Missing application binary");
     }
 
-    // Single-node mode validation
-    if (cfg.nranks <= 0) {
-        throw std::runtime_error("Number of ranks (-n) must be specified and positive");
-    }
-
-    // Auto-detect GPUs if not specified
-    if (cfg.gpus.empty()) {
-        cfg.gpus = detect_gpus();
-        if (cfg.gpus.empty()) {
-            std::cerr
-                << "Warning: No GPUs detected. CUDA_VISIBLE_DEVICES will not be set."
-                << std::endl;
+    if (cfg.use_ssh) {
+        // Parse hostfile if in SSH mode
+        if (cfg.hostfile.empty()) {
+            throw std::runtime_error("--hostfile required for multi-node mode");
         }
-    }
+        cfg.hosts = parse_hostfile(cfg.hostfile);
 
-    // Validate GPU count vs rank count
-    if (!cfg.gpus.empty() && cfg.nranks > static_cast<int>(cfg.gpus.size())) {
-        std::cerr << "Warning: Number of ranks (" << cfg.nranks
-                  << ") exceeds number of GPUs (" << cfg.gpus.size()
-                  << "). Multiple ranks will share GPUs." << std::endl;
+        // Calculate total ranks from hostfile if not specified
+        if (cfg.nranks == 1) {  // Default value, not explicitly set
+            if (cfg.ppn > 0) {
+                // ppn specified, calculate from hosts * ppn
+                cfg.nranks = cfg.ppn * static_cast<int>(cfg.hosts.size());
+            } else {
+                // Use slots from hostfile
+                cfg.nranks = 0;
+                for (auto const& host : cfg.hosts) {
+                    cfg.nranks += host.slots;
+                }
+            }
+        }
+
+        // Validate coordination directory for multi-node
+        if (cfg.coord_dir.empty()) {
+            std::cerr << "Warning: No coordination directory specified for multi-node.\n"
+                      << "Using /tmp/rrun_<id> - ensure this is on a shared filesystem!"
+                      << std::endl;
+        }
+    } else {
+        // Single-node mode
+        if (cfg.nranks <= 0) {
+            throw std::runtime_error(
+                "Number of ranks (-n) must be specified and positive"
+            );
+        }
+
+        // Auto-detect GPUs if not specified
+        if (cfg.gpus.empty()) {
+            cfg.gpus = detect_gpus();
+            if (cfg.gpus.empty()) {
+                std::cerr
+                    << "Warning: No GPUs detected. CUDA_VISIBLE_DEVICES will not be set."
+                    << std::endl;
+            }
+        }
+
+        // Validate GPU count vs rank count
+        if (!cfg.gpus.empty() && cfg.nranks > static_cast<int>(cfg.gpus.size())) {
+            std::cerr << "Warning: Number of ranks (" << cfg.nranks
+                      << ") exceeds number of GPUs (" << cfg.gpus.size()
+                      << "). Multiple ranks will share GPUs." << std::endl;
+        }
     }
 
     // Generate coordination directory if not specified
@@ -392,6 +566,115 @@ pid_t launch_rank_local(
 }
 
 /**
+ * @brief Launch a single rank on a remote host via SSH.
+ */
+pid_t launch_rank_ssh(
+    Config const& cfg,
+    int rank,
+    std::string const& hostname,
+    int local_rank,
+    std::vector<int> const& host_gpus,
+    int* out_fd_stdout,
+    int* out_fd_stderr
+) {
+    return fork_with_piped_stdio(
+        out_fd_stdout,
+        out_fd_stderr,
+        /*combine_stderr*/ true,
+        [&cfg, rank, &hostname, local_rank, &host_gpus]() {
+            // Build the remote command
+            std::ostringstream remote_cmd;
+
+            // Set custom environment variables first
+            for (auto const& env_pair : cfg.env_vars) {
+                remote_cmd << env_pair.first << "=";
+                // Quote value if it contains spaces or special characters
+                if (env_pair.second.find(' ') != std::string::npos
+                    || env_pair.second.find('"') != std::string::npos
+                    || env_pair.second.find('\'') != std::string::npos)
+                {
+                    // Escape double quotes and wrap in double quotes
+                    std::string escaped_value = env_pair.second;
+                    size_t pos = 0;
+                    while ((pos = escaped_value.find('"', pos)) != std::string::npos) {
+                        escaped_value.insert(pos, "\\");
+                        pos += 2;
+                    }
+                    remote_cmd << "\"" << escaped_value << "\" ";
+                } else {
+                    remote_cmd << env_pair.second << " ";
+                }
+            }
+
+            // Set environment variables
+            remote_cmd << "RAPIDSMPF_RANK=" << rank << " ";
+            remote_cmd << "RAPIDSMPF_NRANKS=" << cfg.nranks << " ";
+            remote_cmd << "RAPIDSMPF_COORD_DIR=" << cfg.coord_dir << " ";
+
+            // Set CUDA_VISIBLE_DEVICES if GPUs specified for this host
+            if (!host_gpus.empty()) {
+                int gpu_id =
+                    host_gpus[static_cast<size_t>(local_rank) % host_gpus.size()];
+                remote_cmd << "CUDA_VISIBLE_DEVICES=" << gpu_id << " ";
+            }
+
+            // Build inner application command with args
+            std::ostringstream app_cmd;
+            app_cmd << cfg.app_binary;
+            for (auto const& arg : cfg.app_args) {
+                if (arg.find(' ') != std::string::npos) {
+                    app_cmd << " \"" << arg << "\"";
+                } else {
+                    app_cmd << " " << arg;
+                }
+            }
+
+            // Wrap with POSIX sh to launch app in background, write its PID, then wait
+            remote_cmd << "sh -c '";
+            remote_cmd << "PGFILE=\"$RAPIDSMPF_COORD_DIR/pids/rank_" << rank
+                       << ".pgid\"; ";
+            remote_cmd << "umask 022; mkdir -p \"$(dirname \"$PGFILE\")\"; ";
+            remote_cmd << "stdbuf -o0 -e0 " << app_cmd.str() << " & ";
+            remote_cmd << "app_pid=$!; echo \"$app_pid\" > \"$PGFILE\"; ";
+            remote_cmd << "wait \"$app_pid\"";
+            remote_cmd << "'";
+
+            static std::string remote_cmd_storage;
+            remote_cmd_storage = remote_cmd.str();
+
+            // Build SSH command
+            std::vector<char*> ssh_args;
+            ssh_args.push_back(const_cast<char*>("ssh"));
+
+            // Add SSH options if provided
+            if (!cfg.ssh_opts.empty()) {
+                // Simple parsing - split on spaces
+                std::istringstream iss(cfg.ssh_opts);
+                static std::vector<std::string> opts_storage;
+                std::string opt;
+                while (iss >> opt) {
+                    opts_storage.push_back(opt);
+                }
+                for (auto const& opt : opts_storage) {
+                    ssh_args.push_back(const_cast<char*>(opt.c_str()));
+                }
+            }
+
+            // Add hostname and remote command
+            static std::string hostname_storage = hostname;
+            ssh_args.push_back(const_cast<char*>(hostname_storage.c_str()));
+            ssh_args.push_back(const_cast<char*>(remote_cmd_storage.c_str()));
+            ssh_args.push_back(nullptr);
+
+            // Execute SSH
+            execvp("ssh", ssh_args.data());
+            std::cerr << "Failed to execute ssh: " << std::strerror(errno) << std::endl;
+            _exit(1);
+        }
+    );
+}
+
+/**
  * @brief Wait for all child processes and check their exit status.
  */
 int wait_for_ranks(std::vector<pid_t> const& pids) {
@@ -432,6 +715,95 @@ int wait_for_ranks(std::vector<pid_t> const& pids) {
 
     return overall_status;
 }
+
+/**
+ * @brief Issue remote kills to process groups read from pidfiles.
+ */
+void terminate_remote_process_groups(
+    Config const& cfg, std::vector<std::string> const& rank_to_host, int signum
+) {
+    std::vector<pid_t> ssh_pids;
+    ssh_pids.reserve(static_cast<size_t>(cfg.nranks));
+    for (int rank = 0; rank < cfg.nranks; ++rank) {
+        std::string const* host = nullptr;
+        if (!rank_to_host.empty() && static_cast<size_t>(rank) < rank_to_host.size()) {
+            host = &rank_to_host[static_cast<size_t>(rank)];
+        }
+        if (host == nullptr || host->empty()) {
+            continue;
+        }
+
+        std::string pgfile =
+            cfg.coord_dir + "/pids/rank_" + std::to_string(rank) + ".pgid";
+
+        // We avoid reading the file here to keep logic simple; let remote shell read it
+        std::ostringstream remote_kill;
+        remote_kill << "sh -c 'pid=$(cat \"" << pgfile
+                    << "\" 2>/dev/null) || exit 0; kill -" << signum
+                    << " \"$pid\" >/dev/null 2>&1 || true'";
+
+        // Build SSH command
+        std::vector<char*> ssh_args;
+        ssh_args.push_back(const_cast<char*>("ssh"));
+
+        // Add SSH options if provided
+        std::istringstream iss(cfg.ssh_opts);
+        static std::vector<std::string> opts_storage_kill;
+        opts_storage_kill.clear();
+        if (!cfg.ssh_opts.empty()) {
+            std::string opt;
+            while (iss >> opt) {
+                opts_storage_kill.push_back(opt);
+            }
+            for (auto const& opt_str : opts_storage_kill) {
+                ssh_args.push_back(const_cast<char*>(opt_str.c_str()));
+            }
+        }
+
+        static std::string host_storage;  // ensure lifetime across execvp call
+        static std::string cmd_storage;
+        host_storage = *host;
+        cmd_storage = remote_kill.str();
+
+        ssh_args.push_back(const_cast<char*>(host_storage.c_str()));
+        ssh_args.push_back(const_cast<char*>(cmd_storage.c_str()));
+        ssh_args.push_back(nullptr);
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            execvp("ssh", ssh_args.data());
+            _exit(127);
+        } else if (pid > 0) {
+            ssh_pids.push_back(pid);
+        }
+    }
+    // Wait for all ssh kill commands to complete
+    for (pid_t pid : ssh_pids) {
+        int status;
+        (void)waitpid(pid, &status, 0);
+    }
+}
+
+/**
+ * @brief Bounded retries with escalation to ensure reliable remote termination.
+ */
+void terminate_remote_process_groups_with_retries(
+    Config const& cfg, std::vector<std::string> const& rank_to_host, int first_signum
+) {
+    // Attempts: 6 total, ~0.5s spacing -> ~3s total; escalate INT->TERM->KILL
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        int sig = first_signum;
+        if (attempt >= 2 && attempt < 4) {
+            sig = SIGTERM;
+        } else if (attempt >= 4) {
+            sig = SIGKILL;
+        }
+        terminate_remote_process_groups(cfg, rank_to_host, sig);
+        if (attempt < 5) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
+}
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -441,20 +813,44 @@ int main(int argc, char* argv[]) {
 
         if (cfg.verbose) {
             std::cout << "rrun configuration:\n";
-            std::cout << "  Mode:          Single-node\n"
-                      << "  GPUs:          ";
-            if (cfg.gpus.empty()) {
-                std::cout << "(none)\n";
-            } else {
-                for (size_t i = 0; i < cfg.gpus.size(); ++i) {
-                    if (i > 0)
-                        std::cout << ", ";
-                    std::cout << cfg.gpus[i];
+            if (cfg.use_ssh) {
+                std::cout << "  Mode:          Multi-node (SSH)\n"
+                          << "  Hosts:         " << cfg.hosts.size() << "\n";
+                for (size_t i = 0; i < cfg.hosts.size(); ++i) {
+                    std::cout << "    [" << i << "] " << cfg.hosts[i].hostname
+                              << " (slots=" << cfg.hosts[i].slots;
+                    if (!cfg.hosts[i].gpus.empty()) {
+                        std::cout << ", gpus=";
+                        for (size_t j = 0; j < cfg.hosts[i].gpus.size(); ++j) {
+                            if (j > 0)
+                                std::cout << ",";
+                            std::cout << cfg.hosts[i].gpus[j];
+                        }
+                    }
+                    std::cout << ")\n";
                 }
-                std::cout << "\n";
-            }
-            if (cfg.tag_output) {
-                std::cout << "  Tag Output:    Yes\n";
+                if (cfg.ppn > 0) {
+                    std::cout << "  PPN:           " << cfg.ppn << "\n";
+                }
+                if (!cfg.ssh_opts.empty()) {
+                    std::cout << "  SSH Options:   " << cfg.ssh_opts << "\n";
+                }
+                if (cfg.tag_output) {
+                    std::cout << "  Tag Output:    Yes\n";
+                }
+            } else {
+                std::cout << "  Mode:          Single-node\n"
+                          << "  GPUs:          ";
+                if (cfg.gpus.empty()) {
+                    std::cout << "(none)\n";
+                } else {
+                    for (size_t i = 0; i < cfg.gpus.size(); ++i) {
+                        if (i > 0)
+                            std::cout << ", ";
+                        std::cout << cfg.gpus[i];
+                    }
+                    std::cout << "\n";
+                }
             }
             std::cout << "  Ranks:         " << cfg.nranks << "\n"
                       << "  Application:   " << cfg.app_binary << "\n"
@@ -474,9 +870,17 @@ int main(int argc, char* argv[]) {
         }
 
         std::filesystem::create_directories(cfg.coord_dir);
+        // Ensure pids subdirectory exists for remote PGID files
+        std::filesystem::create_directories(cfg.coord_dir + "/pids");
 
         std::vector<pid_t> pids;
         pids.reserve(static_cast<size_t>(cfg.nranks));
+
+        // Track rank to host mapping for remote termination handling
+        std::vector<std::string> rank_to_host;
+        if (cfg.use_ssh) {
+            rank_to_host.resize(static_cast<size_t>(cfg.nranks));
+        }
 
         // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
         sigset_t signal_set;
@@ -523,28 +927,74 @@ int main(int argc, char* argv[]) {
             });
         };
 
-        // Single-node local mode
-        for (int rank = 0; rank < cfg.nranks; ++rank) {
-            int fd_out = -1;
-            int fd_err = -1;
-            pid_t pid = launch_rank_local(cfg, rank, &fd_out, &fd_err);
-            pids.push_back(pid);
+        if (cfg.use_ssh) {
+            // Multi-node SSH mode
+            int rank = 0;
+            for (auto const& host : cfg.hosts) {
+                int ranks_on_host = (cfg.ppn > 0) ? cfg.ppn : host.slots;
 
-            if (cfg.verbose) {
-                std::cout << "Launched rank " << rank << " (PID " << pid << ")";
-                if (!cfg.gpus.empty()) {
-                    std::cout << " on GPU "
-                              << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                for (int local_rank = 0; local_rank < ranks_on_host; ++local_rank) {
+                    if (rank >= cfg.nranks)
+                        break;
+
+                    int fd_out = -1;
+                    pid_t pid = launch_rank_ssh(
+                        cfg, rank, host.hostname, local_rank, host.gpus, &fd_out, nullptr
+                    );
+                    pids.push_back(pid);
+                    if (static_cast<size_t>(rank) < rank_to_host.size()) {
+                        rank_to_host[static_cast<size_t>(rank)] = host.hostname;
+                    }
+
+                    if (cfg.verbose) {
+                        std::cout << "Launched rank " << rank << " (PID " << pid
+                                  << ") on " << host.hostname;
+                        if (!host.gpus.empty()) {
+                            std::cout << " GPU "
+                                      << host.gpus
+                                             [static_cast<size_t>(local_rank)
+                                              % host.gpus.size()];
+                        }
+                        std::cout << std::endl;
+                    }
+                    // Parent-side forwarder for SSH combined stdout/stderr
+                    start_forwarder(fd_out, rank, false);
+                    ++rank;
                 }
-                std::cout << std::endl;
             }
-            // Parent-side forwarders for local stdout and stderr
-            start_forwarder(fd_out, rank, false);
-            start_forwarder(fd_err, rank, true);
+        } else {
+            // Single-node local mode
+            for (int rank = 0; rank < cfg.nranks; ++rank) {
+                int fd_out = -1;
+                int fd_err = -1;
+                pid_t pid = launch_rank_local(cfg, rank, &fd_out, &fd_err);
+                pids.push_back(pid);
+
+                if (cfg.verbose) {
+                    std::cout << "Launched rank " << rank << " (PID " << pid << ")";
+                    if (!cfg.gpus.empty()) {
+                        std::cout
+                            << " on GPU "
+                            << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                    }
+                    std::cout << std::endl;
+                }
+                // Parent-side forwarders for local stdout and stderr
+                start_forwarder(fd_out, rank, false);
+                start_forwarder(fd_err, rank, true);
+            }
         }
 
-        // Start a signal-waiting thread to forward signals.
-        std::thread([signal_set, &pids, suppress_output]() mutable {
+        // Start a signal-waiting thread to forward signals and handle remote termination.
+        auto remote_kill_done = std::make_shared<std::atomic<bool>>(false);
+        auto ack_printed = std::make_shared<std::atomic<bool>>(false);
+        std::thread([signal_set,
+                     &pids,
+                     &cfg,
+                     &rank_to_host,
+                     remote_kill_done,
+                     ack_printed,
+                     suppress_output]() mutable {
             for (;;) {
                 int sig = 0;
                 int rc = sigwait(&signal_set, &sig);
@@ -556,6 +1006,16 @@ int main(int argc, char* argv[]) {
                 // Forward signal to all local children
                 for (pid_t pid : pids) {
                     std::ignore = kill(pid, sig);
+                }
+                // In SSH mode, terminate remote process groups once with retries
+                if (cfg.use_ssh && !remote_kill_done->exchange(true)) {
+                    if (!ack_printed->exchange(true)) {
+                        std::cerr << "Termination requested (signal " << sig
+                                  << ") - terminating remote ranks, please wait, this "
+                                     "may take a while..."
+                                  << std::endl;
+                    }
+                    terminate_remote_process_groups_with_retries(cfg, rank_to_host, sig);
                 }
             }
         }).detach();
