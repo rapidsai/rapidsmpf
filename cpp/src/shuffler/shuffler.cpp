@@ -39,7 +39,6 @@ namespace {
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for GPU data allocations.
- * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param amount The maximum amount of data (in bytes) to be spilled.
@@ -52,10 +51,7 @@ namespace {
  */
 template <typename KeyType>
 std::size_t postbox_spilling(
-    BufferResource* br,
-    Communicator::Logger&,
-    PostBox<KeyType>& postbox,
-    std::size_t amount
+    BufferResource* br, PostBox<KeyType>& postbox, std::size_t amount
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     // Let's look for chunks to spill in the outbox.
@@ -742,7 +738,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
+        spilled = postbox_spilling(br_, ready_postbox_, spill_need);
     }
     return spilled;
 }

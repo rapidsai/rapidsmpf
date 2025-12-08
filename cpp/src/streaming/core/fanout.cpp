@@ -23,9 +23,9 @@ namespace {
 /**
  * @brief Returns the memory types to consider when allocating an output message.
  *
- * The returned view starts at the principal memory type of the input message
- * and continues through the remaining types in `MEMORY_TYPES` in their
- * predefined order.
+ * The returned view begins at the principal memory type of the input message
+ * and continues through the remaining types in `MEMORY_TYPES` according to
+ * their order of preference.
  *
  * @param msg The message whose content determines the memory type order.
  *
