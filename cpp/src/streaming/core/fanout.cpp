@@ -13,27 +13,29 @@
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
+#include "rapidsmpf/memory/memory_type.hpp"
+
 #include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming::node {
 namespace {
 
 /**
- * @brief Try to allocate memory from the memory types that the message content uses.
+ * @brief Returns the memory types to consider when allocating an output message.
  *
- * @param msg The message to allocate memory for.
- * @return The memory types to try to allocate from.
+ * The returned view starts at the principal memory type of the input message
+ * and continues through the remaining types in `MEMORY_TYPES` in their
+ * predefined order.
+ *
+ * @param msg The message whose content determines the memory type order.
+ *
+ * @return A view of memory types to try for allocation, starting at the
+ * principal memory type.
  */
-constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
-    auto const& cd = msg.content_description();
-    // if the message content uses device memory, try to allocate from device memory
-    // first, else allocate from host memory
-    return cd.content_size(MemoryType::DEVICE) > 0
-               ? MEMORY_TYPES
-               : std::span<const MemoryType>{
-                     MEMORY_TYPES.begin() + static_cast<std::size_t>(MemoryType::HOST),
-                     MEMORY_TYPES.end()
-                 };
+constexpr std::span<MemoryType const> get_output_memory_types(Message const& msg) {
+    auto const principal = msg.content_description().principal_memory_type();
+    return MEMORY_TYPES
+           | std::views::drop_while([principal](MemoryType m) { return m != principal; });
 }
 
 /**
@@ -53,7 +55,7 @@ Node send_to_channels(
                                   size_t msg_sz_,
                                   Channel& ch_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
-        auto res = ctx_.br()->reserve_or_fail(msg_sz_, try_memory_types(msg_));
+        auto res = ctx_.br()->reserve_or_fail(msg_sz_, get_output_memory_types(msg_));
         co_return co_await ch_.send(msg_.copy(res));
     };
 
@@ -230,7 +232,7 @@ struct UnboundedFanout {
                 RAPIDSMPF_EXPECTS(!msg.get().empty(), "message cannot be empty");
 
                 auto res = ctx.br()->reserve_or_fail(
-                    msg.get().copy_cost(), try_memory_types(msg.get())
+                    msg.get().copy_cost(), get_output_memory_types(msg.get())
                 );
                 if (!co_await ch_out->send(msg.get().copy(res))) {
                     // Failed to send message. Could be that the channel is shut down.
