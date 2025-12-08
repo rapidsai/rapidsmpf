@@ -10,10 +10,12 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
 #include <cuda_runtime_api.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/coll/allreduce.hpp>
@@ -377,9 +379,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 }
@@ -566,23 +566,26 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
 
     auto reduced = unpack_to_host<T>(result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
+    std::vector<T> expected;
+    expected.reserve(n_elements);
     for (int j = 0; j < n_elements; j++) {
-        T expected = make_input_value<T>(0, j);
+        T value = make_input_value<T>(0, j);
         for (int r = 1; r < nranks; ++r) {
-            expected =
-                Combiner<op>::template apply<T>(expected, make_input_value<T>(r, j));
+            value = Combiner<op>::template apply<T>(value, make_input_value<T>(r, j));
         }
-        if constexpr (std::is_floating_point_v<T>) {
-            // For floating point types, use near comparison to account for numerical
-            // precision errors
-            EXPECT_NEAR(
-                reduced[static_cast<std::size_t>(j)],
-                expected,
-                std::abs(expected) * 1e-5 + 1e-5
-            );
-        } else {
-            EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected);
-        }
+        expected.push_back(value);
+    }
+
+    if constexpr (std::is_floating_point_v<T>) {
+        auto near_matcher = ::testing::Truly([](auto const& pair) {
+            auto const& actual = std::get<0>(pair);
+            auto const& exp = std::get<1>(pair);
+            auto const tol = std::abs(exp) * 1e-5 + 1e-5;
+            return std::abs(actual - exp) <= tol;
+        });
+        EXPECT_THAT(reduced, ::testing::Pointwise(near_matcher, expected));
+    } else {
+        EXPECT_THAT(reduced, ::testing::ElementsAreArray(expected));
     }
 }
 
@@ -636,6 +639,8 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     auto reduced = unpack_to_host<CustomValue>(result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
 
+    std::vector<CustomValue> expected;
+    expected.reserve(n_elements);
     for (int j = 0; j < n_elements; ++j) {
         // Expected value is SUM over ranks of make_input_value<int>(rank, j).
         int expected_value = make_input_value<int>(0, j);
@@ -649,10 +654,15 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
             expected_weight = std::min(expected_weight, r * 10 + j);
         }
 
-        auto const& cv = reduced[static_cast<std::size_t>(j)];
-        EXPECT_EQ(cv.value, expected_value);
-        EXPECT_EQ(cv.weight, expected_weight);
+        expected.push_back(CustomValue{expected_value, expected_weight});
     }
+
+    auto eq_custom_value = ::testing::Truly([](auto const& pair) {
+        auto const& actual = std::get<0>(pair);
+        auto const& exp = std::get<1>(pair);
+        return actual.value == exp.value && actual.weight == exp.weight;
+    });
+    EXPECT_THAT(reduced, ::testing::Pointwise(eq_custom_value, expected));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -749,9 +759,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto reduced = unpack_to_host<int>(result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 }
@@ -805,9 +813,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
     auto reduced1 = unpack_to_host<int>(result1);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced1.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced1[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced1, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 
