@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <cuda_runtime_api.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/coll/allreduce.hpp>
@@ -377,9 +378,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 }
@@ -749,9 +748,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto reduced = unpack_to_host<int>(result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 }
@@ -805,9 +802,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
     auto reduced1 = unpack_to_host<int>(result1);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced1.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
-    for (int j = 0; j < n_elements; j++) {
-        EXPECT_EQ(reduced1[static_cast<std::size_t>(j)], expected_value);
-    }
+    EXPECT_THAT(reduced1, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 
