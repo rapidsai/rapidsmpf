@@ -23,8 +23,10 @@ namespace {
  * @brief Returns the memory types to consider when allocating an output message.
  *
  * The returned view begins at the principal memory type of the input message
- * and continues through the remaining types in `MEMORY_TYPES` according to
- * their order of preference.
+ * and continues through the remaining types in `MEMORY_TYPES` in order of
+ * preference. This ensures we never allocate in a higher memory tier than the
+ * message's principal type. For example, if a message has been spilled and its
+ * principal type is `HOST`, only `HOST` will be considered.
  *
  * @param msg The message whose content determines the memory type order.
  *
