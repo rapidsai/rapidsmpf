@@ -45,6 +45,9 @@ class ArgumentParser {
 
             RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
             RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        } else {
+            // When not using MPI, expect to be using bootstrap mode (rrun)
+            nranks = rapidsmpf::bootstrap::get_nranks();
         }
         try {
             int option;
