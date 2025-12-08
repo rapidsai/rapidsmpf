@@ -7,6 +7,7 @@
 #include <deque>
 #include <span>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
