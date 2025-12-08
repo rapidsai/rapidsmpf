@@ -395,7 +395,6 @@ rapidsmpf::streaming::Node filter_lineitem(
         rapidsmpf::ndsh::detail::debug_print_table(
             ctx, filtered_table->view(), "filtered_lineitem"
         );
-        // TODO: Confirm that this is needed...
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
@@ -508,7 +507,6 @@ rapidsmpf::streaming::Node final_groupby_agg(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    // TODO: requires concatenated input stream.
     auto msg = co_await ch_in->receive();
     auto next = co_await ch_in->receive();
     ctx->comm()->logger().debug("Final groupby");
@@ -527,8 +525,7 @@ rapidsmpf::streaming::Node final_groupby_agg(
         auto requests = std::vector<cudf::groupby::aggregation_request>();
         std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
         aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        // TODO: Figure out the columns here. Do we just have the one?
-        // Or do we have o_orderpriority, count?
+
         requests.push_back(
             cudf::groupby::aggregation_request(table.column(1), std::move(aggs))
         );
