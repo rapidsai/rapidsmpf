@@ -67,11 +67,10 @@ std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
     }
 }
 
-// Benchmark for allocation
 static void BM_Allocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    const auto allocation_size = static_cast<size_t>(state.range(0));
-    const auto resource_type = static_cast<ResourceType>(state.range(1));
+    auto const allocation_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     auto mr = create_host_memory_resource(resource_type);
 
@@ -92,11 +91,10 @@ static void BM_Allocate(benchmark::State& state) {
     );
 }
 
-// Benchmark for deallocation
 static void BM_Deallocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    const auto allocation_size = static_cast<size_t>(state.range(0));
-    const auto resource_type = static_cast<ResourceType>(state.range(1));
+    auto const allocation_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     auto mr = create_host_memory_resource(resource_type);
 
@@ -116,60 +114,55 @@ static void BM_Deallocate(benchmark::State& state) {
     );
 }
 
-static constexpr int64_t kNumCopies = 8;
+template <typename T>
+void alloc_and_copy(
+    benchmark::State& state,
+    T& mr,
+    void const* src,
+    std::size_t size,
+    rmm::cuda_stream_view stream
+) {
+    for (auto _ : state) {
+        state.PauseTiming();
+        void* dst = mr->allocate(stream, size);
+        stream.synchronize();
+        state.ResumeTiming();
 
-// Benchmark for device to host transfer. This benchmark allocates a device buffer and a
-// host buffer, then copies the device buffer to the host buffer kNumCopies times.
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(dst, src, size, cudaMemcpyDefault, stream));
+        stream.synchronize();
+
+        state.PauseTiming();
+        mr->deallocate(stream, dst, size);
+        state.ResumeTiming();
+    }
+}
+
 static void BM_DeviceToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    const auto transfer_size = static_cast<size_t>(state.range(0));
-    const auto resource_type = static_cast<ResourceType>(state.range(1));
+    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
     // Allocate device memory
-    auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
-    // Initialize device memory
-    RAPIDSMPF_CUDA_TRY(cudaMemset(device_buffer.data(), 0, transfer_size));
+    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    // Initialize src to avoid optimization removal
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
 
-    // Allocate host memory and copy from device
-    void* host_ptr = host_mr->allocate(stream, transfer_size);
+    alloc_and_copy(state, host_mr, src.data(), transfer_size, stream);
 
-    benchmark::DoNotOptimize(device_buffer);
-    benchmark::DoNotOptimize(host_ptr);
-
-    stream.synchronize();
-    for (auto _ : state) {
-        for (size_t i = 0; i < kNumCopies; ++i) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                static_cast<char*>(host_ptr),
-                device_buffer.data(),
-                transfer_size,
-                cudaMemcpyDeviceToHost,
-                stream
-            ));
-        }
-        stream.synchronize();
-    }
-    // Cleanup
-    host_mr->deallocate(stream, host_ptr, transfer_size);
-
-    state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(transfer_size) * kNumCopies
-    );
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel(
         "memcpy device to host: "
         + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
 }
 
-// Benchmark for host to device transfer. This benchmark allocates a host buffer and a
-// device buffer, then copies the host buffer to the device buffer kNumCopies times.
 static void BM_HostToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    const auto transfer_size = static_cast<size_t>(state.range(0));
-    const auto resource_type = static_cast<ResourceType>(state.range(1));
+    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
@@ -179,34 +172,56 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
     memset(host_ptr, 0, transfer_size);
 
     // Allocate device memory and copy from host
-    auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
 
-    benchmark::DoNotOptimize(device_buffer);
-    benchmark::DoNotOptimize(host_ptr);
+    alloc_and_copy(state, host_mr, src.data(), transfer_size, stream);
 
-    stream.synchronize();
-    for (auto _ : state) {
-        for (size_t i = 0; i < kNumCopies; ++i) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                static_cast<char*>(device_buffer.data()),
-                host_ptr,
-                transfer_size,
-                cudaMemcpyHostToDevice,
-                stream
-            ));
-        }
-        stream.synchronize();
-    }
-    // Cleanup
-    host_mr->deallocate(stream, host_ptr, transfer_size);
-
-    state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(transfer_size) * kNumCopies
-    );
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel(
         "memcpy host to device: "
         + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
+}
+
+static void BM_HostToHostCopy(benchmark::State& state) {
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const resource_type = static_cast<ResourceType>(state.range(1));
+
+    auto host_mr = create_host_memory_resource(resource_type);
+
+    // Allocate source and destination host buffers
+    void* src = host_mr->allocate(stream, transfer_size);
+
+    // Initialize src to avoid optimization elimination
+    std::memset(src, 0xAB, transfer_size);
+
+    alloc_and_copy(state, host_mr, src, transfer_size, stream);
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetLabel(
+        "memcpy host to host: " + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
+    );
+}
+
+static void BM_DeviceToDeviceCopy(benchmark::State& state) {
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    auto const transfer_size = static_cast<size_t>(state.range(0));
+
+    // Device MR, independent of host resource type
+    auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+
+    // Allocate device buffers
+    rmm::device_buffer src(transfer_size, stream, device_mr.get());
+    rmm::device_buffer dst(transfer_size, stream, device_mr.get());
+
+    // Initialize src to avoid optimization removal
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
+
+    alloc_and_copy(state, device_mr, src.data(), transfer_size, stream);
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetLabel("memcpy device to device: rmm::mr::cuda_memory_resource");
 }
 
 // Custom argument generator for the benchmark
@@ -221,6 +236,17 @@ void CustomArguments(benchmark::internal::Benchmark* b) {
 }
 
 // Register the benchmarks
+
+BENCHMARK(BM_DeviceToHostCopy)
+    ->Apply(CustomArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK(BM_HostToDeviceCopy)
+    ->Apply(CustomArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
 BENCHMARK(BM_Allocate)
     ->Apply(CustomArguments)
     ->UseRealTime()
@@ -231,12 +257,12 @@ BENCHMARK(BM_Deallocate)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_DeviceToHostCopy)
+BENCHMARK(BM_HostToHostCopy)
     ->Apply(CustomArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK(BM_HostToDeviceCopy)
+BENCHMARK(BM_DeviceToDeviceCopy)
     ->Apply(CustomArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
