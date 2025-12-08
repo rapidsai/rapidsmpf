@@ -26,11 +26,7 @@ class PinnedResource : public ::testing::TestWithParam<size_t> {
   protected:
     void SetUp() override {
         if (rapidsmpf::is_pinned_memory_resources_supported()) {
-            p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
-            p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
-
-            // check if the resource satisfies the resource concept
-            [[maybe_unused]] rmm::host_async_resource_ref host_mr(*p_mr);
+            p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>();
         } else {
             GTEST_SKIP() << "HostBuffer is not supported for CUDA versions "
                             "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
@@ -39,11 +35,9 @@ class PinnedResource : public ::testing::TestWithParam<size_t> {
 
     void TearDown() override {
         p_mr.reset();
-        p_pool.reset();
     }
 
     rmm::cuda_stream_view stream{};
-    std::unique_ptr<rapidsmpf::PinnedMemoryPool> p_pool;
     std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_mr;
     rmm::mr::cuda_async_memory_resource cuda_mr{};
 };
