@@ -5,7 +5,6 @@
 
 #include <array>
 #include <cstdlib>
-#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -14,6 +13,8 @@
 #include <cuda_runtime_api.h>
 #include <getopt.h>
 #include <mpi.h>
+
+#include <cuda/std/chrono>
 
 #include <cudf/binaryop.hpp>
 #include <cudf/copying.hpp>
@@ -125,7 +126,8 @@ Input table:
 rapidsmpf::streaming::Node select_columns(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    std::vector<cudf::size_type> indices
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
 
@@ -143,16 +145,16 @@ rapidsmpf::streaming::Node select_columns(
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
 
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, table, "select_columns::input!!!!!"
-        );
+        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "select_columns::input");
         std::vector<std::unique_ptr<cudf::column>> result;
-        result.reserve(1);
-        result.push_back(
-            std::make_unique<cudf::column>(
-                table.column(1), chunk_stream, ctx->br()->device_mr()
-            )
-        );
+        result.reserve(indices.size());
+        for (auto idx : indices) {
+            result.push_back(
+                std::make_unique<cudf::column>(
+                    table.column(idx), chunk_stream, ctx->br()->device_mr()
+                )
+            );
+        }
 
         auto result_table = std::make_unique<cudf::table>(std::move(result));
 
@@ -229,11 +231,119 @@ rapidsmpf::streaming::Node read_orders(
                            "o_orderpriority",  // used in group by
                        })
                        .build();
-    // We'd like to push the filter down to the read_parquet node,
-    // but our expression is not currently supported.
-    // https://github.com/rapidsai/cudf/issues/17142
+
+    // Build the filter expression 1973-07-01 < o_orderdate < 1973-10-01
+    auto var1 = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1993),
+        cuda::std::chrono::month(7),
+        cuda::std::chrono::day(1)
+    );
+    auto days1 = cuda::std::chrono::sys_days(var1);
+
+    auto var2 = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1993),
+        cuda::std::chrono::month(10),
+        cuda::std::chrono::day(1)
+    );
+    auto days2 = cuda::std::chrono::sys_days(var2);
+
+    // Create timestamp_ms time_point values (not raw counts) to match column type
+    cudf::timestamp_ms ts1{
+        cuda::std::chrono::duration_cast<cuda::std::chrono::milliseconds>(
+            days1.time_since_epoch()
+        )
+    };
+    cudf::timestamp_ms ts2{
+        cuda::std::chrono::duration_cast<cuda::std::chrono::milliseconds>(
+            days2.time_since_epoch()
+        )
+    };
+
+    /* This vector will have the references for the expression var1 < column < var2 as
+
+    0: column_reference
+    1: scalar<ts1>
+    2: scalar<ts2>
+    3: literal<ts1>
+    4: literal<ts2>
+    5: operation GE
+    6: operation LT
+    7: operation AND
+    */
+
+    auto owner = new std::vector<std::any>;
+    auto filter_stream = ctx->br()->stream_pool().get_stream();
+    // 0
+    owner->push_back(
+        std::make_shared<cudf::ast::column_reference>(0)  // position in the table
+    );
+
+
+    // 1, 2: Scalars
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+            ts1, true, filter_stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+            ts2, true, filter_stream
+        )
+    );
+
+    // 3, 4: Literals
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
+                owner->at(1)
+            )
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
+                owner->at(2)
+            )
+        )
+    );
+
+    // 5: (GE, column, literal<var1>)
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::GREATER_EQUAL,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(3))
+        )
+    );
+
+    // 6
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LESS,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(4))
+        )
+    );
+
+    // 7
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LOGICAL_AND,
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(5)),
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(6))
+        )
+    );
+
+    auto filter = std::make_unique<rapidsmpf::streaming::Filter>(
+        filter_stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+
     return rapidsmpf::streaming::node::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk
+        ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter)
     );
 }
 
@@ -286,99 +396,6 @@ rapidsmpf::streaming::Node filter_lineitem(
             ctx, filtered_table->view(), "filtered_lineitem"
         );
         // TODO: Confirm that this is needed...
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                msg.sequence_number(),
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(filtered_table), chunk_stream
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
-}
-
-/* Filter the orders table.
-
-Input table:
-
-    - o_orderdate
-    - o_orderkey
-    - o_orderpriority
-
-Output table:
-
-    - o_orderkey
-    - o_orderpriority
-*/
-rapidsmpf::streaming::Node filter_order(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    auto mr = ctx->br()->device_mr();
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        auto chunk_stream = chunk.stream();
-        auto table = chunk.table_view();
-
-        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "orders");
-
-        auto var1 = cudf::timestamp_scalar<cudf::timestamp_D>(
-            8582,  // 1993-07-01
-            true
-        );
-        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>(
-            8674,  // 1993-10-01
-            true
-        );
-
-
-        auto o_orderdate = table.column(0);
-
-        // Seems like is_between must be written as an AND of two binary operations
-        // We use closed="left", so it's >= var1 and < var2
-        auto mask1 = cudf::binary_operation(
-            o_orderdate,
-            var1,
-            cudf::binary_operator::GREATER_EQUAL,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-        auto mask2 = cudf::binary_operation(
-            o_orderdate,
-            var2,
-            cudf::binary_operator::LESS,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-
-        auto mask = cudf::binary_operation(
-            mask1->view(),
-            mask2->view(),
-            cudf::binary_operator::LOGICAL_AND,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-
-        auto filtered_table = cudf::apply_boolean_mask(
-            table.select({1, 2}), mask->view(), chunk_stream, mr
-        );
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, filtered_table->view(), "filtered_order"
-        );
-
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
@@ -862,7 +879,7 @@ int main(int argc, char** argv) {
                 // [o_orderdate, o_orderkey, o_orderpriority]
                 auto order = ctx->create_channel();
                 // [o_orderkey, o_orderpriority]
-                auto filtered_order = ctx->create_channel();
+                auto projected_order = ctx->create_channel();
 
                 // [o_orderkey, o_orderpriority]
                 // Ideally this would *just* be o_orderpriority.
@@ -896,11 +913,10 @@ int main(int argc, char** argv) {
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));  // o_orderdate, o_orderkey, o_orderpriority
-                nodes.push_back(filter_order(ctx, order, filtered_order));  // o_orderkey
+                nodes.push_back(
+                    select_columns(ctx, order, projected_order, {1, 2})
+                );  // o_orderkey, o_orderpriority
 
-
-                // TODO: customizable num_partitions
-                // std::uint32_t num_partitions = 16;
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(
                         ctx,
@@ -918,7 +934,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,
-                            filtered_order,
+                            projected_order,
                             filtered_order_shuffled,
                             {0},
                             cmd_options.num_partitions,
@@ -944,7 +960,7 @@ int main(int argc, char** argv) {
                         // [o_orderkey, o_orderpriority] x [l_orderkey]
                         rapidsmpf::ndsh::left_semi_join_broadcast(
                             ctx,
-                            filtered_order,
+                            projected_order,
                             filtered_lineitem_shuffled,
                             orders_x_lineitem,
                             {0},
@@ -958,7 +974,7 @@ int main(int argc, char** argv) {
                 }
 
                 nodes.push_back(
-                    select_columns(ctx, orders_x_lineitem, projected_columns)
+                    select_columns(ctx, orders_x_lineitem, projected_columns, {1})
                 );
 
                 nodes.push_back(
