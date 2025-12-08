@@ -7,13 +7,12 @@
 #include <deque>
 #include <span>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-
-#include "rapidsmpf/memory/memory_type.hpp"
 
 #include <coro/coro.hpp>
 
