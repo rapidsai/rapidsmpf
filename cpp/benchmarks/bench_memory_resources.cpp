@@ -222,7 +222,6 @@ void BM_HostToHostCopy(benchmark::State& state) {
 
     auto host_mr = create_host_memory_resource(resource_type);
 
-    // Allocate source and destination host buffers
     void* src = host_mr->allocate(stream, transfer_size);
 
     // Initialize src to avoid optimization elimination
