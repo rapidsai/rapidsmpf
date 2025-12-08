@@ -67,7 +67,7 @@ std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
     }
 }
 
-static void BM_Allocate(benchmark::State& state) {
+void BM_Allocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const allocation_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -91,7 +91,7 @@ static void BM_Allocate(benchmark::State& state) {
     );
 }
 
-static void BM_Deallocate(benchmark::State& state) {
+void BM_Deallocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const allocation_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -114,7 +114,7 @@ static void BM_Deallocate(benchmark::State& state) {
     );
 }
 
-static void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
+void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -170,7 +170,7 @@ void alloc_and_copy(
     }
 }
 
-static void BM_DeviceToHostCopy(benchmark::State& state) {
+void BM_DeviceToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -192,7 +192,7 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
     );
 }
 
-static void BM_HostToDeviceCopy(benchmark::State& state) {
+void BM_HostToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -216,7 +216,7 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
     );
 }
 
-static void BM_HostToHostCopy(benchmark::State& state) {
+void BM_HostToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
@@ -237,7 +237,7 @@ static void BM_HostToHostCopy(benchmark::State& state) {
     );
 }
 
-static void BM_DeviceToDeviceCopy(benchmark::State& state) {
+void BM_DeviceToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
 
