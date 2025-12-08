@@ -4,26 +4,52 @@
  *
  * TPC-H Query 18 - Pre-filter Optimization
  *
- * This benchmark implements Q18 with a two-phase approach:
+ * Usage:
+ *   # Single GPU or small scale factors (SF1-SF100):
+ *   q18 --input-directory /path/to/tpch/data --output-file result.parquet
  *
- * Phase 1 (blocking): Compute qualifying orderkeys
- *   - Read lineitem -> groupby(l_orderkey, sum(l_quantity)) -> filter(sum > 300)
- *   - All-gather across ranks -> final groupby+filter
- *   - Result: ~171K qualifying orderkeys at SF3000 (tiny)
+ *   # Multi-GPU with large scale factors (SF1000+):
+ *   mpirun -np 4 q18 --input-directory /path/to/tpch/data \
+ *       --output-file result.parquet --use-shuffle
  *
- * Phase 2 (streaming): Pre-filter and join
- *   - Read lineitem -> semi-join filter -> all-gather (~684K rows)
- *   - Read orders -> semi-join filter -> all-gather (~171K rows)
- *   - Local join (no shuffle needed - data is tiny)
- *   - Join with customer -> groupby -> sort -> write
+ * Key Options:
+ *   --use-shuffle    Use shuffle-based distributed joins instead of all-gather.
+ *                    REQUIRED for large scale factors (SF1000+) on multi-GPU to
+ *                    avoid memory pressure from all-gathering large intermediate
+ *                    tables to every rank.
  *
- * Benefits:
- *   - No shuffle needed for lineitem/orders (99.98% data reduction)
- *   - No fanout node complexity
+ *   --spill-device-limit <ratio>
+ *                    Fraction of GPU memory before spilling to host (default: 0.8).
+ *                    Use lower values (e.g., 0.5) for memory-constrained systems.
+ *
+ * Algorithm:
+ *   This benchmark implements Q18 with a two-phase approach that exploits the
+ *   high selectivity of the "sum(l_quantity) > 300" filter (~0.004% of orders).
+ *
+ *   Phase 1 (blocking): Compute qualifying orderkeys
+ *     - Read lineitem -> groupby(l_orderkey, sum(l_quantity)) -> filter(sum > 300)
+ *     - With --use-shuffle: shuffle by orderkey for parallel aggregation
+ *     - Without --use-shuffle: all-gather partial aggregates (redundant work)
+ *     - Result: ~57 orderkeys at SF1, ~57K at SF1000, ~171K at SF3000
+ *
+ *   Phase 2 (streaming): Pre-filter and join
+ *     - Read lineitem/orders -> semi-join filter using qualifying orderkeys
+ *     - With --use-shuffle: shuffle filtered data for parallel joins
+ *     - Without --use-shuffle: all-gather filtered data (works for small results)
+ *     - Join with customer -> groupby -> sort -> write top 100
+ *
+ * When to use --use-shuffle:
+ *   - Multi-GPU runs at SF1000+: The intermediate filtered tables (~228K lineitem
+ *     rows, ~57K orders rows at SF1000) become too large to all-gather efficiently.
+ *   - Memory-constrained systems: Shuffle distributes memory pressure across ranks.
+ *
+ * When NOT to use --use-shuffle:
+ *   - Single GPU: No benefit from shuffle overhead.
+ *   - Small scale factors (SF1-SF100): All-gather is faster for tiny results.
  *
  * Disclaimers:
- *   - The two-phase approach corresponds to "advanced" query optimization
- *   - It may not be beneficial to re-read the lineitem table from remote storage
+ *   - The two-phase approach corresponds to "advanced" query optimization.
+ *   - Re-reading lineitem may not be optimal with slow remote storage.
  */
 
 #include <algorithm>
