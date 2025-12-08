@@ -240,7 +240,7 @@ TEST_F(BaseAllReduceTest, shutdown) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{99},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled()
@@ -251,13 +251,13 @@ TEST_F(BaseAllReduceTest, timeout) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{98},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled()
     );
 
-    std::vector<int> data(1, 42);  // Simple test data
+    std::vector<int> data(1, 42);
     auto packed = make_packed(br.get(), data.data(), data.size(), MemoryType::DEVICE);
     allreduce.insert(std::move(packed));
 
@@ -537,7 +537,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{1},
+        OpID{0},
         std::move(kernel),
         this->br.get(),
         rapidsmpf::Statistics::disabled()
@@ -550,7 +550,6 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         data[j] = make_input_value<T>(this_rank, j);
     }
 
-    // Choose buffer type based on Case
     PackedData packed =
         (Case::buffer_type == MemoryReductionConfig::ALL_HOST)
             ? make_packed<T>(this->br.get(), data.data(), data.size(), MemoryType::HOST)
@@ -615,7 +614,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{5},
+        OpID{0},
         std::move(kernel),
         br.get(),
         rapidsmpf::Statistics::disabled()
@@ -682,7 +681,7 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{6},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled()
@@ -720,7 +719,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{7},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled(),
@@ -763,7 +762,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_inser
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{8},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled(),
@@ -788,7 +787,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
-        OpID{9},
+        OpID{0},
         rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled()
