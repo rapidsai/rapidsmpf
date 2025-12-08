@@ -105,6 +105,27 @@ class ContentDescription {
     }
 
     /**
+     * @brief Returns the principal memory type of the content.
+     *
+     * The principal memory type is the first type with non zero content,
+     * evaluated according to the preference order defined by `MEMORY_TYPES`.
+     *
+     * If all content sizes are zero, the function returns the first entry in
+     * `MEMORY_TYPES`.
+     *
+     * @return The first memory type with non zero content, or the first entry in
+     * `MEMORY_TYPES` if none contain content.
+     */
+    [[nodiscard]] constexpr MemoryType principal_memory_type() const noexcept {
+        for (auto mem_type : MEMORY_TYPES) {
+            if (content_size(mem_type) > 0) {
+                return mem_type;
+            }
+        }
+        return MEMORY_TYPES.front();
+    }
+
+    /**
      * @brief Get the total content size across all memory types.
      *
      * Computes the sum of all per-memory-type content sizes.
