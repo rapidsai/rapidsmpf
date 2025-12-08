@@ -5,9 +5,8 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <memory>
-#include <numeric>
-#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 
@@ -209,7 +208,10 @@ class Shuffler::Progress {
                                 chunk.concat_data_size(), MEMORY_TYPES
                             )
                         ));
-                        if (chunk.data_memory_type() == MemoryType::HOST) {
+                        if (rapidsmpf::contains(
+                                SPILL_TARGET_MEMORY_TYPES, chunk.data_memory_type()
+                            ))
+                        {
                             stats.add_bytes_stat(
                                 "spill-bytes-recv-to-host", chunk.concat_data_size()
                             );
