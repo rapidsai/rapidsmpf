@@ -243,7 +243,6 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     // Device MR, independent of host resource type
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
-    // Allocate device buffers
     rmm::device_buffer src(transfer_size, stream, device_mr.get());
     rmm::device_buffer dst(transfer_size, stream, device_mr.get());
 
