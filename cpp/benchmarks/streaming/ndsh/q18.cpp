@@ -360,11 +360,11 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
 }
 
 /**
- * @brief All-gather node for Phase 1.
+ * @brief All-gather node: collect from ch_in, all-gather across ranks, send to ch_out.
  *
- * Collects partial aggregates from all ranks and outputs concatenated result.
+ * For single-rank, this is a simple pass-through.
  */
-rapidsmpf::streaming::Node allgather_partial_aggregates(
+rapidsmpf::streaming::Node allgather_table(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -421,7 +421,7 @@ rapidsmpf::streaming::Node allgather_partial_aggregates(
     }
 
     ctx->comm()->logger().debug(
-        "allgather_partial_aggregates: ", result ? result->num_rows() : 0, " rows"
+        "allgather_table: ", result ? result->num_rows() : 0, " rows gathered"
     );
 
     if (result && result->num_rows() > 0) {
@@ -535,7 +535,7 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
 
         // All-gather the TINY filtered result (~57K orderkeys at SF1000)
         auto gathered = ctx->create_channel();
-        nodes.push_back(allgather_partial_aggregates(
+        nodes.push_back(allgather_table(
             ctx,
             filtered_local,
             gathered,
@@ -666,75 +666,6 @@ rapidsmpf::streaming::Node prefilter_by_orderkeys(
         "%)"
     );
 
-    co_await ch_out->drain(ctx->executor());
-}
-
-/**
- * @brief All-gather node: collect from ch_in, all-gather across ranks, send to ch_out.
- */
-rapidsmpf::streaming::Node allgather_table(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
-    rapidsmpf::OpID tag
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-
-    auto msg = co_await ch_in->receive();
-    if (msg.empty()) {
-        co_await ch_out->drain(ctx->executor());
-        co_return;
-    }
-
-    auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
-    auto chunk_stream = chunk.stream();
-    auto table = chunk.table_view();
-
-    ctx->comm()->logger().debug("allgather_table: local has ", table.num_rows(), " rows");
-
-    std::unique_ptr<cudf::table> result;
-    if (ctx->comm()->nranks() > 1) {
-        rapidsmpf::streaming::AllGather gatherer{ctx, tag};
-
-        auto pack = cudf::pack(table, chunk_stream, ctx->br()->device_mr());
-        gatherer.insert(
-            0,
-            {rapidsmpf::PackedData(
-                std::move(pack.metadata),
-                ctx->br()->move(std::move(pack.gpu_data), chunk_stream)
-            )}
-        );
-        gatherer.insert_finished();
-
-        auto packed_data =
-            co_await gatherer.extract_all(rapidsmpf::streaming::AllGather::Ordered::NO);
-
-        result = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(
-                std::move(packed_data), ctx->br(), true, ctx->statistics()
-            ),
-            chunk_stream,
-            ctx->br(),
-            ctx->statistics()
-        );
-    } else {
-        result =
-            std::make_unique<cudf::table>(table, chunk_stream, ctx->br()->device_mr());
-    }
-
-    ctx->comm()->logger().debug(
-        "allgather_table: gathered has ", result->num_rows(), " rows"
-    );
-
-    co_await ch_out->send(
-        rapidsmpf::streaming::to_message(
-            0,
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
-                std::move(result), chunk_stream
-            )
-        )
-    );
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -1046,7 +977,7 @@ rapidsmpf::streaming::Node write_parquet(
     metadata.column_metadata[2].set_name("o_orderkey");
     metadata.column_metadata[3].set_name("o_orderdate");
     metadata.column_metadata[4].set_name("o_totalprice");
-    metadata.column_metadata[5].set_name("col6");
+    metadata.column_metadata[5].set_name("sum_quantity");
     builder = builder.metadata(metadata);
     cudf::io::write_parquet(builder.build(), chunk.stream());
     ctx->comm()->logger().print(
@@ -1329,6 +1260,7 @@ int main(int argc, char** argv) {
                 );
 
                 // Shuffle-based join: orders x lineitem
+                // Output: o_orderkey, o_custkey, o_orderdate, o_totalprice, l_quantity
                 auto orders_x_lineitem = ctx->create_channel();
                 nodes.push_back(
                     rapidsmpf::ndsh::inner_join_shuffle(
@@ -1340,8 +1272,7 @@ int main(int argc, char** argv) {
                         {0},  // l_orderkey
                         rapidsmpf::ndsh::KeepKeys::YES
                     )
-                );  // output: o_orderkey, o_custkey, o_orderdate, o_totalprice,
-                    // l_quantity
+                );
 
                 // Shuffle orders_x_lineitem by custkey for customer join
                 auto orders_x_lineitem_shuffled = ctx->create_channel();
@@ -1382,63 +1313,6 @@ int main(int argc, char** argv) {
                         all_joined,
                         {0},  // c_custkey
                         {1},  // o_custkey
-                        rapidsmpf::ndsh::KeepKeys::YES
-                    )
-                );
-
-            } else if (cmd_options.use_shuffle && single_rank) {
-                // ============================================================
-                // SINGLE-RANK SHUFFLE MODE: Use local joins (skip shuffle overhead)
-                // ============================================================
-                ctx->comm()->logger().print(
-                    "Phase 2: Single-rank mode - using local joins (skipping shuffle)"
-                );
-
-                // Concatenate filtered lineitem
-                auto lineitem_concat = ctx->create_channel();
-                nodes.push_back(
-                    rapidsmpf::ndsh::concatenate(
-                        ctx,
-                        lineitem_filtered,
-                        lineitem_concat,
-                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
-                    )
-                );
-
-                // Concatenate filtered orders
-                auto orders_concat = ctx->create_channel();
-                nodes.push_back(
-                    rapidsmpf::ndsh::concatenate(
-                        ctx,
-                        orders_filtered,
-                        orders_concat,
-                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
-                    )
-                );
-
-                // Local join: orders x lineitem (both small after pre-filtering)
-                auto orders_x_lineitem = ctx->create_channel();
-                nodes.push_back(local_inner_join(
-                    ctx,
-                    orders_concat,
-                    lineitem_concat,
-                    orders_x_lineitem,
-                    {0},  // o_orderkey
-                    {0}  // l_orderkey
-                ));
-
-                // Join with customer (broadcast - orders_x_lineitem is small)
-                nodes.push_back(
-                    rapidsmpf::ndsh::inner_join_broadcast(
-                        ctx,
-                        customer,
-                        orders_x_lineitem,
-                        all_joined,
-                        {0},  // c_custkey
-                        {1},  // o_custkey
-                        rapidsmpf::OpID{
-                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
-                        },
                         rapidsmpf::ndsh::KeepKeys::YES
                     )
                 );
