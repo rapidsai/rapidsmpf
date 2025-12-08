@@ -419,7 +419,7 @@ int get_current_numa_node_id();
  */
 template <std::ranges::input_range R, typename T, typename Proj = std::identity>
 [[nodiscard]] constexpr bool contains(R&& range, T const& value, Proj proj = {}) {
-    for (auto&& elem : range) {
+    for (auto const& elem : range) {
         if (std::invoke(proj, elem) == value) {
             return true;
         }
