@@ -148,7 +148,7 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
 }
 
 template <typename T>
-void alloc_and_copy(
+void bench_copy(
     benchmark::State& state,
     T& mr,
     void const* src,
@@ -182,7 +182,7 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
 
-    alloc_and_copy(state, host_mr, src.data(), transfer_size, stream);
+    bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel(
@@ -206,7 +206,7 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
     // Allocate device memory and copy from host
     auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
 
-    alloc_and_copy(state, host_mr, src.data(), transfer_size, stream);
+    bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel(
@@ -227,7 +227,7 @@ void BM_HostToHostCopy(benchmark::State& state) {
     // Initialize src to avoid optimization elimination
     std::memset(src, 0xAB, transfer_size);
 
-    alloc_and_copy(state, host_mr, src, transfer_size, stream);
+    bench_copy(state, host_mr, src, transfer_size, stream);
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel(
@@ -248,7 +248,7 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
 
-    alloc_and_copy(state, device_mr, src.data(), transfer_size, stream);
+    bench_copy(state, device_mr, src.data(), transfer_size, stream);
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
     state.SetLabel("memcpy device to device: rmm::mr::cuda_memory_resource");
