@@ -26,8 +26,6 @@
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/topology_discovery.hpp>
 
-}  // namespace
-
 class TopologyBindingTest : public ::testing::Test {
   protected:
     void SetUp() override {
