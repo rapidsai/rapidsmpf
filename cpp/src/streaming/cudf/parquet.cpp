@@ -245,4 +245,189 @@ Node read_parquet(
         );
     }
 }
+
+Node read_parquet_uniform(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel> ch_out,
+    std::size_t num_producers,
+    cudf::io::parquet_reader_options options,
+    std::size_t target_num_chunks,
+    std::unique_ptr<Filter> filter
+) {
+    ShutdownAtExit c{ch_out};
+    co_await ctx->executor()->schedule();
+    auto size = static_cast<std::size_t>(ctx->comm()->nranks());
+    auto rank = static_cast<std::size_t>(ctx->comm()->rank());
+    auto source = options.get_source();
+    
+    RAPIDSMPF_EXPECTS(
+        source.type() == cudf::io::io_type::FILEPATH, "Only implemented for file sources"
+    );
+    RAPIDSMPF_EXPECTS(
+        size == 1 || !options.get_num_rows().has_value(),
+        "Reading subset of rows not yet supported in multi-rank execution"
+    );
+    RAPIDSMPF_EXPECTS(
+        size == 1 || options.get_skip_rows() == 0,
+        "Skipping rows not yet supported in multi-rank execution"
+    );
+    
+    auto files = source.filepaths();
+    RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file to read");
+    RAPIDSMPF_EXPECTS(
+        !options.get_filter().has_value(),
+        "Do not set filter on options, use the filter argument"
+    );
+    
+    if (filter != nullptr) {
+        options.set_filter(filter->filter);
+        cuda_stream_join(
+            std::ranges::transform_view(
+                std::ranges::iota_view(
+                    std::size_t{0}, ctx->br()->stream_pool().get_pool_size()
+                ),
+                [&](auto i) { return ctx->br()->stream_pool().get_stream(i); }
+            ),
+            std::ranges::single_view(filter->stream)
+        );
+    }
+    
+    std::uint64_t sequence_number = 0;
+    std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
+    auto const num_files = files.size();
+    
+    // Determine mode: split files or group files
+    bool split_mode = (target_num_chunks > num_files);
+    
+    if (split_mode) {
+        // SPLIT MODE: Each file divided into multiple slices
+        // Total chunks = splits_per_file * num_files
+        std::size_t splits_per_file = (target_num_chunks + num_files - 1) / num_files;
+        std::size_t total_chunks = splits_per_file * num_files;
+        
+        // Calculate which chunk IDs this rank owns
+        std::size_t chunks_per_rank = (total_chunks + size - 1) / size;
+        std::size_t chunk_start = rank * chunks_per_rank;
+        std::size_t chunk_end = std::min(chunk_start + chunks_per_rank, total_chunks);
+        
+        // Map chunk IDs to (file_idx, split_idx)
+        for (std::size_t chunk_id = chunk_start; chunk_id < chunk_end; ++chunk_id) {
+            std::size_t file_idx = chunk_id / splits_per_file;
+            std::size_t split_idx = chunk_id % splits_per_file;
+            
+            if (file_idx >= num_files) continue;  // Past the end
+            
+            const auto& filepath = files[file_idx];
+            
+            // Read metadata to determine row groups
+            auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(filepath));
+            auto total_rows = metadata.num_rows();
+            auto num_row_groups = metadata.num_rowgroups();
+            
+            // Determine slice boundaries
+            std::int64_t skip_rows, num_rows;
+            
+            if (splits_per_file <= static_cast<std::size_t>(num_row_groups)) {
+                // Align to row groups - use row-based splitting for now
+                // TODO: Extract row group boundaries when API is available
+                std::int64_t rows_per_split = total_rows / static_cast<std::int64_t>(splits_per_file);
+                std::int64_t extra_rows = total_rows % static_cast<std::int64_t>(splits_per_file);
+                
+                skip_rows = static_cast<std::int64_t>(split_idx) * rows_per_split + 
+                           std::min(static_cast<std::int64_t>(split_idx), extra_rows);
+                num_rows = rows_per_split + (split_idx < static_cast<std::size_t>(extra_rows) ? 1 : 0);
+            } else {
+                // More splits than row groups - split by rows
+                std::int64_t rows_per_split = total_rows / static_cast<std::int64_t>(splits_per_file);
+                std::int64_t extra_rows = total_rows % static_cast<std::int64_t>(splits_per_file);
+                
+                skip_rows = static_cast<std::int64_t>(split_idx) * rows_per_split + 
+                           std::min(static_cast<std::int64_t>(split_idx), extra_rows);
+                num_rows = rows_per_split + (split_idx < static_cast<std::size_t>(extra_rows) ? 1 : 0);
+            }
+            
+            chunks_per_producer[sequence_number % num_producers].emplace_back(
+                ChunkDesc{sequence_number, skip_rows, num_rows, cudf::io::source_info(filepath)}
+            );
+            sequence_number++;
+        }
+    } else {
+        // GROUP MODE: Multiple files per chunk (file-aligned)
+        std::size_t files_per_chunk = (num_files + target_num_chunks - 1) / target_num_chunks;
+        
+        // Calculate which chunk IDs this rank owns
+        std::size_t chunks_per_rank = (target_num_chunks + size - 1) / size;
+        std::size_t chunk_start = rank * chunks_per_rank;
+        std::size_t chunk_end = std::min(chunk_start + chunks_per_rank, target_num_chunks);
+        
+        // Map chunk IDs to file ranges
+        for (std::size_t chunk_id = chunk_start; chunk_id < chunk_end; ++chunk_id) {
+            std::size_t file_start = chunk_id * files_per_chunk;
+            std::size_t file_end = std::min(file_start + files_per_chunk, num_files);
+            
+            if (file_start >= num_files) continue;  // Past the end
+            
+            // Collect files for this chunk
+            std::vector<std::string> chunk_files;
+            for (std::size_t file_idx = file_start; file_idx < file_end; ++file_idx) {
+                chunk_files.push_back(files[file_idx]);
+            }
+            
+            // Calculate total rows across all files in this chunk
+            // We need to read metadata to know how many rows to read
+            auto source = cudf::io::source_info(chunk_files);
+            auto metadata = cudf::io::read_parquet_metadata(source);
+            auto total_rows = metadata.num_rows();
+            
+            chunks_per_producer[sequence_number % num_producers].emplace_back(
+                ChunkDesc{sequence_number, 0, total_rows, source}
+            );
+            sequence_number++;
+        }
+    }
+    
+    // Handle empty case
+    if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
+        // No chunks to read - drain and return
+        co_await ch_out->drain(ctx->executor());
+        if (filter != nullptr) {
+            cuda_stream_join(
+                std::ranges::single_view(filter->stream),
+                std::ranges::transform_view(
+                    std::ranges::iota_view(
+                        std::size_t{0}, ctx->br()->stream_pool().get_pool_size()
+                    ),
+                    [&](auto i) { return ctx->br()->stream_pool().get_stream(i); }
+                )
+            );
+        }
+        co_return;
+    }
+    
+    // Launch producers
+    std::vector<Node> read_tasks;
+    read_tasks.reserve(1 + num_producers);
+    auto lineariser = Lineariser(ctx, ch_out, num_producers);
+    auto queues = lineariser.get_queues();
+    for (std::size_t i = 0; i < num_producers; i++) {
+        read_tasks.push_back(
+            produce_chunks(ctx, queues[i], chunks_per_producer[i], options)
+        );
+    }
+    read_tasks.push_back(lineariser.drain());
+    coro_results(co_await coro::when_all(std::move(read_tasks)));
+    
+    co_await ch_out->drain(ctx->executor());
+    if (filter != nullptr) {
+        cuda_stream_join(
+            std::ranges::single_view(filter->stream),
+            std::ranges::transform_view(
+                std::ranges::iota_view(
+                    std::size_t{0}, ctx->br()->stream_pool().get_pool_size()
+                ),
+                [&](auto i) { return ctx->br()->stream_pool().get_stream(i); }
+            )
+        );
+    }
+}
 }  // namespace rapidsmpf::streaming::node

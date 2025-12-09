@@ -36,6 +36,16 @@ cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
             unique_ptr[cpp_Filter],
         ) except +
 
+    cdef cpp_Node cpp_read_parquet_uniform \
+        "rapidsmpf::streaming::node::read_parquet_uniform"(
+            shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Channel] ch_out,
+            size_t num_producers,
+            parquet_reader_options options,
+            size_t target_num_chunks,
+            unique_ptr[cpp_Filter],
+        ) except +
+
 
 cdef class Filter:
     """
@@ -131,6 +141,62 @@ def read_parquet(
             num_producers,
             options.c_obj,
             num_rows_per_chunk,
+            move(c_filter)
+        )
+    return CppNode.from_handle(
+        make_unique[cpp_Node](move(_ret)), owner=None
+    )
+
+
+def read_parquet_uniform(
+    Context ctx not None,
+    Channel ch_out not None,
+    size_t num_producers,
+    ParquetReaderOptions options not None,
+    size_t target_num_chunks,
+    Filter filter = None,
+):
+    """
+    Create a streaming node to read from parquet with uniform chunk distribution.
+
+    Unlike read_parquet which targets a specific number of rows per chunk,
+    this function targets a total number of chunks distributed uniformly.
+
+    When target_num_chunks <= num_files: Files are grouped and read completely.
+    When target_num_chunks > num_files: Files are split, aligned to row groups.
+
+    Parameters
+    ----------
+    ctx
+        Streaming execution context
+    ch_out
+        Output channel to receive the TableChunks.
+    num_producers
+        Number of concurrent producers of output chunks.
+    options
+        Reader options
+    target_num_chunks
+        Target total number of chunks to create across all ranks.
+    filter
+        Optional filter object. If provided, is consumed by this function
+        and not subsequently usable.
+
+    Notes
+    -----
+    This is a collective operation, all ranks participating via the
+    execution context's communicator must call it with the same options.
+    """
+    cdef cpp_Node _ret
+    cdef unique_ptr[cpp_Filter] c_filter
+    if filter is not None:
+        c_filter = move(filter.release_handle())
+    with nogil:
+        _ret = cpp_read_parquet_uniform(
+            ctx._handle,
+            ch_out._handle,
+            num_producers,
+            options.c_obj,
+            target_num_chunks,
             move(c_filter)
         )
     return CppNode.from_handle(

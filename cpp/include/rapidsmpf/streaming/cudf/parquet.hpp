@@ -57,5 +57,34 @@ Node read_parquet(
     cudf::size_type num_rows_per_chunk,
     std::unique_ptr<Filter> filter = nullptr
 );
+
+/**
+ * @brief Asynchronously read parquet files with uniform chunk distribution.
+ *
+ * Unlike read_parquet which targets a specific number of rows per chunk, this function
+ * targets a specific total number of chunks and distributes them uniformly across ranks.
+ * 
+ * When target_num_chunks <= num_files: Files are grouped and read completely (file-aligned).
+ * When target_num_chunks > num_files: Files are split into slices, aligned to row groups.
+ *
+ * @note This is a collective operation, all ranks must participate with identical parameters.
+ *
+ * @param ctx The execution context to use.
+ * @param ch_out Channel to which `TableChunk`s are sent.
+ * @param num_producers Number of concurrent producer tasks.
+ * @param options Template reader options (same as read_parquet).
+ * @param target_num_chunks Target total number of chunks to create across all ranks.
+ * @param filter Optional filter expression to apply to the read.
+ *
+ * @return Streaming node representing the asynchronous read.
+ */
+Node read_parquet_uniform(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel> ch_out,
+    std::size_t num_producers,
+    cudf::io::parquet_reader_options options,
+    std::size_t target_num_chunks,
+    std::unique_ptr<Filter> filter = nullptr
+);
 }  // namespace node
 }  // namespace rapidsmpf::streaming
