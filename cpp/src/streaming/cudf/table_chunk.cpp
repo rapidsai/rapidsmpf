@@ -65,7 +65,7 @@ TableChunk::TableChunk(std::unique_ptr<PackedData> packed_data)
     );
     data_alloc_size_[static_cast<std::size_t>(packed_data_->data->mem_type())] =
         packed_data_->data->size;
-    if (packed_data_->data->mem_type() == MemoryType::HOST) {
+    if (packed_data_->data->mem_type() != MemoryType::DEVICE) {
         make_available_cost_ = packed_data_->data->size;
     } else {
         make_available_cost_ = 0;
