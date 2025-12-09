@@ -234,36 +234,35 @@ rapidsmpf::streaming::Node read_orders(
                        })
                        .build();
 
-    // Build the filter expression 1973-07-01 < o_orderdate < 1973-10-01
-    auto var1 = cuda::std::chrono::year_month_day(
-        cuda::std::chrono::year(1993),
-        cuda::std::chrono::month(7),
-        cuda::std::chrono::day(1)
-    );
-    auto days1 = cuda::std::chrono::sys_days(var1);
-
-    auto var2 = cuda::std::chrono::year_month_day(
-        cuda::std::chrono::year(1993),
-        cuda::std::chrono::month(10),
-        cuda::std::chrono::day(1)
-    );
-    auto days2 = cuda::std::chrono::sys_days(var2);
-
-    // Create timestamp_ms time_point values (not raw counts) to match column type
+    // Build the filter expression 1993-07-01 <= o_orderdate < 1993-10-01
     cudf::timestamp_ms ts1{
         cuda::std::chrono::duration_cast<cuda::std::chrono::milliseconds>(
-            days1.time_since_epoch()
+            cuda::std::chrono::sys_days(
+                cuda::std::chrono::year_month_day(
+                    cuda::std::chrono::year(1993),
+                    cuda::std::chrono::month(7),
+                    cuda::std::chrono::day(1)
+                )
+            )
+                .time_since_epoch()
         )
     };
     cudf::timestamp_ms ts2{
         cuda::std::chrono::duration_cast<cuda::std::chrono::milliseconds>(
-            days2.time_since_epoch()
+            cuda::std::chrono::sys_days(
+                cuda::std::chrono::year_month_day(
+                    cuda::std::chrono::year(1993),
+                    cuda::std::chrono::month(10),
+                    cuda::std::chrono::day(1)
+                )
+            )
+                .time_since_epoch()
         )
     };
 
-    /* This vector will have the references for the expression var1 < column < var2 as
+    /* This vector will have the references for the expression `a < column < b` as
 
-    0: column_reference
+    0: column_reference to o_orderdate
     1: scalar<ts1>
     2: scalar<ts2>
     3: literal<ts1>
@@ -318,7 +317,7 @@ rapidsmpf::streaming::Node read_orders(
         )
     );
 
-    // 6
+    // 6 (LT, column, literal<var2>)
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::LESS,
@@ -327,7 +326,7 @@ rapidsmpf::streaming::Node read_orders(
         )
     );
 
-    // 7
+    // 7 (AND, GE, LT)
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::LOGICAL_AND,
@@ -881,7 +880,8 @@ int main(int argc, char** argv) {
                 auto projected_order = ctx->create_channel();
 
                 // [o_orderkey, o_orderpriority]
-                // Ideally this would *just* be o_orderpriority.
+                // Ideally this would *just* be o_orderpriority, pushing the projection
+                // into the join node / dropping the join key.
                 auto orders_x_lineitem = ctx->create_channel();
 
                 // [o_orderpriority]
@@ -911,10 +911,8 @@ int main(int argc, char** argv) {
                     4,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
-                ));  // o_orderdate, o_orderkey, o_orderpriority
-                nodes.push_back(
-                    select_columns(ctx, order, projected_order, {1, 2})
-                );  // o_orderkey, o_orderpriority
+                ));
+                nodes.push_back(select_columns(ctx, order, projected_order, {1, 2}));
 
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(
@@ -928,7 +926,6 @@ int main(int argc, char** argv) {
                 );
 
                 if (cmd_options.use_shuffle_join) {
-                    // [o_orderkey, o_orderpriority]
                     auto filtered_order_shuffled = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
@@ -944,7 +941,6 @@ int main(int argc, char** argv) {
                     );
 
                     nodes.push_back(
-                        // [o_orderkey, o_orderpriority] x [l_orderkey]
                         rapidsmpf::ndsh::left_semi_join_shuffle(
                             ctx,
                             filtered_order_shuffled,
@@ -956,7 +952,6 @@ int main(int argc, char** argv) {
                     );
                 } else {
                     nodes.push_back(
-                        // [o_orderkey, o_orderpriority] x [l_orderkey]
                         rapidsmpf::ndsh::left_semi_join_broadcast(
                             ctx,
                             projected_order,
