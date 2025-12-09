@@ -38,7 +38,7 @@ constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}
 /**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.
  *
- * The returned span reflects the predefined ordering used in @ref MEMORY_TYPES,
+ * The returned span reflects the predefined ordering used in \c MEMORY_TYPES,
  * which lists memory types in decreasing order of preference.
  *
  * @param mem_type The memory type used as the starting point.
