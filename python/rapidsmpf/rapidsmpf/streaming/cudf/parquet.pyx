@@ -159,12 +159,6 @@ def read_parquet_uniform(
     """
     Create a streaming node to read from parquet with uniform chunk distribution.
 
-    Unlike read_parquet which targets a specific number of rows per chunk,
-    this function targets a total number of chunks distributed uniformly.
-
-    When target_num_chunks <= num_files: Files are grouped and read completely.
-    When target_num_chunks > num_files: Files are split, aligned to row groups.
-
     Parameters
     ----------
     ctx
@@ -183,6 +177,12 @@ def read_parquet_uniform(
 
     Notes
     -----
+    Unlike read_parquet which targets a specific number of rows per chunk,
+    this function targets a total number of chunks distributed uniformly.
+
+    When target_num_chunks <= num_files: Files are grouped and read completely.
+    When target_num_chunks > num_files: Files are split, aligned to row groups.
+
     This is a collective operation, all ranks participating via the
     execution context's communicator must call it with the same options.
     """
