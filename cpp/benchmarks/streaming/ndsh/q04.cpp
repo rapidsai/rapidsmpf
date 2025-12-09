@@ -107,8 +107,9 @@ The left-semi join can be performed in one of two ways:
 1. Broadcast `orders` to all ranks, shuffle `lineitem`, join per chunk, concat.
 2. Shuffle `orders` and `lineitem`, join per chunk, concat
 
-Either way, we rely on a shuffled / hash-partitioned `lineitem` table to ensure
-that the left-semi join is correct (notably, how duplicates are handled).
+Either way, we *always* shuffle / hash-partition `lineitem` before the join.
+We rely on that has partitioning to ensure that the chunkwise left-semi join
+is correct (notably, how duplicates are handled).
 
 We don't attempt to reuse the build table (`lineitem`) in the hash partition
 for multiple probe table (`orders`) chunks. That would require broadcasting
@@ -952,7 +953,7 @@ int main(int argc, char** argv) {
                     );
                 } else {
                     nodes.push_back(
-                        rapidsmpf::ndsh::left_semi_join_broadcast(
+                        rapidsmpf::ndsh::left_semi_join_broadcast_left(
                             ctx,
                             projected_order,
                             filtered_lineitem_shuffled,

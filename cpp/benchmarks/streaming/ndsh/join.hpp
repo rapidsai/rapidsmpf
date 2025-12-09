@@ -96,7 +96,7 @@ streaming::Node inner_join_shuffle(
  *
  * @return Coroutine representing the completion of the join.
  */
-streaming::Node left_semi_join_broadcast(
+streaming::Node left_semi_join_broadcast_left(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
