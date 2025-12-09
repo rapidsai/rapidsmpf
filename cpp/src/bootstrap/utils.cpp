@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/error.hpp>
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
@@ -109,6 +110,33 @@ int get_gpu_id() {
 
 bool is_running_with_rrun() {
     return std::getenv("RAPIDSMPF_RANK") != nullptr;
+}
+
+Rank get_nranks() {
+    RAPIDSMPF_EXPECTS(
+        is_running_with_rrun(),
+        "get_nranks() can only be called when running with `rrun`. "
+        "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'.",
+        std::runtime_error
+    );
+
+    char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS");
+    RAPIDSMPF_EXPECTS(
+        nranks_str != nullptr,
+        "RAPIDSMPF_NRANKS environment variable not set. "
+        "Make sure to use a rrun launcher to call this function.",
+        std::runtime_error
+    );
+
+    try {
+        return std::stoi(nranks_str);
+    } catch (...) {
+        RAPIDSMPF_FAIL(
+            "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
+                + std::string(nranks_str),
+            std::runtime_error
+        );
+    }
 }
 
 }  // namespace rapidsmpf::bootstrap

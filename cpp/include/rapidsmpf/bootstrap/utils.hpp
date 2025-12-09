@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/config.hpp>
 
 namespace rapidsmpf::bootstrap {
@@ -63,5 +64,17 @@ int get_gpu_id();
  * @return true if running under `rrun` bootstrap mode, false otherwise.
  */
 bool is_running_with_rrun();
+
+/**
+ * @brief Get the number of `rrun` ranks.
+ *
+ * This helper retrieves the number of ranks when running with `rrun`.
+ * The number of ranks is fetched from the `RAPIDSMPF_NRANKS` environment variable.
+ *
+ * @return Number of ranks.
+ * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not
+ * set or cannot be parsed.
+ */
+Rank get_nranks();
 
 }  // namespace rapidsmpf::bootstrap
