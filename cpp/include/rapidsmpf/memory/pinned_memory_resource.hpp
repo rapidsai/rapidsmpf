@@ -149,7 +149,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
     // only be used by the impl in .cu file.
     struct PinnedMemoryResourceImpl;
-    std::unique_ptr<PinnedMemoryResourceImpl> impl_;
+    std::shared_ptr<PinnedMemoryResourceImpl> impl_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

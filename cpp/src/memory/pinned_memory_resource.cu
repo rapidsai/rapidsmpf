@@ -102,7 +102,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 #endif
 
 PinnedMemoryResource::PinnedMemoryResource(int numa_id)
-    : impl_(std::make_unique<PinnedMemoryResourceImpl>(numa_id)) {
+    : impl_(std::make_shared<PinnedMemoryResourceImpl>(numa_id)) {
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "PinnedMemoryResource is not supported for CUDA versions "
