@@ -336,8 +336,7 @@ int main(int argc, char* argv[]) {
     std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
     std::string actual_ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
 
-    char* rank_env = std::getenv("RAPIDSMPF_RANK");
-    int rank = rank_env ? std::stoi(rank_env) : -1;
+    int rank = rapidsmpf::bootstrap::get_rank();
 
     if (gpu_id < 0) {
         gpu_id = rapidsmpf::bootstrap::get_gpu_id();

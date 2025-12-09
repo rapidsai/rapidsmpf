@@ -112,6 +112,18 @@ bool is_running_with_rrun() {
     return std::getenv("RAPIDSMPF_RANK") != nullptr;
 }
 
+Rank get_rank() {
+    char* rank_env = std::getenv("RAPIDSMPF_RANK");
+    if (rank_env) {
+        try {
+            return std::stoi(rank_env);
+        } catch (...) {
+            // Ignore parse errors
+        }
+    }
+    return -1;
+}
+
 Rank get_nranks() {
     RAPIDSMPF_EXPECTS(
         is_running_with_rrun(),

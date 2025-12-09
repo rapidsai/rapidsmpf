@@ -66,6 +66,16 @@ int get_gpu_id();
 bool is_running_with_rrun();
 
 /**
+ * @brief Get the current `rrun` rank.
+ *
+ * This helper retrieves the rank of the current process when running with `rrun`.
+ * The rank is fetched from the `RAPIDSMPF_RANK` environment variable.
+ *
+ * @return Rank of the current process (>= 0) if found, -1 otherwise.
+ */
+Rank get_rank();
+
+/**
  * @brief Get the number of `rrun` ranks.
  *
  * This helper retrieves the number of ranks when running with `rrun`.
