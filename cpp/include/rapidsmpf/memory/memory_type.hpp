@@ -42,14 +42,18 @@ constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}
  * @return A span of the lower memory types than the given memory type.
  */
 constexpr std::span<MemoryType const> leq_memory_types(MemoryType mem_type) noexcept {
-    return std::span<MemoryType const>{
-        MEMORY_TYPES.begin() + static_cast<std::size_t>(mem_type), MEMORY_TYPES.end()
-    };
+    return std::views::drop_while(MEMORY_TYPES, [&](MemoryType const& mt) {
+        return mt != mem_type;
+    });
 }
 
 static_assert(std::ranges::equal(leq_memory_types(MemoryType::DEVICE), MEMORY_TYPES));
 static_assert(std::ranges::equal(
     leq_memory_types(MemoryType::HOST), std::ranges::single_view{MemoryType::HOST}
+));
+// unknown memory type should return an empty view
+static_assert(std::ranges::equal(
+    leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
 ));
 
 /**

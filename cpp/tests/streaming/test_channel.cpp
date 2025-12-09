@@ -26,14 +26,15 @@ TEST_F(StreamingChannel, ReceiveMessageId) {
         ShutdownAtExit c{ch_out};
         co_await ctx->executor()->schedule();
         for (int i = 0; i < num_messages; ++i) {
-            co_await ch_out->send(Message{
-                static_cast<uint64_t>(i),
-                std::make_unique<int>(i * 10),
-                ContentDescription{},
-                [](Message const& /* msg */, MemoryReservation& /* res */) -> Message {
-                    RAPIDSMPF_FAIL("should not be called");
+            co_await ch_out->send(
+                Message{
+                    static_cast<uint64_t>(i),
+                    std::make_unique<int>(i * 10),
+                    ContentDescription{},
+                    [](Message const& /* msg */, MemoryReservation& /* res */)
+                        -> Message { RAPIDSMPF_FAIL("should not be called"); }
                 }
-            });
+            );
         }
         co_await ch_out->drain(ctx->executor());
     }(ctx, ch));
@@ -41,8 +42,10 @@ TEST_F(StreamingChannel, ReceiveMessageId) {
     std::vector<int> recv_vals;
     std::vector<uint64_t> recv_seq_nums;
     nodes.push_back(
-        [](auto ctx, auto ch_in, std::vector<int>& values, std::vector<uint64_t>& seq_nums
-        ) -> Node {
+        [](auto ctx,
+           auto ch_in,
+           std::vector<int>& values,
+           std::vector<uint64_t>& seq_nums) -> Node {
             ShutdownAtExit c{ch_in};
             co_await ctx->executor()->schedule();
             while (true) {
