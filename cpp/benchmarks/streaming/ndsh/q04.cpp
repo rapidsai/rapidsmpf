@@ -85,32 +85,34 @@ q = (
 )
 ```
 
-Some rough stats:
+Some rough stats at SF-100:
 
 | Scale Factor | Table / Stage     | Row Count   | Percent of prior |
 | ------------ | ----------------- | ----------- | ---------------- |
 | 100          | lineitem          | 600,037,902 | -                |
 | 100          | lineitem-filtered | 379,356,474 | 63%              |
 | 100          | orders            | 150,000,000 | -                |
-| 100          | orders-filtered   | 5733776     | 3.8%             |
-| 100          | joined            | 5257429     | 91% / 1.4%       |
-| 100          | groupby           | 5           | 0.0%             |
-| 100          | final             | 5           | 100%             |
-| 100          | sorted            | 5           | 100%             |
+| 100          | orders-filtered   |   5,733,776 | 3.8%             |
+| 100          | joined            |   5,257,429 | 91% / 1.4%       |
+| 100          | groupby           |           5 | 0.0%             |
+| 100          | final             |           5 | 100%             |
+| 100          | sorted            |           5 | 100%             |
 
-At SF-100
+So the lineitem filter is somewhat selective, the orders filter is very
+selective, the join is a bit selective (of orders), and the final groupby
+reduces by a lot.
 
+The left-semi join can be performed in one of two ways:
 
-orders: 150000000
-orders-filtered: 5733776 (3.8%)
+1. Broadcast `orders` to all ranks, shuffle `lineitem`, join per chunk, concat.
+2. Shuffle `orders` and `lineitem`, join per chunk, concat
 
-joined: 5257429 (91% of orders-filtered, 1.4% of lineitem-filtered)
+Either way, we rely on a shuffled / hash-partitioned `lineitem` table to ensure
+that the left-semi join is correct (notably, how duplicates are handled).
 
-My filtered table looks a bit off. 5,733,776 instead of 5,257,429
-
-
-        This returns just (o_orderpriority, order_count)
-
+We don't attempt to reuse the build table (`lineitem`) in the hash partition
+for multiple probe table (`orders`) chunks. That would require broadcasting
+`lineitem`, which we assume is too large.
 */
 
 namespace {
