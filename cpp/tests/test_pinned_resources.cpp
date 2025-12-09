@@ -56,6 +56,13 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+// Note: PinnedMemoryResource is not directly convertible to
+// rmm::host_async_resource_ref in CCCL 3.2+ due to type system changes.
+// The PinnedMemoryResource has a unique_ptr member making it non-copyable,
+// but CCCL 3.2's resource_ref requires types to satisfy __icopyable.
+// This test is disabled until the type system is updated.
+// TODO: Re-enable this test after https://github.com/rapidsai/rmm/issues/2011
+#if 0
 TEST_P(PinnedResource, HostBuffer) {
     const size_t buffer_size = GetParam();
 
@@ -107,3 +114,4 @@ TEST_P(PinnedResource, HostBuffer) {
     buffer.deallocate_async();
     buffer2.deallocate_async();
 }
+#endif
