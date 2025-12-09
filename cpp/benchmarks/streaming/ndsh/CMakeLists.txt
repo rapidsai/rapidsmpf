@@ -46,22 +46,16 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_compile_options(
-  q09 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-              "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
-)
-target_compile_options(
-  q18 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-              "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
-)
-target_link_libraries(
-  q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-              $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-)
-target_link_libraries(
-  q18 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-              $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-)
+foreach(tgt IN ITEMS q09 q18)
+  target_compile_options(
+    ${tgt} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                   "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  )
+  target_link_libraries(
+    ${tgt} PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                   $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  )
+endforeach()
 install(
   TARGETS rapidsmpfndsh
   COMPONENT benchmarking

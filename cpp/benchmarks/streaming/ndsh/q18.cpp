@@ -89,6 +89,8 @@
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/cuda_event.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -375,7 +377,7 @@ rapidsmpf::streaming::Node allgather_table(
     auto msg = co_await ch_in->receive();
 
     std::unique_ptr<cudf::table> result;
-    rmm::cuda_stream_view stream = cudf::get_default_stream();
+    rmm::cuda_stream_view stream;
 
     if (ctx->comm()->nranks() > 1) {
         rapidsmpf::streaming::AllGather gatherer{ctx, tag};
@@ -606,7 +608,7 @@ rapidsmpf::streaming::Node prefilter_by_orderkeys(
         qualifying_orderkeys->view(),
         cudf::null_equality::UNEQUAL,
         cudf::set_as_build_table::RIGHT,
-        cudf::get_default_stream()
+        ctx->br()->stream_pool().get_stream()
     );
 
     std::size_t total_input_rows = 0;
@@ -699,7 +701,10 @@ rapidsmpf::streaming::Node local_inner_join(
         ctx, right_msg.release<rapidsmpf::streaming::TableChunk>()
     );
 
+    rapidsmpf::CudaEvent event;
     auto stream = left_chunk.stream();
+    rapidsmpf::cuda_stream_join(stream, right_chunk.stream(), &event);
+
     auto left_table = left_chunk.table_view();
     auto right_table = right_chunk.table_view();
 
