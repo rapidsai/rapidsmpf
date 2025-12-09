@@ -87,4 +87,39 @@ Rank get_rank();
  */
 Rank get_nranks();
 
+/**
+ * @brief Parse CPU list string into vector of core IDs.
+ *
+ * Parses a comma-separated CPU list string that may contain ranges (e.g., "0-3,8-11")
+ * into a vector of individual CPU core IDs.
+ *
+ * @param cpulist CPU list string (e.g., "0-3,8-11" or "0,1,2,3").
+ * @return Vector of CPU core IDs. Empty if parsing fails or input is empty.
+ */
+std::vector<int> parse_cpu_list(std::string const& cpulist);
+
+/**
+ * @brief Compare two CPU affinity strings (order-independent).
+ *
+ * Compares two CPU affinity strings by parsing them into sorted lists of core IDs
+ * and checking if they contain the same cores, regardless of order or formatting.
+ *
+ * @param actual Actual CPU affinity string.
+ * @param expected Expected CPU affinity string.
+ * @return true if both strings represent the same set of CPU cores, false otherwise.
+ */
+bool compare_cpu_affinity(std::string const& actual, std::string const& expected);
+
+/**
+ * @brief Compare two comma-separated device lists (order-independent).
+ *
+ * Compares two comma-separated device lists by parsing them into sorted vectors
+ * and checking if they contain the same devices, regardless of order.
+ *
+ * @param actual Actual device list string.
+ * @param expected Expected device list string.
+ * @return true if both strings represent the same set of devices, false otherwise.
+ */
+bool compare_device_lists(std::string const& actual, std::string const& expected);
+
 }  // namespace rapidsmpf::bootstrap

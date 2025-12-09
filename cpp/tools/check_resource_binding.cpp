@@ -33,88 +33,6 @@
 namespace {
 
 /**
- * @brief Parse CPU list string into vector of core IDs.
- */
-std::vector<int> parse_cpu_list(std::string const& cpulist) {
-    std::vector<int> cores;
-    if (cpulist.empty()) {
-        return cores;
-    }
-
-    std::istringstream iss(cpulist);
-    std::string token;
-    while (std::getline(iss, token, ',')) {
-        size_t dash_pos = token.find('-');
-        if (dash_pos != std::string::npos) {
-            try {
-                int start = std::stoi(token.substr(0, dash_pos));
-                int end = std::stoi(token.substr(dash_pos + 1));
-                for (int i = start; i <= end; ++i) {
-                    cores.push_back(i);
-                }
-            } catch (...) {
-                return {};
-            }
-        } else {
-            try {
-                cores.push_back(std::stoi(token));
-            } catch (...) {
-                return {};
-            }
-        }
-    }
-    return cores;
-}
-
-/**
- * @brief Compare two CPU affinity strings (order-independent).
- */
-bool compare_cpu_affinity(std::string const& actual, std::string const& expected) {
-    if (actual.empty() && expected.empty()) {
-        return true;
-    }
-    if (actual.empty() || expected.empty()) {
-        return false;
-    }
-
-    auto actual_cores = parse_cpu_list(actual);
-    auto expected_cores = parse_cpu_list(expected);
-    std::sort(actual_cores.begin(), actual_cores.end());
-    std::sort(expected_cores.begin(), expected_cores.end());
-    return actual_cores == expected_cores;
-}
-
-/**
- * @brief Compare two comma-separated device lists (order-independent).
- */
-bool compare_device_lists(std::string const& actual, std::string const& expected) {
-    if (actual.empty() && expected.empty()) {
-        return true;
-    }
-    if (actual.empty() || expected.empty()) {
-        return false;
-    }
-
-    std::vector<std::string> actual_devs;
-    std::vector<std::string> expected_devs;
-
-    std::istringstream actual_ss(actual);
-    std::string token;
-    while (std::getline(actual_ss, token, ',')) {
-        actual_devs.push_back(token);
-    }
-
-    std::istringstream expected_ss(expected);
-    while (std::getline(expected_ss, token, ',')) {
-        expected_devs.push_back(token);
-    }
-
-    std::sort(actual_devs.begin(), actual_devs.end());
-    std::sort(expected_devs.begin(), expected_devs.end());
-    return actual_devs == expected_devs;
-}
-
-/**
  * @brief Simple JSON value extractor (not a full-featured JSON parser).
  */
 std::string extract_json_string_value(std::string const& json, std::string const& key) {
@@ -422,7 +340,9 @@ int main(int argc, char* argv[]) {
     bool all_passed = true;
 
     // Check CPU affinity
-    bool cpu_ok = compare_cpu_affinity(actual_cpu_affinity, expected_cpu_affinity);
+    bool cpu_ok = rapidsmpf::bootstrap::compare_cpu_affinity(
+        actual_cpu_affinity, expected_cpu_affinity
+    );
     std::cout << "CPU Affinity: " << (cpu_ok ? "PASS" : "FAIL") << std::endl;
     if (!cpu_ok) {
         std::cout << "  Expected: " << expected_cpu_affinity << std::endl;
@@ -479,7 +399,9 @@ int main(int argc, char* argv[]) {
             expected_ucx_devices += ",";
         expected_ucx_devices += expected_network_devices[i];
     }
-    bool ucx_ok = compare_device_lists(actual_ucx_net_devices, expected_ucx_devices);
+    bool ucx_ok = rapidsmpf::bootstrap::compare_device_lists(
+        actual_ucx_net_devices, expected_ucx_devices
+    );
     std::cout << "UCX_NET_DEVICES: " << (ucx_ok ? "PASS" : "FAIL") << std::endl;
     if (!ucx_ok) {
         std::cout << "  Expected: " << expected_ucx_devices << std::endl;
