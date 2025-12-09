@@ -41,16 +41,17 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    /// @brief Storage type for the device buffer.
-    using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
+    /// @brief Storage type for a device buffer.
+    using DeviceBufferT = std::unique_ptr<rmm::device_buffer>;
 
-    /// @brief Storage type for the host buffer.
-    using HostStorageT = std::unique_ptr<HostBuffer>;
+    /// @brief Storage type for a host buffer.
+    using HostBufferT = std::unique_ptr<HostBuffer>;
 
     /**
-     * @brief Storage type in Buffer, which could be either host or device memory.
+     * @brief Storage type in Buffer.
      */
-    using StorageT = std::variant<DeviceStorageT, HostStorageT>;
+    using StorageT = std::variant<DeviceBufferT, HostBufferT>;
+
     /**
      * @brief Access the underlying memory buffer (host or device memory).
      *
@@ -166,8 +167,8 @@ class Buffer {
     [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
-                [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
-                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
+                [](HostBufferT const&) -> MemoryType { return MemoryType::HOST; },
+                [](DeviceBufferT const&) -> MemoryType { return MemoryType::DEVICE; }
             },
             storage_
         );
@@ -224,7 +225,7 @@ class Buffer {
 
   private:
     /**
-     * @brief Construct a stream-ordered Buffer from synchronized host memory.
+     * @brief Construct a stream-ordered Buffer from synchronized host buffer.
      *
      * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
      * @p stream for subsequent stream-ordered operations.
@@ -243,7 +244,7 @@ class Buffer {
     Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream);
 
     /**
-     * @brief Construct a stream-ordered Buffer from device memory.
+     * @brief Construct a stream-ordered Buffer from a device buffer.
      *
      * Adopts @p device_buffer as the Buffer's storage and inherits its CUDA stream.
      * At construction, the Buffer records an initial "latest write" on that stream,
@@ -276,7 +277,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] DeviceStorageT release_device();
+    [[nodiscard]] DeviceBufferT release_device_buffer();
 
     /**
      * @brief Release the underlying host memory buffer.
@@ -286,7 +287,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] HostStorageT release_host();
+    [[nodiscard]] HostBufferT release_host_buffer();
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.

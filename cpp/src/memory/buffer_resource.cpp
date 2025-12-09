@@ -159,7 +159,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         std::invalid_argument
     );
     auto stream = buffer->stream();
-    auto ret = move(std::move(buffer), reservation)->release_device();
+    auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
         ret->stream().value() == stream.value(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
@@ -176,7 +176,7 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), reservation)->release_host();
+    return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
 rmm::cuda_stream_pool const& BufferResource::stream_pool() const {

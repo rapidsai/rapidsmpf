@@ -23,7 +23,7 @@ Buffer::Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view st
       storage_{std::move(host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
-        std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
+        std::get<HostBufferT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
 }
 
@@ -31,11 +31,11 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     : size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)} {
     RAPIDSMPF_EXPECTS(
-        std::get<DeviceStorageT>(storage_) != nullptr,
+        std::get<DeviceBufferT>(storage_) != nullptr,
         "the device buffer cannot be NULL",
         std::invalid_argument
     );
-    stream_ = std::get<DeviceStorageT>(storage_)->stream();
+    stream_ = std::get<DeviceBufferT>(storage_)->stream();
     latest_write_event_.record(stream_);
 }
 
@@ -80,17 +80,17 @@ bool Buffer::is_latest_write_done() const {
     return size == 0 || latest_write_event_.is_ready();
 }
 
-Buffer::DeviceStorageT Buffer::release_device() {
+Buffer::DeviceBufferT Buffer::release_device_buffer() {
     throw_if_locked();
-    if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
+    if (auto ref = std::get_if<DeviceBufferT>(&storage_)) {
         return std::move(*ref);
     }
     RAPIDSMPF_FAIL("Buffer doesn't hold a rmm::device_buffer");
 }
 
-Buffer::HostStorageT Buffer::release_host() {
+Buffer::HostBufferT Buffer::release_host_buffer() {
     throw_if_locked();
-    if (auto ref = std::get_if<HostStorageT>(&storage_)) {
+    if (auto ref = std::get_if<HostBufferT>(&storage_)) {
         return std::move(*ref);
     }
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
