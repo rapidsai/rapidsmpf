@@ -36,10 +36,14 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
 constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}};
 
 /**
- * @brief Get the lower memory types than or equal to the @p mem_type .
+ * @brief Get the memory types with preference lower than or equal to @p mem_type.
  *
- * @param mem_type The memory type.
- * @return A span of the lower memory types than the given memory type.
+ * The returned span reflects the predefined ordering used in @ref MEMORY_TYPES,
+ * which lists memory types in decreasing order of preference.
+ *
+ * @param mem_type The memory type used as the starting point.
+ * @return A span of memory types whose preference is lower than or equal to
+ * the given type.
  */
 constexpr std::span<MemoryType const> leq_memory_types(MemoryType mem_type) noexcept {
     return std::views::drop_while(MEMORY_TYPES, [&](MemoryType const& mt) {
