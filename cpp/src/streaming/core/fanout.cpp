@@ -330,17 +330,15 @@ struct UnboundedFanout {
                 break;
             }
 
-            // receive a message from the input channel
-            auto msg = co_await ch_in->receive();
+            // receive a message id from the input channel
+            auto msg_id = co_await ch_in->receive_message_id();
 
             {
                 auto lock = co_await mtx.scoped_lock();
-                if (msg.empty()) {
+                if (msg_id == SpillableMessages::InvalidMessageId) {
                     no_more_input = true;
                 } else {
-                    recv_messages.emplace_back(
-                        spillable_messages->insert(std::move(msg))
-                    );
+                    recv_messages.emplace_back(msg_id);
                 }
             }
 

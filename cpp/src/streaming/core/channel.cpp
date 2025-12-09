@@ -23,6 +23,11 @@ coro::task<Message> Channel::receive() {
     }
 }
 
+coro::task<SpillableMessages::MessageId> Channel::receive_message_id() {
+    auto msg_id = co_await rb_.consume();
+    co_return msg_id.has_value() ? *msg_id : SpillableMessages::InvalidMessageId;
+}
+
 Node Channel::drain(std::unique_ptr<coro::thread_pool>& executor) {
     return rb_.shutdown_drain(executor);
 }
