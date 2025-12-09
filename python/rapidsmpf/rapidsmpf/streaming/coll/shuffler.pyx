@@ -224,13 +224,18 @@ cdef class ShufflerAsync:
              that partition.
         """
         cdef unordered_map[uint32_t, cpp_PackedData] c_chunks
+        cdef PackedData pd
+        cdef uint32_t c_pid
         c_chunks.reserve(len(chunks))
         for pid, chunk in chunks.items():
-            if not (<PackedData?>chunk).c_obj:
+            pd = <PackedData>chunk
+            c_pid = <uint32_t>pid
+            if not pd.c_obj:
                 raise ValueError("PackedData was empty")
-            cpp_insert_chunk_into_partition_map(
-                c_chunks, pid, move((<PackedData>chunk).c_obj)
-            )
+            with nogil:
+                cpp_insert_chunk_into_partition_map(
+                    c_chunks, c_pid, move(pd.c_obj)
+                )
         with nogil:
             deref(self._handle).insert(move(c_chunks))
 
