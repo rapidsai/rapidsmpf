@@ -132,3 +132,90 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     auto actual = br->move_to_host_buffer(std::move(back_on_host[0].data), res);
     EXPECT_EQ(actual->copy_to_uint8_vector(), payload);
 }
+
+class NumOfRows : public ::testing::TestWithParam<std::tuple<int, MemoryType>> {
+  protected:
+    // cudf::chunked_pack requires at least a 1 MiB bounce buffer
+    static constexpr size_t chunk_size = 1 << 20;
+
+    void SetUp() override {
+        auto mem_type = std::get<1>(GetParam());
+
+        std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available;
+        // disable all memory types except mem_type
+        for (auto mt : MEMORY_TYPES) {
+            if (mt != mem_type) {
+                memory_available[mt] = []() { return 0; };
+            }
+        }
+
+        br = std::make_unique<BufferResource>(
+            cudf::get_current_device_resource_ref(), memory_available
+        );
+        stream = cudf::get_default_stream();
+    }
+
+    std::unique_ptr<BufferResource> br;
+    rmm::cuda_stream_view stream;
+};
+
+// test different `num_rows` and `MemoryType`.
+INSTANTIATE_TEST_SUITE_P(
+    ChunkedPack,
+    NumOfRows,
+    ::testing::Combine(
+        ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),
+        ::testing::Values(MemoryType::DEVICE, MemoryType::HOST)
+    ),
+    [](const testing::TestParamInfo<NumOfRows::ParamType>& info) {
+        return "nrows_" + std::to_string(std::get<0>(info.param)) + "_type_"
+               + MEMORY_TYPE_NAMES[static_cast<std::size_t>(std::get<1>(info.param))];
+    }
+);
+
+TEST_P(NumOfRows, chunked_pack) {
+    auto const [num_rows, mem_type] = GetParam();
+    std::int64_t const seed = 42;
+
+    cudf::table input_table = random_table_with_index(seed, num_rows, 0, 10);
+
+    // Get result from split_and_pack with empty splits (single partition)
+    std::vector<cudf::size_type> empty_splits{};
+    auto split_result =
+        rapidsmpf::split_and_pack(input_table, empty_splits, stream, br.get());
+    ASSERT_EQ(split_result.size(), 1);
+    auto& split_packed = split_result.at(0);
+
+    // Get result from chunked_pack
+    auto chunked_packed =
+        rapidsmpf::chunked_pack(input_table, chunk_size, stream, br.get());
+
+    if (num_rows == 0) {  // empty buffers are always marked as device memory
+        EXPECT_EQ(MemoryType::DEVICE, chunked_packed.data->mem_type());
+    } else {
+        EXPECT_EQ(mem_type, chunked_packed.data->mem_type());
+    }
+
+    // Unpack both and compare the resulting tables
+    cudf::packed_columns split_columns{
+        std::move(split_packed.metadata),
+        std::make_unique<rmm::device_buffer>(
+            split_packed.data->data(), split_packed.data->size, stream, br->device_mr()
+        )
+    };
+    cudf::packed_columns chunked_columns{
+        std::move(chunked_packed.metadata),
+        std::make_unique<rmm::device_buffer>(
+            chunked_packed.data->data(),
+            chunked_packed.data->size,
+            stream,
+            br->device_mr()
+        )
+    };
+
+    stream.synchronize();
+
+    auto split_table = cudf::unpack(split_columns);
+    auto chunked_table = cudf::unpack(chunked_columns);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(split_table, chunked_table);
+}

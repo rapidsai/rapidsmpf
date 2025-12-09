@@ -107,6 +107,16 @@ std::byte* Buffer::exclusive_data_access() {
     );
 }
 
+void Buffer::record_lastest_write_and_unlock() {
+    RAPIDSMPF_EXPECTS(
+        lock_.load(std::memory_order_acquire),
+        "the buffer is not locked",
+        std::logic_error
+    );
+    latest_write_event_.record(stream_);
+    unlock();
+}
+
 void Buffer::unlock() {
     lock_.store(false, std::memory_order_release);
 }

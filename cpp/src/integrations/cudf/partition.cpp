@@ -267,4 +267,43 @@ std::vector<PackedData> unspill_partitions(
     statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
+
+PackedData chunked_pack(
+    cudf::table_view const& table,
+    size_t chunk_size,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+) {
+    cudf::chunked_pack packer(table, chunk_size, stream, br->device_mr());
+
+    // make a reservation for the bounce buffer with overbooking and hold it until we are
+    // done
+    auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
+    auto bounce_buf = br->allocate(chunk_size, stream, bounce_buf_res);
+    cudf::device_span<uint8_t> buf_span(
+        reinterpret_cast<uint8_t*>(bounce_buf->exclusive_data_access()), chunk_size
+    );
+
+    auto const total_size = packer.get_total_contiguous_size();
+    // make a reservation from any available memory type
+    auto reservation = br->reserve_or_fail(total_size, MEMORY_TYPES);
+
+    auto data = br->allocate(total_size, stream, reservation);
+    std::byte* data_ptr = data->exclusive_data_access();
+    size_t offset = 0;
+    while (packer.has_next()) {
+        size_t n_bytes = packer.next(buf_span);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            data_ptr + offset, buf_span.data(), n_bytes, cudaMemcpyDefault, stream
+        ));
+        offset += n_bytes;
+    }
+    // record the latest write and unlock the data buffer
+    data->record_lastest_write_and_unlock();
+
+    // release the exclusive lock on the bounce buffer
+    bounce_buf->unlock();
+
+    return {packer.build_metadata(), std::move(data)};
+}
 }  // namespace rapidsmpf

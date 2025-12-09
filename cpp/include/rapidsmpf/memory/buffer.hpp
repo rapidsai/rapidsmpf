@@ -173,6 +173,13 @@ class Buffer {
     std::byte* exclusive_data_access();
 
     /**
+     * @brief Record the latest write event on a locked buffer and unlock the buffer.
+     *
+     * @throws std::logic_error If the buffer is not locked.
+     */
+    void record_lastest_write_and_unlock();
+
+    /**
      * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
      */
     void unlock();

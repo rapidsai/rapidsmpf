@@ -209,4 +209,24 @@ std::vector<PackedData> unspill_partitions(
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
+/**
+ * @brief Pack a table using a @p chunk_size device buffer using `cudf::chunked_pack`.
+ *
+ * @param table The table to pack.
+ * @param chunk_size The size of the temporary device buffer to use (must be at least 1
+ * MiB enforced by cudf::chunked_pack).
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param br Buffer resource for memory allocations.
+ *
+ * @return A `PackedData` containing the packed table.
+ *
+ * @throws std::runtime_error If the memory allocation fails.
+ */
+PackedData chunked_pack(
+    cudf::table_view const& table,
+    size_t chunk_size,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+);
+
 }  // namespace rapidsmpf
