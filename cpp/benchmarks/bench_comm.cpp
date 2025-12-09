@@ -38,6 +38,9 @@ class ArgumentParser {
             RAPIDSMPF_EXPECTS(mpi::is_initialized() == true, "MPI is not initialized");
             RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
             RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        } else {
+            // When not using MPI, expect to be using bootstrap mode (rrun)
+            nranks = rapidsmpf::bootstrap::get_nranks();
         }
 
         try {

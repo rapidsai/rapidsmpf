@@ -170,6 +170,8 @@ add_library(
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
+  src/memory/host_buffer.cpp
+  src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
   src/memory/pinned_memory_resource.cu
   src/memory/scoped_memory_record.cpp
@@ -193,6 +195,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp

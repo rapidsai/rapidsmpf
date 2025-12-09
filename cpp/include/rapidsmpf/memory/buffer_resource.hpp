@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -86,6 +87,15 @@ class BufferResource {
     }
 
     /**
+     * @brief Get the RMM host memory resource.
+     *
+     * @return Reference to the RMM resource used for host allocations.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
+        return host_mr_;
+    }
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
@@ -132,29 +142,33 @@ class BufferResource {
     );
 
     /**
-     * @brief Reserve memory and spill if necessary.
+     * @brief Reserve device memory and spill if necessary.
      *
-     * @param mem_type The memory type to reserve.
+     * Attempts to reserve the requested amount of device memory. If insufficient memory
+     * is available, spilling is triggered to free up space. When overbooking is allowed,
+     * the reservation may succeed even if spilling was not sufficient to fully satisfy
+     * the request.
+     *
      * @param size The size of the memory to reserve.
      * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
      * memory is freed to satisfy the reservation; otherwise, allows overbooking even
      * if spilling was insufficient.
      * @return The memory reservation.
+     *
      * @throws std::overflow_error if allow_overbooking is false and the buffer resource
-     * cannot reserve and spill enough memory.
+     * cannot reserve and spill enough device memory.
      */
-    MemoryReservation reserve_and_spill(
-        MemoryType mem_type, size_t size, bool allow_overbooking
+    MemoryReservation reserve_device_memory_and_spill(
+        size_t size, bool allow_overbooking
     );
 
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_types Range of memory types to try to reserve memory from. If not
-     * provided, all memory types will be tried in the order they appear in
-     * `MEMORY_TYPES`.
+     * @param mem_types Range of memory types to try to reserve memory from.
      * @return A memory reservation.
+     *
      * @throws std::runtime_error if no memory reservation was made.
      */
     template <std::ranges::input_range Range>
@@ -176,6 +190,7 @@ class BufferResource {
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
      * @return A memory reservation.
+     *
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, MemoryType mem_type) {
@@ -278,19 +293,19 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer into a host vector.
+     * @brief Move a Buffer into a host buffer.
      *
      * If the Buffer already resides in host memory, a cheap move is performed.
      * Otherwise, the Buffer is copied to host memory using its own CUDA stream.
      *
      * @param buffer Buffer to move.
      * @param reservation Memory reservation used if a copy is required.
-     * @return Unique pointer to the resulting host vector.
+     * @return Unique pointer to the resulting host buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
      * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
@@ -321,6 +336,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+    HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};

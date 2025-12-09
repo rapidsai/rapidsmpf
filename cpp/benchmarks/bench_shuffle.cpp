@@ -46,10 +46,13 @@ class ArgumentParser {
 
             RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
             RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        } else {
+            // When not using MPI, expect to be using bootstrap mode (rrun)
+            nranks = rapidsmpf::bootstrap::get_nranks();
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igxhM:")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igsbxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -75,6 +78,10 @@ class ArgumentParser {
                               "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
+                           << "  -s         Discard output chunks to simulate streaming "
+                              "(default: disabled)\n"
+                           << "  -b         Disallow memory overbooking when generating "
+                              "input data (default: allow memory overbooking)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
 #ifdef RAPIDSMPF_HAVE_CUPTI
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
@@ -150,6 +157,12 @@ class ArgumentParser {
                 case 'g':
                     hash_partition_with_datagen = true;
                     break;
+                case 's':
+                    enable_output_discard = true;
+                    break;
+                case 'b':
+                    input_data_allow_overbooking = false;
+                    break;
                 case 'x':
                     enable_memory_profiler = true;
                     break;
@@ -217,6 +230,12 @@ class ArgumentParser {
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
+        if (enable_output_discard) {
+            ss << "  -s (enable output discard to simulate streaming)\n";
+        }
+        if (!input_data_allow_overbooking) {
+            ss << "  -b (disallow memory overbooking when generating input data)\n";
+        }
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
@@ -244,6 +263,8 @@ class ArgumentParser {
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
+    bool enable_output_discard{false};
+    bool input_data_allow_overbooking{true};
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
@@ -294,16 +315,17 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.emplace_back(
-                rapidsmpf::unpack_and_concat(
-                    rapidsmpf::unspill_partitions(
-                        std::move(packed_chunks), br, true, statistics
-                    ),
-                    stream,
-                    br,
-                    statistics
-                )
+            auto output_partition = rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), br, true, statistics
+                ),
+                stream,
+                br,
+                statistics
             );
+            if (!args.enable_output_discard) {
+                output_partitions.emplace_back(std::move(output_partition));
+            }
         }
         stream.synchronize();
     }
@@ -358,8 +380,10 @@ std::vector<InputPartitionsT> generate_input_partitions(
             static_cast<cudf::size_type>(args.num_local_rows)
         );
 
-        // reserve at least size_lb and spill if necessary (no overbooking)
-        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
+        // reserve at least size_lb and spill if necessary.
+        auto res = br->reserve_device_memory_and_spill(
+            size_lb, args.input_data_allow_overbooking
+        );
         cudf::table table = random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),

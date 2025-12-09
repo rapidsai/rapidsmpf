@@ -61,6 +61,10 @@ cdef class Context:
                 self._statistics._handle,
             )
 
+        self._spillable_messages = SpillableMessages.from_handle(
+            deref(self._handle).spillable_messages()
+        )
+
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
@@ -141,3 +145,13 @@ cdef class Context:
         with nogil:
             ret = deref(self._handle).create_channel()
         return Channel.from_handle(move(ret))
+
+    def spillable_messages(self):
+        """
+        Get spillable messages.
+
+        Returns
+        -------
+        The spillable messages associated with this context.
+        """
+        return self._spillable_messages
