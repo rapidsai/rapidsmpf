@@ -43,42 +43,6 @@ void Buffer::throw_if_locked() const {
     RAPIDSMPF_EXPECTS(!lock_.load(std::memory_order_acquire), "the buffer is locked");
 }
 
-Buffer::HostStorageT const& Buffer::host() const {
-    throw_if_locked();
-    if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
-        return *ref;
-    } else {
-        RAPIDSMPF_FAIL("Buffer is not host memory");
-    }
-}
-
-Buffer::HostStorageT& Buffer::host() {
-    throw_if_locked();
-    if (auto ref = std::get_if<HostStorageT>(&storage_)) {
-        return *ref;
-    } else {
-        RAPIDSMPF_FAIL("Buffer is not host memory");
-    }
-}
-
-Buffer::DeviceStorageT& Buffer::device() {
-    throw_if_locked();
-    if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
-        return *ref;
-    } else {
-        RAPIDSMPF_FAIL("Buffer is not device memory");
-    }
-}
-
-Buffer::DeviceStorageT const& Buffer::device() const {
-    throw_if_locked();
-    if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
-        return *ref;
-    } else {
-        RAPIDSMPF_FAIL("Buffer is not device memory");
-    }
-}
-
 std::byte const* Buffer::data() const {
     throw_if_locked();
     return std::visit(
@@ -118,12 +82,18 @@ bool Buffer::is_latest_write_done() const {
 
 Buffer::DeviceStorageT Buffer::release_device() {
     throw_if_locked();
-    return std::move(device());
+    if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
+        return std::move(*ref);
+    }
+    RAPIDSMPF_FAIL("Buffer doesn't hold a rmm::device_buffer");
 }
 
 Buffer::HostStorageT Buffer::release_host() {
     throw_if_locked();
-    return std::move(host());
+    if (auto ref = std::get_if<HostStorageT>(&storage_)) {
+        return std::move(*ref);
+    }
+    RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
 void buffer_copy(

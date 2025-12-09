@@ -51,27 +51,6 @@ class Buffer {
      * @brief Storage type in Buffer, which could be either host or device memory.
      */
     using StorageT = std::variant<DeviceStorageT, HostStorageT>;
-
-    /**
-     * @brief Access the underlying host memory buffer (const).
-     *
-     * @return A reference to the unique pointer managing the host memory.
-     *
-     * @throws std::logic_error if the buffer does not manage host memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] HostStorageT const& host() const;
-
-    /**
-     * @brief Access the underlying device memory buffer (const).
-     *
-     * @return A const reference to the unique pointer managing the device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage device memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] DeviceStorageT const& device() const;
-
     /**
      * @brief Access the underlying memory buffer (host or device memory).
      *
@@ -288,26 +267,6 @@ class Buffer {
      * @throws std::logic_error If the buffer is locked.
      */
     void throw_if_locked() const;
-
-    /**
-     * @brief Access the underlying host memory buffer.
-     *
-     * @return A reference to the unique pointer managing the host memory.
-     *
-     * @throws std::logic_error if the buffer does not manage host memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] HostStorageT& host();
-
-    /**
-     * @brief Access the underlying device memory buffer.
-     *
-     * @return A reference to the unique pointer managing the device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage device memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] DeviceStorageT& device();
 
     /**
      * @brief Release the underlying device memory buffer.
