@@ -15,13 +15,10 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
 
 namespace rapidsmpf::bootstrap {
-
-bool is_running_with_rrun() {
-    return std::getenv("RAPIDSMPF_RANK") != nullptr;
-}
 
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options options) {
     auto ctx = init(backend);
