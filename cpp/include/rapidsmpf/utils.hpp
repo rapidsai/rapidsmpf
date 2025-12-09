@@ -8,7 +8,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <memory>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -398,5 +400,31 @@ struct overloaded : Ts... {
  * at runtime or if the NUMA node ID cannot be retrieved.
  */
 int get_current_numa_node_id();
+
+/**
+ * @brief Backport of `std::ranges::contains` from C++23 for C++20.
+ *
+ * Checks whether a range contains a given value.
+ *
+ * @tparam R An input range type.
+ * @tparam T The type of the value to search for.
+ * @tparam Proj A projection function applied to each element before comparison.
+ *
+ * @param range The range to search.
+ * @param value The value to search for in the range.
+ * @param proj  The projection to apply to each element before comparison.
+ *
+ * @return true if any element in the range compares equal to value after projection,
+ *         false otherwise.
+ */
+template <std::ranges::input_range R, typename T, typename Proj = std::identity>
+[[nodiscard]] constexpr bool contains(R&& range, T const& value, Proj proj = {}) {
+    for (auto const& elem : range) {
+        if (std::invoke(proj, elem) == value) {
+            return true;
+        }
+    }
+    return false;
+}
 
 }  // namespace rapidsmpf

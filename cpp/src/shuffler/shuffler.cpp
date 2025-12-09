@@ -5,9 +5,8 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <memory>
-#include <numeric>
-#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 
@@ -40,7 +39,6 @@ namespace {
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for GPU data allocations.
- * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param amount The maximum amount of data (in bytes) to be spilled.
@@ -53,10 +51,7 @@ namespace {
  */
 template <typename KeyType>
 std::size_t postbox_spilling(
-    BufferResource* br,
-    Communicator::Logger& log,
-    PostBox<KeyType>& postbox,
-    std::size_t amount
+    BufferResource* br, PostBox<KeyType>& postbox, std::size_t amount
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     // Let's look for chunks to spill in the outbox.
@@ -69,18 +64,10 @@ std::size_t postbox_spilling(
 
         // TODO: Use a clever strategy to decide which chunks to spill. For now, we
         // just spill the chunks in an arbitrary order.
-        auto [host_reservation, host_overbooking] =
-            br->reserve(MemoryType::HOST, size, true);
-        if (host_overbooking > 0) {
-            log.warn(
-                "Cannot spill to host because of host memory overbooking: ",
-                format_nbytes(host_overbooking)
-            );
-            continue;
-        }
+        auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
@@ -217,7 +204,10 @@ class Shuffler::Progress {
                                 chunk.concat_data_size(), MEMORY_TYPES
                             )
                         ));
-                        if (chunk.data_memory_type() == MemoryType::HOST) {
+                        if (rapidsmpf::contains(
+                                SPILL_TARGET_MEMORY_TYPES, chunk.data_memory_type()
+                            ))
+                        {
                             stats.add_bytes_stat(
                                 "spill-bytes-recv-to-host", chunk.concat_data_size()
                             );
@@ -531,7 +521,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 
 void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto& log = comm_->logger();
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
@@ -542,21 +531,12 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.data) {
-            auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, packed_data.data->size, true);
-            if (host_overbooking > 0) {
-                log.warn(
-                    "Cannot spill to host because of host memory overbooking: ",
-                    format_nbytes(host_overbooking)
-                );
-                continue;
-            }
+            auto reservation =
+                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
-            chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), host_reservation)
-            );
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
@@ -758,7 +738,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
+        spilled = postbox_spilling(br_, ready_postbox_, spill_need);
     }
     return spilled;
 }

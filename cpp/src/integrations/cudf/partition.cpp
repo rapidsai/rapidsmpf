@@ -228,7 +228,7 @@ std::vector<PackedData> spill_partitions(
         }
     }
     // Spill each partition to host memory.
-    auto [reservation, _] = br->reserve(MemoryType::HOST, device_size, false);
+    auto reservation = br->reserve_or_fail(device_size, SPILL_TARGET_MEMORY_TYPES);
     std::vector<PackedData> ret;
     ret.reserve(partitions.size());
     for (auto& [metadata, data] : partitions) {
