@@ -98,5 +98,4 @@ streaming::TableChunk to_device(
     );
     return chunk.make_available(reservation);
 }
-
 }  // namespace rapidsmpf::ndsh
