@@ -12,6 +12,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <ranges>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -355,9 +356,7 @@ ReduceOperatorFunction make_host_reduce_operator_impl() {
         auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
         auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
 
-        for (std::size_t i = 0; i < count; ++i) {
-            acc_ptr[i] = op(acc_ptr[i], in_ptr[i]);
-        }
+        std::transform(acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
 
         acc_buf->unlock();
         in_buf->unlock();
