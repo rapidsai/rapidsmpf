@@ -42,8 +42,8 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-# Use a static library for test sources to avoid recompiling (especially cudf_tests) them for
-# each executable.
+# Use a static library for test sources to avoid recompiling (especially cudf_tests) them for each
+# executable.
 add_library(test_sources STATIC)
 set_target_properties(
   test_sources
@@ -54,21 +54,16 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_include_directories(
-  test_sources PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
-)
+target_include_directories(test_sources PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
 target_compile_options(
   test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
   test_sources
-  PRIVATE rapidsmpf::rapidsmpf
-          cudf::cudftestutil
-          cudf::cudftestutil_impl
+  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-  PUBLIC GTest::gmock
-         GTest::gtest
+  PUBLIC GTest::gmock GTest::gtest
 )
 disable_sign_conversion_warning(test_sources)
 
@@ -113,7 +108,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_table_chunk.cpp
   )
 endif()
-
 
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
@@ -203,13 +197,8 @@ target_compile_options(
 )
 target_link_libraries(
   single_tests
-  PRIVATE rapidsmpf::rapidsmpf
-          GTest::gmock
-          GTest::gtest
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-          maybe_asan
-          test_sources
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan test_sources
 )
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
