@@ -228,7 +228,7 @@ inline size_t total_packing_wiggle_room(cudf::table_view const& table) {
  * @param table The table to pack.
  * @param chunk_size The size of the temporary device buffer to use (must be at least 1
  * MiB enforced by cudf::chunked_pack).
- * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param stream The CUDA stream @p table was created on.
  * @param bounce_buf_res Device memory reservation for the bounce buffer.
  * @param data_res Memory reservation for the data buffer. If the final packed buffer size
  * is with in a wiggle room, this @p data_res will be padded to the packed buffer size.

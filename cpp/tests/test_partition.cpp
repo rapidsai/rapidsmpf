@@ -165,7 +165,7 @@ INSTANTIATE_TEST_SUITE_P(
     NumOfRows,
     ::testing::Combine(
         ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),
-        ::testing::Values(MemoryType::DEVICE, MemoryType::HOST)
+        ::testing::ValuesIn(MEMORY_TYPES)
     ),
     [](const testing::TestParamInfo<NumOfRows::ParamType>& info) {
         return "nrows_" + std::to_string(std::get<0>(info.param)) + "_type_"

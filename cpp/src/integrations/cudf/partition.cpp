@@ -293,8 +293,6 @@ PackedData chunked_pack(
         }
     }
 
-    // make a reservation for the bounce buffer with overbooking and hold it until we are
-    // done
     auto bounce_buf = bounce_buf_res.br()->allocate(chunk_size, stream, bounce_buf_res);
 
     auto data = bounce_buf->write_access([&](std::byte* bounce_buf_ptr,
