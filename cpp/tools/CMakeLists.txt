@@ -55,8 +55,9 @@ install(
 )
 
 add_executable(
-  check_resource_binding "check_resource_binding.cpp"
-                         "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+  check_resource_binding
+  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
 )
 set_target_properties(
   check_resource_binding
@@ -74,7 +75,7 @@ target_compile_definitions(
   check_resource_binding PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
 )
 target_link_libraries(
-  check_resource_binding PRIVATE rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  check_resource_binding PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
                                  $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
 )
 install(
