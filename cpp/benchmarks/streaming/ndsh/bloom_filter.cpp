@@ -69,16 +69,21 @@ streaming::Node build_bloom_filter(
     ));
     stream.synchronize();
     auto [res, _] = ctx->br()->reserve(MemoryType::HOST, 0, true);
+    ctx->comm()->logger().print("Bloom filter insertion starting at time ", Clock::now());
     allgather.insert(
         0,
         {std::make_unique<std::vector<std::uint8_t>>(std::move(metadata)),
          ctx->br()->allocate(stream, std::move(res))}
     );
-    ctx->comm()->logger().print("Bloom filter allgather insertion ", Clock::now() - t0);
+    ctx->comm()->logger().print(
+        "Bloom filter allgather insertion ", Clock::now() - t0, " ", Clock::now() - start
+    );
     t0 = Clock::now();
     allgather.insert_finished();
     auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
-    ctx->comm()->logger().print("Bloom filter extract all took ", Clock::now() - t0);
+    ctx->comm()->logger().print(
+        "Bloom filter extract all took ", Clock::now() - t0, " ", Clock::now() - start
+    );
     auto merged = std::make_unique<std::vector<std::byte>>(storage.size);
     for (auto&& data : per_rank) {
         for (std::size_t i = 0; i < storage.size; i++) {
