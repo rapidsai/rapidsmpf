@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -255,25 +256,10 @@ class AllReduce {
 namespace detail {
 
 /**
- * @brief Type trait to check if a type supports arithmetic operations.
+ * @brief Concept to check if a type supports arithmetic operations.
  */
 template <typename T>
-struct is_supported_arithmetic_op : std::false_type {};
-
-template <>
-struct is_supported_arithmetic_op<int> : std::true_type {};
-
-template <>
-struct is_supported_arithmetic_op<float> : std::true_type {};
-
-template <>
-struct is_supported_arithmetic_op<double> : std::true_type {};
-
-template <>
-struct is_supported_arithmetic_op<unsigned long> : std::true_type {};
-
-template <>
-struct is_supported_arithmetic_op<bool> : std::true_type {};
+concept supported_arithmetic_op = std::integral<T> || std::floating_point<T>;
 
 /**
  * @brief Type trait to check if a (T, OpEnum, Op) combination is supported.
@@ -283,37 +269,38 @@ struct is_supported_reduce_op : std::false_type {};
 
 // HostReduceOp specializations
 template <typename T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::SUM>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::SUM> : std::true_type {};
 
 template <typename T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::PROD>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::PROD> : std::true_type {};
 
 template <typename T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MIN>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MIN> : std::true_type {};
 
 template <typename T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MAX>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MAX> : std::true_type {};
 
 // DeviceReduceOp specializations
 template <typename T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::SUM>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::SUM> : std::true_type {};
 
 template <typename T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::PROD>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::PROD> : std::true_type {
+};
 
 template <typename T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MIN>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MIN> : std::true_type {};
 
 template <typename T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MAX>
-    : is_supported_arithmetic_op<T> {};
+    requires supported_arithmetic_op<T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MAX> : std::true_type {};
 
 template <typename T, typename OpEnum, OpEnum Op>
 inline constexpr bool is_supported_reduce_op_v =
