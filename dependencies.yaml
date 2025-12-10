@@ -191,7 +191,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - rapids-build-backend>=0.4.0,<0.5.0.dev0
+          - rapids-build-backend>=0.4.0,<0.5.0
       - output_types: conda
         packages:
           - scikit-build-core>=0.10.0
@@ -218,7 +218,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cython>=3.0.3,<3.2.0a0
+          - cython>=3.0.3,<3.2.0
   checks:
     common:
       - output_types: conda
@@ -303,10 +303,12 @@ dependencies:
       - output_types: conda
         packages:
           - gdb
+          - mpi4py
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - output_types: [conda, pyproject, requirements]
         packages:
           - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0a0
+          - pytest<9.0.0
           - nvidia-ml-py>=12
     specific:
       - output_types: conda
@@ -322,7 +324,7 @@ dependencies:
     common:
       - output_types: [conda, requirements, pyproject]
         packages:
-          - numpy >=1.23,<3.0a0
+          - numpy >=1.23,<3.0
       - output_types: conda
         packages:
           - cupy>=13.6.0
@@ -338,11 +340,11 @@ dependencies:
           - matrix:
               cuda: "12.*"
             packages:
-              - cuda-python>=12.9.2,<13.0a0
+              - cuda-python>=12.9.2,<13.0
           # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
           - matrix:
             packages:
-              - cuda-python>=13.0.1,<14.0a0
+              - cuda-python>=13.0.1,<14.0
       - output_types: [requirements, pyproject]
         matrices:
           - matrix:
@@ -423,6 +425,7 @@ dependencies:
           - myst-nb
           - myst-parser
           - numpydoc
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - pydata-sphinx-theme>=0.15.4
           - sphinx>=8.1.0
           - sphinx-autobuild
