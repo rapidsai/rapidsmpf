@@ -134,7 +134,7 @@ rapidsmpf::streaming::Node select_columns(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
 
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             ctx->comm()->logger().debug("Select columns: no more input");
@@ -368,7 +368,7 @@ rapidsmpf::streaming::Node filter_lineitem(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto mr = ctx->br()->device_mr();
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
@@ -432,7 +432,7 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     std::vector<cudf::table> partial_results;
     std::uint64_t sequence = 0;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             ctx->comm()->logger().debug("Chunkwise groupby agg: no more input");
