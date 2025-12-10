@@ -110,6 +110,12 @@ void update_filter(
     rmm::device_async_resource_ref mr
 );
 
+void merge_filters(
+    aligned_buffer& storage,
+    aligned_buffer const& other,
+    std::size_t num_blocks,
+    rmm::cuda_stream_view stream
+);
 /**
  * @brief Apply the filter to fingerprints from a table.
  *

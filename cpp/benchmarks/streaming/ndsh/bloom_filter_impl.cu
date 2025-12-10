@@ -6,6 +6,7 @@
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
@@ -15,6 +16,7 @@
 #include <cuco/hash_functions.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
 
+#include <cub/device/device_transform.cuh>
 #include <cuda/std/atomic>
 
 #include <cudf/column/column.hpp>
@@ -101,6 +103,36 @@ rmm::device_uvector<bool> apply_filter(
         view.begin<KeyType>(), view.end<KeyType>(), result.begin(), stream
     );
     return result;
+}
+
+void merge_filters(
+    aligned_buffer& storage,
+    const aligned_buffer& other,
+    std::size_t num_blocks,
+    rmm::cuda_stream_view stream
+) {
+    auto ref_out = BloomFilterRef{
+        static_cast<StorageType*>(storage.data),
+        num_blocks,
+        cuco::thread_scope_device,
+        PolicyType{}
+    };
+    auto ref_in = BloomFilterRef{
+        static_cast<StorageType*>(other.data),
+        num_blocks,
+        cuco::thread_scope_device,
+        PolicyType{}
+    };
+    using word_type = BloomFilterRef::word_type;
+    RAPIDSMPF_CUDA_TRY(
+        cub::DeviceTransform::Transform(
+            cuda::std::tuple{ref_out.data(), ref_in.data()},
+            ref_out.data(),
+            num_blocks * BloomFilterRef::words_per_block,
+            [] __device__(word_type left, word_type right) { return left | right; },
+            stream.value()
+        )
+    );
 }
 
 std::size_t num_filter_blocks(int l2cachesize) {
