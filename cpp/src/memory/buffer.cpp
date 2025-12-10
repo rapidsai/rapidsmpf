@@ -18,21 +18,37 @@
 namespace rapidsmpf {
 
 
-Buffer::Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream)
+Buffer::Buffer(
+    std::unique_ptr<HostBuffer> host_buffer,
+    rmm::cuda_stream_view stream,
+    MemoryType mem_type
+)
     : size{host_buffer ? host_buffer->size() : 0},
+      mem_type_{mem_type},
       storage_{std::move(host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<HostBufferT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
+    RAPIDSMPF_EXPECTS(
+        contains(host_buffer_types, mem_type_),
+        "memory type is not suitable for a host buffer",
+        std::invalid_argument
+    );
 }
 
-Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
+Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type)
     : size{device_buffer ? device_buffer->size() : 0},
+      mem_type_{mem_type},
       storage_{std::move(device_buffer)} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceBufferT>(storage_) != nullptr,
         "the device buffer cannot be NULL",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        contains(device_buffer_types, mem_type_),
+        "memory type is not suitable for a device buffer",
         std::invalid_argument
     );
     stream_ = std::get<DeviceBufferT>(storage_)->stream();

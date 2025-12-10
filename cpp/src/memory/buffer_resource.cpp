@@ -106,14 +106,17 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<HostBuffer>(size, stream, host_mr()), stream)
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(size, stream, host_mr()),
+            stream,
+            MemoryType::HOST
+        ));
         break;
     case MemoryType::DEVICE:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr()))
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr()),
+            MemoryType::DEVICE
+        ));
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -136,7 +139,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
