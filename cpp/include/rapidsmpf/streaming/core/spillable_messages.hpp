@@ -41,9 +41,6 @@ class SpillableMessages {
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
-    /// @brief Invalid message identifier.
-    static constexpr MessageId InvalidMessageId = std::numeric_limits<MessageId>::max();
-
     SpillableMessages() = default;
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;

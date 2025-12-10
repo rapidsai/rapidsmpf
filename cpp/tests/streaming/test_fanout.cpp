@@ -444,7 +444,16 @@ Node many_input_sink(
                 if (msg.empty()) {
                     break;
                 }
-                outs[i].emplace_back(std::move(msg));
+                std::cout << msg.content_description().principal_memory_type() << " "
+                          << msg.content_description().content_size(
+                                 rapidsmpf::MemoryType::DEVICE
+                             )
+                          << " "
+                          << msg.content_description().content_size(
+                                 rapidsmpf::MemoryType::HOST
+                             )
+                          << std::endl;
+                outs[i].push_back(std::move(msg));
             }
         }
     } else if (consume_policy == ConsumePolicy::MESSAGE_ORDER) {

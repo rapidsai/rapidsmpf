@@ -58,21 +58,10 @@ class Channel {
      *
      * @return A coroutine that evaluates to the message, which will be empty if the
      * channel is shut down.
+     *
+     * @throws std::logic_error If the received message is empty.
      */
     coro::task<Message> receive();
-
-    /**
-     * @brief Asynchronously receive a message id from the channel.
-     *
-     * Suspends if the channel is empty. Once the message id is received, the message can
-     * be extracted using the `SpillableMessages::extract` method. This could be useful
-     * when a node wants to consume a message from a channel, but leave it in the
-     * spillable messages container for later extraction.
-     *
-     * @return A coroutine that evaluates to the message id. If the channel is shut down,
-     * the message id will be `SpillableMessages::InvalidMessageId`.
-     */
-    coro::task<SpillableMessages::MessageId> receive_message_id();
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
