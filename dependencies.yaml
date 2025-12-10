@@ -165,19 +165,11 @@ dependencies:
         packages:
           - &cmake_ver cmake>=3.30.4,<4
           - ninja
-  clang_tidy:
-    common:
-      - output_types: conda
-        packages:
-          - &clang_ver clang==20.1.4
-          - &clang_tools_ver clang-tools==20.1.4
   build-cpp:
     common:
       - output_types: conda
         packages:
           - c-compiler
-          - *clang_ver
-          - *clang_tools_ver
           - cuda-nvcc
           - cxx-compiler
           - libnuma
@@ -416,6 +408,12 @@ dependencies:
             packages:
               - rapidsmpf-cu13==26.2.*,>=0.0.0a0
           - {matrix: null, packages: [*rapidsmpf_unsuffixed]}
+  clang_tidy:
+    common:
+      - output_types: conda
+        packages:
+          - clang==20.1.4
+          - clang-tools==20.1.4
   docs:
     common:
       - output_types: [conda]
