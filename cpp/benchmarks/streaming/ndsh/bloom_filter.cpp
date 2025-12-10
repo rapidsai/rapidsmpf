@@ -61,6 +61,7 @@ streaming::Node build_bloom_filter(
     }
 
     ctx->comm()->logger().print("Bloom filter local build took ", Clock::now() - start);
+    auto t0 = Clock::now();
     auto allgather = streaming::AllGather(ctx, tag);
     auto metadata = std::vector<std::uint8_t>(storage.size);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -73,8 +74,11 @@ streaming::Node build_bloom_filter(
         {std::make_unique<std::vector<std::uint8_t>>(std::move(metadata)),
          ctx->br()->allocate(stream, std::move(res))}
     );
+    ctx->comm()->logger().print("Bloom filter allgather insertion ", Clock::now() - t0);
+    t0 = Clock::now();
     allgather.insert_finished();
     auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
+    ctx->comm()->logger().print("Bloom filter extract all took ", Clock::now() - t0);
     auto merged = std::make_unique<std::vector<std::byte>>(storage.size);
     for (auto&& data : per_rank) {
         for (std::size_t i = 0; i < storage.size; i++) {
