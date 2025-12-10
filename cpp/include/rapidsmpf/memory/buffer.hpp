@@ -26,24 +26,20 @@ namespace rapidsmpf {
 /**
  * @brief Buffer representing device or host memory.
  *
- * A `Buffer` holds either device memory or host memory. The memory type is fixed at
- * construction and determines which internal storage type is used. Buffers are
- * stream ordered and have an associated CUDA stream, see `stream()`. All work that
- * reads or writes the buffer, host or device, must either be enqueued on that stream
- * or be synchronized with it before accessing the memory.
+ * A `Buffer` holds either device memory or host memory, determined by its memory type
+ * at construction. See `device_buffer_types` and `host_buffer_types` for the sets of
+ * memory types that result in device-backed and host-backed storage.
  *
- * When passing the buffer to a non-stream aware API, for example MPI or host only
- * code, the caller must ensure that the most recent write has completed before the
- * hand off. This can be done by synchronizing the buffer's stream or by checking
- * `is_latest_write_done()`.
+ * Buffers are stream ordered and have an associated CUDA stream (see `stream()`). All
+ * work that reads or writes the buffer must either be enqueued on that stream or be
+ * synchronized with it before accessing the memory. For example, when passing the buffer
+ * to a non-stream aware API (e.g., MPI or host-only code), the caller must ensure that
+ * the most recent write has completed before the hand off. This can be done by
+ * synchronizing the buffer's stream or by checking `is_latest_write_done()`.
  *
- * A `Buffer` can be backed by either a device or a host buffer. The choice is determined
- * by the buffer's memory type. See `device_buffer_types` and `host_buffer_types` for the
- * sets of memory types that result in device-backed and host-backed storage.
- *
- * For example, to obtain an `rmm::device_buffer` from a `Buffer`, first ensure that the
- * buffer's memory type is one of the types listed in `device_buffer_types` (moving the
- * buffer if necessary), then call `release_device_buffer()`.
+ * To obtain an `rmm::device_buffer` from a `Buffer`, first ensure that the buffer's
+ * memory type is one of the types listed in `device_buffer_types` (moving the buffer if
+ * necessary), then call `release_device_buffer()`.
  *
  * @note The constructors are private. Buffers are created through `BufferResource`.
  */
@@ -254,10 +250,10 @@ class Buffer {
      *
      * @param host_buffer Unique pointer to a vector containing host memory.
      * @param stream CUDA stream to associate with the Buffer for future operations.
-     * @param mem_type The memory type underlying @p host_buffer.
+     * @param mem_type The memory type of the underlying @p host_buffer.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
-     * @throws std::invalid_argument If @p mem_type it's suitable for host buffers.
+     * @throws std::invalid_argument If @p mem_type is not suitable for host buffers.
      * @throws std::logic_error If the buffer is locked.
      */
     Buffer(
@@ -279,10 +275,10 @@ class Buffer {
      * stream (or established ordering with it) for correctness.
      *
      * @param device_buffer Unique pointer to a device buffer. Must be non-null.
-     * @param mem_type The memory type underlying @p device_buffer.
+     * @param mem_type The memory type of the underlying @p device_buffer.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
-     * @throws std::invalid_argument If @p mem_type it's suitable for device buffers.
+     * @throws std::invalid_argument If @p mem_type is not suitable for device buffers.
      * @throws std::logic_error If the buffer is locked.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
