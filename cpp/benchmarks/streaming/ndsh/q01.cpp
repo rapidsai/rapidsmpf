@@ -72,8 +72,8 @@ rapidsmpf::streaming::Node read_lineitem(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_D>>(
-                sys_days, true, stream
+            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+                sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(

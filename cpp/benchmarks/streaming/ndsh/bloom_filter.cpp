@@ -39,6 +39,7 @@ streaming::Node build_bloom_filter(
     auto stream = ctx->br()->stream_pool().get_stream();
     CudaEvent event;
     auto storage = create_filter_storage(num_blocks, stream, mr);
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage.data, 0, storage.size, stream));
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {

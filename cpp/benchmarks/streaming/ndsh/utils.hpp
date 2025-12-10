@@ -9,9 +9,12 @@
 #include <string>
 #include <vector>
 
+#include <mpi.h>
+
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
+#include "rapidsmpf/communicator/mpi.hpp"
 #include "rapidsmpf/streaming/core/channel.hpp"
 #include "rapidsmpf/streaming/core/node.hpp"
 
@@ -143,4 +146,18 @@ std::shared_ptr<streaming::Context> create_context(
     ProgramOptions& arguments, RmmResourceAdaptor* mr
 );
 
+/**
+ * @brief Finalize MPI when going out of scope.
+ */
+struct FinalizeMPI {
+    ~FinalizeMPI() noexcept {
+        if (rapidsmpf::mpi::is_initialized()) {
+            int flag;
+            RAPIDSMPF_MPI(MPI_Finalized(&flag));
+            if (!flag) {
+                RAPIDSMPF_MPI(MPI_Finalize());
+            }
+        }
+    }
+};
 }  // namespace rapidsmpf::ndsh

@@ -128,14 +128,14 @@ rapidsmpf::streaming::Node read_lineitem(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_D>>(
-                sys_days, true, stream
+            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+                sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<
-                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_D>>>(
+                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
                     owner->at(0)
                 )
             )
@@ -193,14 +193,14 @@ rapidsmpf::streaming::Node read_orders(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_D>>(
-                sys_days, true, stream
+            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+                sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<
-                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_D>>>(
+                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
                     owner->at(0)
                 )
             )
@@ -477,6 +477,7 @@ rapidsmpf::streaming::Node fanout_bounded(
  * @endcode{}
  */
 int main(int argc, char** argv) {
+    rapidsmpf::ndsh::FinalizeMPI finalize{};
     cudaFree(nullptr);
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
@@ -706,10 +707,6 @@ int main(int argc, char** argv) {
                 "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
             );
         }
-    }
-
-    if (rapidsmpf::mpi::is_initialized()) {
-        RAPIDSMPF_MPI(MPI_Finalize());
     }
     return 0;
 }
