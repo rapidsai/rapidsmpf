@@ -73,7 +73,6 @@ cache:
       - ${{ stdlib("c") }}
     host:
       - cuda-version =${{ cuda_version }}
-      - cuda-cudart-dev
       - cuda-cupti-dev
       - cuda-nvml-dev
       - librmm =${{ minor_version }}
@@ -109,7 +108,6 @@ outputs:
         - ${{ stdlib("c") }}
       host:
         - cuda-version =${{ cuda_version }}
-        - cuda-cudart-dev
         - cuda-cupti-dev
         - cuda-nvml-dev
         - libcudf =${{ minor_version }}
@@ -153,7 +151,6 @@ outputs:
         - cuda-nvml-dev
         - ${{ stdlib("c") }}
       host:
-        - cuda-cudart-dev
         - cuda-cupti-dev
         - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
