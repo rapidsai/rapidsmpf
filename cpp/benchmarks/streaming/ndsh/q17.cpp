@@ -16,6 +16,7 @@
 #include <mpi.h>
 
 #include <cudf/aggregation.hpp>
+#include <cudf/ast/expressions.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/groupby.hpp>
@@ -103,18 +104,85 @@ rapidsmpf::streaming::Node read_part(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"p_partkey", "p_brand", "p_container"})
                        .build();
+
+    // Build the filter expression: p_brand = 'Brand#23' AND p_container = 'MED BOX'
+    auto owner = new std::vector<std::any>;
+    auto filter_stream = ctx->br()->stream_pool().get_stream();
+
+    // 0: column_reference for p_brand
+    owner->push_back(std::make_shared<cudf::ast::column_reference>(1));
+
+    // 1: column_reference for p_container
+    owner->push_back(std::make_shared<cudf::ast::column_reference>(2));
+
+    // 2, 3: string_scalars
+    owner->push_back(
+        std::make_shared<cudf::string_scalar>("Brand#23", true, filter_stream)
+    );
+    owner->push_back(
+        std::make_shared<cudf::string_scalar>("MED BOX", true, filter_stream)
+    );
+
+    // 4, 5: literals
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(2))
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(3))
+        )
+    );
+
+    // 6: operation (EQUAL, p_brand, "Brand#23")
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::EQUAL,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(4))
+        )
+    );
+
+    // 7: operation (EQUAL, p_container, "MED BOX")
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::EQUAL,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(1)),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(5))
+        )
+    );
+
+    // 8: operation (LOGICAL_AND, brand_eq, container_eq)
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LOGICAL_AND,
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(6)),
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(7))
+        )
+    );
+
+    auto filter = std::make_unique<rapidsmpf::streaming::Filter>(
+        filter_stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+
     return rapidsmpf::streaming::node::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk
+        ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter)
     );
 }
 
-rapidsmpf::streaming::Node filter_part(
+// Select specific columns from the input table
+rapidsmpf::streaming::Node select_columns(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    std::vector<cudf::size_type> indices
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    auto mr = ctx->br()->device_mr();
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
@@ -125,46 +193,25 @@ rapidsmpf::streaming::Node filter_part(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
+        auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
-        auto p_brand = table.column(1);
-        auto p_container = table.column(2);
 
-        auto brand_target = cudf::make_string_scalar("Brand#23", chunk_stream, mr);
-        auto container_target = cudf::make_string_scalar("MED BOX", chunk_stream, mr);
+        std::vector<std::unique_ptr<cudf::column>> result;
+        result.reserve(indices.size());
+        for (auto idx : indices) {
+            result.push_back(
+                std::make_unique<cudf::column>(
+                    table.column(idx), chunk_stream, ctx->br()->device_mr()
+                )
+            );
+        }
 
-        auto brand_mask = cudf::binary_operation(
-            p_brand,
-            *brand_target,
-            cudf::binary_operator::EQUAL,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-        auto container_mask = cudf::binary_operation(
-            p_container,
-            *container_target,
-            cudf::binary_operator::EQUAL,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-        auto combined_mask = cudf::binary_operation(
-            brand_mask->view(),
-            container_mask->view(),
-            cudf::binary_operator::LOGICAL_AND,
-            cudf::data_type(cudf::type_id::BOOL8),
-            chunk_stream,
-            mr
-        );
-
+        auto result_table = std::make_unique<cudf::table>(std::move(result));
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
-                msg.sequence_number(),
+                sequence_number,
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    cudf::apply_boolean_mask(
-                        table.select({0}), combined_mask->view(), chunk_stream, mr
-                    ),
-                    chunk_stream
+                    std::move(result_table), chunk_stream
                 )
             )
         );
@@ -708,17 +755,19 @@ int main(int argc, char** argv) {
             {
                 RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q17 pipeline");
 
-                // Read part and filter
+                // Read part with filter pushed down, then project to just p_partkey
                 auto part = ctx->create_channel();
-                auto filtered_part = ctx->create_channel();
+                auto projected_part = ctx->create_channel();
                 nodes.push_back(read_part(
                     ctx,
                     part,
                     /* num_tickets */ 4,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
-                ));  // p_partkey, p_brand, p_container
-                nodes.push_back(filter_part(ctx, part, filtered_part));  // p_partkey
+                ));  // p_partkey, p_brand, p_container (filtered)
+                nodes.push_back(
+                    select_columns(ctx, part, projected_part, {0})
+                );  // p_partkey
 
                 // Read lineitem
                 auto lineitem = ctx->create_channel();
@@ -733,14 +782,14 @@ int main(int argc, char** argv) {
                 // Inner join: part x lineitem on p_partkey = l_partkey
                 auto part_x_lineitem = ctx->create_channel();
                 if (cmd_options.use_shuffle_join) {
-                    auto filtered_part_shuffled = ctx->create_channel();
+                    auto projected_part_shuffled = ctx->create_channel();
                     auto lineitem_shuffled = ctx->create_channel();
                     std::uint32_t num_partitions = 16;
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,
-                            filtered_part,
-                            filtered_part_shuffled,
+                            projected_part,
+                            projected_part_shuffled,
                             {0},
                             num_partitions,
                             rapidsmpf::OpID{
@@ -763,7 +812,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::inner_join_shuffle(
                             ctx,
-                            filtered_part_shuffled,
+                            projected_part_shuffled,
                             lineitem_shuffled,
                             part_x_lineitem,
                             {0},
@@ -775,7 +824,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::inner_join_broadcast(
                             ctx,
-                            filtered_part,
+                            projected_part,
                             lineitem,
                             part_x_lineitem,
                             {0},
