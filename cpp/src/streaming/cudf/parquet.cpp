@@ -313,24 +313,30 @@ Node read_parquet_uniform(
         std::size_t chunk_start = rank * chunks_per_rank;
         std::size_t chunk_end = std::min(chunk_start + chunks_per_rank, total_chunks);
 
-        // Read metadata once per unique file this rank needs
-        std::unordered_map<std::size_t, std::pair<std::int64_t, int>> file_metadata_cache;
+        // Read metadata once per unique file this rank needs and compute row group
+        // offsets
+        std::unordered_map<std::size_t, std::vector<std::int64_t>> file_rg_offsets_cache;
         for (std::size_t chunk_id = chunk_start; chunk_id < chunk_end; ++chunk_id) {
             std::size_t file_idx = chunk_id / splits_per_file;
             if (file_idx >= num_files)
                 continue;
 
-            if (file_metadata_cache.find(file_idx) == file_metadata_cache.end()) {
+            if (file_rg_offsets_cache.find(file_idx) == file_rg_offsets_cache.end()) {
                 auto metadata = cudf::io::read_parquet_metadata(
                     cudf::io::source_info(files[file_idx])
                 );
-                file_metadata_cache[file_idx] = {
-                    metadata.num_rows(), metadata.num_rowgroups()
-                };
+                auto rg_metadata = metadata.rowgroup_metadata();
+                std::vector<std::int64_t> rg_offsets;
+                rg_offsets.reserve(rg_metadata.size() + 1);
+                rg_offsets.push_back(0);
+                for (auto const& rg : rg_metadata) {
+                    rg_offsets.push_back(rg_offsets.back() + rg.at("num_rows"));
+                }
+                file_rg_offsets_cache[file_idx] = std::move(rg_offsets);
             }
         }
 
-        // Map chunk IDs to (file_idx, split_idx)
+        // Map chunk IDs to (file_idx, split_idx) with row-group-aligned splits
         for (std::size_t chunk_id = chunk_start; chunk_id < chunk_end; ++chunk_id) {
             std::size_t file_idx = chunk_id / splits_per_file;
             std::size_t split_idx = chunk_id % splits_per_file;
@@ -339,23 +345,23 @@ Node read_parquet_uniform(
                 continue;  // Past the end
 
             const auto& filepath = files[file_idx];
-            auto [total_rows, num_row_groups] = file_metadata_cache[file_idx];
+            auto const& rg_offsets = file_rg_offsets_cache[file_idx];
+            auto num_row_groups = rg_offsets.size() - 1;
+            auto total_rows = rg_offsets.back();
 
-            // Determine slice boundaries
+            // Determine slice boundaries aligned to row group boundaries
             std::int64_t skip_rows, num_rows;
 
-            if (splits_per_file <= static_cast<std::size_t>(num_row_groups)) {
-                // Align to row groups - use row-based splitting for now
-                // TODO: Extract row group boundaries when API is available
-                std::int64_t rows_per_split =
-                    total_rows / static_cast<std::int64_t>(splits_per_file);
-                std::int64_t extra_rows =
-                    total_rows % static_cast<std::int64_t>(splits_per_file);
-
-                skip_rows = static_cast<std::int64_t>(split_idx) * rows_per_split
-                            + std::min(static_cast<std::int64_t>(split_idx), extra_rows);
-                num_rows = rows_per_split
-                           + (split_idx < static_cast<std::size_t>(extra_rows) ? 1 : 0);
+            if (splits_per_file <= num_row_groups) {
+                // Align to row groups
+                std::size_t rg_per_split = num_row_groups / splits_per_file;
+                std::size_t extra_rg = num_row_groups % splits_per_file;
+                std::size_t rg_start =
+                    split_idx * rg_per_split + std::min(split_idx, extra_rg);
+                std::size_t rg_end =
+                    rg_start + rg_per_split + (split_idx < extra_rg ? 1 : 0);
+                skip_rows = rg_offsets[rg_start];
+                num_rows = rg_offsets[rg_end] - skip_rows;
             } else {
                 // More splits than row groups - split by rows
                 std::int64_t rows_per_split =
