@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <ranges>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -14,11 +15,14 @@
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/error.hpp>
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
 #endif
+
+// NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
+// Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
+// Prefer throwing standard exceptions instead.
 
 namespace rapidsmpf::bootstrap {
 
@@ -126,28 +130,27 @@ Rank get_rank() {
 }
 
 Rank get_nranks() {
-    RAPIDSMPF_EXPECTS(
-        is_running_with_rrun(),
-        "get_nranks() can only be called when running with `rrun`. "
-        "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'.",
-        std::runtime_error
-    );
+    if (!is_running_with_rrun()) {
+        throw std::runtime_error(
+            "get_nranks() can only be called when running with `rrun`. "
+            "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'."
+        );
+    }
 
     char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS");
-    RAPIDSMPF_EXPECTS(
-        nranks_str != nullptr,
-        "RAPIDSMPF_NRANKS environment variable not set. "
-        "Make sure to use a rrun launcher to call this function.",
-        std::runtime_error
-    );
+    if (nranks_str == nullptr) {
+        throw std::runtime_error(
+            "RAPIDSMPF_NRANKS environment variable not set. "
+            "Make sure to use a rrun launcher to call this function."
+        );
+    }
 
     try {
         return std::stoi(nranks_str);
     } catch (...) {
-        RAPIDSMPF_FAIL(
+        throw std::runtime_error(
             "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
-                + std::string(nranks_str),
-            std::runtime_error
+            + std::string(nranks_str)
         );
     }
 }

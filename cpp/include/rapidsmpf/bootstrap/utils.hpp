@@ -8,8 +8,7 @@
 #include <string>
 #include <vector>
 
-#include <rapidsmpf/bootstrap/bootstrap.hpp>
-#include <rapidsmpf/config.hpp>
+#include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
 
