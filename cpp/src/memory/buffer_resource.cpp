@@ -106,14 +106,17 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<HostBuffer>(size, stream, host_mr()), stream)
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(size, stream, host_mr()),
+            stream,
+            MemoryType::HOST
+        ));
         break;
     case MemoryType::DEVICE:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr()))
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr()),
+            MemoryType::DEVICE
+        ));
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -136,7 +139,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -159,7 +162,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         std::invalid_argument
     );
     auto stream = buffer->stream();
-    auto ret = move(std::move(buffer), reservation)->release_device();
+    auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
         ret->stream().value() == stream.value(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
@@ -176,7 +179,7 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), reservation)->release_host();
+    return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
 rmm::cuda_stream_pool const& BufferResource::stream_pool() const {
