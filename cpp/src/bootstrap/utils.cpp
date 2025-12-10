@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -192,8 +193,8 @@ bool compare_cpu_affinity(std::string const& actual, std::string const& expected
 
     auto actual_cores = parse_cpu_list(actual);
     auto expected_cores = parse_cpu_list(expected);
-    std::sort(actual_cores.begin(), actual_cores.end());
-    std::sort(expected_cores.begin(), expected_cores.end());
+    std::ranges::sort(actual_cores);
+    std::ranges::sort(expected_cores);
     return actual_cores == expected_cores;
 }
 
@@ -219,8 +220,8 @@ bool compare_device_lists(std::string const& actual, std::string const& expected
         expected_devs.push_back(token);
     }
 
-    std::sort(actual_devs.begin(), actual_devs.end());
-    std::sort(expected_devs.begin(), expected_devs.end());
+    std::ranges::sort(actual_devs);
+    std::ranges::sort(expected_devs);
     return actual_devs == expected_devs;
 }
 
