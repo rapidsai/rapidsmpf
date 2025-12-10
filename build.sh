@@ -88,7 +88,8 @@ function ensureCMakeRan {
         echo "Executing cmake for librapidsmpf..."
         CMAKE_ARGS=(-B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
-              -DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
+              -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+              -DRAPIDSMPF_CLANG_TIDY=ON)
 
         if hasArg --asan; then
             CMAKE_ARGS+=(-DRAPIDSMPF_ASAN=ON)
