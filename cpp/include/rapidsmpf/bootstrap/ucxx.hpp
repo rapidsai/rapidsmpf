@@ -12,7 +12,6 @@
 #include <memory>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
-#include <rapidsmpf/bootstrap/utils.hpp>
 
 namespace rapidsmpf {
 
