@@ -5,6 +5,7 @@
 
 #include <memory>
 
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -169,32 +170,56 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     // serialize `table_view()` into a packed_columns and then we move
                     // the packed_columns' gpu_data to a new host buffer.
 
-                    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
-                    // `cudf::pack()` allocates device memory we haven't reserved.
-                    auto packed_columns =
-                        cudf::pack(table_view(), stream(), br->device_mr());
-                    packed_data = std::make_unique<PackedData>(
-                        std::move(packed_columns.metadata),
-                        br->move(std::move(packed_columns.gpu_data), stream())
+                    // make a reservation for packing
+                    auto [pack_res, overbooking] = br->reserve(
+                        MemoryType::DEVICE,
+                        estimated_memory_usage(table_view(), stream()),
+                        true
                     );
 
-                    // Handle the case where `cudf::pack` allocates slightly more than the
-                    // input size. This can occur because cudf uses aligned allocations,
-                    // which may exceed the requested size. To accommodate this, we
-                    // allow some wiggle room.
-                    if (packed_data->data->size > reservation.size()) {
-                        auto const wiggle_room =
-                            1024 * static_cast<std::size_t>(table_view().num_columns());
-                        if (packed_data->data->size <= reservation.size() + wiggle_room) {
-                            reservation =
-                                br->reserve(
-                                      MemoryType::HOST, packed_data->data->size, true
-                                )
-                                    .first;
+                    if (overbooking > 0) {
+                        // there is not enough memory to pack the table.
+                        size_t avail_dev_mem = pack_res.size() - overbooking;
+                        RAPIDSMPF_EXPECTS(
+                            avail_dev_mem > 1 << 20,
+                            "not enough device memory for the bounce buffer",
+                            std::runtime_error
+                        );
+
+                        packed_data = std::make_unique<PackedData>(chunked_pack(
+                            table_view(), avail_dev_mem, stream(), pack_res, reservation
+                        ));
+                    } else {
+                        // if there is enough memory to pack the table, use `cudf::pack`
+                        auto packed_columns =
+                            cudf::pack(table_view(), stream(), br->device_mr());
+                        // clear the reservation as we are done with it.
+                        pack_res.clear();
+                        packed_data = std::make_unique<PackedData>(
+                            std::move(packed_columns.metadata),
+                            br->move(std::move(packed_columns.gpu_data), stream())
+                        );
+
+                        // Handle the case where `cudf::pack` allocates slightly more than
+                        // the input size. This can occur because cudf uses aligned
+                        // allocations, which may exceed the requested size. To
+                        // accommodate this, we allow some wiggle room.
+                        if (packed_data->data->size > reservation.size()) {
+                            if (packed_data->data->size
+                                <= reservation.size()
+                                       + total_packing_wiggle_room(table_view()))
+                            {
+                                reservation =
+                                    br->reserve(
+                                          MemoryType::HOST, packed_data->data->size, true
+                                    )
+                                        .first;
+                            }
                         }
+                        // finally copy the packed data device buffer to HOST memory
+                        packed_data->data =
+                            br->move(std::move(packed_data->data), reservation);
                     }
-                    packed_data->data =
-                        br->move(std::move(packed_data->data), reservation);
                 }
                 return TableChunk(std::move(packed_data));
             }

@@ -186,15 +186,16 @@ TEST_P(NumOfRows, chunked_pack) {
     ASSERT_EQ(split_result.size(), 1);
     auto& split_packed = split_result.at(0);
 
-    // Get result from chunked_pack
-    auto chunked_packed =
-        rapidsmpf::chunked_pack(input_table, chunk_size, stream, br.get());
+    auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
+    auto data_res =
+        br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
-    if (num_rows == 0) {  // empty buffers are always marked as device memory
-        EXPECT_EQ(MemoryType::DEVICE, chunked_packed.data->mem_type());
-    } else {
-        EXPECT_EQ(mem_type, chunked_packed.data->mem_type());
-    }
+    // Get result from chunked_pack
+    auto chunked_packed = rapidsmpf::chunked_pack(
+        input_table, chunk_size, stream, bounce_buf_res, data_res
+    );
+
+    EXPECT_EQ(mem_type, chunked_packed.data->mem_type());
 
     // Unpack both and compare the resulting tables
     cudf::packed_columns split_columns{

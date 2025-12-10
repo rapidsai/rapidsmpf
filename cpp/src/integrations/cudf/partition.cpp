@@ -272,23 +272,36 @@ PackedData chunked_pack(
     cudf::table_view const& table,
     size_t chunk_size,
     rmm::cuda_stream_view stream,
-    BufferResource* br
+    MemoryReservation& bounce_buf_res,
+    MemoryReservation& data_res
 ) {
-    cudf::chunked_pack packer(table, chunk_size, stream, br->device_mr());
+    RAPIDSMPF_EXPECTS(
+        bounce_buf_res.mem_type() == MemoryType::DEVICE,
+        "bounce buffer must be in device memory"
+    );
+    cudf::chunked_pack packer(
+        table, chunk_size, stream, bounce_buf_res.br()->device_mr()
+    );
+    auto const packed_size = packer.get_total_contiguous_size();
+
+    // if the packed size > data reservation, and it is within the wiggle room, pad the
+    // data reservation to the packed size from the same memory type.
+    if (packed_size > data_res.size()) {
+        if (packed_size <= data_res.size() + total_packing_wiggle_room(table)) {
+            data_res =
+                data_res.br()->reserve(data_res.mem_type(), packed_size, true).first;
+        }
+    }
 
     // make a reservation for the bounce buffer with overbooking and hold it until we are
     // done
-    auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
-    auto bounce_buf = br->allocate(chunk_size, stream, bounce_buf_res);
+    auto bounce_buf = bounce_buf_res.br()->allocate(chunk_size, stream, bounce_buf_res);
     cudf::device_span<uint8_t> buf_span(
         reinterpret_cast<uint8_t*>(bounce_buf->exclusive_data_access()), chunk_size
     );
 
-    auto const total_size = packer.get_total_contiguous_size();
-    // make a reservation from any available memory type
-    auto reservation = br->reserve_or_fail(total_size, MEMORY_TYPES);
-
-    auto data = br->allocate(total_size, stream, reservation);
+    // allocate the data buffer
+    auto data = data_res.br()->allocate(packed_size, stream, data_res);
     std::byte* data_ptr = data->exclusive_data_access();
     size_t offset = 0;
     while (packer.has_next()) {
@@ -302,6 +315,8 @@ PackedData chunked_pack(
     data->record_lastest_write_and_unlock();
 
     // release the exclusive lock on the bounce buffer
+    // TODO: there is a possibility that bounce buffer destructor is a called before the
+    // async copies are completed. Should we synchronize the stream here?
     bounce_buf->unlock();
 
     return {packer.build_metadata(), std::move(data)};
