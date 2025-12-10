@@ -6,6 +6,8 @@
 #pragma once
 #include <cstddef>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <cudf/ast/expressions.hpp>
 #include <cudf/io/parquet.hpp>
@@ -63,11 +65,13 @@ Node read_parquet(
  *
  * Unlike read_parquet which targets a specific number of rows per chunk, this function
  * targets a specific total number of chunks and distributes them uniformly across ranks.
- * 
- * When target_num_chunks <= num_files: Files are grouped and read completely (file-aligned).
- * When target_num_chunks > num_files: Files are split into slices, aligned to row groups.
  *
- * @note This is a collective operation, all ranks must participate with identical parameters.
+ * When target_num_chunks <= num_files: Files are grouped and read completely
+ * (file-aligned). When target_num_chunks > num_files: Files are split into slices,
+ * aligned to row groups.
+ *
+ * @note This is a collective operation, all ranks must participate with identical
+ * parameters.
  *
  * @param ctx The execution context to use.
  * @param ch_out Channel to which `TableChunk`s are sent.
@@ -85,6 +89,27 @@ Node read_parquet_uniform(
     cudf::io::parquet_reader_options options,
     std::size_t target_num_chunks,
     std::unique_ptr<Filter> filter = nullptr
+);
+
+/**
+ * @brief Estimate target chunk count from parquet file metadata.
+ *
+ * Samples metadata from up to `max_samples` files to estimate total rows,
+ * then calculates how many chunks are needed to achieve the target rows per chunk.
+ *
+ * This is useful for computing the `target_num_chunks` parameter for
+ * `read_parquet_uniform` when you have a target `num_rows_per_chunk` instead.
+ *
+ * @param files List of parquet file paths.
+ * @param num_rows_per_chunk Target number of rows per output chunk.
+ * @param max_samples Maximum number of files to sample for row estimation.
+ *
+ * @return Estimated target number of chunks.
+ */
+std::size_t estimate_target_num_chunks(
+    std::vector<std::string> const& files,
+    cudf::size_type num_rows_per_chunk,
+    std::size_t max_samples = 3
 );
 }  // namespace node
 }  // namespace rapidsmpf::streaming

@@ -461,4 +461,37 @@ Node read_parquet_uniform(
         );
     }
 }
+
+std::size_t estimate_target_num_chunks(
+    std::vector<std::string> const& files,
+    cudf::size_type num_rows_per_chunk,
+    std::size_t max_samples
+) {
+    RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file");
+    RAPIDSMPF_EXPECTS(num_rows_per_chunk > 0, "num_rows_per_chunk must be positive");
+
+    // Sample files with a stride to spread samples evenly across the file list
+    std::size_t stride = std::max(std::size_t{1}, files.size() / max_samples);
+    std::vector<std::string> sample_files;
+    for (std::size_t i = 0; i < files.size() && sample_files.size() < max_samples;
+         i += stride)
+    {
+        sample_files.push_back(files[i]);
+    }
+
+    // Read metadata from sampled files to get row count
+    auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(sample_files));
+    std::int64_t sampled_rows = metadata.num_rows();
+
+    // Extrapolate to estimate total rows across all files
+    std::int64_t estimated_total_rows =
+        (sampled_rows * static_cast<std::int64_t>(files.size()))
+        / static_cast<std::int64_t>(sample_files.size());
+
+    // Calculate target chunks (at least 1)
+    return std::max(
+        std::size_t{1},
+        static_cast<std::size_t>(estimated_total_rows / num_rows_per_chunk)
+    );
+}
 }  // namespace rapidsmpf::streaming::node
