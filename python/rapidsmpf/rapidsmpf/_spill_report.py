@@ -28,6 +28,7 @@ def export_nsys_rep(nsys_rep_path: Path, *, force_overwrite: bool) -> Path:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
         print(f"Error exporting nsys report: {e.stderr}", file=sys.stderr)
+        raise
     except FileNotFoundError:
         print(
             "Error: 'nsys' command not found. Please ensure NVIDIA Nsight Systems is installed.",
