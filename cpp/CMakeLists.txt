@@ -54,13 +54,6 @@ option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
-option(RAPIDSMPF_EXPORT_NVCOMP "Export NVCOMP as a dependency" ON)
-option(
-  RAPIDSMPF_USE_PER_THREAD_DEFAULT_STREAM
-  "Build rapidsmpf with per-thread default stream, including passing the per-thread default
-         stream to external libraries."
-  OFF
-)
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -130,8 +123,6 @@ rapids_find_package(
 include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_nvcomp.cmake)
-include(../cmake/thirdparty/get_kvikio.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
@@ -195,6 +186,7 @@ add_library(
   src/topology_discovery.cpp
   src/utils.cpp
 )
+
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
@@ -290,6 +282,8 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
           ${CMAKE_DL_LIBS}
 )
+
+target_link_options(rapidsmpf PUBLIC "$<BUILD_LOCAL_INTERFACE:-Wl,--allow-shlib-undefined>")
 
 target_compile_definitions(
   rapidsmpf
