@@ -118,6 +118,7 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_discount",  // 2
                        })
                        .build();
+    using timestamp_type = cudf::timestamp_ms;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -128,14 +129,13 @@ rapidsmpf::streaming::Node read_lineitem(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
                 sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
-                *std::any_cast<
-                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
+                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
                     owner->at(0)
                 )
             )
@@ -183,6 +183,7 @@ rapidsmpf::streaming::Node read_orders(
                            "o_custkey"  // 3
                        })
                        .build();
+    using timestamp_type = cudf::timestamp_ms;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -193,14 +194,13 @@ rapidsmpf::streaming::Node read_orders(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
                 sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
-                *std::any_cast<
-                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_ms>>>(
+                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
                     owner->at(0)
                 )
             )
@@ -358,6 +358,7 @@ rapidsmpf::streaming::Node top_k_by(
     }
 
     // TODO: multi-node
+    RAPIDSMPF_EXPECTS(chunk_streams.size() > 0, "No chunks to sort");
     auto out_stream = chunk_streams.front();
     rapidsmpf::CudaEvent event;
     rapidsmpf::cuda_stream_join(
