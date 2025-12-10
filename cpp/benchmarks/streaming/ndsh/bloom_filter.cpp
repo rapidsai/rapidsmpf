@@ -35,22 +35,32 @@ streaming::Node build_bloom_filter(
     std::size_t num_blocks
 ) {
     streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
     auto mr = ctx->br()->device_mr();
     auto stream = ctx->br()->stream_pool().get_stream();
     CudaEvent event;
     auto storage = create_filter_storage(num_blocks, stream, mr);
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage.data, 0, storage.size, stream));
+    CudaEvent storage_event;
+    storage_event.record(stream);
+    auto start = Clock::now();
+    bool started = false;
     while (true) {
         auto msg = co_await ch_in->receive();
+        if (!started) {
+            start = Clock::now();
+            started = true;
+        }
         if (msg.empty()) {
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-        cuda_stream_join(chunk.stream(), stream, &event);
+        storage_event.stream_wait(chunk.stream());
         update_filter(storage, num_blocks, chunk.table_view(), seed, chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
     }
 
+    ctx->comm()->logger().print("Bloom filter local build took ", Clock::now() - start);
     auto allgather = streaming::AllGather(ctx, tag);
     auto metadata = std::vector<std::uint8_t>(storage.size);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -71,6 +81,7 @@ streaming::Node build_bloom_filter(
             (*merged)[i] |= static_cast<std::byte>((*data.metadata)[i]);
         }
     }
+    ctx->comm()->logger().print("Bloom filter build took ", Clock::now() - start);
     co_await ch_out->send(streaming::Message{0, std::move(merged), {}, {}});
     co_await ch_out->drain(ctx->executor());
 }
