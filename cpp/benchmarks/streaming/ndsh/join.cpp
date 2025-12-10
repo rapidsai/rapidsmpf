@@ -462,7 +462,6 @@ streaming::Node left_semi_join_broadcast_left(
     while (true) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
-            ctx->comm()->logger().print("left_semi_join_broadcast: no more input");
             break;
         }
         co_await ch_out->send(semi_join_chunk(
@@ -536,9 +535,6 @@ streaming::Node shuffle(
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-        ctx->comm()->logger().print(
-            "Shuffle: received chunk. nrows=", chunk.table_view().num_rows()
-        );
         auto packed = partition_and_pack(
             chunk.table_view(),
             keys,
@@ -551,7 +547,6 @@ streaming::Node shuffle(
         );
         shuffler.insert(std::move(packed));
     }
-    ctx->comm()->logger().print("Shuffle: inserted all chunks");
     co_await shuffler.insert_finished();
     for (auto pid : shuffler.local_partitions()) {
         auto packed_data = co_await shuffler.extract_async(pid);
