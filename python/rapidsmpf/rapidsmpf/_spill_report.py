@@ -12,6 +12,7 @@ import sqlite3
 import statistics
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 
@@ -169,7 +170,6 @@ def analyze_spilling(sqlite_path: Path) -> None:
     rows = [
         (
             "Duration",
-            len(durations),
             format_duration(duration_stats["avg"]),
             format_duration(duration_stats["std"]),
             format_duration(duration_stats["min"]),
@@ -178,7 +178,6 @@ def analyze_spilling(sqlite_path: Path) -> None:
         ),
         (
             "Bytes requested",
-            len(bytes_requested),
             format_bytes(requested_stats["avg"]),
             format_bytes(requested_stats["std"]),
             format_bytes(requested_stats["min"]),
@@ -187,7 +186,6 @@ def analyze_spilling(sqlite_path: Path) -> None:
         ),
         (
             "Bytes spilled",
-            len(bytes_spilled),
             format_bytes(spilled_stats["avg"]),
             format_bytes(spilled_stats["std"]),
             format_bytes(spilled_stats["min"]),
@@ -197,7 +195,7 @@ def analyze_spilling(sqlite_path: Path) -> None:
     ]
 
     # Column headers
-    headers = ["Metric", "Count", "Avg", "Std", "Min", "Max", "Total"]
+    headers = ["Metric", "Avg", "Std", "Min", "Max", "Total"]
 
     # Calculate column widths
     col_widths = [len(h) for h in headers]
@@ -218,13 +216,15 @@ def analyze_spilling(sqlite_path: Path) -> None:
     for row in rows:
         print(format_row(row))
 
+    print("")
+
+    print("Spill count: ", call_count)
     if total_requested > 0:
         # What percentage of the spill requests actually satisfy?
         # A satisfaction of 0% means we didn't spill anything.
         # A satisfaction of 100% means we spilled everything we requested.
         efficiency = (total_spilled / total_requested) * 100
-        print()
-        print(f"Spill satisfaction  : {efficiency:.1f}%")
+        print(f"Spill satisfaction: {efficiency:.1f}%")
     if total_duration > 0:
         # What is the effective throughput (in bytes per second) of
         # the spill requests?
@@ -237,12 +237,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyze nsys reports for postbox spilling statistics.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s profile.nsys-rep
-  %(prog)s profile.sqlite
-  %(prog)s profile.nsys-rep --force-overwrite
-        """,
+        epilog=textwrap.dedent("""
+    Examples:
+      python -m rapidsmpf.report profile.nsys-rep
+      python -m rapidsmpf.report profile.sqlite
+      python -m rapidsmpf.report profile.nsys-rep --force-overwrite
+            """),
     )
     parser.add_argument(
         "input_file",
