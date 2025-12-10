@@ -84,10 +84,11 @@ streaming::Node build_bloom_filter(
     ctx->comm()->logger().print(
         "Bloom filter extract all took ", Clock::now() - t0, " ", Clock::now() - start
     );
-    auto merged = std::make_unique<std::vector<std::byte>>(storage.size);
+    auto merged = std::move(per_rank.back().metadata);
+    per_rank.pop_back();
     for (auto&& data : per_rank) {
         for (std::size_t i = 0; i < storage.size; i++) {
-            (*merged)[i] |= static_cast<std::byte>((*data.metadata)[i]);
+            (*merged)[i] |= (*data.metadata)[i];
         }
     }
     ctx->comm()->logger().print("Bloom filter build took ", Clock::now() - start);
@@ -113,7 +114,7 @@ streaming::Node apply_bloom_filter(
     CudaEvent event;
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         storage.data,
-        data.get<std::vector<std::byte>>().data(),
+        data.get<std::vector<std::uint8_t>>().data(),
         storage.size,
         cudaMemcpyDefault,
         stream
