@@ -296,28 +296,32 @@ PackedData chunked_pack(
     // make a reservation for the bounce buffer with overbooking and hold it until we are
     // done
     auto bounce_buf = bounce_buf_res.br()->allocate(chunk_size, stream, bounce_buf_res);
-    cudf::device_span<uint8_t> buf_span(
-        reinterpret_cast<uint8_t*>(bounce_buf->exclusive_data_access()), chunk_size
-    );
 
-    // allocate the data buffer
-    auto data = data_res.br()->allocate(packed_size, stream, data_res);
-    std::byte* data_ptr = data->exclusive_data_access();
-    size_t offset = 0;
-    while (packer.has_next()) {
-        size_t n_bytes = packer.next(buf_span);
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            data_ptr + offset, buf_span.data(), n_bytes, cudaMemcpyDefault, stream
-        ));
-        offset += n_bytes;
-    }
-    // record the latest write and unlock the data buffer
-    data->record_lastest_write_and_unlock();
+    auto data = bounce_buf->write_access([&](std::byte* bounce_buf_ptr,
+                                             rmm::cuda_stream_view stream) {
+        cudf::device_span<uint8_t> buf_span(
+            reinterpret_cast<uint8_t*>(bounce_buf_ptr), chunk_size
+        );
 
-    // release the exclusive lock on the bounce buffer
+        // allocate the data buffer
+        auto data = data_res.br()->allocate(packed_size, stream, data_res);
+
+        data->write_access([&](std::byte* data_ptr, rmm::cuda_stream_view stream) {
+            size_t offset = 0;
+            while (packer.has_next()) {
+                size_t n_bytes = packer.next(buf_span);
+                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                    data_ptr + offset, buf_span.data(), n_bytes, cudaMemcpyDefault, stream
+                ));
+                offset += n_bytes;
+            }
+        });
+
+        return data;
+    });
+
     // TODO: there is a possibility that bounce buffer destructor is a called before the
     // async copies are completed. Should we synchronize the stream here?
-    bounce_buf->unlock();
 
     return {packer.build_metadata(), std::move(data)};
 }

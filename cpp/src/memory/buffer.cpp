@@ -25,6 +25,7 @@ Buffer::Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view st
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
+    latest_write_event_.record(stream_);
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
@@ -105,16 +106,6 @@ std::byte* Buffer::exclusive_data_access() {
         },
         storage_
     );
-}
-
-void Buffer::record_lastest_write_and_unlock() {
-    RAPIDSMPF_EXPECTS(
-        lock_.load(std::memory_order_acquire),
-        "the buffer is not locked",
-        std::logic_error
-    );
-    latest_write_event_.record(stream_);
-    unlock();
 }
 
 void Buffer::unlock() {
