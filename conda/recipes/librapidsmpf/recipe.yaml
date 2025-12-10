@@ -65,8 +65,6 @@ cache:
       - ${{ compiler("c") }}
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
-      - clang==20.1.4
-      - clang-tools==20.1.4
       - cmake ${{ cmake_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
