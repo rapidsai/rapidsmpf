@@ -60,16 +60,22 @@ streaming::Node build_bloom_filter(
         cuda_stream_join(stream, chunk.stream(), &event);
     }
 
-    ctx->comm()->logger().print("Bloom filter local build took ", Clock::now() - start);
+    ctx->comm()->logger().print(
+        "Bloom filter of ", storage.size, " bytes local build took ", Clock::now() - start
+    );
     auto t0 = Clock::now();
-    auto allgather = streaming::AllGather(ctx, tag);
     auto metadata = std::vector<std::uint8_t>(storage.size);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         metadata.data(), storage.data, storage.size, cudaMemcpyDefault, stream.value()
     ));
     stream.synchronize();
+    ctx->comm()->logger().print(
+        "Bloom filter allocate and copy to host took ", t0 - start
+    );
+    t0 = Clock::now();
     auto [res, _] = ctx->br()->reserve(MemoryType::HOST, 0, true);
     ctx->comm()->logger().print("Bloom filter insertion starting at time ", Clock::now());
+    auto allgather = streaming::AllGather(ctx, tag);
     allgather.insert(
         0,
         {std::make_unique<std::vector<std::uint8_t>>(std::move(metadata)),
