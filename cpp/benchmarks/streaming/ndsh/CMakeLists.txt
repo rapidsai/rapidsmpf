@@ -36,24 +36,23 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-add_executable(q09 "q09.cpp")
-add_executable(q18 "q18.cpp")
-set_target_properties(
-  q09 q18
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
-             CXX_STANDARD 20
-             CXX_STANDARD_REQUIRED ON
-             CUDA_STANDARD 20
-             CUDA_STANDARD_REQUIRED ON
-)
-foreach(tgt IN ITEMS q09 q18)
+foreach(query IN ITEMS q09 q18)
+  add_executable(${query} "${query}.cpp")
+  set_target_properties(
+    ${query}
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
+               CXX_STANDARD 20
+               CXX_STANDARD_REQUIRED ON
+               CUDA_STANDARD 20
+               CUDA_STANDARD_REQUIRED ON
+  )
   target_compile_options(
-    ${tgt} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                   "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+    ${query} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
   )
   target_link_libraries(
-    ${tgt} PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-                   $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+    ${query} PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
   )
 endforeach()
 install(
