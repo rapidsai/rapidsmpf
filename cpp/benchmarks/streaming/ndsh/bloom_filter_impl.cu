@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 
@@ -19,6 +20,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/hashing.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/utilities/type_dispatcher.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/polymorphic_allocator.hpp>
 #include <rmm/resource_ref.hpp>
@@ -27,25 +29,26 @@
 
 namespace rapidsmpf::ndsh {
 
-using policy_type =
-    cuco::default_filter_policy<cuco::identity_hash<std::uint64_t>, std::uint32_t, 8>;
-using bloom_filter = cuco::bloom_filter<
+using KeyType = std::uint64_t;
+
+using PolicyType = cuco::arrow_filter_policy<KeyType, cuco::identity_hash>;
+using BloomFilter = cuco::bloom_filter<
     std::uint64_t,
     cuco::extent<std::size_t>,
     cuda::thread_scope_device,
-    policy_type,
+    PolicyType,
     rmm::mr::polymorphic_allocator<char>>;
 
-using bloom_filter_ref = bloom_filter::ref_type<cuco::thread_scope_device>;
+using BloomFilterRef = BloomFilter::ref_type<cuco::thread_scope_device>;
+using StorageType = BloomFilterRef::filter_block_type;
 
 aligned_buffer create_filter_storage(
     std::size_t num_blocks,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    using type = bloom_filter_ref::filter_block_type;
     return aligned_buffer{
-        num_blocks * sizeof(type), std::alignment_of_v<type>, stream, mr
+        num_blocks * sizeof(StorageType), std::alignment_of_v<StorageType>, stream, mr
     };
 }
 
@@ -57,16 +60,19 @@ void update_filter(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    auto policy = policy_type{};
-    auto filter_ref = bloom_filter_ref(
-        static_cast<bloom_filter_ref::filter_block_type*>(storage.data),
+    auto filter_ref = BloomFilterRef{
+        static_cast<StorageType*>(storage.data),
         num_blocks,
         cuco::thread_scope_device,
-        policy
-    );
+        PolicyType{}
+    };
     auto hashes = cudf::hashing::xxhash_64(values_to_hash, seed, stream, mr);
     auto view = hashes->view();
-    filter_ref.add_async(view.begin<std::uint64_t>(), view.end<std::uint64_t>(), stream);
+    RAPIDSMPF_EXPECTS(
+        view.type().id() == cudf::type_to_id<KeyType>(),
+        "Hash values do not have correct type"
+    );
+    filter_ref.add_async(view.begin<KeyType>(), view.end<KeyType>(), stream);
 }
 
 rmm::device_uvector<bool> apply_filter(
@@ -77,19 +83,23 @@ rmm::device_uvector<bool> apply_filter(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    auto policy = policy_type{};
-    auto filter_ref = bloom_filter_ref(
-        static_cast<bloom_filter_ref::filter_block_type*>(storage.data),
+    auto policy = PolicyType{};
+    auto filter_ref = BloomFilterRef{
+        static_cast<StorageType*>(storage.data),
         num_blocks,
         cuco::thread_scope_device,
         policy
-    );
+    };
     auto hashes = cudf::hashing::xxhash_64(values_to_hash, seed, stream, mr);
     auto view = hashes->view();
     rmm::device_uvector<bool> result(static_cast<std::size_t>(view.size()), stream, mr);
     filter_ref.contains_async(
-        view.begin<std::uint64_t>(), view.end<std::uint64_t>(), result.begin(), stream
+        view.begin<KeyType>(), view.end<KeyType>(), result.begin(), stream
     );
     return result;
+}
+
+std::size_t num_filter_blocks(int l2cachesize) {
+    return (static_cast<std::size_t>(l2cachesize) * 2) / (3 * sizeof(StorageType));
 }
 }  // namespace rapidsmpf::ndsh

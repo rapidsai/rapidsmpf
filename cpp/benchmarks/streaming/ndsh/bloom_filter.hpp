@@ -24,6 +24,7 @@ namespace rapidsmpf::ndsh {
  * @param ch_out Output channel receiving a single message containing the bloom filter.
  * @param tag Disambiguating tag to combine filters across ranks.
  * @param seed Hash seed for hashing the keys.
+ * @param num_filter_blocks Number of blocks in the filter.
  *
  * @return Coroutine representing the construction of the bloom filter.
  */
@@ -32,7 +33,8 @@ namespace rapidsmpf::ndsh {
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
     OpID tag,
-    std::uint64_t seed
+    std::uint64_t seed,
+    std::size_t num_filter_blocks
 );
 
 /**
@@ -44,6 +46,7 @@ namespace rapidsmpf::ndsh {
  * @param ch_out Output channel receiving filtered `TableChunk`s.
  * @param keys Indices selecting the key columns for the hash fingerprint
  * @param seed Hash seed for hashing the keys.
+ * @param num_filter_blocks Number of blocks in the filter.
  *
  * @return Coroutine representing the application of the bloom filter.
  */
@@ -53,6 +56,17 @@ streaming::Node apply_bloom_filter(
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> keys,
-    std::uint64_t seed
+    std::uint64_t seed,
+    std::size_t num_filter_blocks
 );
+
+/**
+ * @brief Return number of filter blocks for bloom filter given an L2 cache size
+ *
+ * @param l2cachesize Size of L2 cache in bytes
+ *
+ * @return Number of blocks to use.
+ */
+std::size_t num_filter_blocks(int l2cachesize);
+
 }  // namespace rapidsmpf::ndsh
