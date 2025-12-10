@@ -231,7 +231,8 @@ cdef class ShufflerAsync:
             cpp_insert_chunk_into_partition_map(
                 c_chunks, pid, move((<PackedData>chunk).c_obj)
             )
-        deref(self._handle).insert(move(c_chunks))
+        with nogil:
+            deref(self._handle).insert(move(c_chunks))
 
     async def insert_finished(self, Context ctx not None):
         """

@@ -316,7 +316,7 @@ dependencies:
           - matrix:
               arch: x86_64
             packages:
-              - ray-default>=2.49
+              - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
             packages:
@@ -436,7 +436,7 @@ dependencies:
           - matrix:
               arch: x86_64
             packages:
-              - ray-default>=2.49
+              - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
             packages:
