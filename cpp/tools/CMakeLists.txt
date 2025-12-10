@@ -15,6 +15,9 @@ set_target_properties(
              CXX_STANDARD_REQUIRED ON
 )
 target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+if(NVML_INCLUDE_DIR)
+  target_include_directories(rrun PRIVATE ${NVML_INCLUDE_DIR})
+endif()
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
 target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
 target_link_libraries(
@@ -68,6 +71,9 @@ set_target_properties(
 target_include_directories(
   check_resource_binding PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
 )
+if(NVML_INCLUDE_DIR)
+  target_include_directories(check_resource_binding PRIVATE ${NVML_INCLUDE_DIR})
+endif()
 target_compile_options(
   check_resource_binding PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
