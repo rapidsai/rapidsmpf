@@ -11,6 +11,7 @@
 #include <optional>
 
 #include <cuda_runtime_api.h>
+#include <driver_types.h>
 #include <mpi.h>
 
 #include <cudf/aggregation.hpp>
@@ -100,7 +101,7 @@ rapidsmpf::streaming::Node read_customer(
     );
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -238,120 +239,10 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
     return requests;
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node final_groupby_agg(
-    [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
-    rapidsmpf::OpID tag
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-    // TODO: requires concatenated input stream.
-    auto msg = co_await ch_in->receive();
-    auto next = co_await ch_in->receive();
-    ctx->comm()->logger().print("Final groupby");
-    RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
-    auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
-    auto chunk_stream = chunk.stream();
-    auto table = chunk.table_view();
-    std::unique_ptr<cudf::table> local_result{nullptr};
-    if (!table.is_empty()) {
-        auto grouper = cudf::groupby::groupby(
-            table.select({0, 1, 2}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
-        );
-        auto requests = std::vector<cudf::groupby::aggregation_request>();
-        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            cudf::groupby::aggregation_request(table.column(3), std::move(aggs))
-        );
-        auto [keys, results] =
-            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
-        // Drop chunk, we don't need it.
-        std::ignore = std::move(chunk);
-        auto result = keys->release();
-        for (auto&& r : results) {
-            std::ranges::move(r.results, std::back_inserter(result));
-        }
-        local_result = std::make_unique<cudf::table>(std::move(result));
-    }
-    if (ctx->comm()->nranks() > 1) {
-        // Reduce across ranks...
-        // Need a reduce primitive in rapidsmpf, but let's just use an allgather and
-        // discard for now.
-        rapidsmpf::streaming::AllGather gatherer{ctx, tag};
-        if (local_result) {
-            auto pack =
-                cudf::pack(local_result->view(), chunk_stream, ctx->br()->device_mr());
-            gatherer.insert(
-                0,
-                {rapidsmpf::PackedData(
-                    std::move(pack.metadata),
-                    ctx->br()->move(std::move(pack.gpu_data), chunk_stream)
-                )}
-            );
-        }
-        gatherer.insert_finished();
-        auto packed_data =
-            co_await gatherer.extract_all(rapidsmpf::streaming::AllGather::Ordered::NO);
-        if (ctx->comm()->rank() == 0) {
-            auto global_result = rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
-                    std::move(packed_data), ctx->br(), true, ctx->statistics()
-                ),
-                chunk_stream,
-                ctx->br(),
-                ctx->statistics()
-            );
-            // We will only actually bother to do this on rank zero.
-            auto result_view = global_result->view();
-            auto grouper = cudf::groupby::groupby(
-                result_view.select({0, 1, 2}),
-                cudf::null_policy::EXCLUDE,
-                cudf::sorted::NO
-            );
-            auto requests = std::vector<cudf::groupby::aggregation_request>();
-            std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-            requests.push_back(
-                cudf::groupby::aggregation_request(result_view.column(3), std::move(aggs))
-            );
-            auto [keys, results] =
-                grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
-            global_result.reset();
-            auto result = keys->release();
-            for (auto&& r : results) {
-                std::ranges::move(r.results, std::back_inserter(result));
-            }
-            co_await ch_out->send(
-                rapidsmpf::streaming::to_message(
-                    0,
-                    std::make_unique<rapidsmpf::streaming::TableChunk>(
-                        std::make_unique<cudf::table>(std::move(result)), chunk_stream
-                    )
-                )
-            );
-        } else {
-            std::ignore = std::move(packed_data);
-        }
-    } else {
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                0,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(local_result), chunk_stream
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
-}
-
 // In: o_orderkey, o_orderdate, o_shippriority, l_extendedprice, l_discount
 // Out: o_orderkey, o_orderdate, o_shippriority, revenue = (l_extendedprice - (1 -
 // l_discount))
-[[maybe_unused]] rapidsmpf::streaming::Node select_columns_for_groupby(
+rapidsmpf::streaming::Node select_columns_for_groupby(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -425,8 +316,7 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
     co_await ch_out->drain(ctx->executor());
 }
 
-// take first 10 rows
-[[maybe_unused]] rapidsmpf::streaming::Node top_k_by(
+rapidsmpf::streaming::Node top_k_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -594,6 +484,11 @@ int main(int argc, char** argv) {
     auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
     std::vector<double> timings;
+    int l2size;
+    int device;
+    RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
+    RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
+    auto const num_filter_blocks = rapidsmpf::ndsh::num_filter_blocks(l2size);
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
         std::vector<rapidsmpf::streaming::Node> nodes;
@@ -645,14 +540,15 @@ int main(int argc, char** argv) {
                     bloom_filter_input,
                     bloom_filter_output,
                     static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    cudf::DEFAULT_HASH_SEED
+                    cudf::DEFAULT_HASH_SEED,
+                    num_filter_blocks
                 )
             );
             // Out: l_orderkey, l_extendedprice, l_discount
             nodes.push_back(read_lineitem(
                 ctx,
                 lineitem,
-                /* num_tickets */ 6,
+                /* num_tickets */ 4,
                 arguments.num_rows_per_chunk,
                 arguments.input_directory
             ));
@@ -664,26 +560,63 @@ int main(int argc, char** argv) {
                     lineitem,
                     lineitem_output,
                     {0},
-                    cudf::DEFAULT_HASH_SEED
+                    cudf::DEFAULT_HASH_SEED,
+                    num_filter_blocks
                 )
             );
             // join o_orderkey = l_orderkey
             // Out: o_orderkey, o_orderdate, o_shippriority, l_extendedprice,
             // l_discount
             // TODO: shuffle join option.
-            nodes.push_back(
-                rapidsmpf::ndsh::inner_join_broadcast(
-                    ctx,
-                    customer_x_orders_input,
-                    lineitem_output,
-                    customer_x_orders_x_lineitem,
-                    {0},
-                    {0},
-                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    rapidsmpf::ndsh::KeepKeys::YES
-                )
-            );
-
+            if (arguments.use_shuffle_join) {
+                auto lineitem_shuffled = ctx->create_channel();
+                auto customer_x_orders_shuffled = ctx->create_channel();
+                std::uint32_t num_partitions = 16;
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        lineitem_output,
+                        lineitem_shuffled,
+                        {0},
+                        num_partitions,
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+                    )
+                );
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        customer_x_orders_input,
+                        customer_x_orders_shuffled,
+                        {0},
+                        num_partitions,
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+                    )
+                );
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_shuffle(
+                        ctx,
+                        customer_x_orders_shuffled,
+                        lineitem_shuffled,
+                        customer_x_orders_x_lineitem,
+                        {0},
+                        {0},
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+            } else {
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_broadcast(
+                        ctx,
+                        customer_x_orders_input,
+                        lineitem_output,
+                        customer_x_orders_x_lineitem,
+                        {0},
+                        {0},
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++),
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+            }
             auto groupby_input = ctx->create_channel();
             // Out: o_orderkey, o_orderdate, o_shippriority, revenue
             nodes.push_back(select_columns_for_groupby(
