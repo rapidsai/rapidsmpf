@@ -46,7 +46,6 @@ streaming::Node build_bloom_filter(
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-        ctx->comm()->logger().print((int)chunk.table_view().column(0).type().id());
         cuda_stream_join(chunk.stream(), stream, &event);
         update_filter(storage, num_blocks, chunk.table_view(), seed, chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);

@@ -25,6 +25,8 @@
 #include <rmm/mr/polymorphic_allocator.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/nvtx.hpp>
+
 #include "bloom_filter_impl.hpp"
 
 namespace rapidsmpf::ndsh {
@@ -60,6 +62,7 @@ void update_filter(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRef{
         static_cast<StorageType*>(storage.data),
         num_blocks,
@@ -83,6 +86,7 @@ rmm::device_uvector<bool> apply_filter(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto policy = PolicyType{};
     auto filter_ref = BloomFilterRef{
         static_cast<StorageType*>(storage.data),
