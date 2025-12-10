@@ -6,7 +6,9 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.string cimport string
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 from pylibcudf.expressions cimport Expression
 from pylibcudf.io.parquet cimport ParquetReaderOptions
 from pylibcudf.libcudf.expressions cimport expression
@@ -44,6 +46,13 @@ cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
             parquet_reader_options options,
             size_t target_num_chunks,
             unique_ptr[cpp_Filter],
+        ) except +
+
+    cdef size_t cpp_estimate_target_num_chunks \
+        "rapidsmpf::streaming::node::estimate_target_num_chunks"(
+            const vector[string]& files,
+            size_type num_rows_per_chunk,
+            size_t max_samples,
         ) except +
 
 
@@ -202,3 +211,43 @@ def read_parquet_uniform(
     return CppNode.from_handle(
         make_unique[cpp_Node](move(_ret)), owner=None
     )
+
+
+def estimate_target_num_chunks(
+    files: list[str],
+    size_type num_rows_per_chunk,
+    size_t max_samples = 3,
+) -> int:
+    """
+    Estimate target chunk count from parquet file metadata.
+
+    Parameters
+    ----------
+    files
+        List of parquet file paths.
+    num_rows_per_chunk
+        Target number of rows per output chunk.
+    max_samples
+        Maximum number of files to sample for row estimation.
+
+    Returns
+    -------
+    Estimated target number of chunks.
+
+    Notes
+    -----
+    Samples metadata from up to `max_samples` files to estimate total rows,
+    then calculates how many chunks are needed to achieve the target rows per chunk.
+
+    This is useful for computing the `target_num_chunks` parameter for
+    `read_parquet_uniform` when you have a target `num_rows_per_chunk` instead.
+    """
+    cdef vector[string] c_files
+    for f in files:
+        c_files.push_back(f.encode())
+    cdef size_t result
+    with nogil:
+        result = cpp_estimate_target_num_chunks(
+            c_files, num_rows_per_chunk, max_samples
+        )
+    return result
