@@ -187,13 +187,13 @@ TEST_P(NumOfRows, chunked_pack) {
     auto& split_packed = split_result.at(0);
 
     auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
+    auto bounce_buf = br->allocate(chunk_size, stream, bounce_buf_res);
+
     auto data_res =
         br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
     // Get result from chunked_pack
-    auto chunked_packed = rapidsmpf::chunked_pack(
-        input_table, chunk_size, stream, bounce_buf_res, data_res
-    );
+    auto chunked_packed = rapidsmpf::chunked_pack(input_table, *bounce_buf, data_res);
 
     EXPECT_EQ(mem_type, chunked_packed.data->mem_type());
 

@@ -269,19 +269,19 @@ std::vector<PackedData> unspill_partitions(
 }
 
 PackedData chunked_pack(
-    cudf::table_view const& table,
-    size_t chunk_size,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& bounce_buf_res,
-    MemoryReservation& data_res
+    cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
 ) {
     RAPIDSMPF_EXPECTS(
-        bounce_buf_res.mem_type() == MemoryType::DEVICE,
-        "bounce buffer must be in device memory"
+        bounce_buf.mem_type() == MemoryType::DEVICE,
+        "bounce buffer must be in device memory",
+        std::invalid_argument
     );
-    cudf::chunked_pack packer(
-        table, chunk_size, stream, bounce_buf_res.br()->device_mr()
-    );
+    // all copies will be done on the bounce buffer's stream
+    auto const& stream = bounce_buf.stream();
+    auto* br = data_res.br();
+    size_t chunk_size = bounce_buf.size;
+
+    cudf::chunked_pack packer(table, chunk_size, stream, br->device_mr());
     auto const packed_size = packer.get_total_contiguous_size();
 
     // if the packed size > data reservation, and it is within the wiggle room, pad the
@@ -293,18 +293,16 @@ PackedData chunked_pack(
         }
     }
 
-    auto bounce_buf = bounce_buf_res.br()->allocate(chunk_size, stream, bounce_buf_res);
+    // allocate the data buffer
+    auto data_buf = br->allocate(packed_size, stream, data_res);
 
-    auto data = bounce_buf->write_access([&](std::byte* bounce_buf_ptr,
-                                             rmm::cuda_stream_view stream) {
+    bounce_buf.write_access([&](std::byte* bounce_buf_ptr, rmm::cuda_stream_view) {
+        // all copies are done on the same stream, so we can omit the stream parameter
         cudf::device_span<uint8_t> buf_span(
             reinterpret_cast<uint8_t*>(bounce_buf_ptr), chunk_size
         );
 
-        // allocate the data buffer
-        auto data = data_res.br()->allocate(packed_size, stream, data_res);
-
-        data->write_access([&](std::byte* data_ptr, rmm::cuda_stream_view stream) {
+        data_buf->write_access([&](std::byte* data_ptr, rmm::cuda_stream_view) {
             size_t offset = 0;
             while (packer.has_next()) {
                 size_t n_bytes = packer.next(buf_span);
@@ -314,13 +312,9 @@ PackedData chunked_pack(
                 offset += n_bytes;
             }
         });
-
-        return data;
     });
 
-    // TODO: there is a possibility that bounce buffer destructor is a called before the
-    // async copies are completed. Should we synchronize the stream here?
-
-    return {packer.build_metadata(), std::move(data)};
+    return {packer.build_metadata(), std::move(data_buf)};
 }
+
 }  // namespace rapidsmpf

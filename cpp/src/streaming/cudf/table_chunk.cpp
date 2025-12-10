@@ -185,10 +185,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                             "not enough device memory for the bounce buffer",
                             std::runtime_error
                         );
+                        auto bounce_buf = br->allocate(avail_dev_mem, stream(), pack_res);
 
-                        packed_data = std::make_unique<PackedData>(chunked_pack(
-                            table_view(), avail_dev_mem, stream(), pack_res, reservation
-                        ));
+                        packed_data = std::make_unique<PackedData>(
+                            chunked_pack(table_view(), *bounce_buf, reservation)
+                        );
                     } else {
                         // if there is enough memory to pack the table, use `cudf::pack`
                         auto packed_columns =

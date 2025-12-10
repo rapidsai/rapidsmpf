@@ -225,24 +225,21 @@ inline size_t total_packing_wiggle_room(cudf::table_view const& table) {
 /**
  * @brief Pack a table using a @p chunk_size device buffer using `cudf::chunked_pack`.
  *
+ * All device operations will be performed on @p bounce_buf 's stream.
+ * `cudf::chunked_pack` requires the buffer to be at least 1 MiB in size.
+ *
  * @param table The table to pack.
- * @param chunk_size The size of the temporary device buffer to use (must be at least 1
- * MiB enforced by cudf::chunked_pack).
- * @param stream The CUDA stream @p table was created on.
- * @param bounce_buf_res Device memory reservation for the bounce buffer.
+ * @param bounce_buf A device bounce buffer to use for packing.
  * @param data_res Memory reservation for the data buffer. If the final packed buffer size
  * is with in a wiggle room, this @p data_res will be padded to the packed buffer size.
  *
  * @return A `PackedData` containing the packed table.
  *
  * @throws std::runtime_error If the memory allocation fails.
+ * @throws std::invalid_argument If the bounce buffer is not in device memory.
  */
 PackedData chunked_pack(
-    cudf::table_view const& table,
-    size_t chunk_size,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& bounce_buf_res,
-    MemoryReservation& data_res
+    cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
 );
 
 }  // namespace rapidsmpf
