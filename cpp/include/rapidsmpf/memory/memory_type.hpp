@@ -9,18 +9,21 @@
 
 namespace rapidsmpf {
 
-/// @brief Enum representing the type of memory.
+/// @brief Enum representing the type of memory sorted in decreasing order of preference.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
-    HOST = 1  ///< Host memory
+    PINNED_HOST = 1,  ///< Pinned host memory
+    HOST = 2  ///< Host memory
 };
 
 /// @brief All memory types sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
+constexpr std::array<MemoryType, 3> MEMORY_TYPES{
+    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
+};
 
-/// @brief Memory type names sorted to match `MEMORY_TYPES`.
+/// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
-    {"DEVICE", "HOST"}
+    {"DEVICE", "PINNED_HOST", "HOST"}
 };
 
 /**
@@ -31,7 +34,9 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
  */
-constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}};
+constexpr std::array<MemoryType, 2> SPILL_TARGET_MEMORY_TYPES{
+    {MemoryType::PINNED_HOST, MemoryType::HOST}
+};
 
 /**
  * @brief Get the name of a MemoryType.

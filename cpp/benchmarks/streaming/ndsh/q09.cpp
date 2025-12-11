@@ -685,7 +685,9 @@ int main(int argc, char** argv) {
         };
     }
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stats_mr, std::move(memory_available)
+        stats_mr,
+        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        std::move(memory_available)
     );
     auto envvars = rapidsmpf::config::get_environment_variables();
     envvars["num_streaming_threads"] = std::to_string(cmd_options.num_streaming_threads);
