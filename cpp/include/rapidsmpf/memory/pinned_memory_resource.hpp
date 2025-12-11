@@ -75,6 +75,22 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * the current CUDA version or if CUDA initialization fails.
      */
     PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+
+    /**
+     * @brief Create a pinned memory resource if the system supports pinned memory.
+     *
+     * @param numa_id The NUMA node to associate with the resource. Defaults to the
+     * current NUMA node.
+     *
+     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
+     * otherwise `PinnedMemoryResource::Disabled`.
+     *
+     * @see PinnedMemoryResource::PinnedMemoryResource
+     */
+    static std::shared_ptr<PinnedMemoryResource> make_if_available(
+        int numa_id = get_current_numa_node_id()
+    );
+
     ~PinnedMemoryResource() override;
 
     /**
