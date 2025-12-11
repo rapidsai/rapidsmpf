@@ -64,8 +64,7 @@ repos:
     rev: 'v1.18.2'
     hooks:
       - id: mypy
-        args: ["--config-file=pyproject.toml",
-               "python/rapidsmpf/"]
+        args: ["--config-file=pyproject.toml", "python/rapidsmpf/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
     rev: 6.0.1
@@ -102,6 +101,10 @@ repos:
             Makefile$|
             make[.]bat$
       - id: verify-alpha-spec
+        args:
+          - --fix
+          - --mode
+          - release
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
   - repo: https://github.com/rapidsai/dependency-file-generator
@@ -113,6 +116,5 @@ repos:
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
-
 default_language_version:
-      python: python3
+  python: python3
