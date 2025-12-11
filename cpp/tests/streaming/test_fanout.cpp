@@ -497,9 +497,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c],
-                std::back_inserter(actual),
-                [](const Message& m) { return m.get<int>(); }
+                outs[c], std::back_inserter(actual), [](const Message& m) {
+                    return m.get<int>();
+                }
             );
             EXPECT_EQ(expected, actual);
         }
@@ -575,7 +575,8 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
         nodes.push_back(node::fanout(ctx, in, out_chs, policy));
 
-        nodes.push_back(many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
+        nodes.push_back(
+            many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
 
         run_streaming_pipeline(std::move(nodes));
