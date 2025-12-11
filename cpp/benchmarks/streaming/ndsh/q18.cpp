@@ -757,38 +757,6 @@ rapidsmpf::streaming::Node local_inner_join(
 // Final Processing (reused from q18.cpp)
 // ============================================================================
 
-rapidsmpf::streaming::Node reorder_columns(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    std::uint64_t seq = 0;
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        auto table = chunk.table_view();
-        auto reordered_table = std::make_unique<cudf::table>(
-            table.select({1, 0, 2, 3, 4, 5}), chunk.stream(), ctx->br()->device_mr()
-        );
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                seq++,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(reordered_table), chunk.stream()
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
-}
-
 rapidsmpf::streaming::Node chunkwise_groupby_agg(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
@@ -806,7 +774,8 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
-        auto table = chunk.table_view();
+        // Reorder columns: swap 0 and 1 to get (c_custkey, o_orderkey, ...)
+        auto table = chunk.table_view().select({1, 0, 2, 3, 4, 5});
 
         auto grouper = cudf::groupby::groupby(
             table.select({0, 1, 2, 3, 4}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
@@ -1391,13 +1360,9 @@ int main(int argc, char** argv) {
                 );
             }
 
-            // Reorder columns
-            auto reordered = ctx->create_channel();
-            nodes.push_back(reorder_columns(ctx, all_joined, reordered));
-
-            // Groupby aggregation
+            // Groupby aggregation (includes column reordering)
             auto groupby_output = ctx->create_channel();
-            nodes.push_back(chunkwise_groupby_agg(ctx, reordered, groupby_output));
+            nodes.push_back(chunkwise_groupby_agg(ctx, all_joined, groupby_output));
 
             auto concat_groupby = ctx->create_channel();
             nodes.push_back(
