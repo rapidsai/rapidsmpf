@@ -60,17 +60,6 @@
 
 namespace {
 
-std::string get_table_path(
-    std::string const& input_directory, std::string const& table_name
-) {
-    auto dir = input_directory.empty() ? "." : input_directory;
-    auto file_path = dir + "/" + table_name + ".parquet";
-    if (std::filesystem::exists(file_path)) {
-        return file_path;
-    }
-    return dir + "/" + table_name + "/";
-}
-
 rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -79,7 +68,7 @@ rapidsmpf::streaming::Node read_lineitem(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "lineitem")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns(
@@ -104,7 +93,7 @@ rapidsmpf::streaming::Node read_nation(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "nation")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "nation")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"n_name", "n_nationkey"})
@@ -122,7 +111,7 @@ rapidsmpf::streaming::Node read_orders(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "orders")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"o_orderdate", "o_orderkey"})
@@ -140,7 +129,7 @@ rapidsmpf::streaming::Node read_part(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "part")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "part")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"p_partkey", "p_name"})
@@ -158,7 +147,7 @@ rapidsmpf::streaming::Node read_partsupp(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "partsupp")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "partsupp")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"ps_partkey", "ps_suppkey", "ps_supplycost"})
@@ -176,7 +165,7 @@ rapidsmpf::streaming::Node read_supplier(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "supplier")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "supplier")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"s_nationkey", "s_suppkey"})
