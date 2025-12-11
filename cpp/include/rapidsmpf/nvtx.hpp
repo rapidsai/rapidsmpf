@@ -55,6 +55,10 @@ struct rapidsmpf_domain {
 
 // implement the func range macro with a value
 #define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL(val)              \
+    static_assert(                                                \
+        std::is_arithmetic_v<decltype(val)>,                      \
+        "Value must be integral or floating point type"           \
+    );                                                            \
     nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT(    \
         _rapidsmpf_nvtx_range, __LINE__                           \
     ) {                                                           \
