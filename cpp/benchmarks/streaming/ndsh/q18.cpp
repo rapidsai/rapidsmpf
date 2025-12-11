@@ -416,16 +416,15 @@ rapidsmpf::streaming::Node allgather_table(
             ctx->statistics()
         );
     } else {
-        // Single rank - just pass through
+        // Single rank - just forward the message as-is
         if (!msg.empty()) {
-            auto chunk = rapidsmpf::ndsh::to_device(
-                ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-            );
-            stream = chunk.stream();
-            result = std::make_unique<cudf::table>(
-                chunk.table_view(), stream, ctx->br()->device_mr()
-            );
+            co_await ch_out->send(std::move(msg));
         }
+        ctx->comm()->logger().print(
+            "allgather_table: single rank finished forwarding message"
+        );
+        co_await ch_out->drain(ctx->executor());
+        co_return;
     }
 
     ctx->comm()->logger().debug(
