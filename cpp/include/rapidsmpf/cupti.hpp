@@ -167,11 +167,11 @@ class CuptiMonitor {
     // Boolean fields grouped together at beginning to reduce padding
     bool enable_periodic_sampling_;
     std::atomic<bool> monitoring_active_;
-    bool debug_output_enabled_;
+    bool debug_output_enabled_{false};
 
     std::chrono::milliseconds sampling_interval_ms_;
     std::size_t debug_threshold_bytes_;
-    std::size_t last_used_mem_for_debug_;
+    std::size_t last_used_mem_for_debug_{0};
     CUpti_SubscriberHandle cupti_subscriber_;
     std::thread sampling_thread_;
 

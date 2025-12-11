@@ -20,13 +20,14 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace \
         pass
 
 
-cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
+cdef extern from "<rapidsmpf/bootstrap/utils.hpp>" nogil:
     bint cpp_is_running_with_rrun \
         "rapidsmpf::bootstrap::is_running_with_rrun"() except +
 
     int cpp_get_nranks \
         "rapidsmpf::bootstrap::get_nranks"() except +
 
+cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
     shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
         "rapidsmpf::bootstrap::create_ucxx_comm"(
             Backend backend,
