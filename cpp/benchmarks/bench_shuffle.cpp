@@ -52,7 +52,7 @@ class ArgumentParser {
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igsbxhM:")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:L:igsbxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -73,7 +73,10 @@ class ArgumentParser {
                               "managed} "
                               "(default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
-                              "disabled)\n"
+                              "unlimited)\n"
+                           << "  -L <num>   Pinned host memory limit in MiB (default:-1,"
+                              " unlimited)\n"
+                              "input data (default: allow memory overbooking)\n"
                            << "  -i         Use `concat_insert` method, instead of "
                               "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
@@ -150,6 +153,9 @@ class ArgumentParser {
                     break;
                 case 'l':
                     parse_integer(device_mem_limit_mb, optarg);
+                    break;
+                case 'L':
+                    parse_integer(pinned_mem_limit_mb, optarg);
                     break;
                 case 'i':
                     use_concat_insert = true;
@@ -230,6 +236,10 @@ class ArgumentParser {
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
+        if (pinned_mem_limit_mb >= 0) {
+            ss << "  -L " << pinned_mem_limit_mb
+               << " (pinned host memory limit in MiB)\n";
+        }
         if (enable_output_discard) {
             ss << "  -s (enable output discard to simulate streaming)\n";
         }
@@ -269,6 +279,7 @@ class ArgumentParser {
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
+    std::int64_t pinned_mem_limit_mb{-1};
     bool enable_cupti_monitoring{false};
     std::string cupti_csv_prefix;
 };
@@ -614,12 +625,8 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
 
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
-
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<rapidsmpf::RmmResourceAdaptor> stat_enabled_mr;
-    if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
-        stat_enabled_mr = set_device_mem_resource_with_stats();
-    }
+    auto stat_enabled_mr = set_device_mem_resource_with_stats();
 
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
@@ -628,10 +635,18 @@ int main(int argc, char** argv) {
             stat_enabled_mr.get(), args.device_mem_limit_mb << 20
         };
     }
+    if (args.pinned_mem_limit_mb >= 0) {
+        memory_available[rapidsmpf::MemoryType::PINNED_HOST] =
+            rapidsmpf::LimitAvailableMemory{
+                stat_enabled_mr.get(), args.pinned_mem_limit_mb << 20
+            };
+    }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmpf::BufferResource br{
-        mr, rapidsmpf::PinnedMemoryResource::Disabled, std::move(memory_available)
+        mr,
+        rapidsmpf::PinnedMemoryResource::make_if_available(),
+        std::move(memory_available)
     };
 
     auto& log = comm->logger();
