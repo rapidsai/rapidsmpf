@@ -491,12 +491,11 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
     auto partial_aggs = ctx->create_channel();
     nodes.push_back(chunkwise_groupby_lineitem(ctx, lineitem, partial_aggs));
 
-    std::shared_ptr<rapidsmpf::streaming::Channel> to_concat;
     std::shared_ptr<rapidsmpf::streaming::Channel> to_collect;
 
     if (single_rank) {
         // Single rank: simple local pipeline (no shuffle needed)
-        to_concat = partial_aggs;
+        auto to_concat = partial_aggs;
 
         auto concatenated = ctx->create_channel();
         nodes.push_back(
@@ -505,12 +504,10 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
             )
         );
 
-        auto filtered_local = ctx->create_channel();
+        to_collect = ctx->create_channel();
         nodes.push_back(final_groupby_filter_lineitem(
-            ctx, concatenated, filtered_local, quantity_threshold
+            ctx, concatenated, to_collect, quantity_threshold
         ));
-
-        to_collect = filtered_local;
     } else {
         // Multi-rank: SHUFFLE partial aggregates by orderkey (column 0)
         // This distributes work across ranks - required at scale!
@@ -525,7 +522,7 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
                 base_tag++
             )
         );
-        to_concat = partial_aggs_shuffled;
+        auto to_concat = partial_aggs_shuffled;
 
         // Per-partition: concatenate → groupby → filter
         auto concatenated = ctx->create_channel();
@@ -697,13 +694,16 @@ rapidsmpf::streaming::Node local_inner_join(
     auto left_chunk = rapidsmpf::ndsh::to_device(
         ctx, left_msg.release<rapidsmpf::streaming::TableChunk>()
     );
+    auto next = co_await ch_left->receive();
+    RAPIDSMPF_EXPECTS(next.empty(), "Unexpected second message from left channel.");
     auto right_chunk = rapidsmpf::ndsh::to_device(
         ctx, right_msg.release<rapidsmpf::streaming::TableChunk>()
     );
+    next = co_await ch_right->receive();
+    RAPIDSMPF_EXPECTS(next.empty(), "Unexpected second message from right channel.");
 
-    rapidsmpf::CudaEvent event;
     auto stream = left_chunk.stream();
-    rapidsmpf::cuda_stream_join(stream, right_chunk.stream(), &event);
+    rapidsmpf::cuda_stream_join(stream, right_chunk.stream());
 
     auto left_table = left_chunk.table_view();
     auto right_table = right_chunk.table_view();
@@ -737,10 +737,7 @@ rapidsmpf::streaming::Node local_inner_join(
 
     // Concatenate columns: all from left + l_quantity from right
     auto result_cols = left_gathered->release();
-    auto right_cols = right_gathered->release();
-    for (auto&& col : right_cols) {
-        result_cols.push_back(std::move(col));
-    }
+    std::ranges::move(right_gathered->release(), std::back_inserter(result_cols));
 
     auto result = std::make_unique<cudf::table>(std::move(result_cols));
     ctx->comm()->logger().print(
