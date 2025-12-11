@@ -473,7 +473,7 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
     std::string const& input_directory,
     double quantity_threshold,
     std::uint32_t num_partitions,
-    rapidsmpf::OpID base_tag
+    rapidsmpf::OpID& base_tag
 ) {
     bool const single_rank = ctx->comm()->nranks() == 1;
     ctx->comm()->logger().print(
@@ -522,7 +522,7 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
                 partial_aggs_shuffled,
                 {0},  // l_orderkey
                 num_partitions,
-                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag)}
+                base_tag++
             )
         );
         to_concat = partial_aggs_shuffled;
@@ -542,12 +542,7 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
 
         // All-gather the TINY filtered result (~57K orderkeys at SF1000)
         auto gathered = ctx->create_channel();
-        nodes.push_back(allgather_table(
-            ctx,
-            filtered_local,
-            gathered,
-            rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag + 1)}
-        ));
+        nodes.push_back(allgather_table(ctx, filtered_local, gathered, base_tag++));
         to_collect = gathered;
     }
 
@@ -1165,6 +1160,9 @@ int main(int argc, char** argv) {
             // Uses shuffle for multi-rank (required at scale to avoid OOM)
             // Uses simple local groupby for single-rank
             // ================================================================
+            rapidsmpf::OpID phase1_op_id{
+                static_cast<rapidsmpf::OpID>(100 + iteration * 10)
+            };
             std::unique_ptr<cudf::table> qualifying_orderkeys =
                 compute_qualifying_orderkeys(
                     ctx,
@@ -1172,7 +1170,7 @@ int main(int argc, char** argv) {
                     cmd_options.input_directory,
                     300.0,  // quantity_threshold
                     cmd_options.num_partitions,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(100 + iteration * 10)}
+                    phase1_op_id
                 );
             auto phase1_end = std::chrono::steady_clock::now();
 
@@ -1190,7 +1188,7 @@ int main(int argc, char** argv) {
             // ================================================================
             std::vector<rapidsmpf::streaming::Node> nodes;
             std::uint32_t num_partitions = cmd_options.num_partitions;
-            int op_id = 0;
+            int phase2_op_id = 0;
 
             // Read and pre-filter lineitem
             auto lineitem_raw = ctx->create_channel();
@@ -1250,9 +1248,9 @@ int main(int argc, char** argv) {
                         lineitem_shuffled,
                         {0},  // l_orderkey
                         num_partitions,
-                        rapidsmpf::OpID{
-                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
-                        }
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(
+                            200 + iteration * 10 + phase2_op_id++
+                        )}
                     )
                 );
 
@@ -1265,9 +1263,9 @@ int main(int argc, char** argv) {
                         orders_shuffled,
                         {0},  // o_orderkey
                         num_partitions,
-                        rapidsmpf::OpID{
-                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
-                        }
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(
+                            200 + iteration * 10 + phase2_op_id++
+                        )}
                     )
                 );
 
@@ -1295,9 +1293,9 @@ int main(int argc, char** argv) {
                         orders_x_lineitem_shuffled,
                         {1},  // o_custkey
                         num_partitions,
-                        rapidsmpf::OpID{
-                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
-                        }
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(
+                            200 + iteration * 10 + phase2_op_id++
+                        )}
                     )
                 );
 
@@ -1310,9 +1308,9 @@ int main(int argc, char** argv) {
                         customer_shuffled,
                         {0},  // c_custkey
                         num_partitions,
-                        rapidsmpf::OpID{
-                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
-                        }
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(
+                            200 + iteration * 10 + phase2_op_id++
+                        )}
                     )
                 );
 
@@ -1421,7 +1419,7 @@ int main(int argc, char** argv) {
                 concat_groupby,
                 final_output,
                 rapidsmpf::OpID{
-                    static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                    static_cast<rapidsmpf::OpID>(200 + iteration * 10 + phase2_op_id++)
                 }
             ));
 
