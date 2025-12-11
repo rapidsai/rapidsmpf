@@ -5,7 +5,9 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(rrun "rrun.cpp")
+add_executable(
+  rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+)
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
@@ -13,8 +15,15 @@ set_target_properties(
              CXX_STANDARD_REQUIRED ON
 )
 target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+if(NVML_INCLUDE_DIR)
+  target_include_directories(rrun PRIVATE ${NVML_INCLUDE_DIR})
+endif()
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
-target_link_libraries(rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan)
+target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
+target_link_libraries(
+  rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+               $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+)
 install(
   TARGETS rrun
   COMPONENT tools
@@ -43,6 +52,40 @@ target_link_libraries(
 )
 install(
   TARGETS topology_discovery
+  COMPONENT tools
+  DESTINATION bin
+  EXCLUDE_FROM_ALL
+)
+
+add_executable(
+  check_resource_binding
+  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+)
+set_target_properties(
+  check_resource_binding
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+)
+target_include_directories(
+  check_resource_binding PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+)
+if(NVML_INCLUDE_DIR)
+  target_include_directories(check_resource_binding PRIVATE ${NVML_INCLUDE_DIR})
+endif()
+target_compile_options(
+  check_resource_binding PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+)
+target_compile_definitions(
+  check_resource_binding PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+)
+target_link_libraries(
+  check_resource_binding PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+                                 $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+)
+install(
+  TARGETS check_resource_binding
   COMPONENT tools
   DESTINATION bin
   EXCLUDE_FROM_ALL

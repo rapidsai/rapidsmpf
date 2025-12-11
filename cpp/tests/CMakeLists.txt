@@ -178,6 +178,31 @@ if(RAPIDSMPF_HAVE_MPI)
   endif()
 endif()
 
+# rrun_tests - Tests for rrun launcher, topology discovery and resource binding functionality. These
+# tests must be run with rrun, not via ctest/mpirun. Example: `rrun -n 1 gtests/rrun_tests`
+add_executable(rrun_tests main/rrun.cpp test_rrun.cpp)
+set_target_properties(
+  rrun_tests
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+             COMPONENT testing # custom test property, so that this could be searched later
+)
+target_compile_options(
+  rrun_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  rrun_tests
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+)
+disable_sign_conversion_warning(rrun_tests)
+
 add_executable(single_tests main/single.cpp)
 
 set_target_properties(

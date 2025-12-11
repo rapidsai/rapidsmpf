@@ -69,6 +69,7 @@ cache:
       - cuda-cupti-dev
       - cuda-nvml-dev
       - cuda-version =${{ cuda_version }}
+      - libnuma
       - ninja
       - ${{ stdlib("c") }}
     host:
@@ -76,8 +77,9 @@ cache:
       - cuda-cudart-dev
       - cuda-cupti-dev
       - cuda-nvml-dev
-      - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
+      - libnuma
+      - librmm =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - ucxx ${{ ucxx_version }}
 
