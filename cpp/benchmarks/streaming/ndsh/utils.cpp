@@ -20,6 +20,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/single.hpp>
@@ -129,10 +130,11 @@ std::shared_ptr<streaming::Context> create_context(
         memory_available[MemoryType::DEVICE] =
             LimitAvailableMemory{mr, static_cast<std::int64_t>(limit_size)};
     }
-    auto statistics = std::make_shared<rapidsmpf::Statistics>(mr);
+    auto statistics = std::make_shared<Statistics>(mr);
 
-    auto br = std::make_shared<rapidsmpf::BufferResource>(
+    auto br = std::make_shared<BufferResource>(
         mr,
+        BufferResource::PinnedMemoryResourceDisabled,
         std::move(memory_available),
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(
