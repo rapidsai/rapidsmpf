@@ -201,7 +201,7 @@ class BufferResource {
     [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST && pinned_mr_ == nullptr) {
+            if (mem_type == MemoryType::PINNED_HOST && pinned_mr_ == PinnedMemoryResourceDisabled) {
                 // Pinned host memory is only available if the memory resource is
                 // available.
                 continue;
