@@ -245,24 +245,20 @@ rapidsmpf::streaming::Node compute_avg_quantity(
             table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
         );
         auto requests = std::vector<cudf::groupby::aggregation_request>();
-        std::vector<std::unique_ptr<cudf::groupby_aggregation>> sum_aggs;
-        sum_aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        std::vector<std::unique_ptr<cudf::groupby_aggregation>> count_aggs;
-        count_aggs.push_back(cudf::make_count_aggregation<cudf::groupby_aggregation>());
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+        aggs.push_back(cudf::make_count_aggregation<cudf::groupby_aggregation>());
         requests.push_back(
-            cudf::groupby::aggregation_request(table.column(1), std::move(sum_aggs))
-        );
-        requests.push_back(
-            cudf::groupby::aggregation_request(table.column(1), std::move(count_aggs))
+            cudf::groupby::aggregation_request(table.column(1), std::move(aggs))
         );
         auto [keys, results] =
             grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
 
         // Output: p_partkey, sum(l_quantity), count(l_quantity)
-        std::vector<std::unique_ptr<cudf::column>> result;
-        result.push_back(std::move(keys->release()[0]));
-        result.push_back(std::move(results[0].results[0]));  // sum
-        result.push_back(std::move(results[1].results[0]));  // count
+        auto result = keys->release();
+        for (auto&& r : results) {
+            std::ranges::move(r.results, std::back_inserter(result));
+        }
 
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -274,6 +270,16 @@ rapidsmpf::streaming::Node compute_avg_quantity(
         );
     }
     co_await ch_out->drain(ctx->executor());
+}
+
+template <typename T>
+std::unique_ptr<cudf::column> column_from_value(
+    const T& value, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr
+) {
+    rmm::device_uvector<T> vec(1, stream, mr);
+    vec.set_element_async(0, value, stream);
+
+    return std::make_unique<cudf::column>(std::move(vec), {}, 0);
 }
 
 // Final aggregation after the second join and filter
@@ -338,25 +344,16 @@ rapidsmpf::streaming::Node final_aggregation(
     }
 
     // Create result table with local sum
-    std::unique_ptr<cudf::table> local_result{nullptr};
     auto chunk_stream = rmm::cuda_stream_view{};
-    if (local_sum != 0.0) {
-        auto sum_scalar = cudf::make_numeric_scalar(
-            cudf::data_type(cudf::type_id::FLOAT64), chunk_stream, ctx->br()->device_mr()
-        );
-        static_cast<cudf::numeric_scalar<double>*>(sum_scalar.get())
-            ->set_value(local_sum, chunk_stream);
-
-        std::vector<std::unique_ptr<cudf::column>> result_cols;
-        result_cols.push_back(
-            cudf::make_column_from_scalar(
-                *sum_scalar, 1, chunk_stream, ctx->br()->device_mr()
-            )
-        );
-        local_result = std::make_unique<cudf::table>(std::move(result_cols));
-    }
 
     if (ctx->comm()->nranks() > 1) {
+        std::unique_ptr<cudf::table> local_result{nullptr};
+        if (local_sum > 0.0) {
+            local_result = std::make_unique<cudf::table>(
+                column_from_value(local_sum, chunk_stream, ctx->br()->device_mr())
+            );
+        }
+
         // Gather results from all ranks
         rapidsmpf::streaming::AllGather gatherer{ctx, tag};
         if (local_result) {
@@ -398,50 +395,27 @@ rapidsmpf::streaming::Node final_aggregation(
                 auto total_sum = static_cast<cudf::numeric_scalar<double>&>(*sum_result)
                                      .value(chunk_stream);
                 auto avg_yearly_val = total_sum / 7.0;
-                auto avg_yearly_scalar = cudf::make_numeric_scalar(
-                    cudf::data_type(cudf::type_id::FLOAT64),
-                    chunk_stream,
-                    ctx->br()->device_mr()
-                );
-                static_cast<cudf::numeric_scalar<double>*>(avg_yearly_scalar.get())
-                    ->set_value(avg_yearly_val, chunk_stream);
-
-                std::vector<std::unique_ptr<cudf::column>> result_cols;
-                result_cols.push_back(
-                    cudf::make_column_from_scalar(
-                        *avg_yearly_scalar, 1, chunk_stream, ctx->br()->device_mr()
-                    )
-                );
 
                 co_await ch_out->send(
                     rapidsmpf::streaming::to_message(
                         0,
                         std::make_unique<rapidsmpf::streaming::TableChunk>(
-                            std::make_unique<cudf::table>(std::move(result_cols)),
+                            std::make_unique<cudf::table>(column_from_value(
+                                avg_yearly_val, chunk_stream, ctx->br()->device_mr()
+                            )),
                             chunk_stream
                         )
                     )
                 );
             } else {
                 // No data after filtering - send empty result with 0.0
-                auto zero_scalar = cudf::make_numeric_scalar(
-                    cudf::data_type(cudf::type_id::FLOAT64),
-                    chunk_stream,
-                    ctx->br()->device_mr()
-                );
-                static_cast<cudf::numeric_scalar<double>*>(zero_scalar.get())
-                    ->set_value(0.0, chunk_stream);
-                std::vector<std::unique_ptr<cudf::column>> result_cols;
-                result_cols.push_back(
-                    cudf::make_column_from_scalar(
-                        *zero_scalar, 1, chunk_stream, ctx->br()->device_mr()
-                    )
-                );
                 co_await ch_out->send(
                     rapidsmpf::streaming::to_message(
                         0,
                         std::make_unique<rapidsmpf::streaming::TableChunk>(
-                            std::make_unique<cudf::table>(std::move(result_cols)),
+                            std::make_unique<cudf::table>(column_from_value(
+                                0.0, chunk_stream, ctx->br()->device_mr()
+                            )),
                             chunk_stream
                         )
                     )
@@ -451,70 +425,20 @@ rapidsmpf::streaming::Node final_aggregation(
         // Non-zero ranks don't send anything (following q09 pattern)
     } else {
         // Single rank: divide by 7.0 here
-        if (local_result) {
-            auto sum_val =
-                static_cast<cudf::numeric_scalar<double>*>(
-                    cudf::reduce(
-                        local_result->view().column(0),
-                        *cudf::make_sum_aggregation<cudf::reduce_aggregation>(),
-                        cudf::data_type(cudf::type_id::FLOAT64),
-                        chunk_stream,
-                        ctx->br()->device_mr()
-                    )
-                        .get()
-                )
-                    ->value(chunk_stream);
 
-            auto avg_yearly_val = sum_val / 7.0;
-            auto avg_yearly_scalar = cudf::make_numeric_scalar(
-                cudf::data_type(cudf::type_id::FLOAT64),
-                chunk_stream,
-                ctx->br()->device_mr()
-            );
-            static_cast<cudf::numeric_scalar<double>*>(avg_yearly_scalar.get())
-                ->set_value(avg_yearly_val, chunk_stream);
+        auto avg_yearly_val = local_sum / 7.0;
 
-            std::vector<std::unique_ptr<cudf::column>> result_cols;
-            result_cols.push_back(
-                cudf::make_column_from_scalar(
-                    *avg_yearly_scalar, 1, chunk_stream, ctx->br()->device_mr()
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                0,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(column_from_value(
+                        avg_yearly_val, chunk_stream, ctx->br()->device_mr()
+                    )),
+                    chunk_stream
                 )
-            );
-
-            co_await ch_out->send(
-                rapidsmpf::streaming::to_message(
-                    0,
-                    std::make_unique<rapidsmpf::streaming::TableChunk>(
-                        std::make_unique<cudf::table>(std::move(result_cols)),
-                        chunk_stream
-                    )
-                )
-            );
-        } else {
-            // No data after filtering - send result with 0.0
-            auto zero_scalar = cudf::make_numeric_scalar(
-                cudf::data_type(cudf::type_id::FLOAT64),
-                chunk_stream,
-                ctx->br()->device_mr()
-            );
-            static_cast<cudf::numeric_scalar<double>*>(zero_scalar.get())
-                ->set_value(0.0, chunk_stream);
-            std::vector<std::unique_ptr<cudf::column>> result_cols;
-            result_cols.push_back(
-                cudf::make_column_from_scalar(
-                    *zero_scalar, 1, chunk_stream, ctx->br()->device_mr()
-                )
-            );
-            co_await ch_out->send(
-                rapidsmpf::streaming::to_message(
-                    0,
-                    std::make_unique<rapidsmpf::streaming::TableChunk>(
-                        std::make_unique<cudf::table>(std::move(result_cols)),
-                        chunk_stream
-                    )
-                )
-            );
-        }
+            )
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -551,6 +475,195 @@ rapidsmpf::streaming::Node round_result(
         )
     );
     co_await ch_out->send(std::move(result));
+    co_await ch_out->drain(ctx->executor());
+}
+
+rapidsmpf::streaming::Node groupby_avg_quantity(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    rapidsmpf::OpID tag
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    auto msg = co_await ch_in->receive();
+    auto next = co_await ch_in->receive();
+    RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input");
+
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto chunk_stream = chunk.stream();
+    auto table = chunk.table_view();
+
+    std::unique_ptr<cudf::table> local_result{nullptr};
+    if (!table.is_empty()) {
+        // table has: p_partkey, sum(l_quantity), count(l_quantity)
+        // Group by p_partkey and sum the sums and counts
+        auto grouper = cudf::groupby::groupby(
+            table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+        );
+        auto requests = std::vector<cudf::groupby::aggregation_request>();
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> sum_aggs1;
+        sum_aggs1.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> sum_aggs2;
+        sum_aggs2.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+        requests.push_back(
+            cudf::groupby::aggregation_request(table.column(1), std::move(sum_aggs1))
+        );
+        requests.push_back(
+            cudf::groupby::aggregation_request(table.column(2), std::move(sum_aggs2))
+        );
+        auto [keys, results] =
+            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+
+        // Output: p_partkey (as key), sum(l_quantity),
+        // count(l_quantity) Don't compute avg here - do it after
+        // global aggregation
+        auto result = keys->release();
+        result.push_back(std::move(results[0].results[0]));  // sum
+        result.push_back(std::move(results[1].results[0]));  // count
+        local_result = std::make_unique<cudf::table>(std::move(result));
+    }
+
+    if (ctx->comm()->nranks() > 1) {
+        rapidsmpf::streaming::AllGather gatherer{ctx, tag};
+        if (local_result) {
+            auto pack =
+                cudf::pack(local_result->view(), chunk_stream, ctx->br()->device_mr());
+            gatherer.insert(
+                0,
+                {rapidsmpf::PackedData(
+                    std::move(pack.metadata),
+                    ctx->br()->move(std::move(pack.gpu_data), chunk_stream)
+                )}
+            );
+        }
+        gatherer.insert_finished();
+        auto packed_data =
+            co_await gatherer.extract_all(rapidsmpf::streaming::AllGather::Ordered::NO);
+        if (ctx->comm()->rank() == 0) {
+            auto global_result = rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_data), ctx->br(), true, ctx->statistics()
+                ),
+                chunk_stream,
+                ctx->br(),
+                ctx->statistics()
+            );
+
+            auto result_view = global_result->view();
+            // result_view has: p_partkey, sum, count
+            // Group by p_partkey and sum both the sums and counts
+            auto grouper = cudf::groupby::groupby(
+                result_view.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+            );
+            auto requests = std::vector<cudf::groupby::aggregation_request>();
+            std::vector<std::unique_ptr<cudf::groupby_aggregation>> sum_aggs1;
+            sum_aggs1.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            std::vector<std::unique_ptr<cudf::groupby_aggregation>> sum_aggs2;
+            sum_aggs2.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                cudf::groupby::aggregation_request(
+                    result_view.column(1), std::move(sum_aggs1)
+                )
+            );
+            requests.push_back(
+                cudf::groupby::aggregation_request(
+                    result_view.column(2), std::move(sum_aggs2)
+                )
+            );
+            auto [keys, results] =
+                grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+            global_result.reset();
+
+            // Compute mean = sum / count, then multiply by 0.2
+            auto sum_col = results[0].results[0]->view();
+            auto count_col = results[1].results[0]->view();
+            auto mean_col = cudf::binary_operation(
+                sum_col,
+                count_col,
+                cudf::binary_operator::DIV,
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+
+            auto scalar_02 = cudf::make_numeric_scalar(
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+            static_cast<cudf::numeric_scalar<double>*>(scalar_02.get())
+                ->set_value(0.2, chunk_stream);
+            auto avg_quantity = cudf::binary_operation(
+                mean_col->view(),
+                *scalar_02,
+                cudf::binary_operator::MUL,
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+
+            auto result = keys->release();
+            result.push_back(std::move(avg_quantity));
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                    )
+                )
+            );
+        } else {
+            // Non-zero ranks: send empty table with correct schema
+            // Schema: key (INT64), avg_quantity (FLOAT64)
+            std::vector<std::unique_ptr<cudf::column>> empty_cols;
+            empty_cols.push_back(
+                cudf::make_empty_column(cudf::data_type(cudf::type_id::INT64))
+            );
+            empty_cols.push_back(
+                cudf::make_empty_column(cudf::data_type(cudf::type_id::FLOAT64))
+            );
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(std::move(empty_cols)), chunk_stream
+                    )
+                )
+            );
+        }
+    } else {
+        if (local_result) {
+            // TODO: should we calculate the avg here?????
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::move(local_result), chunk_stream
+                    )
+                )
+            );
+        } else {
+            // Single rank with no data: send empty table with correct
+            // schema
+            std::vector<std::unique_ptr<cudf::column>> empty_cols;
+            empty_cols.push_back(
+                cudf::make_empty_column(cudf::data_type(cudf::type_id::INT64))
+            );
+            empty_cols.push_back(
+                cudf::make_empty_column(cudf::data_type(cudf::type_id::FLOAT64))
+            );
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(std::move(empty_cols)), chunk_stream
+                    )
+                )
+            );
+        }
+    }
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -868,258 +981,12 @@ int main(int argc, char** argv) {
 
                 // Final groupby for avg_quantity across all chunks
                 auto avg_quantity_final = ctx->create_channel();
-                nodes.push_back(
-                    [](
-                        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-                        std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-                        std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
-                        rapidsmpf::OpID tag
-                    ) -> rapidsmpf::streaming::Node {
-                        rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-                        co_await ctx->executor()->schedule();
-                        auto msg = co_await ch_in->receive();
-                        auto next = co_await ch_in->receive();
-                        RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input");
-
-                        auto chunk = rapidsmpf::ndsh::to_device(
-                            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-                        );
-                        auto chunk_stream = chunk.stream();
-                        auto table = chunk.table_view();
-
-                        std::unique_ptr<cudf::table> local_result{nullptr};
-                        if (!table.is_empty()) {
-                            // table has: p_partkey, sum(l_quantity), count(l_quantity)
-                            // Group by p_partkey and sum the sums and counts
-                            auto grouper = cudf::groupby::groupby(
-                                table.select({0}),
-                                cudf::null_policy::EXCLUDE,
-                                cudf::sorted::NO
-                            );
-                            auto requests =
-                                std::vector<cudf::groupby::aggregation_request>();
-                            std::vector<std::unique_ptr<cudf::groupby_aggregation>>
-                                sum_aggs1;
-                            sum_aggs1.push_back(
-                                cudf::make_sum_aggregation<cudf::groupby_aggregation>()
-                            );
-                            std::vector<std::unique_ptr<cudf::groupby_aggregation>>
-                                sum_aggs2;
-                            sum_aggs2.push_back(
-                                cudf::make_sum_aggregation<cudf::groupby_aggregation>()
-                            );
-                            requests.push_back(
-                                cudf::groupby::aggregation_request(
-                                    table.column(1), std::move(sum_aggs1)
-                                )
-                            );
-                            requests.push_back(
-                                cudf::groupby::aggregation_request(
-                                    table.column(2), std::move(sum_aggs2)
-                                )
-                            );
-                            auto [keys, results] = grouper.aggregate(
-                                requests, chunk_stream, ctx->br()->device_mr()
-                            );
-
-                            // Output: p_partkey (as key), sum(l_quantity),
-                            // count(l_quantity) Don't compute avg here - do it after
-                            // global aggregation
-                            auto result = keys->release();
-                            result.push_back(std::move(results[0].results[0]));  // sum
-                            result.push_back(std::move(results[1].results[0]));  // count
-                            local_result =
-                                std::make_unique<cudf::table>(std::move(result));
-                        }
-
-                        if (ctx->comm()->nranks() > 1) {
-                            rapidsmpf::streaming::AllGather gatherer{ctx, tag};
-                            if (local_result) {
-                                auto pack = cudf::pack(
-                                    local_result->view(),
-                                    chunk_stream,
-                                    ctx->br()->device_mr()
-                                );
-                                gatherer.insert(
-                                    0,
-                                    {rapidsmpf::PackedData(
-                                        std::move(pack.metadata),
-                                        ctx->br()->move(
-                                            std::move(pack.gpu_data), chunk_stream
-                                        )
-                                    )}
-                                );
-                            }
-                            gatherer.insert_finished();
-                            auto packed_data = co_await gatherer.extract_all(
-                                rapidsmpf::streaming::AllGather::Ordered::NO
-                            );
-                            if (ctx->comm()->rank() == 0) {
-                                auto global_result = rapidsmpf::unpack_and_concat(
-                                    rapidsmpf::unspill_partitions(
-                                        std::move(packed_data),
-                                        ctx->br(),
-                                        true,
-                                        ctx->statistics()
-                                    ),
-                                    chunk_stream,
-                                    ctx->br(),
-                                    ctx->statistics()
-                                );
-
-                                auto result_view = global_result->view();
-                                // result_view has: p_partkey, sum, count
-                                // Group by p_partkey and sum both the sums and counts
-                                auto grouper = cudf::groupby::groupby(
-                                    result_view.select({0}),
-                                    cudf::null_policy::EXCLUDE,
-                                    cudf::sorted::NO
-                                );
-                                auto requests =
-                                    std::vector<cudf::groupby::aggregation_request>();
-                                std::vector<std::unique_ptr<cudf::groupby_aggregation>>
-                                    sum_aggs1;
-                                sum_aggs1.push_back(
-                                    cudf::make_sum_aggregation<
-                                        cudf::groupby_aggregation>()
-                                );
-                                std::vector<std::unique_ptr<cudf::groupby_aggregation>>
-                                    sum_aggs2;
-                                sum_aggs2.push_back(
-                                    cudf::make_sum_aggregation<
-                                        cudf::groupby_aggregation>()
-                                );
-                                requests.push_back(
-                                    cudf::groupby::aggregation_request(
-                                        result_view.column(1), std::move(sum_aggs1)
-                                    )
-                                );
-                                requests.push_back(
-                                    cudf::groupby::aggregation_request(
-                                        result_view.column(2), std::move(sum_aggs2)
-                                    )
-                                );
-                                auto [keys, results] = grouper.aggregate(
-                                    requests, chunk_stream, ctx->br()->device_mr()
-                                );
-                                global_result.reset();
-
-                                // Compute mean = sum / count, then multiply by 0.2
-                                auto sum_col = results[0].results[0]->view();
-                                auto count_col = results[1].results[0]->view();
-                                auto mean_col = cudf::binary_operation(
-                                    sum_col,
-                                    count_col,
-                                    cudf::binary_operator::DIV,
-                                    cudf::data_type(cudf::type_id::FLOAT64),
-                                    chunk_stream,
-                                    ctx->br()->device_mr()
-                                );
-
-                                auto scalar_02 = cudf::make_numeric_scalar(
-                                    cudf::data_type(cudf::type_id::FLOAT64),
-                                    chunk_stream,
-                                    ctx->br()->device_mr()
-                                );
-                                static_cast<cudf::numeric_scalar<double>*>(
-                                    scalar_02.get()
-                                )
-                                    ->set_value(0.2, chunk_stream);
-                                auto avg_quantity = cudf::binary_operation(
-                                    mean_col->view(),
-                                    *scalar_02,
-                                    cudf::binary_operator::MUL,
-                                    cudf::data_type(cudf::type_id::FLOAT64),
-                                    chunk_stream,
-                                    ctx->br()->device_mr()
-                                );
-
-                                auto result = keys->release();
-                                result.push_back(std::move(avg_quantity));
-                                co_await ch_out->send(
-                                    rapidsmpf::streaming::to_message(
-                                        0,
-                                        std::make_unique<
-                                            rapidsmpf::streaming::TableChunk>(
-                                            std::make_unique<cudf::table>(
-                                                std::move(result)
-                                            ),
-                                            chunk_stream
-                                        )
-                                    )
-                                );
-                            } else {
-                                // Non-zero ranks: send empty table with correct schema
-                                // Schema: key (INT64), avg_quantity (FLOAT64)
-                                std::vector<std::unique_ptr<cudf::column>> empty_cols;
-                                empty_cols.push_back(
-                                    cudf::make_empty_column(
-                                        cudf::data_type(cudf::type_id::INT64)
-                                    )
-                                );
-                                empty_cols.push_back(
-                                    cudf::make_empty_column(
-                                        cudf::data_type(cudf::type_id::FLOAT64)
-                                    )
-                                );
-                                co_await ch_out->send(
-                                    rapidsmpf::streaming::to_message(
-                                        0,
-                                        std::make_unique<
-                                            rapidsmpf::streaming::TableChunk>(
-                                            std::make_unique<cudf::table>(
-                                                std::move(empty_cols)
-                                            ),
-                                            chunk_stream
-                                        )
-                                    )
-                                );
-                            }
-                        } else {
-                            if (local_result) {
-                                co_await ch_out->send(
-                                    rapidsmpf::streaming::to_message(
-                                        0,
-                                        std::make_unique<
-                                            rapidsmpf::streaming::TableChunk>(
-                                            std::move(local_result), chunk_stream
-                                        )
-                                    )
-                                );
-                            } else {
-                                // Single rank with no data: send empty table with correct
-                                // schema
-                                std::vector<std::unique_ptr<cudf::column>> empty_cols;
-                                empty_cols.push_back(
-                                    cudf::make_empty_column(
-                                        cudf::data_type(cudf::type_id::INT64)
-                                    )
-                                );
-                                empty_cols.push_back(
-                                    cudf::make_empty_column(
-                                        cudf::data_type(cudf::type_id::FLOAT64)
-                                    )
-                                );
-                                co_await ch_out->send(
-                                    rapidsmpf::streaming::to_message(
-                                        0,
-                                        std::make_unique<
-                                            rapidsmpf::streaming::TableChunk>(
-                                            std::make_unique<cudf::table>(
-                                                std::move(empty_cols)
-                                            ),
-                                            chunk_stream
-                                        )
-                                    )
-                                );
-                            }
-                        }
-                        co_await ch_out->drain(ctx->executor());
-                    }(ctx,
-                      avg_quantity_concatenated,
-                      avg_quantity_final,
-                      rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)})
-                );
+                nodes.push_back(groupby_avg_quantity(
+                    ctx,
+                    avg_quantity_concatenated,
+                    avg_quantity_final,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                ));
 
                 // Join part_x_lineitem with avg_quantity on p_partkey = key
                 // avg_quantity_final is small (~199K rows), so broadcast it
