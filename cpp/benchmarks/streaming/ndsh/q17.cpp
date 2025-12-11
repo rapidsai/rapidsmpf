@@ -102,18 +102,16 @@ rapidsmpf::streaming::Node read_part(
         get_table_path(input_directory, "part")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"p_partkey", "p_brand", "p_container"})
+                       .columns({"p_partkey"})
                        .build();
 
     // Build the filter expression: p_brand = 'Brand#23' AND p_container = 'MED BOX'
     auto owner = new std::vector<std::any>;
     auto filter_stream = ctx->br()->stream_pool().get_stream();
 
-    // 0: column_reference for p_brand
-    owner->push_back(std::make_shared<cudf::ast::column_reference>(1));
-
-    // 1: column_reference for p_container
-    owner->push_back(std::make_shared<cudf::ast::column_reference>(2));
+    // 0, 1: column references
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>("p_brand"));
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>("p_container"));
 
     // 2, 3: string_scalars
     owner->push_back(
@@ -139,7 +137,9 @@ rapidsmpf::streaming::Node read_part(
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::EQUAL,
-            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(0)
+            ),
             *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(4))
         )
     );
@@ -148,7 +148,9 @@ rapidsmpf::streaming::Node read_part(
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::EQUAL,
-            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(1)),
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(1)
+            ),
             *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(5))
         )
     );
@@ -173,50 +175,6 @@ rapidsmpf::streaming::Node read_part(
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter)
     );
-}
-
-// Select specific columns from the input table
-rapidsmpf::streaming::Node select_columns(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
-    std::vector<cudf::size_type> indices
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        auto chunk_stream = chunk.stream();
-        auto sequence_number = msg.sequence_number();
-        auto table = chunk.table_view();
-
-        std::vector<std::unique_ptr<cudf::column>> result;
-        result.reserve(indices.size());
-        for (auto idx : indices) {
-            result.push_back(
-                std::make_unique<cudf::column>(
-                    table.column(idx), chunk_stream, ctx->br()->device_mr()
-                )
-            );
-        }
-
-        auto result_table = std::make_unique<cudf::table>(std::move(result));
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                sequence_number,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(result_table), chunk_stream
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
 }
 
 // Node to compute sum and count of quantity per partkey
@@ -870,17 +828,13 @@ int main(int argc, char** argv) {
 
                 // Read part with filter pushed down, then project to just p_partkey
                 auto part = ctx->create_channel();
-                auto projected_part = ctx->create_channel();
                 nodes.push_back(read_part(
                     ctx,
                     part,
                     /* num_tickets */ 4,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
-                ));  // p_partkey, p_brand, p_container (filtered)
-                nodes.push_back(
-                    select_columns(ctx, part, projected_part, {0})
-                );  // p_partkey
+                ));  // p_partkey (filtered)
 
                 // Read lineitem
                 auto lineitem = ctx->create_channel();
@@ -901,7 +855,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,
-                            projected_part,
+                            part,
                             projected_part_shuffled,
                             {0},
                             num_partitions,
@@ -937,7 +891,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::inner_join_broadcast(
                             ctx,
-                            projected_part,
+                            part,
                             lineitem,
                             part_x_lineitem,
                             {0},
