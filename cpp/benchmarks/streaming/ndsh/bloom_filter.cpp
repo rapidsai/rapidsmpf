@@ -22,7 +22,6 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "bloom_filter_impl.hpp"
 #include "utils.hpp"
 
 namespace rapidsmpf::ndsh {
@@ -39,54 +38,44 @@ streaming::Node build_bloom_filter(
     auto mr = ctx->br()->device_mr();
     auto stream = ctx->br()->stream_pool().get_stream();
     CudaEvent event;
-    auto storage = create_filter_storage(num_blocks, stream, mr);
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage.data, 0, storage.size, stream));
-    CudaEvent storage_event;
-    storage_event.record(stream);
+    auto filter = std::make_unique<BloomFilter>(num_blocks, seed, stream, mr);
+    CudaEvent build_event;
+    build_event.record(stream);
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-        storage_event.stream_wait(chunk.stream());
-        update_filter(storage, num_blocks, chunk.table_view(), seed, chunk.stream(), mr);
+        build_event.stream_wait(chunk.stream());
+        filter->add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
     }
 
-    auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
-    auto [res, _] = ctx->br()->reserve(MemoryType::DEVICE, storage.size, true);
-    auto buf = ctx->br()->allocate(stream, std::move(res));
-    buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            data, storage.data, storage.size, cudaMemcpyDefault, stream.value()
-        ));
-    });
-    auto allgather = streaming::AllGather(ctx, tag);
-    allgather.insert(0, {std::move(metadata), std::move(buf)});
-    allgather.insert_finished();
-    auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
-    auto temp_storage = create_filter_storage(num_blocks, stream, mr);
-    for (auto&& data : per_rank) {
-        cuda_stream_join(data.data->stream(), stream, &event);
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            temp_storage.data,
-            data.data->data(),
-            temp_storage.size,
-            cudaMemcpyDefault,
-            stream
-        ));
-        cuda_stream_join(stream, data.data->stream(), &event);
-        merge_filters(storage, temp_storage, num_blocks, stream);
-    }
-    co_await ch_out->send(
-        streaming::Message{
-            0,
-            std::make_unique<rapidsmpf::ndsh::aligned_buffer>(std::move(storage)),
-            {},
-            {}
+    if (ctx->comm()->nranks() > 1) {
+        auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
+        auto [res, _] = ctx->br()->reserve(MemoryType::DEVICE, filter->size(), true);
+        auto buf = ctx->br()->allocate(stream, std::move(res));
+        buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                data, filter->data(), filter->size(), cudaMemcpyDefault, stream.value()
+            ));
+        });
+        auto allgather = streaming::AllGather(ctx, tag);
+        allgather.insert(0, {std::move(metadata), std::move(buf)});
+        allgather.insert_finished();
+        auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
+        auto other = BloomFilter(num_blocks, seed, stream, mr);
+        for (auto&& data : per_rank) {
+            cuda_stream_join(data.data->stream(), stream, &event);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                other.data(), data.data->data(), other.size(), cudaMemcpyDefault, stream
+            ));
+            cuda_stream_join(stream, data.data->stream(), &event);
+            filter->merge(other, stream);
         }
-    );
+    }
+    co_await ch_out->send(streaming::Message{0, std::move(filter), {}, {}});
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -95,16 +84,14 @@ streaming::Node apply_bloom_filter(
     std::shared_ptr<streaming::Channel> bloom_filter,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
-    std::vector<cudf::size_type> keys,
-    std::uint64_t seed,
-    std::size_t num_blocks
+    std::vector<cudf::size_type> keys
 ) {
     streaming::ShutdownAtExit c{bloom_filter, ch_in, ch_out};
     co_await ctx->executor()->schedule();
     auto data = co_await bloom_filter->receive();
     RAPIDSMPF_EXPECTS(!data.empty(), "Bloom filter channel was shutdown");
-    auto storage = data.release<rapidsmpf::ndsh::aligned_buffer>();
-    auto stream = storage.stream;
+    auto filter = data.release<BloomFilter>();
+    auto stream = filter.stream();
     CudaEvent event;
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
@@ -114,13 +101,8 @@ streaming::Node apply_bloom_filter(
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
         auto chunk_stream = chunk.stream();
         cuda_stream_join(chunk_stream, stream, &event);
-        auto mask = apply_filter(
-            storage,
-            num_blocks,
-            chunk.table_view().select(keys),
-            seed,
-            chunk_stream,
-            ctx->br()->device_mr()
+        auto mask = filter.contains(
+            chunk.table_view().select(keys), chunk_stream, ctx->br()->device_mr()
         );
         cuda_stream_join(stream, chunk_stream, &event);
         RAPIDSMPF_EXPECTS(

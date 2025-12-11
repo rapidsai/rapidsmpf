@@ -17,7 +17,7 @@ namespace rapidsmpf::ndsh {
 /**
  * @brief A type-erased buffer with an allocation with specified alignment.
  */
-struct aligned_buffer {
+struct AlignedBuffer {
     /**
      * @brief Construct the buffer.
      *
@@ -26,7 +26,7 @@ struct aligned_buffer {
      * @param stream Stream for allocations.
      * @param mr Memory resource for allocations.
      */
-    explicit aligned_buffer(
+    explicit AlignedBuffer(
         std::size_t size,
         std::size_t alignment,
         rmm::cuda_stream_view stream,
@@ -41,21 +41,21 @@ struct aligned_buffer {
     /**
      * @brief Deallocate the buffer.
      */
-    ~aligned_buffer() {
+    ~AlignedBuffer() {
         mr.deallocate(stream, data, size, alignment);
     }
 
-    aligned_buffer(aligned_buffer const&) = delete;
-    aligned_buffer& operator=(aligned_buffer const&) = delete;
+    AlignedBuffer(AlignedBuffer const&) = delete;
+    AlignedBuffer& operator=(AlignedBuffer const&) = delete;
 
-    aligned_buffer(aligned_buffer&& other)
+    AlignedBuffer(AlignedBuffer&& other)
         : size{other.size},
           alignment{other.alignment},
           stream{other.stream},
           mr{other.mr},
           data{std::exchange(other.data, nullptr)} {}
 
-    aligned_buffer& operator=(aligned_buffer&& other) {
+    AlignedBuffer& operator=(AlignedBuffer&& other) {
         if (this != &other) {
             RAPIDSMPF_EXPECTS(
                 !data,
@@ -71,69 +71,95 @@ struct aligned_buffer {
         return *this;
     }
 
-    std::size_t size;
-    std::size_t alignment;
-    rmm::cuda_stream_view stream;
-    rmm::device_async_resource_ref mr;
-    void* data;
+    std::size_t size;  ///< Size in bytes
+    std::size_t alignment;  ///< Alignment in bytes
+    rmm::cuda_stream_view stream;  ///< Stream we were allocated on
+    rmm::device_async_resource_ref mr;  ///< Memory resource for deallocation
+    void* data;  ///< Data
 };
 
 /**
- * @brief Create device storage for the bloom filter.
- *
- * @param num_blocks Number of blocks.
- * @param stream CUDA stream for device launches and allocations.
- * @param mr Memory resource for allocations.
+ * @brief A bloom filter, used for approximate set membership queries.
  */
-aligned_buffer create_filter_storage(
-    std::size_t num_blocks,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-);
+struct BloomFilter {
+    /**
+     * @brief Create a filter.
+     *
+     * @param num_blocks Number of blocks in the filter.
+     * @param seed Seed used for hashing each value.
+     * @param stream CUDA stream for allocations and device operations.
+     * @param mr Memory resource for allocations.
+     */
+    BloomFilter(
+        std::size_t num_blocks,
+        std::uint64_t seed,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
+    );
 
-/**
- * @brief Update the filter with fingerprints from a table.
- *
- * @param storage Allocated device storage for the bloom filter
- * @param num_blocks Number of blocks.
- * @param values_to_hash Table of values to hash.
- * @param seed Hash seed
- * @param stream CUDA stream for device launches and allocations.
- * @param mr Memory resource for allocations.
- */
-void update_filter(
-    aligned_buffer& storage,
-    std::size_t num_blocks,
-    cudf::table_view const& values_to_hash,
-    std::uint64_t seed,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-);
+    /**
+     * @brief Add values to the filter.
+     *
+     * @param values_to_hash table of values to hash (with cudf::hashing::xxhash_64())
+     * @param stream CUDA stream for allocations and device operations.
+     * @param mr Memory resource for allocations.
+     */
+    void add(
+        cudf::table_view const& values_to_hash,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
+    );
 
-void merge_filters(
-    aligned_buffer& storage,
-    aligned_buffer const& other,
-    std::size_t num_blocks,
-    rmm::cuda_stream_view stream
-);
-/**
- * @brief Apply the filter to fingerprints from a table.
- *
- * @param storage Allocated device storage for the bloom filter
- * @param num_blocks Number of blocks.
- * @param values_to_hash Table of values to hash.
- * @param seed Hash seed
- * @param stream CUDA stream for device launches and allocations.
- * @param mr Memory resource for allocations.
- *
- * @return Mask vector select rows in the table that were selected by the filter.
- */
-rmm::device_uvector<bool> apply_filter(
-    aligned_buffer& storage,
-    std::size_t num_blocks,
-    cudf::table_view const& values_to_hash,
-    std::uint64_t seed,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-);
+    /**
+     * @brief Merge two filters, computing their union.
+     *
+     * @param other Other filter to merge into this one.
+     * @param stream CUDA stream for device operations.
+     *
+     * @throws std::logic_error If `other` is not compatible with this filter.
+     */
+    void merge(BloomFilter const& other, rmm::cuda_stream_view stream);
+
+    /**
+     * @brief Return a mask of which rows are contained in the filter.
+     *
+     * @param values Value to check for set membership
+     * @param stream CUDA stream for allocations and device operations.
+     * @param mr Memory resource for allocations.
+     */
+    [[nodiscard]] rmm::device_uvector<bool> contains(
+        cudf::table_view const& values,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
+    );
+
+    /**
+     * @brief @return The stream the underlying storage is valid on.
+     */
+    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept;
+
+    /**
+     * @brief @return Pointer to the underlying storage.
+     */
+    [[nodiscard]] void* data() const noexcept;
+
+    /**
+     * @brief @return Size in bytes of the underlying storage.
+     */
+    [[nodiscard]] std::size_t size() const noexcept;
+
+    /**
+     * @brief @return Number of blocks to use if the filter should fit in a given L2 cache
+     * size.
+     *
+     * @param l2size Size of the L2 cache in bytes.
+     */
+    [[nodiscard]] static std::size_t fitting_num_blocks(std::size_t l2size);
+
+  private:
+    std::size_t num_blocks_;  ///< Number of blocks used in the filter.
+    std::uint64_t seed_;  ///< Seed used when hashing values.
+    AlignedBuffer storage_;  ///< Backing storage.
+};
+
 }  // namespace rapidsmpf::ndsh

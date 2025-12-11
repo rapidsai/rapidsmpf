@@ -14,6 +14,8 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
+#include "bloom_filter_impl.hpp"
+
 namespace rapidsmpf::ndsh {
 
 /**
@@ -45,8 +47,6 @@ namespace rapidsmpf::ndsh {
  * @param ch_in Input channel of `TableChunk`s to apply bloom filter to.
  * @param ch_out Output channel receiving filtered `TableChunk`s.
  * @param keys Indices selecting the key columns for the hash fingerprint
- * @param seed Hash seed for hashing the keys.
- * @param num_filter_blocks Number of blocks in the filter.
  *
  * @return Coroutine representing the application of the bloom filter.
  */
@@ -55,18 +55,7 @@ streaming::Node apply_bloom_filter(
     std::shared_ptr<streaming::Channel> bloom_filter,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
-    std::vector<cudf::size_type> keys,
-    std::uint64_t seed,
-    std::size_t num_filter_blocks
+    std::vector<cudf::size_type> keys
 );
-
-/**
- * @brief Return number of filter blocks for bloom filter given an L2 cache size
- *
- * @param l2cachesize Size of L2 cache in bytes
- *
- * @return Number of blocks to use.
- */
-std::size_t num_filter_blocks(int l2cachesize);
 
 }  // namespace rapidsmpf::ndsh

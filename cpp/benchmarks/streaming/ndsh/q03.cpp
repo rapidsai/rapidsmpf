@@ -490,7 +490,9 @@ int main(int argc, char** argv) {
     int device;
     RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
     RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
-    auto const num_filter_blocks = rapidsmpf::ndsh::num_filter_blocks(l2size);
+    auto const num_filter_blocks = rapidsmpf::ndsh::BloomFilter::fitting_num_blocks(
+        static_cast<std::size_t>(l2size)
+    );
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
         std::vector<rapidsmpf::streaming::Node> nodes;
@@ -557,19 +559,12 @@ int main(int argc, char** argv) {
             auto lineitem_output = ctx->create_channel();
             nodes.push_back(
                 rapidsmpf::ndsh::apply_bloom_filter(
-                    ctx,
-                    bloom_filter_output,
-                    lineitem,
-                    lineitem_output,
-                    {0},
-                    cudf::DEFAULT_HASH_SEED,
-                    num_filter_blocks
+                    ctx, bloom_filter_output, lineitem, lineitem_output, {0}
                 )
             );
             // join o_orderkey = l_orderkey
             // Out: o_orderkey, o_orderdate, o_shippriority, l_extendedprice,
             // l_discount
-            // TODO: shuffle join option.
             if (arguments.use_shuffle_join) {
                 auto lineitem_shuffled = ctx->create_channel();
                 auto customer_x_orders_shuffled = ctx->create_channel();
