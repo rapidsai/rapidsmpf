@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <concepts>
+#include <type_traits>
+
 #include <thrust/functional.h>
 #include <thrust/transform.h>
 
@@ -59,11 +62,9 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
 }
 
 template <typename T, DeviceReduceOp Op>
-struct ReduceOperatorMaker;
-
-template <typename T>
-struct ReduceOperatorMaker<T, DeviceReduceOp::SUM> {
-    static ReduceOperatorFunction make() {
+    requires ValidDeviceReduceOp<T, Op>
+ReduceOperatorFunction make_reduce_operator_impl() {
+    if constexpr (Op == DeviceReduceOp::SUM) {
         return [](PackedData& accum, PackedData&& incoming) {
             if constexpr (std::is_same_v<T, bool>) {
                 device_elementwise_reduce<T>(
@@ -75,133 +76,57 @@ struct ReduceOperatorMaker<T, DeviceReduceOp::SUM> {
                 );
             }
         };
-    }
-};
-
-template <typename T>
-struct ReduceOperatorMaker<T, DeviceReduceOp::PROD> {
-    static ReduceOperatorFunction make() {
+    } else if constexpr (Op == DeviceReduceOp::PROD) {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::multiplies<T>{}
             );
         };
-    }
-};
-
-template <typename T>
-struct ReduceOperatorMaker<T, DeviceReduceOp::MIN> {
-    static ReduceOperatorFunction make() {
+    } else if constexpr (Op == DeviceReduceOp::MIN) {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::minimum<T>{}
             );
         };
-    }
-};
-
-template <typename T>
-struct ReduceOperatorMaker<T, DeviceReduceOp::MAX> {
-    static ReduceOperatorFunction make() {
+    } else if constexpr (Op == DeviceReduceOp::MAX) {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::maximum<T>{}
             );
         };
+    } else {
+        static_assert(
+            Op == DeviceReduceOp::SUM || Op == DeviceReduceOp::PROD
+                || Op == DeviceReduceOp::MIN || Op == DeviceReduceOp::MAX,
+            "Unsupported DeviceReduceOp"
+        );
     }
-};
-
-template <typename T, DeviceReduceOp Op>
-ReduceOperatorFunction make_reduce_operator_impl() {
-    return ReduceOperatorMaker<T, Op>::make();
 }
 
 }  // namespace
 
-// Explicit specializations for the (T, Op) combinations we support on device.
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::SUM>() {
-    return make_reduce_operator_impl<int, DeviceReduceOp::SUM>();
+template <typename T, DeviceReduceOp Op>
+    requires ValidDeviceReduceOp<T, Op>
+ReduceOperatorFunction make_device_reduce_operator_impl() {
+    return make_reduce_operator_impl<T, Op>();
 }
 
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::PROD>() {
-    return make_reduce_operator_impl<int, DeviceReduceOp::PROD>();
-}
+#define RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(T)                   \
+    template ReduceOperatorFunction                              \
+    make_device_reduce_operator_impl<T, DeviceReduceOp::SUM>();  \
+    template ReduceOperatorFunction                              \
+    make_device_reduce_operator_impl<T, DeviceReduceOp::PROD>(); \
+    template ReduceOperatorFunction                              \
+    make_device_reduce_operator_impl<T, DeviceReduceOp::MIN>();  \
+    template ReduceOperatorFunction                              \
+    make_device_reduce_operator_impl<T, DeviceReduceOp::MAX>();
 
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::MIN>() {
-    return make_reduce_operator_impl<int, DeviceReduceOp::MIN>();
-}
+RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(bool)
+RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(int)
+RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(float)
+RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(double)
+RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(unsigned long)
 
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::MAX>() {
-    return make_reduce_operator_impl<int, DeviceReduceOp::MAX>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::SUM>() {
-    return make_reduce_operator_impl<float, DeviceReduceOp::SUM>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::PROD>() {
-    return make_reduce_operator_impl<float, DeviceReduceOp::PROD>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::MIN>() {
-    return make_reduce_operator_impl<float, DeviceReduceOp::MIN>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::MAX>() {
-    return make_reduce_operator_impl<float, DeviceReduceOp::MAX>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::SUM>() {
-    return make_reduce_operator_impl<double, DeviceReduceOp::SUM>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::PROD>() {
-    return make_reduce_operator_impl<double, DeviceReduceOp::PROD>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::MIN>() {
-    return make_reduce_operator_impl<double, DeviceReduceOp::MIN>();
-}
-
-template <>
-ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::MAX>() {
-    return make_reduce_operator_impl<double, DeviceReduceOp::MAX>();
-}
-
-template <>
-ReduceOperatorFunction
-make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::SUM>() {
-    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::SUM>();
-}
-
-template <>
-ReduceOperatorFunction
-make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::PROD>() {
-    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::PROD>();
-}
-
-template <>
-ReduceOperatorFunction
-make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::MIN>() {
-    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::MIN>();
-}
-
-template <>
-ReduceOperatorFunction
-make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::MAX>() {
-    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::MAX>();
-}
+#undef RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE
 
 }  // namespace rapidsmpf::coll::detail

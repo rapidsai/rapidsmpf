@@ -377,6 +377,7 @@ ReduceOperator make_host_reduce_operator() {
  * combinations.
  */
 template <typename T, DeviceReduceOp Op>
+    requires ValidDeviceReduceOp<T, Op>
 ReduceOperatorFunction make_device_reduce_operator_impl();
 
 /**
