@@ -15,11 +15,15 @@ namespace rapidsmpf {
 namespace {
 /// @brief Helper that adds missing functions to the `memory_available` argument.
 auto add_missing_availability_functions(
-    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available
+    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available,
+    bool pinned_mr_is_not_available
 ) {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
+    }
+    if (pinned_mr_is_not_available) {
+        memory_available[MemoryType::PINNED_HOST] = []() -> std::int64_t { return 0; };
     }
     return memory_available;
 }
@@ -27,13 +31,17 @@ auto add_missing_availability_functions(
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
+    std::shared_ptr<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
-      memory_available_{add_missing_availability_functions(std::move(memory_available))},
+      pinned_mr_{std::move(pinned_mr)},
+      memory_available_{add_missing_availability_functions(
+          std::move(memory_available), pinned_mr_ == PinnedMemoryResourceDisabled
+      )},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
@@ -110,6 +118,13 @@ std::unique_ptr<Buffer> BufferResource::allocate(
             std::make_unique<HostBuffer>(size, stream, host_mr()),
             stream,
             MemoryType::HOST
+        ));
+        break;
+    case MemoryType::PINNED_HOST:
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+            stream,
+            MemoryType::PINNED_HOST
         ));
         break;
     case MemoryType::DEVICE:

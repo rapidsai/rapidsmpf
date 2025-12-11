@@ -356,8 +356,11 @@ int main(int argc, char** argv) {
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    auto br =
-        std::make_shared<rapidsmpf::BufferResource>(mr, std::move(memory_available));
+    auto br = std::make_shared<rapidsmpf::BufferResource>(
+        mr,
+        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        std::move(memory_available)
+    );
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
