@@ -58,7 +58,7 @@ PackedData AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
     // Block until the underlying allgather completes, then perform the reduction locally
     // (exactly once).
     auto gathered =
-        gatherer_.wait_and_extract(AllGather::Ordered::NO, std::move(timeout));
+        gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
     return reduce_all(std::move(gathered));
 }
 
@@ -99,10 +99,9 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
         }
     }
 
-    // Start with rank 0's contribution as the accumulator
+    // Start with rank 0's contribution as the accumulator (only true with Ordered::YES).
     auto accum = std::move(gathered[0]);
 
-    // Reduce contributions from all other ranks into the accumulator
     for (std::size_t r = 1; std::cmp_less(r, nranks_); ++r) {
         reduce_operator_(accum, std::move(gathered[r]));
     }
