@@ -11,16 +11,9 @@
 #include <optional>
 #include <string>
 
-#include <rapidsmpf/config.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
-
-/// @brief Type alias for communicator::Rank
-using Rank = std::int32_t;
-
-/// @brief Type alias for duration type
-using rapidsmpf::Duration;
 
 /**
  * @brief Backend types for process coordination and bootstrapping.
