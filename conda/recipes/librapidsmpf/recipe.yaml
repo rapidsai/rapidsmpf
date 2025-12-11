@@ -28,7 +28,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" librapidsmpf
+        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" --no-clang-tidy librapidsmpf
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -65,10 +65,10 @@ cache:
       - ${{ compiler("c") }}
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
+      - cmake ${{ cmake_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
       - cuda-version =${{ cuda_version }}
-      - cmake ${{ cmake_version }}
       - ninja
       - ${{ stdlib("c") }}
     host:
