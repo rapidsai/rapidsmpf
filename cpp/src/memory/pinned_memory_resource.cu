@@ -33,7 +33,7 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties() {
         // `release_threshold` was 0, which defeats the purpose of having a pool. We
         // now set it so the pool never releases unused pinned memory.
         .release_threshold = std::numeric_limits<size_t>::max(),
-        // This define how the allocations can be exported (IPC). See the docs of
+        // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type =
             cuda::experimental::cudaMemAllocationHandleType::cudaMemHandleTypeNone
