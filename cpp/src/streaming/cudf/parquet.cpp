@@ -68,7 +68,7 @@ struct ChunkDesc {
 std::int64_t estimate_total_rows(
     std::vector<std::string> const& files, std::size_t max_samples = 10
 ) {
-    RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file");
+    RAPIDSMPF_EXPECTS(!files.empty(), "Must have at least one file");
 
     // Sample files with a stride to spread samples evenly across the file list
     std::size_t stride = std::max(std::size_t{1}, files.size() / max_samples);
@@ -237,7 +237,7 @@ Node read_parquet(
         "Skipping rows not yet supported in multi-rank execution"
     );
     auto files = source.filepaths();
-    RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file to read");
+    RAPIDSMPF_EXPECTS(!files.empty(), "Must have at least one file to read");
     RAPIDSMPF_EXPECTS(
         files.size() < std::numeric_limits<int>::max(), "Trying to read too many files"
     );
@@ -266,7 +266,8 @@ Node read_parquet(
     if (files.size() >= size) {
         // Standard case: at least one file per rank
         // Distribute files evenly across ranks
-        std::size_t files_per_rank = files.size() / size + (rank < (files.size() % size));
+        std::size_t files_per_rank =
+            files.size() / size + ((rank < (files.size() % size)) ? 1 : 0);
         std::size_t file_offset =
             rank * (files.size() / size) + std::min(rank, files.size() % size);
         auto local_files = std::vector(
@@ -281,8 +282,9 @@ Node read_parquet(
             auto nrows =
                 cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
                     .num_rows();
-            files_per_chunk =
-                static_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
+            files_per_chunk = static_cast<std::size_t>(
+                std::max(num_rows_per_chunk / nrows, std::int64_t{1})
+            );
         }
         auto to_skip = options.get_skip_rows();
         auto to_read =
@@ -305,16 +307,16 @@ Node read_parquet(
             // If the chunk is larger than the number rows we need to skip, on the next
             // iteration we don't need to skip any more rows, otherwise we must skip the
             // remainder.
-            to_skip = std::max(0l, -chunk_rows);
+            to_skip = std::max(std::int64_t{0}, -chunk_rows);
             while (chunk_rows > 0 && to_read > 0) {
                 auto rows_read = std::min(
-                    {static_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read}
+                    {static_cast<std::int64_t>(num_rows_per_chunk), chunk_rows, to_read}
                 );
                 chunks_per_producer[sequence_number % num_producers].emplace_back(
                     sequence_number, chunk_skip_rows, rows_read, source
                 );
                 sequence_number++;
-                to_read = std::max(0l, to_read - rows_read);
+                to_read = std::max(std::int64_t{0}, to_read - rows_read);
                 chunk_skip_rows += rows_read;
                 chunk_rows -= rows_read;
             }
@@ -325,8 +327,8 @@ Node read_parquet(
         auto const num_files = files.size();
 
         // For single file, read metadata once and reuse; otherwise sample
-        std::optional<FileRowGroupInfo> single_file_info;
-        std::int64_t estimated_total_rows;
+        std::optional<FileRowGroupInfo> single_file_info = std::nullopt;
+        std::int64_t estimated_total_rows = 0;
         if (num_files == 1) {
             // Single file: read metadata once, use for both estimation and splits
             single_file_info = get_file_row_group_info(files[0]);
