@@ -179,10 +179,8 @@ TEST_P(NumOfRows, chunked_pack) {
 
     cudf::table input_table = random_table_with_index(seed, num_rows, 0, 10);
 
-    // Get result from split_and_pack with empty splits (single partition)
-    std::vector<cudf::size_type> empty_splits{};
     auto split_result =
-        rapidsmpf::split_and_pack(input_table, empty_splits, stream, br.get());
+        rapidsmpf::split_and_pack(input_table, {}, stream, br.get());
     ASSERT_EQ(split_result.size(), 1);
     auto& split_packed = split_result.at(0);
 

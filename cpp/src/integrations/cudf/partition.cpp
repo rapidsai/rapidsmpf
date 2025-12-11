@@ -277,7 +277,7 @@ PackedData chunked_pack(
         std::invalid_argument
     );
     // all copies will be done on the bounce buffer's stream
-    auto const& stream = bounce_buf.stream();
+    auto stream = bounce_buf.stream();
     auto* br = data_res.br();
     size_t chunk_size = bounce_buf.size;
 
@@ -293,7 +293,6 @@ PackedData chunked_pack(
         }
     }
 
-    // allocate the data buffer
     auto data_buf = br->allocate(packed_size, stream, data_res);
 
     bounce_buf.write_access([&](std::byte* bounce_buf_ptr, rmm::cuda_stream_view) {
