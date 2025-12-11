@@ -61,10 +61,8 @@ CuptiMonitor::CuptiMonitor(
 )
     : enable_periodic_sampling_(enable_periodic_sampling),
       monitoring_active_(false),
-      debug_output_enabled_(false),
       sampling_interval_ms_(sampling_interval_ms),
-      debug_threshold_bytes_(10 * 1024 * 1024),  // 10MB default
-      last_used_mem_for_debug_(0) {}
+      debug_threshold_bytes_(10 * 1024 * 1024) {}  // 10MB default
 
 CuptiMonitor::~CuptiMonitor() {
     stop_monitoring();
@@ -318,7 +316,12 @@ void CuptiMonitor::capture_memory_usage_impl() {
         std::size_t used_mem = total_mem - free_mem;
         double utilization = static_cast<double>(used_mem) / total_mem * 100.0;
 
-        MemoryDataPoint point = {timestamp, free_mem, total_mem, used_mem};
+        MemoryDataPoint point = {
+            .timestamp = timestamp,
+            .free_memory = free_mem,
+            .total_memory = total_mem,
+            .used_memory = used_mem
+        };
 
         memory_samples_.push_back(point);
 
@@ -395,7 +398,7 @@ void CuptiMonitor::callback(
     if (!monitoring_active_.load())
         return;
 
-    CUpti_CallbackData const* cbInfo = static_cast<CUpti_CallbackData const*>(cbdata);
+    auto cbInfo = static_cast<CUpti_CallbackData const*>(cbdata);
 
     // Check if this callback is one we're monitoring
     bool should_monitor = false;
