@@ -574,7 +574,6 @@ TEST_F(SpillingStreamingFanout, Spilling) {
         }
 
         nodes.push_back(node::fanout(ctx, in, out_chs, policy));
-
         nodes.push_back(
             many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
