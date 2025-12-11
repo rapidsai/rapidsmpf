@@ -188,7 +188,7 @@ cdef class BufferResource:
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
         # rather than the any_resource_ref reference type, we don't
         # need to keep this alive here.
-        self._mr = device_mr
+        self._device_mr = device_mr
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
                 device_mr.get_mr(),
