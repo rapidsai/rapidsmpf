@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <concepts>
@@ -256,140 +257,100 @@ class AllReduce {
 
 namespace detail {
 
-/**
- * @brief Concept to check if a type supports arithmetic operations.
- */
-template <typename T>
-concept supported_arithmetic_op = std::integral<T> || std::floating_point<T>;
-
-/**
- * @brief Type trait to check if a (T, OpEnum, Op) combination is supported.
- */
-template <typename T, typename OpEnum, OpEnum Op>
-struct is_supported_reduce_op : std::false_type {};
-
-// HostReduceOp specializations
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::SUM> : std::true_type {};
-
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::PROD> : std::true_type {};
-
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MIN> : std::true_type {};
-
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MAX> : std::true_type {};
-
-// DeviceReduceOp specializations
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::SUM> : std::true_type {};
-
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::PROD> : std::true_type {
+/// Valid HostReduceOp values.
+inline constexpr std::array valid_host_reduce_ops = {
+    HostReduceOp::SUM, HostReduceOp::PROD, HostReduceOp::MIN, HostReduceOp::MAX
 };
 
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MIN> : std::true_type {};
-
-template <typename T>
-    requires supported_arithmetic_op<T>
-struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MAX> : std::true_type {};
-
-template <typename T, typename OpEnum, OpEnum Op>
-inline constexpr bool is_supported_reduce_op_v =
-    is_supported_reduce_op<T, OpEnum, Op>::value;
+/// Valid DeviceReduceOp values.
+inline constexpr std::array valid_device_reduce_ops = {
+    DeviceReduceOp::SUM, DeviceReduceOp::PROD, DeviceReduceOp::MIN, DeviceReduceOp::MAX
+};
 
 /**
- * @brief Create a host-based element-wise reduction operator for a given (T, Op).
- *
- * The operator assumes that the `PackedData::data` buffers reside in host memory
- * and contain a contiguous array of @p T with identical sizes on all ranks.
+ * @brief Concept to validate (T, HostReduceOp) combinations for reduction.
  */
 template <typename T, HostReduceOp Op>
-ReduceOperatorFunction make_host_reduce_operator_impl() {
-    static_assert(
-        is_supported_reduce_op_v<T, HostReduceOp, Op>,
-        "make_host_reduce_operator_impl called for unsupported (T, Op) combination"
+concept ValidHostReduceOp =
+    std::is_arithmetic_v<T>
+    && std::ranges::find(valid_host_reduce_ops, Op) != valid_host_reduce_ops.end();
+
+/**
+ * @brief Concept to validate (T, DeviceReduceOp) combinations for reduction.
+ */
+template <typename T, DeviceReduceOp Op>
+concept ValidDeviceReduceOp =
+    std::is_arithmetic_v<T>
+    && std::ranges::find(valid_device_reduce_ops, Op) != valid_device_reduce_ops.end();
+
+/**
+ * @brief Concept for a binary operator on type T.
+ */
+template <typename Op, typename T>
+concept BinaryOp =
+    std::invocable<Op, T const&, T const&>
+    && std::convertible_to<std::invoke_result_t<Op, T const&, T const&>, T>;
+
+template <typename T, typename Op>
+    requires BinaryOp<Op, T>
+void apply_op(PackedData& accum, PackedData&& incoming, Op&& op) {
+    RAPIDSMPF_EXPECTS(
+        accum.data && incoming.data,
+        "AllReduce reduction operator requires non-null data buffers"
     );
 
-    auto const apply = [](PackedData& accum, PackedData&& incoming, auto&& op) {
-        RAPIDSMPF_EXPECTS(
-            accum.data && incoming.data,
-            "AllReduce reduction operator requires non-null data buffers"
-        );
+    auto* acc_buf = accum.data.get();
+    auto* in_buf = incoming.data.get();
 
-        auto* acc_buf = accum.data.get();
-        auto* in_buf = incoming.data.get();
+    auto const acc_nbytes = acc_buf->size;
+    auto const in_nbytes = in_buf->size;
+    RAPIDSMPF_EXPECTS(
+        acc_nbytes == in_nbytes,
+        "AllReduce reduction operator requires equal-sized buffers"
+    );
 
-        auto const acc_nbytes = acc_buf->size;
-        auto const in_nbytes = in_buf->size;
-        RAPIDSMPF_EXPECTS(
-            acc_nbytes == in_nbytes,
-            "AllReduce reduction operator requires equal-sized buffers"
-        );
+    auto const nbytes = acc_nbytes;
+    RAPIDSMPF_EXPECTS(
+        nbytes % sizeof(T) == 0,
+        "AllReduce reduction operator requires buffer size to be a multiple of "
+        "sizeof(T)"
+    );
 
-        auto const nbytes = acc_nbytes;
-        RAPIDSMPF_EXPECTS(
-            nbytes % sizeof(T) == 0,
-            "AllReduce reduction operator requires buffer size to be a multiple of "
-            "sizeof(T)"
-        );
+    auto const count = nbytes / sizeof(T);
 
-        auto const count = nbytes / sizeof(T);
+    RAPIDSMPF_EXPECTS(
+        acc_buf->mem_type() == MemoryType::HOST && in_buf->mem_type() == MemoryType::HOST,
+        "make_host_reduce_operator expects host memory"
+    );
 
-        RAPIDSMPF_EXPECTS(
-            acc_buf->mem_type() == MemoryType::HOST
-                && in_buf->mem_type() == MemoryType::HOST,
-            "make_host_reduce_operator expects host memory"
-        );
+    auto* acc_bytes = acc_buf->exclusive_data_access();
+    auto* in_bytes = in_buf->exclusive_data_access();
+    auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
+    auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
 
-        auto* acc_bytes = acc_buf->exclusive_data_access();
-        auto* in_bytes = in_buf->exclusive_data_access();
-        auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
-        auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
+    std::transform(acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
 
-        std::transform(acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
+    acc_buf->unlock();
+    in_buf->unlock();
+}
 
-        acc_buf->unlock();
-        in_buf->unlock();
-    };
-
+/**
+ * @brief Create a functor for a given (T, HostReduceOp) combination.
+ */
+template <typename T, HostReduceOp Op>
+    requires ValidHostReduceOp<T, Op>
+constexpr auto make_functor() {
     if constexpr (Op == HostReduceOp::SUM) {
-        return [apply](PackedData& accum, PackedData&& incoming) {
-            if constexpr (std::is_same_v<T, bool>) {
-                apply(accum, std::move(incoming), [](T a, T b) {
-                    return static_cast<T>(a || b);
-                });
-            } else {
-                apply(accum, std::move(incoming), std::plus<T>{});
-            }
-        };
+        if constexpr (std::is_same_v<T, bool>) {
+            return [](T const& a, T const& b) -> T { return static_cast<T>(a || b); };
+        }
+        return std::plus<T>{};
     } else if constexpr (Op == HostReduceOp::PROD) {
-        return [apply](PackedData& accum, PackedData&& incoming) {
-            apply(accum, std::move(incoming), std::multiplies<T>{});
-        };
+        return std::multiplies<T>{};
     } else if constexpr (Op == HostReduceOp::MIN) {
-        return [apply](PackedData& accum, PackedData&& incoming) {
-            apply(accum, std::move(incoming), [](T a, T b) { return std::min(a, b); });
-        };
+        return [](T const& a, T const& b) -> T { return std::min(a, b); };
     } else if constexpr (Op == HostReduceOp::MAX) {
-        return [apply](PackedData& accum, PackedData&& incoming) {
-            apply(accum, std::move(incoming), [](T a, T b) { return std::max(a, b); });
-        };
-    } else {
-        static_assert(
-            Op == HostReduceOp::SUM || Op == HostReduceOp::PROD || Op == HostReduceOp::MIN
-                || Op == HostReduceOp::MAX,
-            "AllReduce operator only implemented for SUM, PROD, MIN, and MAX"
-        );
+        return [](T const& a, T const& b) -> T { return std::max(a, b); };
     }
 }
 
@@ -397,9 +358,13 @@ ReduceOperatorFunction make_host_reduce_operator_impl() {
  * @brief Create a host-based element-wise reduction operator wrapper for a given (T, Op).
  */
 template <typename T, HostReduceOp Op>
+    requires ValidHostReduceOp<T, Op>
 ReduceOperator make_host_reduce_operator() {
     return ReduceOperator(
-        make_host_reduce_operator_impl<T, Op>(), ReduceOperatorType::Host
+        [](PackedData& accum, PackedData&& incoming) {
+            apply_op<T>(accum, std::move(incoming), make_functor<T, Op>());
+        },
+        ReduceOperatorType::Host
     );
 }
 
@@ -419,6 +384,7 @@ ReduceOperatorFunction make_device_reduce_operator_impl();
  * Op).
  */
 template <typename T, DeviceReduceOp Op>
+    requires ValidDeviceReduceOp<T, Op>
 ReduceOperator make_device_reduce_operator() {
     return ReduceOperator(
         make_device_reduce_operator_impl<T, Op>(), ReduceOperatorType::Device
@@ -431,6 +397,7 @@ ReduceOperator make_device_reduce_operator() {
  * Convenience overload for host-side operators.
  */
 template <typename T, HostReduceOp Op>
+    requires ValidHostReduceOp<T, Op>
 ReduceOperator make_reduce_operator() {
     return make_host_reduce_operator<T, Op>();
 }
@@ -441,6 +408,7 @@ ReduceOperator make_reduce_operator() {
  * Convenience overload for device-side operators.
  */
 template <typename T, DeviceReduceOp Op>
+    requires ValidDeviceReduceOp<T, Op>
 ReduceOperator make_reduce_operator() {
     return make_device_reduce_operator<T, Op>();
 }
