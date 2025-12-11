@@ -80,12 +80,12 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
         reduce_operator_.is_device() ? MemoryType::DEVICE : MemoryType::HOST;
 
     // Normalize all buffers to the target memory type
-        for (auto& pd : gathered) {
-            if (pd.data && pd.data->mem_type() != target_mem_type) {
-                auto reservation = br_->reserve_or_fail(pd.data->size, target_mem_type);
-                pd.data = br_->move(std::move(pd.data), reservation);
-            }
+    for (auto& pd : gathered) {
+        if (pd.data && pd.data->mem_type() != target_mem_type) {
+            auto reservation = br_->reserve_or_fail(pd.data->size, target_mem_type);
+            pd.data = br_->move(std::move(pd.data), reservation);
         }
+    }
 
     // Start with rank 0's contribution as the accumulator (only true with Ordered::YES).
     auto accum = std::move(gathered[0]);
