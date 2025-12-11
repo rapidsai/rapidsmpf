@@ -51,9 +51,6 @@ class BufferResource {
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
-    /// @brief Sentinel value used to disable pinned host memory.
-    static constexpr auto PinnedMemoryResourceDisabled = nullptr;
-
     /**
      * @brief Constructs a buffer resource.
      *
@@ -77,7 +74,7 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResourceDisabled,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -203,7 +200,7 @@ class BufferResource {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
             if (mem_type == MemoryType::PINNED_HOST
-                && pinned_mr_ == PinnedMemoryResourceDisabled)
+                && pinned_mr_ == PinnedMemoryResource::Disabled)
             {
                 // Pinned host memory is only available if the memory resource is
                 // available.

@@ -41,8 +41,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
         auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
             16, rmm::cuda_stream::flags::non_blocking
         );
-        std::shared_ptr<PinnedMemoryResource> pinned_mr =
-            BufferResource::PinnedMemoryResourceDisabled;
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled;
         if (is_pinned_memory_resources_supported()) {
             pinned_mr = std::make_shared<PinnedMemoryResource>();
         }

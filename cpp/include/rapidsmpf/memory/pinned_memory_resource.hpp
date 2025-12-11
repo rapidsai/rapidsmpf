@@ -59,6 +59,9 @@ class PinnedMemoryResource;
  */
 class PinnedMemoryResource final : public HostMemoryResource {
   public:
+    /// @brief Sentinel value used to disable pinned host memory.
+    static constexpr auto Disabled = nullptr;
+
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *

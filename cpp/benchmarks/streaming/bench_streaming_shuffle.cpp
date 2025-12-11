@@ -358,9 +358,7 @@ int main(int argc, char** argv) {
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        mr,
-        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
-        std::move(memory_available)
+        mr, rapidsmpf::PinnedMemoryResource::Disabled, std::move(memory_available)
     );
 
     auto& log = comm->logger();
