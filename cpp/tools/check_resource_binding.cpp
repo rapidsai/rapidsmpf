@@ -23,6 +23,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -33,28 +34,24 @@
 namespace {
 
 /**
- * @brief Simple JSON value extractor (not a full-featured JSON parser).
+ * @brief Simple JSON string value extractor using a regex.
+ *
+ * Matches patterns of the form:
+ *     "key" : "value"
+ *
+ * This is not a full JSON parser and assumes reasonably simple,
+ * flat key–value pairs without escaped quotes.
  */
 std::string extract_json_string_value(std::string const& json, std::string const& key) {
-    std::string search_key = "\"" + key + "\"";
-    size_t pos = json.find(search_key);
-    if (pos == std::string::npos) {
-        return "";
+    // Regex: "key" <optional spaces> : <optional spaces> "value"
+    std::string pattern = "\\\"" + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"";
+    std::regex re(pattern);
+    std::smatch match;
+    if (std::regex_search(json, match, re)) {
+        // match[1] is the captured value
+        return match[1].str();
     }
-    pos = json.find(':', pos);
-    if (pos == std::string::npos) {
-        return "";
-    }
-    pos = json.find('"', pos);
-    if (pos == std::string::npos) {
-        return "";
-    }
-    size_t start = pos + 1;
-    size_t end = json.find('"', start);
-    if (end == std::string::npos) {
-        return "";
-    }
-    return json.substr(start, end - start);
+    return "";
 }
 
 /**
