@@ -8,6 +8,7 @@ from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.memory_reservation import MemoryReservation
+from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
@@ -16,6 +17,8 @@ class BufferResource:
     def __init__(
         self,
         device_mr: DeviceMemoryResource,
+        *,
+        pinned_mr: PinnedMemoryResource | None = None,
         memory_available: Mapping[MemoryType, Callable[[], int]] | None = None,
         periodic_spill_check: float | None = 1e-3,
         stream_pool: CudaStreamPool | None = None,

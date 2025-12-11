@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+
+def is_pinned_memory_resources_supported() -> bool: ...
+
+class PinnedMemoryResource:
+    def __init__(self, numa_id: int | None): ...
