@@ -497,9 +497,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c], std::back_inserter(actual), [](const Message& m) {
-                    return m.get<int>();
-                }
+                outs[c],
+                std::back_inserter(actual),
+                [](const Message& m) { return m.get<int>(); }
             );
             EXPECT_EQ(expected, actual);
         }
@@ -544,7 +544,11 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
             {
                 {MemoryType::DEVICE, []() -> std::int64_t { return 0; }},
             };
-        br = std::make_shared<rapidsmpf::BufferResource>(mr_cuda, memory_available);
+        br = std::make_shared<rapidsmpf::BufferResource>(
+            mr_cuda,
+            rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+            memory_available
+        );
         auto options = ctx->options();
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             options, GlobalEnvironment->comm_, br
@@ -571,8 +575,7 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
         nodes.push_back(node::fanout(ctx, in, out_chs, policy));
 
-        nodes.push_back(
-            many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
+        nodes.push_back(many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
 
         run_streaming_pipeline(std::move(nodes));
