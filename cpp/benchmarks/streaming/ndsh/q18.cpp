@@ -285,9 +285,12 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
         ctx->comm()->logger().print("final_groupby_filter: rank received EMPTY input!");
         co_await ch_out->drain(ctx->executor());
         co_return;
+    } else {
+        auto next = co_await ch_in->receive();
+        RAPIDSMPF_EXPECTS(
+            next.empty(), "final_groupby_filter: Unexpected second message."
+        );
     }
-    auto next = co_await ch_in->receive();
-    RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
 
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
@@ -379,7 +382,7 @@ rapidsmpf::streaming::Node allgather_table(
     auto msg = co_await ch_in->receive();
     if (!msg.empty()) {
         auto next = co_await ch_in->receive();
-        RAPIDSMPF_EXPECTS(next.empty(), "Unexpected second message.");
+        RAPIDSMPF_EXPECTS(next.empty(), "allgather_table: Unexpected second message.");
     }
 
     std::unique_ptr<cudf::table> result;
@@ -818,6 +821,11 @@ rapidsmpf::streaming::Node final_groupby_and_sort(
     if (msg.empty()) {
         co_await ch_out->drain(ctx->executor());
         co_return;
+    } else {
+        auto next = co_await ch_in->receive();
+        RAPIDSMPF_EXPECTS(
+            next.empty(), "final_groupby_and_sort: Unexpected second message."
+        );
     }
 
     auto chunk =
@@ -937,6 +945,9 @@ rapidsmpf::streaming::Node write_parquet(
     auto msg = co_await ch_in->receive();
     if (msg.empty()) {
         co_return;
+    } else {
+        auto next = co_await ch_in->receive();
+        RAPIDSMPF_EXPECTS(next.empty(), "write_parquet: Unexpected second message.");
     }
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
