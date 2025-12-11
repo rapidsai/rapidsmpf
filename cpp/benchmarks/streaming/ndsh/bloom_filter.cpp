@@ -43,14 +43,8 @@ streaming::Node build_bloom_filter(
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage.data, 0, storage.size, stream));
     CudaEvent storage_event;
     storage_event.record(stream);
-    auto start = Clock::now();
-    bool started = false;
     while (true) {
         auto msg = co_await ch_in->receive();
-        if (!started) {
-            start = Clock::now();
-            started = true;
-        }
         if (msg.empty()) {
             break;
         }
@@ -60,10 +54,6 @@ streaming::Node build_bloom_filter(
         cuda_stream_join(stream, chunk.stream(), &event);
     }
 
-    ctx->comm()->logger().print(
-        "Bloom filter of ", storage.size, " bytes local build took ", Clock::now() - start
-    );
-    auto t0 = Clock::now();
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
     auto [res, _] = ctx->br()->reserve(MemoryType::DEVICE, storage.size, true);
     auto buf = ctx->br()->allocate(stream, std::move(res));
@@ -72,21 +62,10 @@ streaming::Node build_bloom_filter(
             data, storage.data, storage.size, cudaMemcpyDefault, stream.value()
         ));
     });
-    ctx->comm()->logger().print(
-        "Bloom filter allocate and copy to buf took ", t0 - start
-    );
-    t0 = Clock::now();
     auto allgather = streaming::AllGather(ctx, tag);
     allgather.insert(0, {std::move(metadata), std::move(buf)});
-    ctx->comm()->logger().print(
-        "Bloom filter allgather insertion ", Clock::now() - t0, " ", Clock::now() - start
-    );
-    t0 = Clock::now();
     allgather.insert_finished();
     auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
-    ctx->comm()->logger().print(
-        "Bloom filter extract all took ", Clock::now() - t0, " ", Clock::now() - start
-    );
     auto temp_storage = create_filter_storage(num_blocks, stream, mr);
     for (auto&& data : per_rank) {
         cuda_stream_join(data.data->stream(), stream, &event);
@@ -100,7 +79,6 @@ streaming::Node build_bloom_filter(
         cuda_stream_join(stream, data.data->stream(), &event);
         merge_filters(storage, temp_storage, num_blocks, stream);
     }
-    ctx->comm()->logger().print("Bloom filter build took ", Clock::now() - start);
     co_await ch_out->send(
         streaming::Message{
             0,
@@ -158,12 +136,6 @@ streaming::Node apply_bloom_filter(
         };
         auto result = cudf::apply_boolean_mask(
             chunk.table_view(), mask_view, chunk_stream, ctx->br()->device_mr()
-        );
-        ctx->comm()->logger().print(
-            "Sending filtered chunk ",
-            result->num_rows(),
-            " before ",
-            chunk.table_view().num_rows()
         );
         std::ignore = std::move(chunk);
         co_await ch_out->send(to_message(
