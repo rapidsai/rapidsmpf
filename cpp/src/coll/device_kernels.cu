@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 #include <thrust/functional.h>
-#include <thrust/transform.h>
 
-#include <rmm/exec_policy.hpp>
+#include <cuda/std/functional>
 
 #include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -22,8 +22,27 @@ using ReduceOperatorFunction = rapidsmpf::coll::ReduceOperatorFunction;
 
 namespace {
 
-template <typename T, typename Op>
-void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
+template <typename DeviceOp>
+__global__ void device_bytewise_reduce_kernel(
+    std::byte* accum,
+    std::byte const* incoming,
+    std::size_t element_size,
+    std::size_t count,
+    DeviceOp op
+) {
+    auto const idx = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx < count) {
+        auto* acc_elem = reinterpret_cast<void*>(accum + idx * element_size);
+        auto const* in_elem =
+            reinterpret_cast<void const*>(incoming + idx * element_size);
+        op(acc_elem, in_elem);
+    }
+}
+
+template <typename DeviceOp>
+void device_byte_reduce(
+    Buffer* acc_buf, Buffer* in_buf, std::size_t element_size, DeviceOp op
+) {
     RAPIDSMPF_EXPECTS(
         acc_buf && in_buf, "Device reduction operator requires non-null buffers"
     );
@@ -39,94 +58,99 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
         acc_nbytes == in_nbytes, "AllReduce device reduction requires equal-sized buffers"
     );
     RAPIDSMPF_EXPECTS(
-        acc_nbytes % sizeof(T) == 0,
-        "AllReduce device reduction buffer size must be multiple of sizeof(T)"
+        element_size > 0 && acc_nbytes % element_size == 0,
+        "AllReduce device reduction buffer size must be multiple of element_size"
     );
 
-    auto const count = acc_nbytes / sizeof(T);
+    auto const count = acc_nbytes / element_size;
 
-    // Ensure the accumulator stream waits for the incoming buffer's latest write.
+    if (count == 0) {
+        return;
+    }
+
     cuda_stream_join(acc_buf->stream(), in_buf->stream());
 
-    // Destination buffer: use write_access so the latest-write event is updated.
     acc_buf->write_access([&](std::byte* acc_bytes, rmm::cuda_stream_view stream) {
-        auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
-        auto policy = rmm::exec_policy_nosync(stream);
-
-        // Safe to read from incoming buffer after the stream join above.
         auto const* in_bytes = reinterpret_cast<std::byte const*>(in_buf->data());
-        auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
 
-        thrust::transform(policy, acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
-    });
-}
+        constexpr int threads_per_block = 256;
+        auto const blocks =
+            static_cast<std::size_t>((count + threads_per_block - 1) / threads_per_block);
 
-template <typename T, DeviceReduceOp Op>
-    requires ValidDeviceReduceOp<T, Op>
-ReduceOperatorFunction make_reduce_operator_impl() {
-    if constexpr (Op == DeviceReduceOp::SUM) {
-        return [](PackedData& accum, PackedData&& incoming) {
-            if constexpr (std::is_same_v<T, bool>) {
-                device_elementwise_reduce<T>(
-                    accum.data.get(), incoming.data.get(), thrust::logical_or<T>{}
-                );
-            } else {
-                device_elementwise_reduce<T>(
-                    accum.data.get(), incoming.data.get(), thrust::plus<T>{}
-                );
-            }
-        };
-    } else if constexpr (Op == DeviceReduceOp::PROD) {
-        return [](PackedData& accum, PackedData&& incoming) {
-            device_elementwise_reduce<T>(
-                accum.data.get(), incoming.data.get(), thrust::multiplies<T>{}
-            );
-        };
-    } else if constexpr (Op == DeviceReduceOp::MIN) {
-        return [](PackedData& accum, PackedData&& incoming) {
-            device_elementwise_reduce<T>(
-                accum.data.get(), incoming.data.get(), thrust::minimum<T>{}
-            );
-        };
-    } else if constexpr (Op == DeviceReduceOp::MAX) {
-        return [](PackedData& accum, PackedData&& incoming) {
-            device_elementwise_reduce<T>(
-                accum.data.get(), incoming.data.get(), thrust::maximum<T>{}
-            );
-        };
-    } else {
-        static_assert(
-            Op == DeviceReduceOp::SUM || Op == DeviceReduceOp::PROD
-                || Op == DeviceReduceOp::MIN || Op == DeviceReduceOp::MAX,
-            "Unsupported DeviceReduceOp"
+        device_bytewise_reduce_kernel<<<blocks, threads_per_block, 0, stream.value()>>>(
+            acc_bytes, in_bytes, element_size, count, op
         );
-    }
+        RAPIDSMPF_CUDA_TRY(cudaGetLastError());
+    });
 }
 
 }  // namespace
 
-template <typename T, DeviceReduceOp Op>
-    requires ValidDeviceReduceOp<T, Op>
-ReduceOperatorFunction make_device_reduce_operator_impl() {
-    return make_reduce_operator_impl<T, Op>();
+template <typename DeviceOp>
+ReduceOperatorFunction make_device_byte_reduce_operator_impl(
+    std::size_t element_size, DeviceOp op
+) {
+    RAPIDSMPF_EXPECTS(
+        element_size > 0, "Device reduction operator requires element_size>0"
+    );
+    return [element_size,
+            op = std::move(op)](PackedData& accum, PackedData&& incoming) mutable {
+        device_byte_reduce(accum.data.get(), incoming.data.get(), element_size, op);
+    };
 }
 
-#define RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(T)                   \
-    template ReduceOperatorFunction                              \
-    make_device_reduce_operator_impl<T, DeviceReduceOp::SUM>();  \
-    template ReduceOperatorFunction                              \
-    make_device_reduce_operator_impl<T, DeviceReduceOp::PROD>(); \
-    template ReduceOperatorFunction                              \
-    make_device_reduce_operator_impl<T, DeviceReduceOp::MIN>();  \
-    template ReduceOperatorFunction                              \
-    make_device_reduce_operator_impl<T, DeviceReduceOp::MAX>();
+#define RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(T, OP)                           \
+    template ReduceOperatorFunction make_device_byte_reduce_operator_impl( \
+        std::size_t element_size, DeviceElementwiseOp<T, OP> op            \
+    );
 
-RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(bool)
-RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(int)
-RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(float)
-RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(double)
-RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE(unsigned long)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(bool, cuda::std::logical_or<bool>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(bool, cuda::std::multiplies<bool>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(int, cuda::std::plus<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(int, cuda::std::multiplies<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(int, cuda::minimum<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(int, cuda::maximum<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(float, cuda::std::plus<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(float, cuda::std::multiplies<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(float, cuda::minimum<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(float, cuda::maximum<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(double, cuda::std::plus<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(double, cuda::std::multiplies<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(double, cuda::minimum<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(double, cuda::maximum<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(std::uint64_t, cuda::std::plus<std::uint64_t>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(std::uint64_t, cuda::std::multiplies<std::uint64_t>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(std::uint64_t, cuda::minimum<std::uint64_t>)
+RAPIDSMPF_INSTANTIATE_DEVICE_BYTE(std::uint64_t, cuda::maximum<std::uint64_t>)
 
-#undef RAPIDSMPF_INSTANTIATE_DEVICE_REDUCE
+#undef RAPIDSMPF_INSTANTIATE_DEVICE_BYTE
+
+#define RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(T, OP) \
+    template ReduceOperator make_device_elementwise_reduce_operator<T, OP>(OP op);
+
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(bool, cuda::std::logical_or<bool>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(bool, cuda::std::multiplies<bool>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(int, cuda::std::plus<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(int, cuda::std::multiplies<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(int, cuda::minimum<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(int, cuda::maximum<int>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(float, cuda::std::plus<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(float, cuda::std::multiplies<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(float, cuda::minimum<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(float, cuda::maximum<float>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(double, cuda::std::plus<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(double, cuda::std::multiplies<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(double, cuda::minimum<double>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(double, cuda::maximum<double>)
+// uint64_t covers unsigned long on most platforms; instantiate only once to avoid
+// duplicates.
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(std::uint64_t, cuda::std::plus<std::uint64_t>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(
+    std::uint64_t, cuda::std::multiplies<std::uint64_t>
+)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(std::uint64_t, cuda::minimum<std::uint64_t>)
+RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE(std::uint64_t, cuda::maximum<std::uint64_t>)
+
+#undef RAPIDSMPF_INSTANTIATE_DEVICE_ELEMENTWISE
 
 }  // namespace rapidsmpf::coll::detail

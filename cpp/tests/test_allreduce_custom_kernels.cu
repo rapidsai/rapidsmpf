@@ -7,6 +7,7 @@
 #include <thrust/system/cuda/execution_policy.h>
 #include <thrust/transform.h>
 
+#include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 

@@ -30,46 +30,6 @@
 namespace rapidsmpf::coll {
 
 /**
- * @brief Host-side reduction operators supported by `AllReduce`.
- *
- * These closely mirror the reduction operators from MPI.
- */
-enum class HostReduceOp : std::uint8_t {
-    SUM,  ///< Sum / addition
-    PROD,  ///< Product / multiplication
-    MIN,  ///< Minimum
-    MAX,  ///< Maximum
-};
-
-/**
- * @brief Device-side reduction operators supported by `AllReduce`.
- *
- * These closely mirror the reduction operators from MPI.
- */
-enum class DeviceReduceOp : std::uint8_t {
-    SUM,  ///< Sum / addition
-    PROD,  ///< Product / multiplication
-    MIN,  ///< Minimum
-    MAX,  ///< Maximum
-};
-
-/**
- * @brief Type trait to determine if an enum type represents a device operator.
- */
-template <typename OpEnum>
-struct is_device_reduce_op_enum : std::false_type {};
-
-template <>
-struct is_device_reduce_op_enum<DeviceReduceOp> : std::true_type {};
-
-/**
- * @brief Check if an enum type represents a device operator.
- */
-template <typename OpEnum>
-inline constexpr bool is_device_reduce_op_enum_v =
-    is_device_reduce_op_enum<OpEnum>::value;
-
-/**
  * @brief Type alias for the reduction function signature.
  */
 using ReduceOperatorFunction =
@@ -87,10 +47,7 @@ enum class ReduceOperatorType {
  * @brief Reduction operator that preserves type information.
  *
  * This class allows AllReduce to determine whether an operator is host- or device-based
- * without requiring runtime checks. Built-in operators use the HostReduceOp and
- * DeviceReduceOp enums to determine this, while custom operators should pass
- * ReduceOperatorType::Device for device-side reduction or ReduceOperatorType::Host for
- * host-side reduction.
+ * without requiring runtime checks.
  */
 class ReduceOperator {
   public:
@@ -148,9 +105,9 @@ class ReduceOperator {
  *
  * The actual reduction is implemented via a type-erased `ReduceOperator` that is
  * supplied at construction time. Helper factories such as
- * `detail::make_reduce_operator` (defaults to host-side) or
- * `detail::make_device_reduce_operator` (device-side) can be used to build
- * element-wise reductions over contiguous arrays.
+ * `detail::make_byte_reduce_operator` or
+ * `detail::make_device_byte_reduce_operator` can be used to build element-wise
+ * reductions over contiguous arrays.
  */
 class AllReduce {
   public:
@@ -162,11 +119,11 @@ class AllReduce {
      * @param op_id Unique operation identifier for this allreduce.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by default).
-     * @param reduce_operator Type-erased reduction operator to use. For built-in
-     * operators, use HostReduceOp and DeviceReduceOp enum values for host- and
-     * device-side reduction respectively. For custom operators, pass
-     * ReduceOperatorType::Device for device-side reduction or ReduceOperatorType::Host
-     * for host-side reduction when constructing the ReduceOperator.
+     * @param reduce_operator Type-erased reduction operator to use. Callers provide a
+     * binary operator that acts on the underlying bytes of each element. Use
+     * `ReduceOperatorType::Device` for device-side reduction and
+     * `ReduceOperatorType::Host` for host-side reduction when constructing the
+     * ReduceOperator.
      * @param finished_callback Optional callback run once locally when the allreduce
      * is finished and results are ready for extraction.
      *
@@ -257,43 +214,21 @@ class AllReduce {
 
 namespace detail {
 
-/// Valid HostReduceOp values.
-inline constexpr std::array valid_host_reduce_ops = {
-    HostReduceOp::SUM, HostReduceOp::PROD, HostReduceOp::MIN, HostReduceOp::MAX
-};
-
-/// Valid DeviceReduceOp values.
-inline constexpr std::array valid_device_reduce_ops = {
-    DeviceReduceOp::SUM, DeviceReduceOp::PROD, DeviceReduceOp::MIN, DeviceReduceOp::MAX
-};
-
 /**
- * @brief Concept to validate (T, HostReduceOp) combinations for reduction.
+ * @brief Host-side elementwise operator working on raw bytes.
+ *
+ * The callable receives pointers to a single element of `accum` and `incoming`
+ * respectively and must combine them in-place into `accum`. The caller
+ * guarantees that both pointers reference `element_size` bytes.
  */
-template <typename T, HostReduceOp Op>
-concept ValidHostReduceOp =
-    std::is_arithmetic_v<T>
-    && std::ranges::find(valid_host_reduce_ops, Op) != valid_host_reduce_ops.end();
+using HostByteOp = std::function<void(void* accum_elem, void const* incoming_elem)>;
 
-/**
- * @brief Concept to validate (T, DeviceReduceOp) combinations for reduction.
- */
-template <typename T, DeviceReduceOp Op>
-concept ValidDeviceReduceOp =
-    std::is_arithmetic_v<T>
-    && std::ranges::find(valid_device_reduce_ops, Op) != valid_device_reduce_ops.end();
-
-/**
- * @brief Concept for a binary operator on type T.
- */
-template <typename Op, typename T>
-concept BinaryOp =
-    std::invocable<Op, T const&, T const&>
-    && std::convertible_to<std::invoke_result_t<Op, T const&, T const&>, T>;
-
-template <typename T, typename Op>
-    requires BinaryOp<Op, T>
-void apply_op(PackedData& accum, PackedData&& incoming, Op&& op) {
+inline void apply_host_byte_op(
+    PackedData& accum,
+    PackedData&& incoming,
+    std::size_t element_size,
+    HostByteOp const& op
+) {
     RAPIDSMPF_EXPECTS(
         accum.data && incoming.data,
         "AllReduce reduction operator requires non-null data buffers"
@@ -311,107 +246,127 @@ void apply_op(PackedData& accum, PackedData&& incoming, Op&& op) {
 
     auto const nbytes = acc_nbytes;
     RAPIDSMPF_EXPECTS(
-        nbytes % sizeof(T) == 0,
+        element_size > 0 && nbytes % element_size == 0,
         "AllReduce reduction operator requires buffer size to be a multiple of "
-        "sizeof(T)"
+        "element_size"
     );
 
-    auto const count = nbytes / sizeof(T);
+    auto const count = nbytes / element_size;
 
     RAPIDSMPF_EXPECTS(
         acc_buf->mem_type() == MemoryType::HOST && in_buf->mem_type() == MemoryType::HOST,
-        "make_host_reduce_operator expects host memory"
+        "Host reduction operator expects host memory"
     );
 
     auto* acc_bytes = acc_buf->exclusive_data_access();
     auto* in_bytes = in_buf->exclusive_data_access();
-    auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
-    auto const* in_ptr = reinterpret_cast<T const*>(in_bytes);
 
-    std::transform(acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
+    for (std::size_t i = 0; i < count; ++i) {
+        auto* acc_elem = static_cast<void*>(acc_bytes + i * element_size);
+        auto const* in_elem = static_cast<void const*>(in_bytes + i * element_size);
+        op(acc_elem, in_elem);
+    }
 
     acc_buf->unlock();
     in_buf->unlock();
 }
 
 /**
- * @brief Create a functor for a given (T, HostReduceOp) combination.
+ * @brief Create a host-based element-wise reduction operator wrapper using a byte-wise
+ * op.
+ *
+ * @param element_size Size of each element in bytes.
+ * @param op Byte-wise operator invoked per element.
  */
-template <typename T, HostReduceOp Op>
-    requires ValidHostReduceOp<T, Op>
-constexpr auto make_functor() {
-    if constexpr (Op == HostReduceOp::SUM) {
-        if constexpr (std::is_same_v<T, bool>) {
-            return [](T const& a, T const& b) -> T { return static_cast<T>(a || b); };
-        }
-        return std::plus<T>{};
-    } else if constexpr (Op == HostReduceOp::PROD) {
-        return std::multiplies<T>{};
-    } else if constexpr (Op == HostReduceOp::MIN) {
-        return [](T const& a, T const& b) -> T { return std::min(a, b); };
-    } else if constexpr (Op == HostReduceOp::MAX) {
-        return [](T const& a, T const& b) -> T { return std::max(a, b); };
-    }
-}
+inline ReduceOperator make_host_byte_reduce_operator(
+    std::size_t element_size, HostByteOp op
+) {
+    RAPIDSMPF_EXPECTS(
+        element_size > 0, "Host reduction operator requires element_size>0"
+    );
+    RAPIDSMPF_EXPECTS(
+        static_cast<bool>(op), "Host reduction operator requires a callable"
+    );
 
-/**
- * @brief Create a host-based element-wise reduction operator wrapper for a given (T, Op).
- */
-template <typename T, HostReduceOp Op>
-    requires ValidHostReduceOp<T, Op>
-ReduceOperator make_host_reduce_operator() {
     return ReduceOperator(
-        [](PackedData& accum, PackedData&& incoming) {
-            apply_op<T>(accum, std::move(incoming), make_functor<T, Op>());
-        },
+        [element_size, op = std::move(op)](
+            PackedData& accum, PackedData&& incoming
+        ) mutable { apply_host_byte_op(accum, std::move(incoming), element_size, op); },
         ReduceOperatorType::Host
     );
 }
 
 /**
- * @brief Create a device-based element-wise reduction operator implementation for a given
- * (T, Op).
- *
- * This operator expects both `PackedData::data` buffers to reside in device memory.
- * Implementations are provided in `device_kernels.cu` for a subset of (T, Op)
- * combinations.
+ * @brief Create a host-based element-wise reduction operator wrapper for a typed functor.
  */
-template <typename T, DeviceReduceOp Op>
-    requires ValidDeviceReduceOp<T, Op>
-ReduceOperatorFunction make_device_reduce_operator_impl();
-
-/**
- * @brief Create a device-based element-wise reduction operator wrapper for a given (T,
- * Op).
- */
-template <typename T, DeviceReduceOp Op>
-    requires ValidDeviceReduceOp<T, Op>
-ReduceOperator make_device_reduce_operator() {
-    return ReduceOperator(
-        make_device_reduce_operator_impl<T, Op>(), ReduceOperatorType::Device
+template <typename T, typename Op>
+    requires std::invocable<Op, T const&, T const&>
+ReduceOperator make_host_reduce_operator(Op op) {
+    return make_host_byte_reduce_operator(
+        sizeof(T), [op = std::move(op)](void* accum_elem, void const* incoming_elem) {
+            auto* a = reinterpret_cast<T*>(accum_elem);
+            auto const* b = reinterpret_cast<T const*>(incoming_elem);
+            *a = static_cast<T>(std::invoke(op, *a, *b));
+        }
     );
 }
 
 /**
- * @brief Create a reduction operator for a given (T, HostReduceOp).
+ * @brief Create a device-based element-wise reduction operator implementation using a
+ * byte-wise operator.
  *
- * Convenience overload for host-side operators.
+ * Default implementations are provided in `device_kernels.cu`.
  */
-template <typename T, HostReduceOp Op>
-    requires ValidHostReduceOp<T, Op>
-ReduceOperator make_reduce_operator() {
-    return make_host_reduce_operator<T, Op>();
+template <typename DeviceOp>
+ReduceOperatorFunction make_device_byte_reduce_operator_impl(
+    std::size_t element_size, DeviceOp op
+);
+
+template <typename DeviceOp>
+ReduceOperator make_device_byte_reduce_operator(std::size_t element_size, DeviceOp op) {
+    return ReduceOperator(
+        make_device_byte_reduce_operator_impl(element_size, std::move(op)),
+        ReduceOperatorType::Device
+    );
 }
 
 /**
- * @brief Create a reduction operator for a given (T, DeviceReduceOp).
- *
- * Convenience overload for device-side operators.
+ * @brief Device-side element-wise reduction operator wrapper for a typed functor.
  */
-template <typename T, DeviceReduceOp Op>
-    requires ValidDeviceReduceOp<T, Op>
-ReduceOperator make_reduce_operator() {
-    return make_device_reduce_operator<T, Op>();
+template <typename T, typename Op>
+struct DeviceElementwiseOp {
+    Op op;  ///< The reduction function to wrap.
+
+#ifdef __CUDACC__
+#define RAPIDSMPF_HD __host__ __device__
+#else
+#define RAPIDSMPF_HD
+#endif
+
+    /**
+     * @brief Call the wrapped operator.
+     *
+     * @param accum_elem The accumulator element.
+     * @param incoming_elem The incoming element.
+     */
+    RAPIDSMPF_HD void operator()(void* accum_elem, void const* incoming_elem) const {
+        auto* a = reinterpret_cast<T*>(accum_elem);
+        auto const* b = reinterpret_cast<T const*>(incoming_elem);
+        *a = static_cast<T>(std::invoke(op, *a, *b));
+    }
+
+#undef RAPIDSMPF_HD
+};
+
+/**
+ * @brief Create a device-based element-wise reduction operator wrapper for a typed
+ * functor.
+ */
+template <typename T, typename Op>
+ReduceOperator make_device_elementwise_reduce_operator(Op op) {
+    return make_device_byte_reduce_operator(
+        sizeof(T), DeviceElementwiseOp<T, Op>{std::move(op)}
+    );
 }
 
 }  // namespace detail
