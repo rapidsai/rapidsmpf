@@ -213,7 +213,6 @@ Read the orders table, including the filter on the o_orderdate column.
 
 Output table:
 
-    - o_orderdate
     - o_orderkey
     - o_orderpriority
 */
@@ -229,7 +228,6 @@ rapidsmpf::streaming::Node read_orders(
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({
-                           "o_orderdate",  // used in filter
                            "o_orderkey",  // used in join
                            "o_orderpriority",  // used in group by
                        })
@@ -277,7 +275,9 @@ rapidsmpf::streaming::Node read_orders(
     auto filter_stream = ctx->br()->stream_pool().get_stream();
     // 0
     owner->push_back(
-        std::make_shared<cudf::ast::column_reference>(0)  // position in the table
+        std::make_shared<cudf::ast::column_name_reference>(
+            "o_orderdate"
+        )  // position in the table
     );
 
 
@@ -313,7 +313,9 @@ rapidsmpf::streaming::Node read_orders(
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::GREATER_EQUAL,
-            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(0)
+            ),
             *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(3))
         )
     );
@@ -322,7 +324,9 @@ rapidsmpf::streaming::Node read_orders(
     owner->push_back(
         std::make_shared<cudf::ast::operation>(
             cudf::ast::ast_operator::LESS,
-            *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(owner->at(0)),
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(0)
+            ),
             *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(4))
         )
     );
@@ -875,10 +879,8 @@ int main(int argc, char** argv) {
                 auto filtered_lineitem_shuffled = ctx->create_channel();
 
                 /* Orders Table */
-                // [o_orderdate, o_orderkey, o_orderpriority]
-                auto order = ctx->create_channel();
                 // [o_orderkey, o_orderpriority]
-                auto projected_order = ctx->create_channel();
+                auto order = ctx->create_channel();
 
                 // [o_orderkey, o_orderpriority]
                 // Ideally this would *just* be o_orderpriority, pushing the projection
@@ -913,7 +915,7 @@ int main(int argc, char** argv) {
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));
-                nodes.push_back(select_columns(ctx, order, projected_order, {1, 2}));
+                // nodes.push_back(select_columns(ctx, order, projected_order, {1, 2}));
 
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(
@@ -931,7 +933,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,
-                            projected_order,
+                            order,
                             filtered_order_shuffled,
                             {0},
                             cmd_options.num_partitions,
@@ -955,7 +957,7 @@ int main(int argc, char** argv) {
                     nodes.push_back(
                         rapidsmpf::ndsh::left_semi_join_broadcast_left(
                             ctx,
-                            projected_order,
+                            order,
                             filtered_lineitem_shuffled,
                             orders_x_lineitem,
                             {0},
