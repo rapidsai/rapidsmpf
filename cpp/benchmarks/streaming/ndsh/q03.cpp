@@ -16,6 +16,7 @@
 
 #include <cudf/aggregation.hpp>
 #include <cudf/ast/expressions.hpp>
+#include <cudf/context.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/hashing.hpp>
@@ -47,6 +48,7 @@
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "bloom_filter.hpp"
+#include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
@@ -118,7 +120,7 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_discount",  // 2
                        })
                        .build();
-    using timestamp_type = cudf::timestamp_ms;
+    using timestamp_type = cudf::timestamp_D;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -183,7 +185,7 @@ rapidsmpf::streaming::Node read_orders(
                            "o_custkey"  // 3
                        })
                        .build();
-    using timestamp_type = cudf::timestamp_ms;
+    using timestamp_type = cudf::timestamp_D;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -369,8 +371,11 @@ rapidsmpf::streaming::Node top_k_by(
         return t->view();
     });
     auto merged = cudf::merge(views, keys, order, {}, out_stream, ctx->br()->device_mr());
-    auto result =
-        std::make_unique<cudf::table>(cudf::slice(merged->view(), {0, 10}, out_stream));
+    auto result = std::make_unique<cudf::table>(
+        cudf::slice(merged->view(), {0, 10}, out_stream),
+        out_stream,
+        ctx->br()->device_mr()
+    );
     co_await ch_out->send(
         rapidsmpf::streaming::to_message(
             0,
@@ -480,6 +485,8 @@ rapidsmpf::streaming::Node fanout_bounded(
 int main(int argc, char** argv) {
     rapidsmpf::ndsh::FinalizeMPI finalize{};
     cudaFree(nullptr);
+    // work around https://github.com/rapidsai/cudf/issues/20849
+    cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
@@ -632,30 +639,38 @@ int main(int argc, char** argv) {
                 )
             );
             auto final_groupby_input = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::broadcast(
-                    ctx,
-                    chunkwise_groupby_output,
-                    final_groupby_input,
-                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    rapidsmpf::streaming::AllGather::Ordered::NO
-                )
-            );
-            auto final_groupby_output = ctx->create_channel();
-            // Out: o_orderkey, o_orderdate, o_shippriority, revenue
-            nodes.push_back(
-                rapidsmpf::ndsh::chunkwise_group_by(
-                    ctx,
-                    final_groupby_input,
-                    final_groupby_output,
-                    {0, 1, 2},
-                    chunkwise_groupby_requests(),
-                    cudf::null_policy::INCLUDE
-
-                )
-            );
-            auto topk = ctx->create_channel();
+            if (ctx->comm()->nranks() > 1) {
+                nodes.push_back(
+                    rapidsmpf::ndsh::broadcast(
+                        ctx,
+                        chunkwise_groupby_output,
+                        final_groupby_input,
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++),
+                        rapidsmpf::streaming::AllGather::Ordered::NO
+                    )
+                );
+            } else {
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx, chunkwise_groupby_output, final_groupby_input
+                    )
+                );
+            }
             if (ctx->comm()->rank() == 0) {
+                auto final_groupby_output = ctx->create_channel();
+                // Out: o_orderkey, o_orderdate, o_shippriority, revenue
+                nodes.push_back(
+                    rapidsmpf::ndsh::chunkwise_group_by(
+                        ctx,
+                        final_groupby_input,
+                        final_groupby_output,
+                        {0, 1, 2},
+                        chunkwise_groupby_requests(),
+                        cudf::null_policy::INCLUDE
+
+                    )
+                );
+                auto topk = ctx->create_channel();
                 // Out: o_orderkey, revenue, o_orderdate, o_shippriority
                 nodes.push_back(top_k_by(
                     ctx,
@@ -675,7 +690,7 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_output));
+                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
             }
         }
         auto end = std::chrono::steady_clock::now();

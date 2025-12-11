@@ -15,6 +15,7 @@
 #include <cudf/aggregation.hpp>
 #include <cudf/ast/expressions.hpp>
 #include <cudf/binaryop.hpp>
+#include <cudf/context.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -34,6 +35,7 @@
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
+#include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
@@ -62,6 +64,7 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_tax"  // 5
                        })
                        .build();
+    using timestamp_type = cudf::timestamp_D;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -72,14 +75,13 @@ rapidsmpf::streaming::Node read_lineitem(
         );
         auto sys_days = cuda::std::chrono::sys_days(date);
         owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<cudf::timestamp_ms>>(
+            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
                 sys_days.time_since_epoch(), true, stream
             )
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
-                *std::any_cast<
-                    std::shared_ptr<cudf::timestamp_scalar<cudf::timestamp_D>>>(
+                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
                     owner->at(0)
                 )
             )
@@ -314,6 +316,8 @@ static __device__ void calculate_charge(double *charge, double discprice, double
  */
 int main(int argc, char** argv) {
     cudaFree(nullptr);
+    // work around https://github.com/rapidsai/cudf/issues/20849
+    cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
@@ -339,45 +343,55 @@ int main(int argc, char** argv) {
                 arguments.input_directory
             ));
 
-            auto groupby_input = ctx->create_channel();
+            auto chunkwise_groupby_input = ctx->create_channel();
             // Out: l_returnflag, l_linestatus, l_quantity, l_extendedprice,
             // disc_price = (l_extendedprice * (1 - l_discount)),
             // charge = (l_extendedprice * (1 - l_discount) * (1 + l_tax))
             // l_discount
-            nodes.push_back(select_columns_for_groupby(ctx, lineitem, groupby_input));
-            auto chunkwise_groupby = ctx->create_channel();
+            nodes.push_back(
+                select_columns_for_groupby(ctx, lineitem, chunkwise_groupby_input)
+            );
+            auto chunkwise_groupby_output = ctx->create_channel();
             nodes.push_back(
                 rapidsmpf::ndsh::chunkwise_group_by(
                     ctx,
-                    groupby_input,
-                    chunkwise_groupby,
+                    chunkwise_groupby_input,
+                    chunkwise_groupby_output,
                     {0, 1},
                     chunkwise_groupby_requests(),
                     cudf::null_policy::INCLUDE
                 )
             );
             auto final_groupby_input = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::broadcast(
-                    ctx,
-                    chunkwise_groupby,
-                    final_groupby_input,
-                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    rapidsmpf::streaming::AllGather::Ordered::NO
-                )
-            );
-            auto final_groupby_output = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::chunkwise_group_by(
-                    ctx,
-                    final_groupby_input,
-                    final_groupby_output,
-                    {0, 1},
-                    final_groupby_requests(),
-                    cudf::null_policy::INCLUDE
-                )
-            );
+            if (ctx->comm()->nranks() > 1) {
+                nodes.push_back(
+                    rapidsmpf::ndsh::broadcast(
+                        ctx,
+                        chunkwise_groupby_output,
+                        final_groupby_input,
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++),
+                        rapidsmpf::streaming::AllGather::Ordered::NO
+                    )
+                );
+            } else {
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx, chunkwise_groupby_output, final_groupby_input
+                    )
+                );
+            }
             if (ctx->comm()->rank() == 0) {
+                auto final_groupby_output = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::chunkwise_group_by(
+                        ctx,
+                        final_groupby_input,
+                        final_groupby_output,
+                        {0, 1},
+                        final_groupby_requests(),
+                        cudf::null_policy::INCLUDE
+                    )
+                );
                 auto sorted_input = ctx->create_channel();
                 nodes.push_back(
                     postprocess_group_by(ctx, final_groupby_output, sorted_input)
@@ -413,7 +427,7 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_output));
+                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
             }
         }
         auto end = std::chrono::steady_clock::now();
@@ -429,6 +443,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         ctx->comm()->logger().print(ctx->statistics()->report());
     }
+
     if (ctx->comm()->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
             ctx->comm()->logger().print(
