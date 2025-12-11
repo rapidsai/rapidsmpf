@@ -9,11 +9,11 @@
 
 namespace rapidsmpf {
 
-/// @brief Enum representing the type of memory.
+/// @brief Enum representing the type of memory sorted in decreasing order of preference.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
-    HOST = 1,  ///< Host memory
-    PINNED_HOST = 2  ///< Pinned host memory
+    PINNED_HOST = 1,  ///< Pinned host memory
+    HOST = 2  ///< Host memory
 };
 
 /// @brief All memory types sorted in decreasing order of preference.
@@ -21,7 +21,7 @@ constexpr std::array<MemoryType, 3> MEMORY_TYPES{
     {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
 };
 
-/// @brief Memory type names sorted to match `MEMORY_TYPES`.
+/// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
     {"DEVICE", "PINNED_HOST", "HOST"}
 };
