@@ -63,9 +63,10 @@ class BufferResource {
      * allocations. If null, pinned host allocations are disabled. In that case, any
      * attempt to allocate pinned memory will fail regardless of what @p memory_available
      * reports.
-     * @param memory_available Optional memory availability functions mapping memory types
-     * to available memory checkers. Memory types without availability functions are
-     * assumed to have unlimited memory.
+     * @param memory_available Optional functions that report available memory for each
+     * memory type. If a memory type is not present in this map, it is treated as having
+     * unlimited available memory. The only exception is `MemoryType::PINNED_HOST`, which
+     * is always assigned a zero-capacity function when `pinned_mr` is disabled.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
