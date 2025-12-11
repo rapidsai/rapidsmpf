@@ -415,6 +415,7 @@ TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
     // create a new buffer resource with only host memory available
     br = std::make_unique<BufferResource>(
         cudf::get_current_device_resource_ref(),
+        BufferResource::PinnedMemoryResourceDisabled,
         std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
             {MemoryType::DEVICE, []() { return 0; }}
         }

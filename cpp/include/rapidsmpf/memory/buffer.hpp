@@ -26,51 +26,52 @@ namespace rapidsmpf {
 /**
  * @brief Buffer representing device or host memory.
  *
- * @note The constructors are private, use `BufferResource` to construct buffers.
- * @note The memory type (e.g., host or device) is constant and cannot change during
- * the buffer's lifetime.
- * @note This buffer is stream-ordered and has an associated CUDA stream (see `stream()`).
- * All work (host and device) that reads or writes the buffer must either be enqueued on
- * that stream or be synchronized with it *before* accessing the memory.
- * @note When passing the buffer to a non-stream-aware API (e.g., MPI, host-only code),
- * you must ensure the last write has completed *before* the hand-off. Either synchronize
- * the buffer's stream (e.g., `stream().synchronize()`) or verify completion via
- * `is_latest_write_done()`.
+ * A `Buffer` holds either device memory or host memory, determined by its memory type
+ * at construction. See `device_buffer_types` and `host_buffer_types` for the sets of
+ * memory types that result in device-backed and host-backed storage.
+ *
+ * Buffers are stream ordered and have an associated CUDA stream (see `stream()`). All
+ * work that reads or writes the buffer must either be enqueued on that stream or be
+ * synchronized with it before accessing the memory. For example, when passing the buffer
+ * to a non-stream aware API (e.g., MPI or host-only code), the caller must ensure that
+ * the most recent write has completed before the hand off. This can be done by
+ * synchronizing the buffer's stream or by checking `is_latest_write_done()`.
+ *
+ * To obtain an `rmm::device_buffer` from a `Buffer`, first ensure that the buffer's
+ * memory type is one of the types listed in `device_buffer_types` (moving the buffer if
+ * necessary), then call `release_device_buffer()`.
+ *
+ * @note The constructors are private. Buffers are created through `BufferResource`.
  */
 class Buffer {
     friend class BufferResource;
 
   public:
-    /// @brief Storage type for the device buffer.
-    using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
+    /// @brief Storage type for a device buffer.
+    using DeviceBufferT = std::unique_ptr<rmm::device_buffer>;
 
-    /// @brief Storage type for the host buffer.
-    using HostStorageT = std::unique_ptr<HostBuffer>;
-
-    /**
-     * @brief Storage type in Buffer, which could be either host or device memory.
-     */
-    using StorageT = std::variant<DeviceStorageT, HostStorageT>;
+    /// @brief Storage type for a host buffer.
+    using HostBufferT = std::unique_ptr<HostBuffer>;
 
     /**
-     * @brief Access the underlying host memory buffer (const).
+     * @brief Memory types suitable for constructing a device backed buffer.
      *
-     * @return A reference to the unique pointer managing the host memory.
-     *
-     * @throws std::logic_error if the buffer does not manage host memory.
-     * @throws std::logic_error If the buffer is locked.
+     * A buffer may use `DeviceBufferT` only if its memory type is listed here.
+     * This ensures that the buffer is backed by memory that behaves as device
+     * accessible memory.
      */
-    [[nodiscard]] HostStorageT const& host() const;
+    static constexpr std::array<MemoryType, 1> device_buffer_types{MemoryType::DEVICE};
 
     /**
-     * @brief Access the underlying device memory buffer (const).
+     * @brief Memory types suitable for constructing a host backed buffer.
      *
-     * @return A const reference to the unique pointer managing the device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage device memory.
-     * @throws std::logic_error If the buffer is locked.
+     * A buffer may use `HostBufferT` only if its memory type is listed here.
+     * This ensures that the buffer is backed by memory that behaves as host
+     * accessible memory.
      */
-    [[nodiscard]] DeviceStorageT const& device() const;
+    static constexpr std::array<MemoryType, 2> host_buffer_types{
+        MemoryType::HOST, MemoryType::PINNED_HOST
+    };
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -185,13 +186,7 @@ class Buffer {
      * @throws std::logic_error if the buffer is not initialized.
      */
     [[nodiscard]] MemoryType constexpr mem_type() const {
-        return std::visit(
-            overloaded{
-                [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
-                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
-            },
-            storage_
-        );
+        return mem_type_;
     }
 
     /**
@@ -245,7 +240,7 @@ class Buffer {
 
   private:
     /**
-     * @brief Construct a stream-ordered Buffer from synchronized host memory.
+     * @brief Construct a stream-ordered Buffer from synchronized host buffer.
      *
      * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
      * @p stream for subsequent stream-ordered operations.
@@ -257,14 +252,20 @@ class Buffer {
      *
      * @param host_buffer Unique pointer to a vector containing host memory.
      * @param stream CUDA stream to associate with the Buffer for future operations.
+     * @param mem_type The memory type of the underlying @p host_buffer.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
+     * @throws std::invalid_argument If @p mem_type is not suitable for host buffers.
      * @throws std::logic_error If the buffer is locked.
      */
-    Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream);
+    Buffer(
+        std::unique_ptr<HostBuffer> host_buffer,
+        rmm::cuda_stream_view stream,
+        MemoryType mem_type
+    );
 
     /**
-     * @brief Construct a stream-ordered Buffer from device memory.
+     * @brief Construct a stream-ordered Buffer from a device buffer.
      *
      * Adopts @p device_buffer as the Buffer's storage and inherits its CUDA stream.
      * At construction, the Buffer records an initial "latest write" on that stream,
@@ -276,11 +277,13 @@ class Buffer {
      * stream (or established ordering with it) for correctness.
      *
      * @param device_buffer Unique pointer to a device buffer. Must be non-null.
+     * @param mem_type The memory type of the underlying @p device_buffer.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
+     * @throws std::invalid_argument If @p mem_type is not suitable for device buffers.
      * @throws std::logic_error If the buffer is locked.
      */
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 
     /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
@@ -290,55 +293,34 @@ class Buffer {
     void throw_if_locked() const;
 
     /**
-     * @brief Access the underlying host memory buffer.
+     * @brief Release the underlying device buffer.
      *
-     * @return A reference to the unique pointer managing the host memory.
+     * @return The underlying device buffer.
      *
-     * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error if the buffer does not manage a device buffer.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] HostStorageT& host();
+    [[nodiscard]] DeviceBufferT release_device_buffer();
 
     /**
-     * @brief Access the underlying device memory buffer.
+     * @brief Release the underlying host buffer.
      *
-     * @return A reference to the unique pointer managing the device memory.
+     * @return The underlying host buffer.
      *
-     * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error if the buffer does not manage a host buffer.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] DeviceStorageT& device();
-
-    /**
-     * @brief Release the underlying device memory buffer.
-     *
-     * @return The underlying device memory buffer.
-     *
-     * @throws std::logic_error if the buffer does not manage device memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] DeviceStorageT release_device();
-
-    /**
-     * @brief Release the underlying host memory buffer.
-     *
-     * @return The underlying host memory buffer.
-     *
-     * @throws std::logic_error if the buffer does not manage host memory.
-     * @throws std::logic_error If the buffer is locked.
-     */
-    [[nodiscard]] HostStorageT release_host();
+    [[nodiscard]] HostBufferT release_host_buffer();
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
-    /// @brief The underlying storage host memory or device memory buffer (where
-    /// applicable).
-    StorageT storage_;
+    MemoryType const mem_type_;
+    std::variant<DeviceBufferT, HostBufferT> storage_;
     rmm::cuda_stream_view stream_;
     CudaEvent latest_write_event_;
-    std::atomic_bool lock_;
+    std::atomic<bool> lock_;
 };
 
 /**
