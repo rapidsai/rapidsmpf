@@ -20,6 +20,7 @@
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -105,8 +106,8 @@ class ReduceOperator {
  *
  * The actual reduction is implemented via a type-erased `ReduceOperator` that is
  * supplied at construction time. Helper factories such as
- * `detail::make_byte_reduce_operator` or
- * `detail::make_device_byte_reduce_operator` can be used to build element-wise
+ * `detail::make_host_reduce_operator` or
+ * `detail::make_device_reduce_operator` can be used to build element-wise
  * reductions over contiguous arrays.
  */
 class AllReduce {
@@ -223,6 +224,14 @@ namespace detail {
  */
 using HostByteOp = std::function<void(void* accum_elem, void const* incoming_elem)>;
 
+/**
+ * @brief Apply a host-based byte-wise reduction operator to the given packed data.
+ *
+ * @param accum The accumulator packed data.
+ * @param incoming The incoming packed data.
+ * @param element_size Size of each element in bytes.
+ * @param op The host-based byte-wise reduction operator.
+ */
 inline void apply_host_byte_op(
     PackedData& accum,
     PackedData&& incoming,
@@ -277,6 +286,8 @@ inline void apply_host_byte_op(
  *
  * @param element_size Size of each element in bytes.
  * @param op Byte-wise operator invoked per element.
+ *
+ * @return The wrapped reduction operator.
  */
 inline ReduceOperator make_host_byte_reduce_operator(
     std::size_t element_size, HostByteOp op
@@ -302,6 +313,14 @@ inline ReduceOperator make_host_byte_reduce_operator(
 template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
 ReduceOperator make_host_reduce_operator(Op op) {
+    /**
+     * @brief Create a host-based element-wise reduction operator wrapper for a typed
+     * functor.
+     *
+     * @param op The reduction operator to wrap.
+     *
+     * @return The wrapped reduction operator.
+     */
     return make_host_byte_reduce_operator(
         sizeof(T), [op = std::move(op)](void* accum_elem, void const* incoming_elem) {
             auto* a = reinterpret_cast<T*>(accum_elem);
@@ -311,21 +330,28 @@ ReduceOperator make_host_reduce_operator(Op op) {
     );
 }
 
-/**
- * @brief Create a device-based element-wise reduction operator implementation using a
- * byte-wise operator.
- *
- * Default implementations are provided in `device_kernels.cu`.
- */
+namespace device {
+
 template <typename DeviceOp>
-ReduceOperatorFunction make_device_byte_reduce_operator_impl(
+ReduceOperatorFunction make_device_byte_reduce_operator(
     std::size_t element_size, DeviceOp op
 );
 
+}  // namespace device
+
 template <typename DeviceOp>
 ReduceOperator make_device_byte_reduce_operator(std::size_t element_size, DeviceOp op) {
+    /**
+     * @brief Create a device-based element-wise reduction operator wrapper using a
+     * byte-wise op.
+     *
+     * @param element_size Size of each element in bytes.
+     * @param op Byte-wise operator invoked per element.
+     *
+     * @return The wrapped reduction operator.
+     */
     return ReduceOperator(
-        make_device_byte_reduce_operator_impl(element_size, std::move(op)),
+        device::make_device_byte_reduce_operator(element_size, std::move(op)),
         ReduceOperatorType::Device
     );
 }
@@ -333,15 +359,18 @@ ReduceOperator make_device_byte_reduce_operator(std::size_t element_size, Device
 /**
  * @brief Device-side element-wise reduction operator wrapper for a typed functor.
  */
-template <typename T, typename Op>
-struct DeviceElementwiseOp {
-    Op op;  ///< The reduction function to wrap.
-
 #ifdef __CUDACC__
 #define RAPIDSMPF_HD __host__ __device__
 #else
 #define RAPIDSMPF_HD
 #endif
+
+/**
+ * @brief Device-side element-wise reduction operator wrapper for a typed functor.
+ */
+template <typename T, typename Op>
+struct DeviceElementwiseOp {
+    Op op;  ///< The reduction function to wrap.
 
     /**
      * @brief Call the wrapped operator.
@@ -354,16 +383,20 @@ struct DeviceElementwiseOp {
         auto const* b = reinterpret_cast<T const*>(incoming_elem);
         *a = static_cast<T>(std::invoke(op, *a, *b));
     }
+};
 
 #undef RAPIDSMPF_HD
-};
 
 /**
  * @brief Create a device-based element-wise reduction operator wrapper for a typed
  * functor.
+ *
+ * @param op The reduction operator to wrap.
+ *
+ * @return The wrapped reduction operator.
  */
 template <typename T, typename Op>
-ReduceOperator make_device_elementwise_reduce_operator(Op op) {
+ReduceOperator make_device_reduce_operator(Op op) {
     return make_device_byte_reduce_operator(
         sizeof(T), DeviceElementwiseOp<T, Op>{std::move(op)}
     );

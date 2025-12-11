@@ -316,9 +316,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     // Choose operator based on reduction type
     ReduceOperator kernel =
         (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
-            ? rapidsmpf::coll::detail::make_device_elementwise_reduce_operator<int>(
-                  SumOp<int>{}
-              )
+            ? rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
             : rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{});
 
     AllReduce allreduce(
@@ -481,9 +479,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
     // Convert op to device version if needed
     ReduceOperator kernel = [&]() -> ReduceOperator {
         if constexpr (Case::reduction_type == MemoryReductionConfig::DEVICE_REDUCTION) {
-            return rapidsmpf::coll::detail::make_device_elementwise_reduce_operator<T>(
-                Op{}
-            );
+            return rapidsmpf::coll::detail::make_device_reduce_operator<T>(Op{});
         }
 
         return rapidsmpf::coll::detail::make_host_reduce_operator<T>(Op{});
