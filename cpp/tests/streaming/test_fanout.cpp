@@ -57,7 +57,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
 
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
         rmm::cuda_stream_view stream = br.stream_pool().get_stream();
-        auto const& cd = msg.content_description();
+        auto const cd = msg.content_description();
         auto buf_cpy = br.allocate(cd.content_size(), stream, res);
         // cd needs to be updated to reflect the new buffer
         ContentDescription new_cd{
@@ -582,7 +582,7 @@ TEST_F(SpillingStreamingFanout, Spilling) {
         SCOPED_TRACE("channel " + std::to_string(c));
         // all messages should be in host memory
         EXPECT_TRUE(std::ranges::all_of(outs[c], [](const Message& m) {
-            auto const& cd = m.content_description();
+            auto const cd = m.content_description();
             return cd.principal_memory_type() == MemoryType::HOST
                    && cd.content_size() == 1024 * sizeof(int);
         }));

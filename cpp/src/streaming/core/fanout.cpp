@@ -193,8 +193,7 @@ struct UnboundedFanout {
         auto spillable_messages = ctx.spillable_messages();
 
         size_t n_available_messages = 0;
-        std::vector<std::reference_wrapper<SpillableMessages::MessageId>>
-            messages_to_send;
+        std::vector<SpillableMessages::MessageId> messages_to_send;
         while (true) {
             {
                 auto lock = co_await mtx.scoped_lock();
@@ -215,9 +214,10 @@ struct UnboundedFanout {
                 }
             }
 
-            for (auto const& msg : messages_to_send) {
-                auto const& cd = spillable_messages->get_content_description(msg);
-                // try reserving into all memory types up to the highest memory type set
+            for (auto const msg_id : messages_to_send) {
+                auto const cd = spillable_messages->get_content_description(msg);
+                // Reserve memory for the output using the input message’s memory type, or a
+                // lower-priority type if needed.
                 auto const mem_types = leq_memory_types(cd.principal_memory_type());
                 auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
                 if (!co_await ch_out->send(spillable_messages->copy(msg, res))) {
@@ -319,6 +319,8 @@ struct UnboundedFanout {
         // index of the first message to purge
         size_t purge_idx = 0;
 
+        // To make staged input messages spillable, we insert them into the Context's
+        // spillable_messages container while they are in transit.
         auto spillable_messages = ctx.spillable_messages();
 
         // no_more_input is only set by this task, so reading without lock is safe here
