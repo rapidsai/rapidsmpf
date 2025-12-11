@@ -197,6 +197,11 @@ bool extract_gpu_info_from_json(
 
 }  // namespace
 
+/**
+ * @brief Print or validate binding configuration.
+ *
+ * See top of this file for more details.
+ */
 int main(int argc, char* argv[]) {
     std::string json_file;
     int gpu_id = -1;
