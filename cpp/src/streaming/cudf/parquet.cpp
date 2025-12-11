@@ -260,17 +260,19 @@ Node read_parquet(
     }
     std::uint64_t sequence_number = 0;
     std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
+    bool rank_has_assigned_work = false;  // Track if this rank was assigned work
 
     if (files.size() >= size) {
         // Standard case: at least one file per rank
         // Distribute files evenly across ranks
-        int files_per_rank =
-            static_cast<int>(files.size() / size + (rank < (files.size() % size)));
-        int file_offset =
+        std::size_t files_per_rank = files.size() / size + (rank < (files.size() % size));
+        std::size_t file_offset =
             rank * (files.size() / size) + std::min(rank, files.size() % size);
         auto local_files = std::vector(
-            files.begin() + file_offset, files.begin() + file_offset + files_per_rank
+            files.begin() + static_cast<std::ptrdiff_t>(file_offset),
+            files.begin() + static_cast<std::ptrdiff_t>(file_offset + files_per_rank)
         );
+        rank_has_assigned_work = !local_files.empty();
         auto const num_files = local_files.size();
         // Estimate number of rows per file
         std::size_t files_per_chunk = 1;
@@ -336,7 +338,8 @@ Node read_parquet(
         // Distribute split indices across ranks (only use as many ranks as we have
         // splits)
         auto active_ranks = std::min(size, total_splits);
-        if (rank < active_ranks) {
+        rank_has_assigned_work = (rank < active_ranks);
+        if (rank_has_assigned_work) {
             // Distribute splits evenly across active ranks
             auto splits_per_rank = total_splits / active_ranks;
             auto extra_splits = total_splits % active_ranks;
@@ -398,16 +401,19 @@ Node read_parquet(
         }
     }
     if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
-        // If we're on the hook to read some files, but the skip_rows/num_rows setup
-        // meant our slice was empty, send an empty table of correct shape.
-        // Use the first file to get the schema for the empty table.
-        auto empty_opts = options;
-        empty_opts.set_source(cudf::io::source_info(files[0]));
-        empty_opts.set_skip_rows(0);
-        empty_opts.set_num_rows(0);
-        co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
-            ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
-        )));
+        if (rank_has_assigned_work) {
+            // If we're on the hook to read some files, but the skip_rows/num_rows setup
+            // meant our slice was empty, send an empty table of correct shape.
+            // Use the first file to get the schema for the empty table.
+            auto empty_opts = options;
+            empty_opts.set_source(cudf::io::source_info(files[0]));
+            empty_opts.set_skip_rows(0);
+            empty_opts.set_num_rows(0);
+            co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
+                ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
+            )));
+        }
+        // Ranks without assigned work just close their output channel without sending
     } else {
         std::vector<Node> read_tasks;
         read_tasks.reserve(1 + num_producers);
