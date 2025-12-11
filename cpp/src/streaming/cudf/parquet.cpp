@@ -57,6 +57,111 @@ struct ChunkDesc {
 };
 
 /**
+ * @brief Estimate total rows by sampling a subset of files.
+ *
+ * @param files List of all file paths.
+ * @param max_samples Maximum number of files to sample.
+ *
+ * @return Estimated total rows across all files.
+ */
+std::int64_t estimate_total_rows(
+    std::vector<std::string> const& files, std::size_t max_samples = 10
+) {
+    RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file");
+
+    // Sample files with a stride to spread samples evenly across the file list
+    std::size_t stride = std::max(std::size_t{1}, files.size() / max_samples);
+    std::vector<std::string> sample_files;
+    for (std::size_t i = 0; i < files.size() && sample_files.size() < max_samples;
+         i += stride)
+    {
+        sample_files.push_back(files[i]);
+    }
+
+    // Read metadata from sampled files to get row count
+    auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(sample_files));
+    std::int64_t sampled_rows = metadata.num_rows();
+
+    // Extrapolate to estimate total rows across all files
+    return (sampled_rows * static_cast<std::int64_t>(files.size()))
+           / static_cast<std::int64_t>(sample_files.size());
+}
+
+/**
+ * @brief Structure to hold row group boundary information for a file.
+ */
+struct FileRowGroupInfo {
+    std::vector<std::int64_t> rg_offsets;  ///< Cumulative row offsets for row groups.
+    std::int64_t total_rows;  ///< Total rows in the file.
+};
+
+/**
+ * @brief Read row group metadata for a file and compute cumulative offsets.
+ *
+ * @param filepath Path to the parquet file.
+ *
+ * @return FileRowGroupInfo with row group offsets.
+ */
+FileRowGroupInfo get_file_row_group_info(std::string const& filepath) {
+    auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(filepath));
+    auto rg_metadata = metadata.rowgroup_metadata();
+    std::vector<std::int64_t> rg_offsets;
+    rg_offsets.reserve(rg_metadata.size() + 1);
+    rg_offsets.push_back(0);
+    for (auto const& rg : rg_metadata) {
+        rg_offsets.push_back(rg_offsets.back() + rg.at("num_rows"));
+    }
+    auto total_rows = rg_offsets.back();
+    return FileRowGroupInfo{
+        .rg_offsets = std::move(rg_offsets), .total_rows = total_rows
+    };
+}
+
+/**
+ * @brief Compute row-group-aligned skip_rows and num_rows for a split of a file.
+ *
+ * Given a file's row group offsets, compute the skip_rows and num_rows for a specific
+ * split, aligning to row group boundaries when possible.
+ *
+ * @param rg_info Row group information for the file.
+ * @param split_idx Index of this split (0-based).
+ * @param total_splits Total number of splits for this file.
+ *
+ * @return Pair of (skip_rows, num_rows).
+ */
+std::pair<std::int64_t, std::int64_t> compute_split_range(
+    FileRowGroupInfo const& rg_info, std::size_t split_idx, std::size_t total_splits
+) {
+    auto const& rg_offsets = rg_info.rg_offsets;
+    auto num_row_groups = rg_offsets.size() - 1;
+    auto total_rows = rg_info.total_rows;
+
+    std::int64_t skip_rows, num_rows;
+
+    if (total_splits <= num_row_groups) {
+        // Align to row groups - distribute row groups evenly across splits
+        std::size_t rg_per_split = num_row_groups / total_splits;
+        std::size_t extra_rg = num_row_groups % total_splits;
+        std::size_t rg_start = split_idx * rg_per_split + std::min(split_idx, extra_rg);
+        std::size_t rg_end = rg_start + rg_per_split + (split_idx < extra_rg ? 1 : 0);
+        skip_rows = rg_offsets[rg_start];
+        num_rows = rg_offsets[rg_end] - skip_rows;
+    } else {
+        // More splits than row groups - split by rows
+        std::int64_t rows_per_split =
+            total_rows / static_cast<std::int64_t>(total_splits);
+        std::int64_t extra_rows = total_rows % static_cast<std::int64_t>(total_splits);
+        auto split_idx_signed = static_cast<std::int64_t>(split_idx);
+
+        skip_rows =
+            split_idx_signed * rows_per_split + std::min(split_idx_signed, extra_rows);
+        num_rows = rows_per_split + (split_idx_signed < extra_rows ? 1 : 0);
+    }
+
+    return {skip_rows, num_rows};
+}
+
+/**
  * @brief Read chunks and send them to an output channel.
  *
  * @param ctx Execution context to use.
@@ -153,70 +258,156 @@ Node read_parquet(
             std::ranges::single_view(filter->stream)
         );
     }
-    // TODO: Handle case where multiple ranks are reading from a single file.
-    int files_per_rank =
-        static_cast<int>(files.size() / size + (rank < (files.size() % size)));
-    int file_offset = rank * (files.size() / size) + std::min(rank, files.size() % size);
-    auto local_files = std::vector(
-        files.begin() + file_offset, files.begin() + file_offset + files_per_rank
-    );
     std::uint64_t sequence_number = 0;
     std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
-    auto const num_files = local_files.size();
-    // Estimate number of rows per file
-    std::size_t files_per_chunk = 1;
-    if (files.size() > 1) {
-        auto nrows =
-            cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
-                .num_rows();
-        files_per_chunk =
-            static_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
-    }
-    auto to_skip = options.get_skip_rows();
-    auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
-    for (std::size_t file_offset = 0; file_offset < num_files;
-         file_offset += files_per_chunk)
-    {
-        std::vector<std::string> chunk_files;
-        auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
-        std::ranges::copy_n(
-            local_files.begin() + static_cast<std::int64_t>(file_offset),
-            static_cast<std::int64_t>(nchunk_files),
-            std::back_inserter(chunk_files)
+
+    if (files.size() >= size) {
+        // Standard case: at least one file per rank
+        // Distribute files evenly across ranks
+        int files_per_rank =
+            static_cast<int>(files.size() / size + (rank < (files.size() % size)));
+        int file_offset =
+            rank * (files.size() / size) + std::min(rank, files.size() % size);
+        auto local_files = std::vector(
+            files.begin() + file_offset, files.begin() + file_offset + files_per_rank
         );
-        auto source = cudf::io::source_info(chunk_files);
-        // Must read [skip_rows, skip_rows + num_rows) from full fileset
-        auto chunk_rows = cudf::io::read_parquet_metadata(source).num_rows() - to_skip;
-        auto chunk_skip_rows = to_skip;
-        // If the chunk is larger than the number rows we need to skip, on the next
-        // iteration we don't need to skip any more rows, otherwise we must skip the
-        // remainder.
-        to_skip = std::max(0l, -chunk_rows);
-        while (chunk_rows > 0 && to_read > 0) {
-            auto rows_read =
-                std::min({static_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
-            chunks_per_producer[sequence_number % num_producers].emplace_back(
-                sequence_number, chunk_skip_rows, rows_read, source
+        auto const num_files = local_files.size();
+        // Estimate number of rows per file
+        std::size_t files_per_chunk = 1;
+        if (files.size() > 1) {
+            auto nrows =
+                cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
+                    .num_rows();
+            files_per_chunk =
+                static_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
+        }
+        auto to_skip = options.get_skip_rows();
+        auto to_read =
+            options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
+        for (std::size_t file_offset = 0; file_offset < num_files;
+             file_offset += files_per_chunk)
+        {
+            std::vector<std::string> chunk_files;
+            auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
+            std::ranges::copy_n(
+                local_files.begin() + static_cast<std::int64_t>(file_offset),
+                static_cast<std::int64_t>(nchunk_files),
+                std::back_inserter(chunk_files)
             );
-            sequence_number++;
-            to_read = std::max(0l, to_read - rows_read);
-            chunk_skip_rows += rows_read;
-            chunk_rows -= rows_read;
+            auto source = cudf::io::source_info(chunk_files);
+            // Must read [skip_rows, skip_rows + num_rows) from full fileset
+            auto chunk_rows =
+                cudf::io::read_parquet_metadata(source).num_rows() - to_skip;
+            auto chunk_skip_rows = to_skip;
+            // If the chunk is larger than the number rows we need to skip, on the next
+            // iteration we don't need to skip any more rows, otherwise we must skip the
+            // remainder.
+            to_skip = std::max(0l, -chunk_rows);
+            while (chunk_rows > 0 && to_read > 0) {
+                auto rows_read = std::min(
+                    {static_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read}
+                );
+                chunks_per_producer[sequence_number % num_producers].emplace_back(
+                    sequence_number, chunk_skip_rows, rows_read, source
+                );
+                sequence_number++;
+                to_read = std::max(0l, to_read - rows_read);
+                chunk_skip_rows += rows_read;
+                chunk_rows -= rows_read;
+            }
+        }
+    } else {
+        // Multi-rank single-file case: fewer files than ranks
+        // Use sampling to estimate chunks and distribute work across ranks
+        auto const num_files = files.size();
+
+        // Estimate total rows by sampling
+        auto estimated_total_rows = estimate_total_rows(files);
+
+        // Estimate total chunks and splits per file
+        auto estimated_total_chunks = std::max(
+            std::size_t{1},
+            static_cast<std::size_t>(estimated_total_rows / num_rows_per_chunk)
+        );
+        auto splits_per_file =
+            (estimated_total_chunks + num_files - 1) / num_files;  // Round up
+        auto total_splits = num_files * splits_per_file;
+
+        // Distribute split indices across ranks (only use as many ranks as we have
+        // splits)
+        auto active_ranks = std::min(size, total_splits);
+        if (rank < active_ranks) {
+            // Distribute splits evenly across active ranks
+            auto splits_per_rank = total_splits / active_ranks;
+            auto extra_splits = total_splits % active_ranks;
+            auto split_start = rank * splits_per_rank + std::min(rank, extra_splits);
+            auto split_end =
+                split_start + splits_per_rank + (rank < extra_splits ? 1 : 0);
+
+            // Process each split assigned to this rank
+            // Track which file we're currently working on to avoid re-reading metadata
+            std::size_t current_file_idx = std::numeric_limits<std::size_t>::max();
+            FileRowGroupInfo current_file_info;
+
+            for (auto split_idx = split_start; split_idx < split_end; ++split_idx) {
+                auto file_idx = split_idx / splits_per_file;
+                auto local_split_idx = split_idx % splits_per_file;
+
+                if (file_idx >= num_files) {
+                    // Past the end of files (can happen with rounding)
+                    break;
+                }
+
+                // Read file metadata if we haven't already for this file
+                if (file_idx != current_file_idx) {
+                    current_file_idx = file_idx;
+                    current_file_info = get_file_row_group_info(files[file_idx]);
+                }
+
+                // Compute row-group-aligned range for this split
+                auto [skip_rows, total_rows_for_split] = compute_split_range(
+                    current_file_info, local_split_idx, splits_per_file
+                );
+
+                if (total_rows_for_split <= 0) {
+                    continue;
+                }
+
+                // Produce chunks of num_rows_per_chunk from this split's row range
+                auto source = cudf::io::source_info(files[file_idx]);
+                auto chunk_skip = skip_rows;
+                auto remaining = total_rows_for_split;
+
+                while (remaining > 0) {
+                    auto chunk_rows = std::min(
+                        static_cast<std::int64_t>(num_rows_per_chunk), remaining
+                    );
+                    chunks_per_producer[sequence_number % num_producers].emplace_back(
+                        ChunkDesc{
+                            .sequence_number = sequence_number,
+                            .skip_rows = chunk_skip,
+                            .num_rows = chunk_rows,
+                            .source = source
+                        }
+                    );
+                    sequence_number++;
+                    chunk_skip += chunk_rows;
+                    remaining -= chunk_rows;
+                }
+            }
         }
     }
     if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
-        if (local_files.size() > 0) {
-            // If we're on the hook to read some files, but the skip_rows/num_rows setup
-            // meant our slice was empty, send an empty table of correct shape.
-            // Anyone with no files will just immediately close their output channel.
-            auto empty_opts = options;
-            empty_opts.set_source(cudf::io::source_info(local_files[0]));
-            empty_opts.set_skip_rows(0);
-            empty_opts.set_num_rows(0);
-            co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
-                ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
-            )));
-        }
+        // If we're on the hook to read some files, but the skip_rows/num_rows setup
+        // meant our slice was empty, send an empty table of correct shape.
+        // Use the first file to get the schema for the empty table.
+        auto empty_opts = options;
+        empty_opts.set_source(cudf::io::source_info(files[0]));
+        empty_opts.set_skip_rows(0);
+        empty_opts.set_num_rows(0);
+        co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
+            ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
+        )));
     } else {
         std::vector<Node> read_tasks;
         read_tasks.reserve(1 + num_producers);
