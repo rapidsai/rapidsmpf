@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <ranges>
 
 #include <cudf/ast/expressions.hpp>
@@ -323,8 +324,17 @@ Node read_parquet(
         // Use sampling to estimate chunks and distribute work across ranks
         auto const num_files = files.size();
 
-        // Estimate total rows by sampling
-        auto estimated_total_rows = estimate_total_rows(files);
+        // For single file, read metadata once and reuse; otherwise sample
+        std::optional<FileRowGroupInfo> single_file_info;
+        std::int64_t estimated_total_rows;
+        if (num_files == 1) {
+            // Single file: read metadata once, use for both estimation and splits
+            single_file_info = get_file_row_group_info(files[0]);
+            estimated_total_rows = single_file_info->total_rows;
+        } else {
+            // Multiple files: sample to estimate
+            estimated_total_rows = estimate_total_rows(files);
+        }
 
         // Estimate total chunks and splits per file
         auto estimated_total_chunks = std::max(
@@ -364,7 +374,12 @@ Node read_parquet(
                 // Read file metadata if we haven't already for this file
                 if (file_idx != current_file_idx) {
                     current_file_idx = file_idx;
-                    current_file_info = get_file_row_group_info(files[file_idx]);
+                    // Reuse cached metadata for single-file case
+                    if (single_file_info.has_value() && file_idx == 0) {
+                        current_file_info = *single_file_info;
+                    } else {
+                        current_file_info = get_file_row_group_info(files[file_idx]);
+                    }
                 }
 
                 // Compute row-group-aligned range for this split
