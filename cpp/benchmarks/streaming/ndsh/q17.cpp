@@ -237,7 +237,9 @@ std::unique_ptr<cudf::column> column_from_value(
     rmm::device_uvector<T> vec(1, stream, mr);
     vec.set_element_async(0, value, stream);
 
-    return std::make_unique<cudf::column>(std::move(vec), {}, 0);
+    return std::make_unique<cudf::column>(
+        cudf::data_type{cudf::type_to_id<T>()}, 1, vec.release(), rmm::device_buffer{}, 0
+    );
 }
 
 // Final aggregation after the second join and filter
@@ -307,9 +309,11 @@ rapidsmpf::streaming::Node final_aggregation(
     if (ctx->comm()->nranks() > 1) {
         std::unique_ptr<cudf::table> local_result{nullptr};
         if (local_sum > 0.0) {
-            local_result = std::make_unique<cudf::table>(
+            std::vector<std::unique_ptr<cudf::column>> columns;
+            columns.push_back(
                 column_from_value(local_sum, chunk_stream, ctx->br()->device_mr())
             );
+            local_result = std::make_unique<cudf::table>(std::move(columns));
         }
 
         // Gather results from all ranks
@@ -354,27 +358,29 @@ rapidsmpf::streaming::Node final_aggregation(
                                      .value(chunk_stream);
                 auto avg_yearly_val = total_sum / 7.0;
 
+                std::vector<std::unique_ptr<cudf::column>> cols1;
+                cols1.push_back(column_from_value(
+                    avg_yearly_val, chunk_stream, ctx->br()->device_mr()
+                ));
                 co_await ch_out->send(
                     rapidsmpf::streaming::to_message(
                         0,
                         std::make_unique<rapidsmpf::streaming::TableChunk>(
-                            std::make_unique<cudf::table>(column_from_value(
-                                avg_yearly_val, chunk_stream, ctx->br()->device_mr()
-                            )),
-                            chunk_stream
+                            std::make_unique<cudf::table>(std::move(cols1)), chunk_stream
                         )
                     )
                 );
             } else {
                 // No data after filtering - send empty result with 0.0
+                std::vector<std::unique_ptr<cudf::column>> cols2;
+                cols2.push_back(
+                    column_from_value(0.0, chunk_stream, ctx->br()->device_mr())
+                );
                 co_await ch_out->send(
                     rapidsmpf::streaming::to_message(
                         0,
                         std::make_unique<rapidsmpf::streaming::TableChunk>(
-                            std::make_unique<cudf::table>(column_from_value(
-                                0.0, chunk_stream, ctx->br()->device_mr()
-                            )),
-                            chunk_stream
+                            std::make_unique<cudf::table>(std::move(cols2)), chunk_stream
                         )
                     )
                 );
@@ -386,14 +392,15 @@ rapidsmpf::streaming::Node final_aggregation(
 
         auto avg_yearly_val = local_sum / 7.0;
 
+        std::vector<std::unique_ptr<cudf::column>> cols3;
+        cols3.push_back(
+            column_from_value(avg_yearly_val, chunk_stream, ctx->br()->device_mr())
+        );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 0,
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::make_unique<cudf::table>(column_from_value(
-                        avg_yearly_val, chunk_stream, ctx->br()->device_mr()
-                    )),
-                    chunk_stream
+                    std::make_unique<cudf::table>(std::move(cols3)), chunk_stream
                 )
             )
         );
