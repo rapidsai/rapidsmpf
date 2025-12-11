@@ -286,6 +286,8 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
         co_await ch_out->drain(ctx->executor());
         co_return;
     }
+    auto next = co_await ch_in->receive();
+    RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
 
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
@@ -375,6 +377,10 @@ rapidsmpf::streaming::Node allgather_table(
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
 
     auto msg = co_await ch_in->receive();
+    if (!msg.empty()) {
+        auto next = co_await ch_in->receive();
+        RAPIDSMPF_EXPECTS(next.empty(), "Unexpected second message.");
+    }
 
     std::unique_ptr<cudf::table> result;
     rmm::cuda_stream_view stream;
