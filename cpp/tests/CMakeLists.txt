@@ -42,9 +42,10 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-# Use a static library for test sources to avoid recompiling (especially cudf_tests) them for each
-# executable.
-add_library(test_sources STATIC)
+# Use an object library for test sources to avoid recompiling (especially cudf_tests) them for each
+# executable. Unlike STATIC libraries, OBJECT libraries always include all their object files when
+# linked, which is required for GTest tests that register via global constructors.
+add_library(test_sources OBJECT)
 set_target_properties(
   test_sources
   PROPERTIES CXX_STANDARD 20
