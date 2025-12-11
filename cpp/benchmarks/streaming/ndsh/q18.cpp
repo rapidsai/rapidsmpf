@@ -853,6 +853,9 @@ rapidsmpf::streaming::Node final_groupby_and_sort(
         }
         local_result = std::make_unique<cudf::table>(std::move(cols));
     }
+    {
+        auto _ = std::move(chunk);
+    }  // Release original input to free GPU memory
 
     // All-gather if multi-rank
     std::unique_ptr<cudf::table> global_result;
