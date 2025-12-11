@@ -12,6 +12,7 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -34,6 +35,8 @@ rapidsmpf::streaming::Node write_parquet(
     auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
     auto table = chunk.table_view();
     auto metadata = cudf::io::table_input_metadata(table);
+    CudaEvent event;
+    auto write_stream = chunk.stream();
     RAPIDSMPF_EXPECTS(
         column_names.size() == metadata.column_metadata.size(),
         "Mismatching number of column names and chunk columns"
@@ -43,7 +46,7 @@ rapidsmpf::streaming::Node write_parquet(
     }
     builder = builder.metadata(metadata);
     auto options = builder.build();
-    auto writer = cudf::io::chunked_parquet_writer(options);
+    auto writer = cudf::io::chunked_parquet_writer(options, write_stream);
     writer.write(table);
     while (true) {
         msg = co_await ch_in->receive();
@@ -56,7 +59,9 @@ rapidsmpf::streaming::Node write_parquet(
             static_cast<std::size_t>(table.num_columns()) == column_names.size(),
             "Mismatching number of column names and chunk columns"
         );
+        cuda_stream_join(write_stream, chunk.stream(), &event);
         writer.write(table);
+        cuda_stream_join(chunk.stream(), write_stream, &event);
     }
     writer.close();
 }
