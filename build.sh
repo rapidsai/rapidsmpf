@@ -19,8 +19,8 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop --asan -h"
-HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [--asan] [-h]
+VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop --asan --no-clang-tidy -h"
+HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [--asan] [--no-clang-tidy] [-h]
    clean                       - remove all existing build artifacts and configuration (start over)
    librapidsmpf                - build and install the librapidsmpf C++ code
    rapidsmpf                   - build the rapidsmpf Python package
@@ -30,6 +30,7 @@ HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
    --asan                      - enable AddressSanitizer for C++ and Python builds
+   --no-clang-tidy             - disable clang-tidy build checks (default: enabled)
    -h                          - print this text
    default action (no args) is to build and install the 'librapidsmpf' then 'rapidsmpf' targets
 "
@@ -89,6 +90,12 @@ function ensureCMakeRan {
         CMAKE_ARGS=(-B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
               -DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
+
+        if hasArg --no-clang-tidy; then
+            CMAKE_ARGS+=(-DRAPIDSMPF_CLANG_TIDY=OFF)
+        else
+            CMAKE_ARGS+=(-DRAPIDSMPF_CLANG_TIDY=ON)
+        fi
 
         if hasArg --asan; then
             CMAKE_ARGS+=(-DRAPIDSMPF_ASAN=ON)

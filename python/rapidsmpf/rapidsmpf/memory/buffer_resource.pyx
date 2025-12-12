@@ -3,7 +3,11 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
-from libcpp.memory cimport make_shared, shared_ptr
+from libcpp cimport bool as bool_t
+from libcpp.memory cimport make_shared, nullptr, shared_ptr, unique_ptr
+from libcpp.optional cimport optional
+from libcpp.pair cimport pair
+from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
@@ -188,6 +192,7 @@ cdef class BufferResource:
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
                 device_mr.get_mr(),
+                nullptr,  # TODO: Write Python bindings for PinnedMemoryResource
                 move(_mem_available),
                 period,
                 cpp_stream_pool,

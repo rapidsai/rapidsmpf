@@ -69,7 +69,9 @@ class Buffer {
      * This ensures that the buffer is backed by memory that behaves as host
      * accessible memory.
      */
-    static constexpr std::array<MemoryType, 1> host_buffer_types{MemoryType::HOST};
+    static constexpr std::array<MemoryType, 2> host_buffer_types{
+        MemoryType::HOST, MemoryType::PINNED_HOST
+    };
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).

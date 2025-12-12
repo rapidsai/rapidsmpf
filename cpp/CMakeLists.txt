@@ -159,6 +159,7 @@ add_library(
   src/allgather/allgather.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
+  src/bootstrap/utils.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp

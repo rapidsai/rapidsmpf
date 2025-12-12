@@ -51,20 +51,6 @@ inline bool is_pinned_memory_resources_supported() {
 class PinnedMemoryResource;
 
 /**
- * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
- * `cuda::experimental::memory_pool_properties`.
- *
- * @sa
- * https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
- *
- * Currently, this is a placeholder and does not have any effect. It was observed that
- * priming async pools have little effect for performance.
- *
- * @sa https://github.com/rapidsai/rmm/issues/1931
- */
-struct PinnedPoolProperties {};
-
-/**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
  * This resource allocates and deallocates pinned host memory asynchronously through
@@ -76,17 +62,16 @@ class PinnedMemoryResource final : public HostMemoryResource {
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
-     * @param properties Memory pool configuration properties. These are currently
-     * unused but provided for future compatibility.
+     * The pool has no maximum size. To restrict its growth, use
+     * `BufferResource::LimitAvailableMemory` or a similar mechanism.
+     *
      * @param numa_id NUMA node from which memory should be allocated. By default,
      * the resource uses the NUMA node of the calling thread.
      *
-     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported on
+     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(
-        PinnedPoolProperties properties = {}, int numa_id = get_current_numa_node_id()
-    );
+    PinnedMemoryResource(int numa_id = get_current_numa_node_id());
     ~PinnedMemoryResource() override;
 
     /**

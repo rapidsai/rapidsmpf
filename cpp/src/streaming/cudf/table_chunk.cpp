@@ -135,6 +135,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 return TableChunk(std::move(table), stream());
             }
         case MemoryType::HOST:
+        case MemoryType::PINNED_HOST:
             {
                 // Get the packed data either from `packed_columns_` or `table_view().
                 std::unique_ptr<PackedData> packed_data;

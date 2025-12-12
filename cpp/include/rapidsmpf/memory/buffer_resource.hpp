@@ -19,6 +19,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -50,11 +51,18 @@ class BufferResource {
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
+    /// @brief Sentinel value used to disable pinned host memory.
+    static constexpr auto PinnedMemoryResourceDisabled = nullptr;
+
     /**
      * @brief Constructs a buffer resource.
      *
      * @param device_mr Reference to the RMM device memory resource used for device
      * allocations.
+     * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
+     * allocations. If null, pinned host allocations are disabled. In that case, any
+     * attempt to allocate pinned memory will fail regardless of what @p memory_available
+     * reports.
      * @param memory_available Optional memory availability functions mapping memory types
      * to available memory checkers. Memory types without availability functions are
      * assumed to have unlimited memory.
@@ -68,6 +76,7 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResourceDisabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -93,6 +102,18 @@ class BufferResource {
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
         return host_mr_;
+    }
+
+    /**
+     * @brief Get the RMM pinned host memory resource.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+        );
+        return *pinned_mr_;
     }
 
     /**
@@ -165,6 +186,10 @@ class BufferResource {
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
+     * The function attempts to reserve memory by iterating over @p mem_types in the given
+     * order of preference. For each memory type, it requests a reservation without
+     * overbooking. If no memory type can satisfy the request, the function throws.
+     *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
      * @return A memory reservation.
@@ -176,6 +201,13 @@ class BufferResource {
     [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
+            if (mem_type == MemoryType::PINNED_HOST
+                && pinned_mr_ == PinnedMemoryResourceDisabled)
+            {
+                // Pinned host memory is only available if the memory resource is
+                // available.
+                continue;
+            }
             auto [res, _] = reserve(mem_type, size, false);
             if (res.size() == size) {
                 return std::move(res);
@@ -336,6 +368,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+    std::shared_ptr<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.

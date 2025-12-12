@@ -24,17 +24,26 @@ namespace rapidsmpf {
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 
 namespace {
-cuda::experimental::memory_pool_properties get_memory_pool_properties(
-    PinnedPoolProperties const&
-) {
-    return cuda::experimental::memory_pool_properties{};
+cuda::experimental::memory_pool_properties get_memory_pool_properties() {
+    return cuda::experimental::memory_pool_properties{
+        // It was observed that priming async pools have little effect for performance.
+        // See <https://github.com/rapidsai/rmm/issues/1931>.
+        .initial_pool_size = 0,
+        // Before <https://github.com/NVIDIA/cccl/pull/6718>, the default
+        // `release_threshold` was 0, which defeats the purpose of having a pool. We
+        // now set it so the pool never releases unused pinned memory.
+        .release_threshold = std::numeric_limits<size_t>::max(),
+        // This defines how the allocations can be exported (IPC). See the docs of
+        // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
+        .allocation_handle_type =
+            cuda::experimental::cudaMemAllocationHandleType::cudaMemHandleTypeNone
+    };
 }
 }  // namespace
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(PinnedPoolProperties const& properties, int numa_id)
-
-        : pool{numa_id, get_memory_pool_properties(properties)}, resource{pool} {}
+    PinnedMemoryResourceImpl(int numa_id)
+        : pool{numa_id, get_memory_pool_properties()}, resource{pool} {}
 
     void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment) {
         return resource.allocate(stream, bytes, alignment);
@@ -52,7 +61,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 #else  // CUDA_VERSION < RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(PinnedPoolProperties const&, int) {
+    PinnedMemoryResourceImpl(int) {
         RAPIDSMPF_FAIL(
             "PinnedMemoryResource is not supported for CUDA versions "
             "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
@@ -67,8 +76,8 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 };
 #endif
 
-PinnedMemoryResource::PinnedMemoryResource(PinnedPoolProperties properties, int numa_id)
-    : impl_(std::make_unique<PinnedMemoryResourceImpl>(properties, numa_id)) {
+PinnedMemoryResource::PinnedMemoryResource(int numa_id)
+    : impl_(std::make_unique<PinnedMemoryResourceImpl>(numa_id)) {
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "PinnedMemoryResource is not supported for CUDA versions "
