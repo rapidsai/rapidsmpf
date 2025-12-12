@@ -57,7 +57,11 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     msg1 = Message(seq, table_chunk)
     assert msg1.sequence_number == seq
     assert msg1.get_content_description() == ContentDescription(
-        content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+        content_sizes={
+            MemoryType.DEVICE: 1024,
+            MemoryType.PINNED_HOST: 0,
+            MemoryType.HOST: 0,
+        },
         spillable=exclusive_view,
     )
 
@@ -142,7 +146,11 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     )
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 1024,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=True,
         )
     }
@@ -151,33 +159,57 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     )
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 1024,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=True,
         ),
         1: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 2048,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=False,
         ),
     }
     assert sm.spill(mid=0, br=context.br()) == 1024
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 0, MemoryType.HOST: 1024},
+            content_sizes={
+                MemoryType.DEVICE: 0,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 1024,
+            },
             spillable=True,
         ),
         1: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 2048,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=False,
         ),
     }
     assert sm.spill(mid=1, br=context.br()) == 0
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 0, MemoryType.HOST: 1024},
+            content_sizes={
+                MemoryType.DEVICE: 0,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 1024,
+            },
             spillable=True,
         ),
         1: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 2048,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=False,
         ),
     }
@@ -210,7 +242,11 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
     )
     assert context.spillable_messages().get_content_descriptions() == {
         0: ContentDescription(
-            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            content_sizes={
+                MemoryType.DEVICE: 1024,
+                MemoryType.PINNED_HOST: 0,
+                MemoryType.HOST: 0,
+            },
             spillable=True,
         )
     }
