@@ -19,10 +19,8 @@ if(NVML_INCLUDE_DIR)
   target_include_directories(rrun PRIVATE ${NVML_INCLUDE_DIR})
 endif()
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
-target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
 target_link_libraries(
-  rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-               $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+  rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan numa ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS rrun
@@ -77,12 +75,9 @@ endif()
 target_compile_options(
   check_resource_binding PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
-target_compile_definitions(
-  check_resource_binding PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
-)
 target_link_libraries(
-  check_resource_binding PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-                                 $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+  check_resource_binding PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan numa
+                                 ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS check_resource_binding

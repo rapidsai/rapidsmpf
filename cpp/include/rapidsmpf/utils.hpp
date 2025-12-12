@@ -17,7 +17,16 @@
 #include <utility>
 #include <vector>
 
+#include <cuda_runtime_api.h>
+
 namespace rapidsmpf {
+
+/** @brief Helper macro to check if the CUDA version is at least the specified version.
+ *
+ * @param version The minimum CUDA version to check against. Must be in the format of
+ * MAJOR*1000 + MINOR*10.
+ */
+#define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDART_VERSION >= version)
 
 /// Alias for high-resolution clock from the chrono library.
 using Clock = std::chrono::high_resolution_clock;

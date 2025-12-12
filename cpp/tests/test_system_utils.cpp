@@ -5,19 +5,14 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <numa.h>
 
 #include <rapidsmpf/system_info.hpp>
-
-#if RAPIDSMPF_HAVE_NUMA
-#include <numa.h>
-#endif
 
 using namespace rapidsmpf;
 
 TEST(GetCurrentNumaNodeIdTest, ReturnsValidNumaNodeId) {
     int numa_node_id = get_current_numa_node_id();
     EXPECT_GE(numa_node_id, 0);
-#if RAPIDSMPF_HAVE_NUMA
     EXPECT_LE(numa_node_id, numa_max_node());
-#endif
 }

@@ -5,10 +5,8 @@
 
 #include <algorithm>
 
-#if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
 #include <sched.h>
-#endif
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>

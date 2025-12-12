@@ -4,28 +4,27 @@
  */
 #pragma once
 
-#include <cuda_runtime_api.h>
-
 namespace rapidsmpf {
 
-/** @brief Helper macro to check if the CUDA version is at least the specified version.
- *
- * @param version The minimum CUDA version to check against. Must be in the format of
- * MAJOR*1000 + MINOR*10.
- */
-#define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDART_VERSION >= version)
-
 /**
- * @brief Gets the NUMA node ID of the current CPU process.
+ * @brief Get the NUMA node ID associated with the calling CPU thread.
  *
- * @note This function is only available if built with NUMA support. (See
- * `RAPIDSMPF_NUMA_SUPPORT` CMake option.)
+ * A NUMA (Non-Uniform Memory Access) node represents a group of CPU cores and
+ * memory that have faster access to each other than to memory attached to
+ * other nodes. On NUMA systems, binding allocations and threads to the same
+ * NUMA node can significantly reduce memory access latency and improve
+ * bandwidth.
  *
- * @return The NUMA node ID of the current CPU process.
+ * This function returns the NUMA node on which the calling thread is currently
+ * executing, as determined by the operating system's CPU and memory topology.
+ * The value can change if the thread migrates between CPUs.
  *
- * @throws std::runtime_error If built with NUMA support but libnuma is not available
- * at runtime or if the NUMA node ID cannot be retrieved.
+ * If NUMA support is not available on the system or cannot be queried, the
+ * function returns 0, which corresponds to the single implicit NUMA node on
+ * non-NUMA systems.
+ *
+ * @return The NUMA node ID of the calling thread, or 0 if NUMA is unavailable.
  */
-int get_current_numa_node_id();
+int get_current_numa_node_id() noexcept;
 
 }  // namespace rapidsmpf

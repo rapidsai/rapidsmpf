@@ -11,14 +11,11 @@
 #include <string>
 #include <vector>
 
+#include <numa.h>
 #include <sched.h>
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
-
-#if RAPIDSMPF_HAVE_NUMA
-#include <numa.h>
-#endif
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
@@ -74,7 +71,6 @@ std::string get_current_cpu_affinity() {
 
 std::vector<int> get_current_numa_nodes() {
     std::vector<int> numa_nodes;
-#if RAPIDSMPF_HAVE_NUMA
     if (numa_available() == -1) {
         return numa_nodes;
     }
@@ -91,7 +87,6 @@ std::vector<int> get_current_numa_nodes() {
             numa_nodes.push_back(numa_node);
         }
     }
-#endif
     return numa_nodes;
 }
 
