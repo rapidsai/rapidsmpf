@@ -13,7 +13,12 @@ import pylibcudf as plc
 
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
-from rapidsmpf.streaming.cudf.parquet import Filter, read_parquet
+from rapidsmpf.streaming.cudf.parquet import (
+    Filter,
+    estimate_target_num_chunks,
+    read_parquet,
+    read_parquet_uniform,
+)
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 if TYPE_CHECKING:
@@ -27,9 +32,10 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="module")
-def source(
+def source_files(
     tmp_path_factory: pytest.TempPathFactory,
-) -> plc.io.SourceInfo:
+) -> list[str]:
+    """Create parquet files and return list of file paths."""
     path = tmp_path_factory.mktemp("read_parquet")
 
     nrows = 10
@@ -45,8 +51,14 @@ def source(
         sink = plc.io.SinkInfo([filename])
         options = plc.io.parquet.ParquetWriterOptions.builder(sink, table).build()
         plc.io.parquet.write_parquet(options)
-        sources.append(filename)
-    return plc.io.SourceInfo(sources)
+        sources.append(str(filename))
+    return sources
+
+
+@pytest.fixture(scope="module")
+def source(source_files: list[str]) -> plc.io.SourceInfo:
+    """Return SourceInfo from file paths."""
+    return plc.io.SourceInfo(source_files)
 
 
 def make_filter(stream: Stream) -> plc.expressions.Expression:
@@ -143,6 +155,80 @@ def test_read_parquet(
         chunk.stream.synchronize()
 
     expected = get_expected(context, source, skip_rows, num_rows, use_filter=use_filter)
+
+    assert got.num_rows() == expected.num_rows()
+    assert got.num_columns() == expected.num_columns()
+    assert got.num_columns() == 1
+
+    all_equal = plc.reduce.reduce(
+        plc.binaryop.binary_operation(
+            got.columns()[0],
+            expected.columns()[0],
+            plc.binaryop.BinaryOperator.EQUAL,
+            plc.DataType(plc.TypeId.BOOL8),
+        ),
+        plc.aggregation.all(),
+        plc.DataType(plc.TypeId.BOOL8),
+    )
+    assert all_equal.to_py()
+
+
+def test_estimate_target_num_chunks(source_files: list[str]) -> None:
+    """Test estimate_target_num_chunks utility function."""
+    # 10 files with 10 rows each = 100 total rows
+    # Verify: larger chunk size -> fewer chunks, always >= 1
+    assert estimate_target_num_chunks(source_files, 1) == 100
+    assert estimate_target_num_chunks(source_files, 10) == 10
+    assert estimate_target_num_chunks(source_files, 25) == 4
+    assert estimate_target_num_chunks(source_files, 1000000) == 1
+
+
+@pytest.mark.parametrize("use_filter", [False, True])
+def test_read_parquet_uniform(
+    context: Context,
+    source: plc.io.SourceInfo,
+    source_files: list[str],
+    use_filter: bool,  # noqa: FBT001
+) -> None:
+    """Test read_parquet_uniform with estimated target chunks."""
+    ch: Channel[TableChunk] = context.create_channel()
+
+    options = plc.io.parquet.ParquetReaderOptions.builder(source).build()
+
+    # Estimate target chunks from num_rows_per_chunk
+    target_chunks = estimate_target_num_chunks(source_files, 3)
+
+    if use_filter:
+        fstream = context.get_stream_from_pool()
+        producer = read_parquet_uniform(
+            context,
+            ch,
+            4,
+            options,
+            target_chunks,
+            Filter(fstream, make_filter(fstream)),
+        )
+    else:
+        producer = read_parquet_uniform(context, ch, 4, options, target_chunks)
+
+    consumer, deferred_messages = pull_from_channel(context, ch)
+
+    run_streaming_pipeline(nodes=[producer, consumer])
+
+    messages = deferred_messages.release()
+    assert all(
+        m1.sequence_number < m2.sequence_number
+        for m1, m2 in itertools.pairwise(messages)
+    )
+    chunks = [TableChunk.from_message(m) for m in messages]
+    for chunk in chunks:
+        chunk.stream.synchronize()
+
+    got = plc.concatenate.concatenate([chunk.table_view() for chunk in chunks])
+    for chunk in chunks:
+        chunk.stream.synchronize()
+
+    expected = get_expected(context, source, "none", "all", use_filter=use_filter)
 
     assert got.num_rows() == expected.num_rows()
     assert got.num_columns() == expected.num_columns()
