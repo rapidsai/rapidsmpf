@@ -10,6 +10,7 @@ from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
+from rapidsmpf.memory.pinned_memory_resource cimport PinnedMemoryResource
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -35,7 +36,8 @@ cdef class BufferResource:
     cdef shared_ptr[cpp_BufferResource] _handle
     cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
-    cdef DeviceMemoryResource _mr
+    cdef DeviceMemoryResource _device_mr
+    cdef PinnedMemoryResource _pinned_mr
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
     cdef const cuda_stream_pool* stream_pool(self)

@@ -4,4 +4,5 @@
 cdef extern from "<rapidsmpf/memory/buffer.hpp>" namespace "rapidsmpf" nogil:
     cpdef enum class MemoryType(int):
         DEVICE
+        PINNED_HOST
         HOST

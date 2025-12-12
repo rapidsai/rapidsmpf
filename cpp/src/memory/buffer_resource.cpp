@@ -40,7 +40,7 @@ BufferResource::BufferResource(
     : device_mr_{device_mr},
       pinned_mr_{std::move(pinned_mr)},
       memory_available_{add_missing_availability_functions(
-          std::move(memory_available), pinned_mr_ == PinnedMemoryResourceDisabled
+          std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
       )},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},

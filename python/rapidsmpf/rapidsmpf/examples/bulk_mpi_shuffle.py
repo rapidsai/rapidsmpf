@@ -321,7 +321,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         if args.spill_device is None
         else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
     )
-    br = BufferResource(mr, memory_available)
+    br = BufferResource(mr, memory_available=memory_available)
 
     stats = Statistics(enable=args.statistics, mr=mr)
 

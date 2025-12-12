@@ -57,7 +57,7 @@ TEST(BufferResource, ReservationOverbooking) {
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
         cudf::get_current_device_resource_ref(),
-        BufferResource::PinnedMemoryResourceDisabled,
+        PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, dev_mem_available}}
     };
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
@@ -120,7 +120,7 @@ TEST(BufferResource, ReservationReleasing) {
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
         cudf::get_current_device_resource_ref(),
-        BufferResource::PinnedMemoryResourceDisabled,
+        PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, dev_mem_available}, {MemoryType::HOST, dev_mem_available}}
     };
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
@@ -171,9 +171,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     // Create a buffer resource that limit available device memory to 10 KiB.
     LimitAvailableMemory dev_mem_available{&mr, 10_KiB};
     BufferResource br{
-        mr,
-        BufferResource::PinnedMemoryResourceDisabled,
-        {{MemoryType::DEVICE, dev_mem_available}}
+        mr, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, dev_mem_available}}
     };
     EXPECT_EQ(dev_mem_available(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
@@ -242,7 +240,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
         mr = std::make_unique<RmmResourceAdaptor>(*cuda_mr);
         br = std::make_unique<BufferResource>(
             *mr,
-            BufferResource::PinnedMemoryResourceDisabled,
+            PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
                 {MemoryType::DEVICE, LimitAvailableMemory{mr.get(), 10_KiB}}
             }
