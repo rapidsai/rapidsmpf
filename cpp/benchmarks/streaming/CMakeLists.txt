@@ -13,7 +13,6 @@ set_target_properties(
              CXX_STANDARD_REQUIRED ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
 )
 target_compile_options(
   bench_streaming_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"

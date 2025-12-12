@@ -187,6 +187,7 @@ add_library(
   src/topology_discovery.cpp
   src/utils.cpp
 )
+
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
@@ -282,6 +283,8 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
           ${CMAKE_DL_LIBS}
 )
+
+target_link_options(rapidsmpf PUBLIC "$<BUILD_LOCAL_INTERFACE:-Wl,--allow-shlib-undefined>")
 
 target_compile_definitions(
   rapidsmpf
