@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <ranges>
 #include <unordered_map>
+#include <utility>
 
 #include <cudf/ast/expressions.hpp>
 #include <cudf/io/datasource.hpp>
@@ -371,13 +372,16 @@ Node read_parquet_uniform(
 
                 skip_rows = static_cast<std::int64_t>(split_idx) * rows_per_split
                             + std::min(static_cast<std::int64_t>(split_idx), extra_rows);
-                num_rows = rows_per_split
-                           + (split_idx < static_cast<std::size_t>(extra_rows) ? 1 : 0);
+                num_rows =
+                    rows_per_split + (std::cmp_less(split_idx, extra_rows) ? 1 : 0);
             }
 
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 ChunkDesc{
-                    sequence_number, skip_rows, num_rows, cudf::io::source_info(filepath)
+                    .sequence_number = sequence_number,
+                    .skip_rows = skip_rows,
+                    .num_rows = num_rows,
+                    .source = cudf::io::source_info(filepath)
                 }
             );
             sequence_number++;
@@ -411,7 +415,12 @@ Node read_parquet_uniform(
             // Read entire files - no need for metadata
             // Use -1 for num_rows to read all rows
             chunks_per_producer[sequence_number % num_producers].emplace_back(
-                ChunkDesc{sequence_number, 0, -1, cudf::io::source_info(chunk_files)}
+                ChunkDesc{
+                    .sequence_number = sequence_number,
+                    .skip_rows = 0,
+                    .num_rows = -1,
+                    .source = cudf::io::source_info(chunk_files)
+                }
             );
             sequence_number++;
         }
