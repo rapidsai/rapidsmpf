@@ -18,8 +18,8 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils.hpp>
-
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
@@ -71,7 +71,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+    PinnedMemoryResource(int numa_id = get_current_numa_node());
     ~PinnedMemoryResource() override;
 
     /**
