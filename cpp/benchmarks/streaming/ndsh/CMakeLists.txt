@@ -13,8 +13,10 @@ if(NOT RAPIDSMPF_HAVE_STREAMING)
   message(FATAL_ERROR "Streaming NDSH benchmarks require streaming support")
 endif()
 
-add_library(rapidsmpfndsh bloom_filter.cpp bloom_filter_impl.cu concatenate.cpp groupby.cpp join.cpp
-                          parquet_writer.cpp sort.cpp utils.cpp)
+add_library(
+  rapidsmpfndsh bloom_filter.cpp bloom_filter_impl.cu concatenate.cpp groupby.cpp join.cpp
+                parquet_writer.cpp sort.cpp utils.cpp
+)
 
 set_target_properties(
   rapidsmpfndsh
