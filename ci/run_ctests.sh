@@ -7,7 +7,21 @@ set -xeuo pipefail
 TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
 
 # Support customizing the ctests' install location
-cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
+# First, try the installed location (CI/conda environments)
+installed_test_location="${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
+# Fall back to the build directory (devcontainer environments)
+devcontainers_test_location="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../cpp/build/latest"
+
+if [[ -d "${installed_test_location}" ]]; then
+    cd "${installed_test_location}"
+elif [[ -d "${devcontainers_test_location}" ]]; then
+    cd "${devcontainers_test_location}"
+else
+    echo "Error: Test location not found. Searched:" >&2
+    echo "  - ${installed_test_location}" >&2
+    echo "  - ${devcontainers_test_location}" >&2
+    exit 1
+fi
 
 # OpenMPI specific options
 export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
