@@ -64,7 +64,8 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_tax"  // 5
                        })
                        .build();
-    using timestamp_type = cudf::timestamp_D;
+    // TODO: utility to get logical types from parquet.
+    using timestamp_type = cudf::timestamp_ms;
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
@@ -442,6 +443,7 @@ int main(int argc, char** argv) {
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
         ctx->comm()->logger().print(ctx->statistics()->report());
+        ctx->statistics()->clear();
     }
 
     if (ctx->comm()->rank() == 0) {

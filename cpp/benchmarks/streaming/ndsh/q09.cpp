@@ -625,6 +625,7 @@ int main(int argc, char** argv) {
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
         ctx->comm()->logger().print(ctx->statistics()->report());
+        ctx->statistics()->clear();
     }
     if (ctx->comm()->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
