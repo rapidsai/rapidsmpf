@@ -7,6 +7,17 @@
 namespace rapidsmpf {
 
 /**
+ * @brief Get the total amount of host (main) memory.
+ *
+ * @return Total host memory in bytes.
+ *
+ * @note On WSL and in containerized environments, the returned value
+ * reflects the memory visible to the Linux kernel instance, which may
+ * differ from the host system's physical memory.
+ */
+std::uint64_t get_total_host_memory() noexcept;
+
+/**
  * @brief Get the NUMA node ID associated with the calling CPU thread.
  *
  * A NUMA (Non-Uniform Memory Access) node represents a group of CPU cores and
@@ -26,5 +37,22 @@ namespace rapidsmpf {
  * @return The NUMA node ID of the calling thread, or 0 if NUMA is unavailable.
  */
 int get_current_numa_node_id() noexcept;
+
+/**
+ * @brief Get the total amount of host memory for a NUMA node.
+ *
+ * @param numa_id
+ *     NUMA node for which to query the total host memory. Defaults to the
+ *     current NUMA node as returned by `get_current_numa_node_id()`.
+ *
+ * @note If NUMA support is not available or the node size cannot be
+ * determined, this function falls back to returning the total host memory.
+ *
+ * @return Total host memory of the NUMA node in bytes.
+ */
+std::uint64_t get_numa_node_host_memory(
+    int numa_id = get_current_numa_node_id()
+) noexcept;
+
 
 }  // namespace rapidsmpf
