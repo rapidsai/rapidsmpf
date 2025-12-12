@@ -295,6 +295,8 @@ rapidsmpf::Duration do_run(
     std::vector<std::unique_ptr<cudf::table>> output_partitions;
     output_partitions.reserve(total_num_partitions);
 
+    barrier(comm);
+
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
@@ -330,7 +332,7 @@ rapidsmpf::Duration do_run(
         stream.synchronize();
     }
 
-    auto const t1_elapsed = rapidsmpf::Clock::now();
+    auto const elapsed = rapidsmpf::Clock::now() - t0_elapsed;
 
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
@@ -355,7 +357,10 @@ rapidsmpf::Duration do_run(
             );
         }
     }
-    return t1_elapsed - t0_elapsed;
+
+    barrier(comm);
+
+    return elapsed;
 }
 
 // generate input partitions by applying a transform function to each table
@@ -468,8 +473,6 @@ rapidsmpf::Duration run_hash_partition_inline(
     std::vector<cudf::table> input_partitions =
         generate_input_partitions(args, stream, br, std::identity{});
 
-    barrier(comm);
-
     auto make_chunk_fn = [&](cudf::table const& partition) {
         return rapidsmpf::partition_and_pack(
             partition,
@@ -542,8 +545,6 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     br
                 );
             });
-
-    barrier(comm);
 
     return do_run(
         total_num_partitions,
@@ -708,8 +709,6 @@ int main(int argc, char** argv) {
             elapsed_vec.push_back(elapsed);
         }
     }
-
-    barrier(comm);
 
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
