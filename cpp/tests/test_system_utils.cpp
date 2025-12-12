@@ -12,7 +12,7 @@
 using namespace rapidsmpf;
 
 TEST(GetCurrentNumaNodeIdTest, ReturnsValidNumaNodeId) {
-    int numa_node_id = get_current_numa_node_id();
+    int numa_node_id = get_current_numa_node();
     EXPECT_GE(numa_node_id, 0);
     EXPECT_LE(numa_node_id, numa_max_node());
 }

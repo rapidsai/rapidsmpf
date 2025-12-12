@@ -9,7 +9,7 @@ cdef extern from "<rapidsmpf/system_info.hpp>" nogil:
         "rapidsmpf::get_total_host_memory"() noexcept
 
     cdef uint64_t cpp_get_current_numa_node_id \
-        "rapidsmpf::get_current_numa_node_id"() noexcept
+        "rapidsmpf::get_current_numa_node"() noexcept
 
     cdef uint64_t cpp_get_numa_node_host_memory \
         "rapidsmpf::get_numa_node_host_memory"(int numa_id) noexcept
@@ -32,7 +32,7 @@ def get_total_host_memory():
     return cpp_get_total_host_memory()
 
 
-def get_current_numa_node_id():
+def get_current_numa_node():
     """
     Get the NUMA node ID associated with the calling thread.
 

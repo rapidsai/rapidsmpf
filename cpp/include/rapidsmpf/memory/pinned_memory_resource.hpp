@@ -71,7 +71,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+    PinnedMemoryResource(int numa_id = get_current_numa_node());
     ~PinnedMemoryResource() override;
 
     /**
