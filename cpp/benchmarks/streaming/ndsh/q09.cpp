@@ -467,7 +467,7 @@ rapidsmpf::streaming::Node sort_by(
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto table = chunk.table_view();
-    auto rounded = cudf::round(
+    auto rounded = cudf::round_decimal(
         table.column(2),
         2,
         cudf::rounding_method::HALF_EVEN,
