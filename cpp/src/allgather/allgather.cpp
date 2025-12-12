@@ -404,7 +404,7 @@ AllGather::AllGather(
 }
 
 ProgressThread::ProgressState AllGather::event_loop() {
-    RAPIDSMPF_NVTX_SCOPED_RANGE("AllGather::event_loop");
+    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("AllGather::event_loop");
     /*
      * Data flow:
      * User inserts into inserted_
