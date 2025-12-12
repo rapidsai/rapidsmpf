@@ -12,7 +12,7 @@ import pytest
 import cudf
 from pylibcudf.contiguous_split import pack
 
-from rapidsmpf.allgather import AllGather
+from rapidsmpf.coll import AllGather
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
