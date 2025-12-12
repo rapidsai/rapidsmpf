@@ -209,4 +209,37 @@ std::vector<PackedData> unspill_partitions(
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
+/// @brief The amount of extra memory to reserve for packing.
+constexpr size_t packing_wiggle_room_per_column = 1024;  ///< 1 KiB per column
+
+/**
+ * @brief The total amount of extra memory to reserve for packing.
+ *
+ * @param table The table to pack.
+ * @return The total amount of extra memory to reserve for packing.
+ */
+inline size_t total_packing_wiggle_room(cudf::table_view const& table) {
+    return packing_wiggle_room_per_column * static_cast<size_t>(table.num_columns());
+}
+
+/**
+ * @brief Pack a table using a @p chunk_size device buffer using `cudf::chunked_pack`.
+ *
+ * All device operations will be performed on @p bounce_buf 's stream.
+ * `cudf::chunked_pack` requires the buffer to be at least 1 MiB in size.
+ *
+ * @param table The table to pack.
+ * @param bounce_buf A device bounce buffer to use for packing.
+ * @param data_res Memory reservation for the data buffer. If the final packed buffer size
+ * is with in a wiggle room, this @p data_res will be padded to the packed buffer size.
+ *
+ * @return A `PackedData` containing the packed table.
+ *
+ * @throws std::runtime_error If the memory allocation fails.
+ * @throws std::invalid_argument If the bounce buffer is not in device memory.
+ */
+PackedData chunked_pack(
+    cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
+);
+
 }  // namespace rapidsmpf
