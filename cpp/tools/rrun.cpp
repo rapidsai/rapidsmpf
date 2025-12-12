@@ -35,11 +35,14 @@
 #include <thread>
 #include <vector>
 
-#include <numa.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if RAPIDSMPF_HAVE_NUMA
+#include <numa.h>
+#endif
 
 #include <rapidsmpf/topology_discovery.hpp>
 
@@ -242,6 +245,7 @@ bool set_cpu_affinity(std::string const& cpu_affinity_list) {
  * @return true on success, false on failure or if NUMA is not available.
  */
 bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
+#if RAPIDSMPF_HAVE_NUMA
     if (memory_binding.empty()) {
         return false;
     }
@@ -266,6 +270,10 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
     numa_free_nodemask(nodemask);
 
     return true;
+#else
+    std::ignore = memory_binding;  // Suppress unused parameter warning
+    return false;
+#endif
 }
 
 /**
@@ -559,10 +567,12 @@ pid_t launch_rank_local(
 
                     if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
                         if (!set_numa_memory_binding(gpu_info.memory_binding)) {
+#if RAPIDSMPF_HAVE_NUMA
                             std::cerr
                                 << "Warning: Failed to set NUMA memory binding for rank "
                                 << captured_rank << " (GPU " << gpu_id << ")"
                                 << std::endl;
+#endif
                         }
                     }
 

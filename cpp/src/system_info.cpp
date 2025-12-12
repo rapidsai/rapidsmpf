@@ -7,11 +7,15 @@
 #include <exception>
 #include <iostream>
 
-#include <numa.h>
 #include <sched.h>
 #include <unistd.h>
 
 #include <rapidsmpf/system_info.hpp>
+
+
+#if RAPIDSMPF_HAVE_NUMA
+#include <numa.h>
+#endif
 
 namespace rapidsmpf {
 
@@ -32,6 +36,7 @@ std::uint64_t get_total_host_memory() noexcept {
 }
 
 int get_current_numa_node() noexcept {
+#if RAPIDSMPF_HAVE_NUMA
     static const int ret = [] {
         if (!numa_available()) {
             return 0;
@@ -39,10 +44,14 @@ int get_current_numa_node() noexcept {
         return numa_node_of_cpu(sched_getcpu());
     }();
     return ret;
+#else
+    return 0;
+#endif
 }
 
 std::vector<int> get_current_numa_nodes() noexcept {
     std::vector<int> ret;
+#if RAPIDSMPF_HAVE_NUMA
     int const cpu = ::sched_getcpu();
     if (numa_available() != -1 && cpu >= 0) {
         int numa_node = numa_node_of_cpu(cpu);
@@ -50,22 +59,28 @@ std::vector<int> get_current_numa_nodes() noexcept {
             ret.push_back(numa_node);
         }
     }
+#endif
     if (ret.empty()) {
         return {0};
     }
     return ret;
 }
 
-std::uint64_t get_numa_node_host_memory(int numa_id) noexcept {
+std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
+    long long ret = -1;
+
+#if RAPIDSMPF_HAVE_NUMA
     if (numa_available() < 0) {
         return get_total_host_memory();
     }
-    long long free_ll = 0;  // ignored.
-    long long total_ll = numa_node_size64(numa_id, &free_ll);
-    if (total_ll < 0) {
+    long long ignored = 0;
+    ret = numa_node_size64(numa_id, &ignored);
+#endif
+
+    if (ret < 0) {
         return get_total_host_memory();
     }
-    return static_cast<std::uint64_t>(total_ll);
+    return static_cast<std::uint64_t>(ret);
 }
 
 }  // namespace rapidsmpf

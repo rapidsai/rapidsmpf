@@ -4,9 +4,7 @@
  */
 
 #include <algorithm>
-
-#include <numa.h>
-#include <sched.h>
+#include <ranges>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>

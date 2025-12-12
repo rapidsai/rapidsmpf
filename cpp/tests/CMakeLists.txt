@@ -62,7 +62,8 @@ target_compile_options(
 )
 target_link_libraries(
   test_sources
-  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl numa
+  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
   PUBLIC GTest::gmock GTest::gtest
 )
 disable_sign_conversion_warning(test_sources)
@@ -130,8 +131,14 @@ if(RAPIDSMPF_HAVE_MPI)
   )
   target_link_libraries(
     mpi_tests
-    PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-            $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan test_sources numa
+    PRIVATE rapidsmpf::rapidsmpf
+            GTest::gmock
+            GTest::gtest
+            $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+            $<TARGET_NAME_IF_EXISTS:conda_env>
+            maybe_asan
+            test_sources
+            $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
   )
   disable_sign_conversion_warning(mpi_tests)
 
@@ -165,7 +172,7 @@ if(RAPIDSMPF_HAVE_MPI)
               $<TARGET_NAME_IF_EXISTS:conda_env>
               maybe_asan
               test_sources
-              numa
+              $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
     )
     disable_sign_conversion_warning(ucxx_tests)
 
@@ -192,8 +199,9 @@ target_compile_options(
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  rrun_tests PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest
-                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan numa
+  rrun_tests
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
 
@@ -215,8 +223,9 @@ target_compile_options(
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  single_tests PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest
-                       $<TARGET_NAME_IF_EXISTS:conda_env> numa maybe_asan test_sources
+  single_tests
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan test_sources
 )
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")

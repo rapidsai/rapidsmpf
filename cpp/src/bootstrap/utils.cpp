@@ -11,11 +11,14 @@
 #include <string>
 #include <vector>
 
-#include <numa.h>
 #include <sched.h>
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
+
+#if RAPIDSMPF_HAVE_NUMA
+#include <numa.h>
+#endif
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
