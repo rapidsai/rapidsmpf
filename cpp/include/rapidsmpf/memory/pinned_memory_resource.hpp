@@ -18,8 +18,8 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils.hpp>
-
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
