@@ -600,18 +600,59 @@ rapidsmpf::streaming::Node groupby_avg_quantity(
         }
     } else {
         if (local_result) {
-            // TODO: should we calculate the avg here?????
+            // Single-rank: need to compute avg = 0.2 * (sum / count) just like multi-rank
+            // local_result has: p_partkey, sum(l_quantity), count(l_quantity)
+            auto result_view = local_result->view();
+            auto sum_col = result_view.column(1);
+            auto count_col = result_view.column(2);
+
+            // Compute mean = sum / count
+            auto mean_col = cudf::binary_operation(
+                sum_col,
+                count_col,
+                cudf::binary_operator::DIV,
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+
+            // Multiply by 0.2
+            auto scalar_02 = cudf::make_numeric_scalar(
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+            static_cast<cudf::numeric_scalar<double>*>(scalar_02.get())
+                ->set_value(0.2, chunk_stream);
+            auto avg_quantity = cudf::binary_operation(
+                mean_col->view(),
+                *scalar_02,
+                cudf::binary_operator::MUL,
+                cudf::data_type(cudf::type_id::FLOAT64),
+                chunk_stream,
+                ctx->br()->device_mr()
+            );
+
+            // Output: p_partkey (as key), avg_quantity
+            std::vector<std::unique_ptr<cudf::column>> result;
+            result.push_back(
+                std::make_unique<cudf::column>(
+                    result_view.column(0), chunk_stream, ctx->br()->device_mr()
+                )
+            );
+            result.push_back(std::move(avg_quantity));
+
             co_await ch_out->send(
                 rapidsmpf::streaming::to_message(
                     0,
                     std::make_unique<rapidsmpf::streaming::TableChunk>(
-                        std::move(local_result), chunk_stream
+                        std::make_unique<cudf::table>(std::move(result)), chunk_stream
                     )
                 )
             );
         } else {
             // Single rank with no data: send empty table with correct
-            // schema
+            // schema (key, avg_quantity)
             std::vector<std::unique_ptr<cudf::column>> empty_cols;
             empty_cols.push_back(
                 cudf::make_empty_column(cudf::data_type(cudf::type_id::INT64))
