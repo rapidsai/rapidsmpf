@@ -351,6 +351,12 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
+  # Set BUILD_TESTING to ON. It may be set to OFF by libcoro's CMake code and is needed for CTest to
+  # generate test lists.
+  set(BUILD_TESTING
+      ON
+      CACHE BOOL "Build the testing tree." FORCE
+  )
   include(CTest)
   add_subdirectory(tests)
 endif()
