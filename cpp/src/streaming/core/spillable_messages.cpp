@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 namespace rapidsmpf::streaming {
@@ -98,4 +97,18 @@ SpillableMessages::get_content_descriptions() const {
     std::unique_lock global_lock(global_mutex_);
     return content_descriptions_;
 }
+
+ContentDescription rapidsmpf::streaming::SpillableMessages::get_content_description(
+    MessageId mid
+) const {
+    std::lock_guard global_lock(global_mutex_);
+    auto it = content_descriptions_.find(mid);
+    RAPIDSMPF_EXPECTS(
+        it != content_descriptions_.end(),
+        "message not found " + std::to_string(mid),
+        std::out_of_range
+    );
+    return it->second;
+}
+
 }  // namespace rapidsmpf::streaming
