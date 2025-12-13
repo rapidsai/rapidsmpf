@@ -49,8 +49,6 @@ option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
-# cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
-option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
@@ -65,7 +63,6 @@ message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
 message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
-message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
@@ -293,7 +290,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
-rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
+rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
 add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
 

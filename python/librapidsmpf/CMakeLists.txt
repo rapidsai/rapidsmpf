@@ -34,6 +34,5 @@ endif()
 
 unset(RAPIDSMPF_FOUND)
 
-set(CUDA_STATIC_RUNTIME ON)
 add_subdirectory(../../cpp librapidsmpf)
 find_package(CUDAToolkit REQUIRED)
