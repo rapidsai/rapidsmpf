@@ -56,7 +56,6 @@ class BufferResource {
      *
      * @param device_mr Reference to the RMM device memory resource used for device
      * allocations.
-     * @param memory_available Optional functions that report available memory for each
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
      * allocations. If null, pinned host allocations are disabled. In that case, any
      * attempt to allocate pinned memory will fail regardless of what @p memory_available
