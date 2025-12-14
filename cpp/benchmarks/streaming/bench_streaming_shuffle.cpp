@@ -71,14 +71,9 @@ class ArgumentParser {
                            << "  -o <num>   Number of output partitions per rank "
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
-                              "managed} "
-                              "(default: pool)\n"
+                              "managed} (default: pool)\n"
                            << "  -L         Disable Pinned host memory (default: "
                               " unlimited)\n"
-                              "input data (default: allow memory overbooking)\n"
-                           << "  -L <num>   Pinned host memory limit in MiB (default:-1,"
-                              " unlimited)\n"
-                              "input data (default: allow memory overbooking)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
