@@ -41,6 +41,7 @@ BUILD_DIRS="${LIBRAPIDSMPF_BUILD_DIR} ${PYRAPIDSMPF_}"
 # Set defaults for vars modified by flags to this script
 VERBOSE_FLAG=""
 BUILD_TYPE=Release
+BUILD_ALL_GPU_ARCH=0
 INSTALL_TARGET=install
 RAN_CMAKE=0
 PYTHON_ARGS_FOR_INSTALL=("-m" "pip" "install" "--no-build-isolation" "--no-deps" "--config-settings" "rapidsai.disable-cuda=true")
@@ -156,10 +157,26 @@ fi
 
 ################################################################################
 # Configure, build, and install librapidsmpf
+
+if buildAll || hasArg librapidsmpf || hasArg rapidsmpf ; then
+    if (( BUILD_ALL_GPU_ARCH == 0 )); then
+        RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES="${RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES:-NATIVE}"
+        if [[ "$RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES" == "NATIVE" ]]; then
+            echo "Building for the architecture of the GPU in the system..."
+        else
+            echo "Building for the GPU architecture(s) $RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES ..."
+        fi
+    else
+        RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES="RAPIDS"
+        echo "Building for *ALL* supported GPU architectures..."
+    fi
+fi
+
 if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     ensureCMakeRan
     echo "building librapidsmpf..."
-    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG}
+    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG} \
+          -DCMAKE_CUDA_ARCHITECTURES="${CUDF_CMAKE_CUDA_ARCHITECTURES}"
     if [[ ${INSTALL_TARGET} != "" ]]; then
         echo "installing librapidsmpf..."
         cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
