@@ -88,6 +88,15 @@ PinnedMemoryResource::PinnedMemoryResource(int numa_id)
     );
 }
 
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
+    int numa_id
+) {
+    if (is_pinned_memory_resources_supported()) {
+        return std::make_shared<rapidsmpf::PinnedMemoryResource>(numa_id);
+    }
+    return PinnedMemoryResource::Disabled;
+}
+
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
 void* PinnedMemoryResource::allocate(

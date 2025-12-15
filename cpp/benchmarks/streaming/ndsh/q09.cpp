@@ -281,6 +281,7 @@ static __device__ void calculate_amount(double *amount, double discount, double 
                 false,
                 std::nullopt,
                 cudf::null_aware::NO,
+                cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()
             )
@@ -686,7 +687,7 @@ int main(int argc, char** argv) {
     }
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         stats_mr,
-        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available)
     );
     auto envvars = rapidsmpf::config::get_environment_variables();

@@ -108,7 +108,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
             if self.spill_device is None
             else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_device)}
         )
-        br = BufferResource(mr, memory_available)
+        br = BufferResource(mr, memory_available=memory_available)
         # Create a statistics object
         self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler

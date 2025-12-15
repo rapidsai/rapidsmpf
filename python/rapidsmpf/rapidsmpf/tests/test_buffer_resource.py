@@ -55,10 +55,10 @@ def test_buffer_resource() -> None:
         NotImplementedError,
         match="only accept `LimitAvailableMemory` as memory available functions",
     ):
-        BufferResource(mr, {MemoryType.DEVICE: lambda: 42})
+        BufferResource(mr, memory_available={MemoryType.DEVICE: lambda: 42})
 
     mem_available = LimitAvailableMemory(mr, limit=KiB(100))
-    br = BufferResource(mr, {MemoryType.DEVICE: mem_available})
+    br = BufferResource(mr, memory_available={MemoryType.DEVICE: mem_available})
     assert br.memory_reserved(MemoryType.DEVICE) == 0
     assert br.memory_reserved(MemoryType.HOST) == 0
 
@@ -73,7 +73,9 @@ def test_buffer_resource() -> None:
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_memory_reservation(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource(mr, {mem_type: LimitAvailableMemory(mr, limit=KiB(100))})
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+    )
     res1, ob = br.reserve(mem_type, KiB(100), allow_overbooking=False)
     assert res1.br is br
     assert res1.mem_type == mem_type
