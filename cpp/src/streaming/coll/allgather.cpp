@@ -21,7 +21,7 @@ AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
           [this]() {
               // Schedule waiters to resume on the executor.
               // This doesn't resume the frame immediately so we don't have to track
-              // completion of this callback with a task_container.
+              // completion of this callback with a task_group.
               event_.set(ctx_->executor());
           }
       )} {}
