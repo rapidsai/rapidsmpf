@@ -5,6 +5,7 @@
 # cmake-format: on
 # =============================================================================
 
+# This function finds cuco and sets any additional necessary environment variables.
 function(find_and_configure_cucollections)
   include(${rapids-cmake-dir}/cpm/cuco.cmake)
 
