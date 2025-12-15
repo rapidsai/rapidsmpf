@@ -11,6 +11,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
@@ -545,9 +546,7 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
                 {MemoryType::DEVICE, []() -> std::int64_t { return 0; }},
             };
         br = std::make_shared<rapidsmpf::BufferResource>(
-            mr_cuda,
-            rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
-            memory_available
+            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
         );
         auto options = ctx->options();
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
