@@ -28,6 +28,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -134,7 +135,7 @@ std::shared_ptr<streaming::Context> create_context(
 
     auto br = std::make_shared<BufferResource>(
         mr,
-        BufferResource::PinnedMemoryResourceDisabled,
+        PinnedMemoryResource::Disabled,
         std::move(memory_available),
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(
