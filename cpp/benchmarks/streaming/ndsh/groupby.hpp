@@ -27,7 +27,7 @@ struct groupby_request {
 /**
  * @brief Perform a chunkwise grouped aggregation.
  *
- * @note Grouped chunks are not futher grouped together.
+ * @note Grouped chunks are not further grouped together.
  *
  * @param ctx Streaming context.
  * @param ch_in `TableChunk`s to aggregate

@@ -304,6 +304,7 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
                 false,
                 std::nullopt,
                 cudf::null_aware::NO,
+                cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()
             )
