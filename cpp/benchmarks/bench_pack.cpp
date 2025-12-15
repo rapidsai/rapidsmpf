@@ -25,6 +25,14 @@
 
 constexpr std::size_t MB = 1024 * 1024;
 
+/**
+ * @brief Runs the cudf::pack benchmark
+ * @param state The benchmark state
+ * @param table_size_mb The size of the table in MB
+ * @param table_mr The memory resource for the table
+ * @param pack_mr The memory resource for the packed data
+ * @param stream The CUDA stream to use
+ */
 void run_pack(
     benchmark::State& state,
     std::size_t table_size_mb,
@@ -58,9 +66,7 @@ void run_pack(
 }
 
 /**
- * @brief Benchmark for cudf::pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::pack.
+ * @brief Benchmark for cudf::pack with device memory
  */
 static void BM_Pack_device(benchmark::State& state) {
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
@@ -76,9 +82,7 @@ static void BM_Pack_device(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::pack.
+ * @brief Benchmark for cudf::pack with pinned memory
  */
 static void BM_Pack_pinned(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -100,6 +104,15 @@ static void BM_Pack_pinned(benchmark::State& state) {
     run_pack(state, table_size_mb, pool_mr, pinned_mr, stream);
 }
 
+/**
+ * @brief Runs the cudf::chunked_pack benchmark
+ * @param state The benchmark state
+ * @param bounce_buffer_size The size of the bounce buffer in bytes
+ * @param table_size The size of the table in bytes
+ * @param table_mr The memory resource for the table
+ * @param pack_mr The memory resource for the packed data
+ * @param stream The CUDA stream to use
+ */
 void run_chunked_pack(
     benchmark::State& state,
     std::size_t bounce_buffer_size,
@@ -167,10 +180,7 @@ void run_chunked_pack(
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::chunked_pack.
- * The bounce buffer size is set to max(1MB, table_size / 10).
+ * @brief Benchmark for cudf::chunked_pack with device memory
  */
 static void BM_ChunkedPack_device(benchmark::State& state) {
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
@@ -192,10 +202,7 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::chunked_pack.
- * The bounce buffer size is set to max(1MB, table_size / 10).
+ * @brief Benchmark for cudf::chunked_pack pinned memory
  */
 static void BM_ChunkedPack_pinned(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -250,19 +257,9 @@ BENCHMARK(BM_ChunkedPack_pinned)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
 
-// Custom argument generator for the benchmark
-void ChunkedPackArguments(benchmark::internal::Benchmark* b) {
-    // Test different table sizes in MB (minimum 1MB as requested)
-    for (auto bounce_buf_sz_mb : {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}) {
-        b->Args({bounce_buf_sz_mb});
-    }
-}
-
 /**
- * @brief Benchmark for cudf::chunked_pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::chunked_pack.
- * The bounce buffer size is set to max(1MB, table_size / 10).
+ * @brief Benchmark for cudf::chunked_pack in device memory varying the bounce buffer size
+ * and keeping table size fixed at 1GB
  */
 static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
     auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
@@ -283,10 +280,8 @@ static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack
- *
- * Measures the time to pack a table into contiguous memory using cudf::chunked_pack.
- * The bounce buffer size is set to max(1MB, table_size / 10).
+ * @brief Benchmark for cudf::chunked_pack in pinned memory varying the bounce buffer size
+ * and keeping table size fixed at 1GB
  */
 static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -308,6 +303,14 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
     run_chunked_pack(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
     );
+}
+
+// Custom argument generator for the benchmark
+void ChunkedPackArguments(benchmark::internal::Benchmark* b) {
+    // Test different table sizes in MB (minimum 1MB as requested)
+    for (auto bounce_buf_sz_mb : {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}) {
+        b->Args({bounce_buf_sz_mb});
+    }
 }
 
 BENCHMARK(BM_ChunkedPack_fixed_table_device)
