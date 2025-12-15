@@ -31,7 +31,7 @@ namespace rapidsmpf {
 /**
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
- * Requires rapidsmpf to be build with cuda>=12.6.
+ * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
  *
  * @note The driver version check is cached and only performed once.
  */
@@ -59,6 +59,9 @@ class PinnedMemoryResource;
  */
 class PinnedMemoryResource final : public HostMemoryResource {
   public:
+    /// @brief Sentinel value used to disable pinned host memory.
+    static constexpr auto Disabled = nullptr;
+
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
@@ -72,6 +75,22 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * the current CUDA version or if CUDA initialization fails.
      */
     PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+
+    /**
+     * @brief Create a pinned memory resource if the system supports pinned memory.
+     *
+     * @param numa_id The NUMA node to associate with the resource. Defaults to the
+     * current NUMA node.
+     *
+     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
+     * otherwise `PinnedMemoryResource::Disabled`.
+     *
+     * @see PinnedMemoryResource::PinnedMemoryResource
+     */
+    static std::shared_ptr<PinnedMemoryResource> make_if_available(
+        int numa_id = get_current_numa_node_id()
+    );
+
     ~PinnedMemoryResource() override;
 
     /**
