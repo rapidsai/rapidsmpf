@@ -90,8 +90,8 @@ function ensureCMakeRan {
         echo "Executing cmake for librapidsmpf..."
         CMAKE_ARGS=(-B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
-              -DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
-
+              -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+              -DCMAKE_CUDA_ARCHITECTURES="${RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES}")
         if hasArg --no-clang-tidy; then
             CMAKE_ARGS+=(-DRAPIDSMPF_CLANG_TIDY=OFF)
         else
@@ -101,7 +101,6 @@ function ensureCMakeRan {
         if hasArg --asan; then
             CMAKE_ARGS+=(-DRAPIDSMPF_ASAN=ON)
         fi
-
         CMAKE_ARGS+=("${EXTRA_CMAKE_ARGS[@]}")
         cmake "${CMAKE_ARGS[@]}"
         RAN_CMAKE=1
@@ -175,8 +174,7 @@ fi
 if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     ensureCMakeRan
     echo "building librapidsmpf..."
-    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG} \
-          -DCMAKE_CUDA_ARCHITECTURES="${RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES}"
+    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG}
     if [[ ${INSTALL_TARGET} != "" ]]; then
         echo "installing librapidsmpf..."
         cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
