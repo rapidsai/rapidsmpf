@@ -226,12 +226,19 @@ ShufflerAsync::extract_any_async() {
 }
 
 Node ShufflerAsync::finished_drain() {
-    // Wait for all notifications to have fired
+    // Wait for all notifications to have fired.
     co_await latch_;
+
     // Now wait for them to complete, otherwise coroutine frame unwinding can reach the
     // shuffler's destructor while the notification callback still references members.
-    co_await notifications_;
+    // If there are no local partitions, these coroutines were never started, and
+    // awaiting them would deadlock.
+    if (!local_partitions().empty()) {
+        co_await notifications_;
+    }
+
     // And wake up any pending extraction tasks.
+    co_await ctx_->executor()->yield();
     co_await semaphore_.shutdown();
 }
 
