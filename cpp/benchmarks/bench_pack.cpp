@@ -81,6 +81,11 @@ static void BM_Pack_device(benchmark::State& state) {
  * Measures the time to pack a table into contiguous memory using cudf::pack.
  */
 static void BM_Pack_pinned(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
 
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
@@ -193,6 +198,11 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
  * The bounce buffer size is set to max(1MB, table_size / 10).
  */
 static void BM_ChunkedPack_pinned(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
     auto const table_size_bytes = table_size_mb * MB;
 
