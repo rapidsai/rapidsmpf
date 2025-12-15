@@ -47,7 +47,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_callback
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                  _extract_async_task(
                      shuffle, pid, output, py_invoker, std::move(py_callback)
                  )
@@ -76,7 +76,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_callback
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                  _extract_any_async_task(
                      shuffle, output, py_invoker, std::move(py_callback)
                  )
@@ -101,7 +101,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_callback
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                  _insert_finished_task(
                      shuffle, py_invoker, std::move(py_callback)
                  )
