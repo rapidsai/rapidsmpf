@@ -17,6 +17,7 @@
 #include <cuda/std/chrono>
 
 #include <cudf/binaryop.hpp>
+#include <cudf/context.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/io/parquet.hpp>
@@ -806,210 +807,167 @@ ProgramOptions parse_options(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     cudaFree(nullptr);
-    rapidsmpf::mpi::init(&argc, &argv);
-    MPI_Comm mpi_comm;
-    RAPIDSMPF_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
-    auto cmd_options = parse_options(argc, argv);
-    auto limit_size = rmm::percent_of_free_device_memory(
-        static_cast<std::size_t>(cmd_options.spill_device_limit.value_or(1) * 100)
-    );
-    rmm::mr::cuda_async_memory_resource mr{};
-    auto stats_mr = rapidsmpf::RmmResourceAdaptor(&mr);
-    rmm::device_async_resource_ref mr_ref(stats_mr);
-    rmm::mr::set_current_device_resource(&stats_mr);
-    rmm::mr::set_current_device_resource_ref(mr_ref);
-    std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
-        memory_available{};
-    if (cmd_options.spill_device_limit.has_value()) {
-        memory_available[rapidsmpf::MemoryType::DEVICE] = rapidsmpf::LimitAvailableMemory{
-            &stats_mr, static_cast<std::int64_t>(limit_size)
-        };
-    }
-    auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stats_mr, std::move(memory_available)
-    );
-    auto envvars = rapidsmpf::config::get_environment_variables();
-    envvars["num_streaming_threads"] = std::to_string(cmd_options.num_streaming_threads);
-    auto options = rapidsmpf::config::Options(envvars);
-    auto stats = std::make_shared<rapidsmpf::Statistics>(&stats_mr);
-    {
-        auto comm = rapidsmpf::ucxx::init_using_mpi(mpi_comm, options);
-        auto progress =
-            std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
-        auto ctx =
-            std::make_shared<rapidsmpf::streaming::Context>(options, comm, br, stats);
-        comm->logger().print(
-            "Executor has ", ctx->executor()->thread_count(), " threads"
-        );
-        comm->logger().print("Executor has ", ctx->comm()->nranks(), " ranks");
 
-        std::string output_path = cmd_options.output_file;
-        std::vector<double> timings;
-        for (int i = 0; i < 2; i++) {
-            rapidsmpf::OpID op_id{0};
-            std::vector<rapidsmpf::streaming::Node> nodes;
-            auto start = std::chrono::steady_clock::now();
-            {
-                RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q4 pipeline");
-                // Convention for channel names: express the *output*.
-                /* Lineitem Table */
-                // [l_commitdate, l_receiptdate, l_orderkey]
-                auto lineitem = ctx->create_channel();
-                // [l_orderkey]
-                auto filtered_lineitem = ctx->create_channel();
-                // [l_orderkey]
-                auto filtered_lineitem_shuffled = ctx->create_channel();
+    rapidsmpf::ndsh::FinalizeMPI finalize{};
+    cudaFree(nullptr);
+    // work around https://github.com/rapidsai/cudf/issues/20849
+    cudf::initialize();
+    auto mr = rmm::mr::cuda_async_memory_resource{};
+    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
+    auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
+    auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
+    std::string output_path = arguments.output_file;
+    std::vector<double> timings;
 
-                /* Orders Table */
-                // [o_orderkey, o_orderpriority]
-                auto order = ctx->create_channel();
 
-                // [o_orderkey, o_orderpriority]
-                // Ideally this would *just* be o_orderpriority, pushing the projection
-                // into the join node / dropping the join key.
-                auto orders_x_lineitem = ctx->create_channel();
+    for (int i = 0; i < arguments.num_iterations; i++) {
+        rapidsmpf::OpID op_id{0};
+        std::vector<rapidsmpf::streaming::Node> nodes;
+        auto start = std::chrono::steady_clock::now();
+        {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q4 pipeline");
+            // Convention for channel names: express the *output*.
+            /* Lineitem Table */
+            // [l_commitdate, l_receiptdate, l_orderkey]
+            auto lineitem = ctx->create_channel();
+            // [l_orderkey]
+            auto filtered_lineitem = ctx->create_channel();
+            // [l_orderkey]
+            auto filtered_lineitem_shuffled = ctx->create_channel();
 
-                // [o_orderpriority]
-                auto projected_columns = ctx->create_channel();
-                // [o_orderpriority, order_count]
-                auto grouped_chunkwise = ctx->create_channel();
-                // [o_orderpriority, order_count]
-                auto grouped_concatenated = ctx->create_channel();
-                // [o_orderpriority, order_count]
-                auto grouped_finalized = ctx->create_channel();
-                // [o_orderpriority, order_count]
-                auto sorted = ctx->create_channel();
+            /* Orders Table */
+            // [o_orderkey, o_orderpriority]
+            auto order = ctx->create_channel();
 
-                nodes.push_back(read_lineitem(
+            // [o_orderkey, o_orderpriority]
+            // Ideally this would *just* be o_orderpriority, pushing the projection
+            // into the join node / dropping the join key.
+            auto orders_x_lineitem = ctx->create_channel();
+
+            // [o_orderpriority]
+            auto projected_columns = ctx->create_channel();
+            // [o_orderpriority, order_count]
+            auto grouped_chunkwise = ctx->create_channel();
+            // [o_orderpriority, order_count]
+            auto grouped_concatenated = ctx->create_channel();
+            // [o_orderpriority, order_count]
+            auto grouped_finalized = ctx->create_channel();
+            // [o_orderpriority, order_count]
+            auto sorted = ctx->create_channel();
+
+            nodes.push_back(read_lineitem(
+                ctx, lineitem, 4, arguments.num_rows_per_chunk, arguments.input_directory
+            ));
+            nodes.push_back(
+                filter_lineitem(ctx, lineitem, filtered_lineitem)
+            );  // l_orderkey
+            nodes.push_back(read_orders(
+                ctx, order, 4, arguments.num_rows_per_chunk, arguments.input_directory
+            ));
+
+            // TODO: configurable
+            std::uint32_t num_partitions = 16;
+
+            nodes.push_back(
+                rapidsmpf::ndsh::shuffle(
                     ctx,
-                    lineitem,
-                    4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));
-                nodes.push_back(
-                    filter_lineitem(ctx, lineitem, filtered_lineitem)
-                );  // l_orderkey
-                nodes.push_back(read_orders(
-                    ctx,
-                    order,
-                    4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));
-                // nodes.push_back(select_columns(ctx, order, projected_order, {1, 2}));
+                    filtered_lineitem,
+                    filtered_lineitem_shuffled,
+                    {0},
+                    num_partitions,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                )
+            );
 
+            if (arguments.use_shuffle_join) {
+                auto filtered_order_shuffled = ctx->create_channel();
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(
                         ctx,
-                        filtered_lineitem,
-                        filtered_lineitem_shuffled,
+                        order,
+                        filtered_order_shuffled,
                         {0},
-                        cmd_options.num_partitions,
+                        num_partitions,
                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
                     )
                 );
 
-                if (cmd_options.use_shuffle_join) {
-                    auto filtered_order_shuffled = ctx->create_channel();
-                    nodes.push_back(
-                        rapidsmpf::ndsh::shuffle(
-                            ctx,
-                            order,
-                            filtered_order_shuffled,
-                            {0},
-                            cmd_options.num_partitions,
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            }
-                        )
-                    );
-
-                    nodes.push_back(
-                        rapidsmpf::ndsh::left_semi_join_shuffle(
-                            ctx,
-                            filtered_order_shuffled,
-                            filtered_lineitem_shuffled,
-                            orders_x_lineitem,
-                            {0},
-                            {0}
-                        )
-                    );
-                } else {
-                    nodes.push_back(
-                        rapidsmpf::ndsh::left_semi_join_broadcast_left(
-                            ctx,
-                            order,
-                            filtered_lineitem_shuffled,
-                            orders_x_lineitem,
-                            {0},
-                            {0},
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            },
-                            rapidsmpf::ndsh::KeepKeys::YES
-                        )
-                    );
-                }
-
                 nodes.push_back(
-                    select_columns(ctx, orders_x_lineitem, projected_columns, {1})
-                );
-
-                nodes.push_back(
-                    chunkwise_groupby_agg(ctx, projected_columns, grouped_chunkwise)
-                );
-                nodes.push_back(
-                    rapidsmpf::ndsh::concatenate(
+                    rapidsmpf::ndsh::left_semi_join_shuffle(
                         ctx,
-                        grouped_chunkwise,
-                        grouped_concatenated,
-                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                        filtered_order_shuffled,
+                        filtered_lineitem_shuffled,
+                        orders_x_lineitem,
+                        {0},
+                        {0}
                     )
                 );
-                nodes.push_back(final_groupby_agg(
-                    ctx,
-                    grouped_concatenated,
-                    grouped_finalized,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                ));
-                nodes.push_back(sort_by(ctx, grouped_finalized, sorted));
-                nodes.push_back(write_parquet(ctx, sorted, output_path));
+            } else {
+                nodes.push_back(
+                    rapidsmpf::ndsh::left_semi_join_broadcast_left(
+                        ctx,
+                        order,
+                        filtered_lineitem_shuffled,
+                        orders_x_lineitem,
+                        {0},
+                        {0},
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
             }
-            auto end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> pipeline = end - start;
-            start = std::chrono::steady_clock::now();
-            {
-                RAPIDSMPF_NVTX_SCOPED_RANGE("Q4 Iteration");
-                rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
-            }
-            end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> compute = end - start;
-            comm->logger().print(
-                "Iteration ", i, " pipeline construction time [s]: ", pipeline.count()
+
+            nodes.push_back(
+                select_columns(ctx, orders_x_lineitem, projected_columns, {1})
             );
-            comm->logger().print("Iteration ", i, " compute time [s]: ", compute.count());
-            timings.push_back(pipeline.count());
-            timings.push_back(compute.count());
-            ctx->comm()->logger().print(stats->report());
-            RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
+
+            nodes.push_back(
+                chunkwise_groupby_agg(ctx, projected_columns, grouped_chunkwise)
+            );
+            nodes.push_back(
+                rapidsmpf::ndsh::concatenate(
+                    ctx,
+                    grouped_chunkwise,
+                    grouped_concatenated,
+                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                )
+            );
+            nodes.push_back(final_groupby_agg(
+                ctx,
+                grouped_concatenated,
+                grouped_finalized,
+                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+            ));
+            nodes.push_back(sort_by(ctx, grouped_finalized, sorted));
+            nodes.push_back(write_parquet(ctx, sorted, output_path));
         }
-        if (comm->rank() == 0) {
-            for (int i = 0; i < 2; i++) {
-                comm->logger().print(
-                    "Iteration ",
-                    i,
-                    " pipeline construction time [s]: ",
-                    timings[size_t(2 * i)]
-                );
-                comm->logger().print(
-                    "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
-                );
-            }
+        auto end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> pipeline = end - start;
+        start = std::chrono::steady_clock::now();
+        {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("Q4 Iteration");
+            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
         }
+        end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> compute = end - start;
+        timings.push_back(pipeline.count());
+        timings.push_back(compute.count());
+        ctx->comm()->logger().print(ctx->statistics()->report());
+        ctx->statistics()->clear();
     }
 
-    RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm));
-    RAPIDSMPF_MPI(MPI_Finalize());
+    if (ctx->comm()->rank() == 0) {
+        for (int i = 0; i < arguments.num_iterations; i++) {
+            ctx->comm()->logger().print(
+                "Iteration ",
+                i,
+                " pipeline construction time [s]: ",
+                timings[size_t(2 * i)]
+            );
+            ctx->comm()->logger().print(
+                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+            );
+        }
+    }
     return 0;
 }

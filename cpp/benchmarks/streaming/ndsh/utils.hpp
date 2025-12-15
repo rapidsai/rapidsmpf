@@ -95,8 +95,6 @@ namespace detail {
     bool allow_overbooking = false
 );
 
-<<<<<<< HEAD
-=======
 ///< @brief Communicator type to use
 enum class CommType : std::uint8_t {
     SINGLE,  ///< Single process communicator
@@ -162,5 +160,4 @@ struct FinalizeMPI {
         }
     }
 };
->>>>>>> wence/fea/q03
 }  // namespace rapidsmpf::ndsh
