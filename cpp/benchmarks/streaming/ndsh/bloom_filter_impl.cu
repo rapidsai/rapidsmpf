@@ -66,7 +66,7 @@ void BloomFilter::add(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    NVTX3_FUNC_RANGE_IN(rapidsmpf_domain);
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
         static_cast<StorageType*>(storage_.data),
         num_blocks_,
@@ -83,7 +83,7 @@ void BloomFilter::add(
 }
 
 void BloomFilter::merge(BloomFilter const& other, rmm::cuda_stream_view stream) {
-    NVTX3_FUNC_RANGE_IN(rapidsmpf_domain);
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_EXPECTS(
         num_blocks_ == other.num_blocks_, "Mismatching number of blocks in filters"
     );
@@ -116,7 +116,7 @@ rmm::device_uvector<bool> BloomFilter::contains(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    NVTX3_FUNC_RANGE_IN(rapidsmpf_domain);
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
         static_cast<StorageType*>(storage_.data),
         num_blocks_,
