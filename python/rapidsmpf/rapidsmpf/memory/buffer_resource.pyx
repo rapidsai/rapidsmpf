@@ -4,7 +4,7 @@
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, nullptr, shared_ptr, unique_ptr
+from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -17,6 +17,8 @@ from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
+from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
+                                                      cpp_PinnedMemoryResource)
 from rapidsmpf.statistics cimport Statistics
 
 
@@ -108,6 +110,10 @@ cdef class BufferResource:
     ----------
     device_mr
         Reference to the RMM device memory resource used for device allocations.
+    pinned_mr The pinned host memory resource used for `MemoryType.PINNED_HOST`
+        allocations. If None, pinned host allocations are disabled. In that case,
+        any attempt to allocate pinned memory will fail regardless of what
+        `memory_available` reports.
     memory_available
         Optional memory availability functions. Memory types without availability
         functions are unlimited. A function must return the current available
@@ -132,6 +138,8 @@ cdef class BufferResource:
     def __cinit__(
         self,
         DeviceMemoryResource device_mr not None,
+        *,
+        PinnedMemoryResource pinned_mr = None,
         memory_available = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
@@ -188,11 +196,15 @@ cdef class BufferResource:
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
         # rather than the any_resource_ref reference type, we don't
         # need to keep this alive here.
-        self._mr = device_mr
+        self._device_mr = device_mr
+        self._pinned_mr = pinned_mr
+        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned_mr
+        if self._pinned_mr is not None:
+            cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
                 device_mr.get_mr(),
-                nullptr,  # TODO: Write Python bindings for PinnedMemoryResource
+                cpp_pinned_mr,
                 move(_mem_available),
                 period,
                 cpp_stream_pool,
