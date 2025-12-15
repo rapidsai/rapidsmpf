@@ -316,6 +316,7 @@ static __device__ void calculate_charge(double *charge, double discprice, double
  * @endcode{}
  */
 int main(int argc, char** argv) {
+    rapidsmpf::ndsh::FinalizeMPI finalize{};
     cudaFree(nullptr);
     // work around https://github.com/rapidsai/cudf/issues/20849
     cudf::initialize();
@@ -458,9 +459,6 @@ int main(int argc, char** argv) {
                 "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
             );
         }
-    }
-    if (rapidsmpf::mpi::is_initialized()) {
-        RAPIDSMPF_MPI(MPI_Finalize());
     }
     return 0;
 }
