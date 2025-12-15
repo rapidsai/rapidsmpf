@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         mr,
         args.pinned_mem_disable ? nullptr
-                                : std::make_shared<rapidsmpf::PinnedMemoryResource>(),
+                                : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available)
     );
 
