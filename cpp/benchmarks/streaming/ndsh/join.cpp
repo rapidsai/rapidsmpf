@@ -40,27 +40,11 @@
 
 namespace rapidsmpf::ndsh {
 
-namespace {
-
-/**
- * @brief Broadcast the concatenation of all input messages to all ranks.
- *
- * @note Receives all input chunks, gathers from all ranks, and then provides concatenated
- * output.
- *
- * @note Since this is used for unordered joins, the input order of `ch_in` across ranks
- * is not preserved in the output.
- *
- * @param ctx Streaming context
- * @param ch_in Input channel of `TableChunk`s
- * @param tag Disambiguating tag for allgather
- *
- * @return Message containing the concatenation of all the input table chunks.
- */
 coro::task<streaming::Message> broadcast(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
-    OpID tag
+    OpID tag,
+    streaming::AllGather::Ordered ordered
 ) {
     streaming::ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
@@ -118,7 +102,7 @@ coro::task<streaming::Message> broadcast(
             gatherer.insert(msg.sequence_number(), {std::move(packed_data)});
         }
         gatherer.insert_finished();
-        auto result = co_await gatherer.extract_all(streaming::AllGather::Ordered::NO);
+        auto result = co_await gatherer.extract_all(ordered);
         if (result.size() == 1) {
             co_return streaming::to_message(
                 0,
@@ -144,6 +128,19 @@ coro::task<streaming::Message> broadcast(
             );
         }
     }
+}
+
+streaming::Node broadcast(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> ch_in,
+    std::shared_ptr<streaming::Channel> ch_out,
+    OpID tag,
+    streaming::AllGather::Ordered ordered
+) {
+    streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    co_await ch_out->send(co_await broadcast(ctx, ch_in, tag, ordered));
+    co_await ch_out->drain(ctx->executor());
 }
 
 /**
@@ -290,8 +287,6 @@ streaming::Message inner_join_chunk(
     );
 }
 
-}  // namespace
-
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
@@ -307,7 +302,9 @@ streaming::Node inner_join_broadcast(
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
     auto build_table = to_device(
-        ctx, (co_await broadcast(ctx, left, tag)).release<streaming::TableChunk>()
+        ctx,
+        (co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
+            .release<streaming::TableChunk>()
     );
     ctx->comm()->logger().print(
         "Build table has ", build_table.table_view().num_rows(), " rows"
@@ -333,7 +330,7 @@ streaming::Node inner_join_broadcast(
         build_carrier = build_table.table_view().select(to_keep);
     }
     std::size_t sequence = 0;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
             break;
@@ -366,7 +363,7 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();

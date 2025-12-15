@@ -96,15 +96,19 @@ void check_mpi_thread_support() {
 }
 }  // namespace
 
-MPI::MPI(MPI_Comm comm, config::Options options)
-    : comm_{comm}, logger_{this, std::move(options)} {
+MPI::MPI(MPI_Comm comm, config::Options options) : logger_{this, std::move(options)} {
     int rank;
     int nranks;
+    MPI_Comm_dup(comm, &comm_);
     RAPIDSMPF_MPI(MPI_Comm_rank(comm_, &rank));
     RAPIDSMPF_MPI(MPI_Comm_size(comm_, &nranks));
     rank_ = rank;
     nranks_ = nranks;
     check_mpi_thread_support();
+}
+
+MPI::~MPI() noexcept {
+    RAPIDSMPF_MPI(MPI_Comm_free(&comm_));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(

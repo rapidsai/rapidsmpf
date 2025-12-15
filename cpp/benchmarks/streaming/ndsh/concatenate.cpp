@@ -35,7 +35,7 @@ streaming::Node concatenate(
     std::vector<streaming::Message> messages;
     ctx->comm()->logger().print("Concatenate");
     auto concat_stream = ctx->br()->stream_pool().get_stream();
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         co_await ctx->executor()->schedule();
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {

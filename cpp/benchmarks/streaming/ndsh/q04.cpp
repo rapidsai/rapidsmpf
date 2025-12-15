@@ -148,7 +148,6 @@ rapidsmpf::streaming::Node select_columns(
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
 
-        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "select_columns::input");
         std::vector<std::unique_ptr<cudf::column>> result;
         result.reserve(indices.size());
         for (auto idx : indices) {
@@ -161,9 +160,6 @@ rapidsmpf::streaming::Node select_columns(
 
         auto result_table = std::make_unique<cudf::table>(std::move(result));
 
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, result_table->view(), "select_columns::output"
-        );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 sequence_number,
@@ -384,8 +380,6 @@ rapidsmpf::streaming::Node filter_lineitem(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "lineitem");
-
         auto l_commitdate = table.column(0);
         auto l_receiptdate = table.column(1);
         auto mask = cudf::binary_operation(
@@ -398,9 +392,6 @@ rapidsmpf::streaming::Node filter_lineitem(
         );
         auto filtered_table =
             cudf::apply_boolean_mask(table.select({2}), mask->view(), chunk_stream, mr);
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, filtered_table->view(), "filtered_lineitem"
-        );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
@@ -449,9 +440,6 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, table, "chunkwise_groupby_agg::input"
-        );
 
         auto grouper = cudf::groupby::groupby(
             table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
@@ -472,10 +460,6 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         }
 
         auto result_table = std::make_unique<cudf::table>(std::move(result));
-        rapidsmpf::ndsh::detail::debug_print_table(
-            ctx, result_table->view(), "chunkwise_groupby_agg::output"
-        );
-
 
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -522,7 +506,6 @@ rapidsmpf::streaming::Node final_groupby_agg(
     auto chunk_stream = chunk.stream();
     auto table = chunk.table_view();
 
-    rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "final_groupby_agg::input");
     std::unique_ptr<cudf::table> local_result{nullptr};
     if (!table.is_empty()) {
         auto grouper = cudf::groupby::groupby(
@@ -648,7 +631,6 @@ rapidsmpf::streaming::Node sort_by(
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto table = chunk.table_view();
-    rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "sort_by::input");
     auto result = rapidsmpf::streaming::to_message(
         0,
         std::make_unique<rapidsmpf::streaming::TableChunk>(

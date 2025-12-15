@@ -13,7 +13,10 @@ if(NOT RAPIDSMPF_HAVE_STREAMING)
   message(FATAL_ERROR "Streaming NDSH benchmarks require streaming support")
 endif()
 
-add_library(rapidsmpfndsh concatenate.cpp join.cpp utils.cpp)
+add_library(
+  rapidsmpfndsh bloom_filter.cpp bloom_filter_impl.cu concatenate.cpp groupby.cpp join.cpp
+                parquet_writer.cpp sort.cpp utils.cpp
+)
 
 set_target_properties(
   rapidsmpfndsh
@@ -36,7 +39,9 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-foreach(query IN ITEMS q04 q09)
+set(RAPIDSMPFNDSH_QUERIES q01 q03 q04 q09)
+
+foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
   add_executable(${query} "${query}.cpp")
   set_target_properties(
     ${query}
@@ -62,7 +67,7 @@ install(
   EXCLUDE_FROM_ALL
 )
 install(
-  TARGETS q04 q09
+  TARGETS ${RAPIDSMPFNDSH_QUERIES}
   COMPONENT benchmarking
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
