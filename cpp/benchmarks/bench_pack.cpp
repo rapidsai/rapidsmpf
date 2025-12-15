@@ -289,6 +289,11 @@ static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
  * The bounce buffer size is set to max(1MB, table_size / 10).
  */
 static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
     auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
     constexpr std::size_t table_size_bytes = 1024 * MB;
 
