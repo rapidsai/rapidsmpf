@@ -14,8 +14,6 @@ export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
-ls -lh .
-
 # Ensure that benchmarks are runnable
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_shuffle -m cuda
