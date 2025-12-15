@@ -176,7 +176,7 @@ if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     ensureCMakeRan
     echo "building librapidsmpf..."
     cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG} \
-          -DCMAKE_CUDA_ARCHITECTURES="${CUDF_CMAKE_CUDA_ARCHITECTURES}"
+          -DCMAKE_CUDA_ARCHITECTURES="${RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES}"
     if [[ ${INSTALL_TARGET} != "" ]]; then
         echo "installing librapidsmpf..."
         cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
