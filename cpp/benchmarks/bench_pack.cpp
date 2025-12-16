@@ -206,7 +206,8 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::chunked_pack pinned memory
  */
 static void BM_ChunkedPack_pinned(benchmark::State& state) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
+    /*     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -227,7 +228,7 @@ static void BM_ChunkedPack_pinned(benchmark::State& state) {
 
     run_chunked_pack(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    );
+    ); */
 }
 
 // Custom argument generator for the benchmark
@@ -285,7 +286,8 @@ static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
  * and keeping table size fixed at 1GB
  */
 static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
+    /* if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -303,7 +305,7 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
 
     run_chunked_pack(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    );
+    ); */
 }
 
 // Custom argument generator for the benchmark
