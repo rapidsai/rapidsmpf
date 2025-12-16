@@ -26,7 +26,7 @@ project(
 # gcc>=14. We can remove this once we upgrade to a newer sccache version.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-find_package(RAPIDSMPF "${RAPIDS_VERSION}")
+find_package(rapidsmpf "${RAPIDS_VERSION}")
 
 if(RAPIDSMPF_FOUND)
   return()
