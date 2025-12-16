@@ -56,6 +56,10 @@ function hasArg {
     (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
 }
 
+function buildAll {
+    ! hasArg librapidsmpf && ! hasArg rapidsmpf
+}
+
 function cmakeArgs {
     # Check for multiple cmake args options
     if [[ $(echo "$ARGS" | { grep -Eo "\-\-cmake\-args" || true; } | wc -l ) -gt 1 ]]; then
