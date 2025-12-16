@@ -85,7 +85,8 @@ static void BM_Pack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::pack with pinned memory
  */
 static void BM_Pack_pinned(benchmark::State& state) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
+    /* if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -101,7 +102,7 @@ static void BM_Pack_pinned(benchmark::State& state) {
     };
     rapidsmpf::PinnedMemoryResource pinned_mr;
 
-    run_pack(state, table_size_mb, pool_mr, pinned_mr, stream);
+    run_pack(state, table_size_mb, pool_mr, pinned_mr, stream); */
 }
 
 /**
