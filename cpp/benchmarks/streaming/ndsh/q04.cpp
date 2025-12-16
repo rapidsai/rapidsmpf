@@ -19,9 +19,11 @@
 #include <cudf/ast/expressions.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/context.hpp>
+#include <cudf/groupby.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/scalar/scalar.hpp>
+#include <cudf/sorting.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -42,7 +44,6 @@
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
-#include "sort.hpp"
 #include "utils.hpp"
 
 namespace {
@@ -60,13 +61,78 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
     return requests;
 }
 
-std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
-    auto requests = std::vector<rapidsmpf::ndsh::groupby_request>();
-    std::vector<std::function<std::unique_ptr<cudf::groupby_aggregation>()>> aggs;
-    // sum(count(*))
-    aggs.emplace_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>);
-    requests.emplace_back(1, std::move(aggs));
-    return requests;
+/* Perform final groupby aggregation and sort.
+
+Since the cardinality of o_orderpriority is very low, the chunkwise groupby
+produces a set of small tables that fits comfortably in memory. We can perform
+regular cudf groupby and sort operations instead of streaming versions.
+
+Input table:
+    - o_orderpriority
+    - order_count (partial counts from chunkwise groupby)
+
+Output table:
+    - o_orderpriority (sorted ascending)
+    - order_count (sum of partial counts)
+*/
+rapidsmpf::streaming::Node final_groupby_and_sort(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    auto msg = co_await ch_in->receive();
+    RAPIDSMPF_EXPECTS(
+        (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
+    );
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto stream = chunk.stream();
+    auto mr = ctx->br()->device_mr();
+    auto table = chunk.table_view();
+
+    // Perform groupby sum aggregation
+    auto grouper = cudf::groupby::groupby(
+        table.select({0}), cudf::null_policy::INCLUDE, cudf::sorted::NO
+    );
+    std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+    aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+    std::vector<cudf::groupby::aggregation_request> requests;
+    requests.push_back(
+        cudf::groupby::aggregation_request{
+            .values = table.column(1), .aggregations = std::move(aggs)
+        }
+    );
+    auto [keys, aggregated] = grouper.aggregate(requests, stream, mr);
+
+    // Build result table
+    auto result = keys->release();
+    for (auto&& a : aggregated) {
+        std::ranges::move(a.results, std::back_inserter(result));
+    }
+    std::ignore = std::move(chunk);
+    auto grouped_table = std::make_unique<cudf::table>(std::move(result));
+
+    // Sort by o_orderpriority ascending
+    auto sorted_table = cudf::sort_by_key(
+        grouped_table->view(),
+        grouped_table->view().select({0}),
+        {cudf::order::ASCENDING},
+        {cudf::null_order::BEFORE},
+        stream,
+        mr
+    );
+
+    co_await ch_out->send(
+        rapidsmpf::streaming::to_message(
+            msg.sequence_number(),
+            std::make_unique<rapidsmpf::streaming::TableChunk>(
+                std::move(sorted_table), stream
+            )
+        )
+    );
+    co_await ch_out->drain(ctx->executor());
 }
 
 /* Select the columns after the join
@@ -498,28 +564,9 @@ int main(int argc, char** argv) {
                 );
             }
             if (ctx->comm()->rank() == 0) {
-                auto final_groupby_output = ctx->create_channel();
-                nodes.push_back(
-                    rapidsmpf::ndsh::chunkwise_group_by(
-                        ctx,
-                        final_groupby_input,
-                        final_groupby_output,
-                        {0},
-                        final_groupby_requests(),
-                        cudf::null_policy::INCLUDE
-                    )
-                );
                 auto sorted_output = ctx->create_channel();
                 nodes.push_back(
-                    rapidsmpf::ndsh::chunkwise_sort_by(
-                        ctx,
-                        final_groupby_output,
-                        sorted_output,
-                        {0},
-                        {0, 1},
-                        {cudf::order::ASCENDING},
-                        {cudf::null_order::BEFORE}
-                    )
+                    final_groupby_and_sort(ctx, final_groupby_input, sorted_output)
                 );
                 nodes.push_back(
                     rapidsmpf::ndsh::write_parquet(
