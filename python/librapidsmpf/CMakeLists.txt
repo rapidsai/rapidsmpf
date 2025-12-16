@@ -28,11 +28,11 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 find_package(rapidsmpf "${RAPIDS_VERSION}")
 
-if(RAPIDSMPF_FOUND)
+if(rapidsmpf_FOUND)
   return()
 endif()
 
-unset(RAPIDSMPF_FOUND)
+unset(rapidsmpf_FOUND)
 
 set(CUDA_STATIC_RUNTIME ON)
 add_subdirectory(../../cpp librapidsmpf)
