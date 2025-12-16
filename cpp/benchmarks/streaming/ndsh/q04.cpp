@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <functional>
@@ -19,7 +20,9 @@
 #include <cudf/ast/expressions.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/context.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/groupby.hpp>
+#include <cudf/hashing.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -40,6 +43,7 @@
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
+#include "bloom_filter.hpp"
 #include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
@@ -428,6 +432,70 @@ rapidsmpf::streaming::Node filter_lineitem(
     co_await ch_out->drain(ctx->executor());
 }
 
+[[maybe_unused]]
+rapidsmpf::streaming::Node fanout_bounded(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch1_out,
+    std::vector<cudf::size_type> ch1_cols,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch2_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch1_out, ch2_out};
+
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        // Here, we know that copying ch1_cols (a single col) is better than copying
+        // ch2_cols (the whole table)
+        std::vector<coro::task<bool>> tasks;
+        if (!ch1_out->is_shutdown()) {
+            auto msg1 = rapidsmpf::streaming::to_message(
+                msg.sequence_number(),
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(
+                        chunk.table_view().select(ch1_cols),
+                        chunk.stream(),
+                        ctx->br()->device_mr()
+                    ),
+                    chunk.stream()
+                )
+            );
+            tasks.push_back(ch1_out->send(std::move(msg1)));
+        }
+        if (!ch2_out->is_shutdown()) {
+            // TODO: We know here that ch2 wants the whole table.
+            tasks.push_back(ch2_out->send(
+                rapidsmpf::streaming::to_message(
+                    msg.sequence_number(),
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(std::move(chunk))
+                )
+            ));
+        }
+        if (!std::ranges::any_of(
+                rapidsmpf::streaming::coro_results(
+                    co_await coro::when_all(std::move(tasks))
+                ),
+                std::identity{}
+            ))
+        {
+            ctx->comm()->logger().print("Breaking after ", msg.sequence_number());
+            break;
+        };
+    }
+
+    rapidsmpf::streaming::coro_results(
+        co_await coro::when_all(
+            ch1_out->drain(ctx->executor()), ch2_out->drain(ctx->executor())
+        )
+    );
+}
+
 }  // namespace
 
 /**
@@ -475,6 +543,13 @@ int main(int argc, char** argv) {
     std::string output_path = arguments.output_file;
     std::vector<double> timings;
 
+    int l2size;
+    int device;
+    RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
+    RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
+    auto const num_filter_blocks = rapidsmpf::ndsh::BloomFilter::fitting_num_blocks(
+        static_cast<std::size_t>(l2size)
+    );
 
     for (int i = 0; i < arguments.num_iterations; i++) {
         rapidsmpf::OpID op_id{0};
@@ -515,13 +590,45 @@ int main(int argc, char** argv) {
                 ctx, order, 4, arguments.num_rows_per_chunk, arguments.input_directory
             ));
 
+            // Fanout filtered orders: one for bloom filter, one for join
+            auto bloom_filter_input = ctx->create_channel();
+            auto orders_for_join = ctx->create_channel();
+            nodes.push_back(
+                fanout_bounded(ctx, order, bloom_filter_input, {0}, orders_for_join)
+            );
+
+            // Build bloom filter from filtered orders' o_orderkey
+            auto bloom_filter_output = ctx->create_channel();
+            nodes.push_back(
+                rapidsmpf::ndsh::build_bloom_filter(
+                    ctx,
+                    bloom_filter_input,
+                    bloom_filter_output,
+                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
+                    cudf::DEFAULT_HASH_SEED,
+                    num_filter_blocks
+                )
+            );
+
+            // Apply bloom filter to filtered lineitem before shuffling
+            auto bloom_filtered_lineitem = ctx->create_channel();
+            nodes.push_back(
+                rapidsmpf::ndsh::apply_bloom_filter(
+                    ctx,
+                    bloom_filter_output,
+                    filtered_lineitem,
+                    bloom_filtered_lineitem,
+                    {0}
+                )
+            );
+
             // TODO: configurable
             std::uint32_t num_partitions = 16;
 
             nodes.push_back(
                 rapidsmpf::ndsh::shuffle(
                     ctx,
-                    filtered_lineitem,
+                    bloom_filtered_lineitem,
                     filtered_lineitem_shuffled,
                     {0},
                     num_partitions,
@@ -534,7 +641,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(
                         ctx,
-                        order,
+                        orders_for_join,
                         filtered_order_shuffled,
                         {0},
                         num_partitions,
@@ -556,7 +663,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(
                     rapidsmpf::ndsh::left_semi_join_broadcast_left(
                         ctx,
-                        order,
+                        orders_for_join,
                         filtered_lineitem_shuffled,
                         orders_x_lineitem,
                         {0},
