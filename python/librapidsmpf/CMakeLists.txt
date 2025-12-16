@@ -13,7 +13,7 @@ rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
 
-rapids_cuda_init_architectures(librapidsmpf)
+rapids_cuda_init_architectures(librapidsmpf-python)
 
 project(
   librapidsmpf-python
