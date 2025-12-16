@@ -28,9 +28,9 @@ constexpr std::size_t MB = 1024 * 1024;
 std::string driver_info() {
     auto async_alloc_supported = rmm::detail::runtime_async_alloc::is_supported();
     int cuda_driver_version{};
-    auto driver_result = cudaDriverGetVersion(&cuda_driver_version);
+    cudaDriverGetVersion(&cuda_driver_version);
     int cuda_runtime_version{};
-    auto runtime_result = cudaRuntimeGetVersion(&cuda_runtime_version);
+    cudaRuntimeGetVersion(&cuda_runtime_version);
     return "async_alloc: " + std::to_string(async_alloc_supported)
            + " driver: " + std::to_string(cuda_driver_version)
            + " rt: " + std::to_string(cuda_runtime_version);
