@@ -38,8 +38,7 @@ cuda::memory_pool_properties get_memory_pool_properties() {
         .release_threshold = std::numeric_limits<size_t>::max(),
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
-        .allocation_handle_type =
-            cuda::cudaMemAllocationHandleType::cudaMemHandleTypeNone
+        .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone
     };
 }
 #else
