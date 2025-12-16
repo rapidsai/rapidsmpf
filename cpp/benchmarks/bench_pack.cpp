@@ -25,17 +25,6 @@
 
 constexpr std::size_t MB = 1024 * 1024;
 
-std::string driver_info() {
-    auto async_alloc_supported = rmm::detail::runtime_async_alloc::is_supported();
-    int cuda_driver_version{};
-    auto driver_result = cudaDriverGetVersion(&cuda_driver_version);
-    int cuda_runtime_version{};
-    auto runtime_result = cudaRuntimeGetVersion(&cuda_runtime_version);
-    return "async_alloc: " + std::to_string(async_alloc_supported)
-           + " driver: " + std::to_string(cuda_driver_version)
-           + " rt: " + std::to_string(cuda_runtime_version);
-}
-
 /**
  * @brief Runs the cudf::pack benchmark
  * @param state The benchmark state
@@ -96,26 +85,23 @@ static void BM_Pack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::pack with pinned memory
  */
 static void BM_Pack_pinned(benchmark::State& state) {
-    state.SkipWithMessage(driver_info());
-    return;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
 
-    // if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-    //     state.SkipWithMessage("Pinned memory resources are not supported");
-    //     return;
-    // }
+    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
 
-    // auto const table_size_mb = static_cast<std::size_t>(state.range(0));
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
 
-    // rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    // Create memory resources
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+    rapidsmpf::PinnedMemoryResource pinned_mr;
 
-    // // Create memory resources
-    // rmm::mr::cuda_async_memory_resource cuda_mr;
-    // rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
-    //     cuda_mr, rmm::percent_of_free_device_memory(40)
-    // };
-    // rapidsmpf::PinnedMemoryResource pinned_mr;
-
-    // run_pack(state, table_size_mb, pool_mr, pinned_mr, stream);
+    run_pack(state, table_size_mb, pool_mr, pinned_mr, stream);
 }
 
 /**
@@ -219,31 +205,28 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::chunked_pack pinned memory
  */
 static void BM_ChunkedPack_pinned(benchmark::State& state) {
-    state.SkipWithMessage(driver_info());
-    return;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
 
-    // if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-    //     state.SkipWithMessage("Pinned memory resources are not supported");
-    //     return;
-    // }
+    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
+    auto const table_size_bytes = table_size_mb * MB;
 
-    // auto const table_size_mb = static_cast<std::size_t>(state.range(0));
-    // auto const table_size_bytes = table_size_mb * MB;
+    // Bounce buffer size: max(1MB, table_size / 10)
+    auto const bounce_buffer_size = std::max(MB, table_size_bytes / 10);
 
-    // // Bounce buffer size: max(1MB, table_size / 10)
-    // auto const bounce_buffer_size = std::max(MB, table_size_bytes / 10);
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
 
-    // rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+    rapidsmpf::PinnedMemoryResource pinned_mr;
 
-    // rmm::mr::cuda_async_memory_resource cuda_mr;
-    // rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
-    //     cuda_mr, rmm::percent_of_free_device_memory(40)
-    // };
-    // rapidsmpf::PinnedMemoryResource pinned_mr;
-
-    // run_chunked_pack(
-    //     state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    // );
+    run_chunked_pack(
+        state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
+    );
 }
 
 // Custom argument generator for the benchmark
@@ -301,28 +284,25 @@ static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
  * and keeping table size fixed at 1GB
  */
 static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
-    state.SkipWithMessage(driver_info());
-    return;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
 
-    // if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-    //     state.SkipWithMessage("Pinned memory resources are not supported");
-    //     return;
-    // }
+    auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
+    constexpr std::size_t table_size_bytes = 1024 * MB;
 
-    // auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
-    // constexpr std::size_t table_size_bytes = 1024 * MB;
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
 
-    // rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+    rapidsmpf::PinnedMemoryResource pinned_mr;
 
-    // rmm::mr::cuda_async_memory_resource cuda_mr;
-    // rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
-    //     cuda_mr, rmm::percent_of_free_device_memory(40)
-    // };
-    // rapidsmpf::PinnedMemoryResource pinned_mr;
-
-    // run_chunked_pack(
-    //     state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    // );
+    run_chunked_pack(
+        state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
+    );
 }
 
 // Custom argument generator for the benchmark
