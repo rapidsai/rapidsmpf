@@ -57,7 +57,7 @@ function hasArg {
 }
 
 function buildAll {
-    ! hasArg librapidsmpf && ! hasArg rapidsmpf
+    ! hasArg librapidsmpf && ! hasArg rapidsmpf && ! hasArg clean
 }
 
 function cmakeArgs {
