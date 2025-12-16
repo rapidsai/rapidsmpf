@@ -19,8 +19,8 @@ function(find_and_configure_libcoro)
     GIT_REPOSITORY https://github.com/jbaldwin/libcoro
     # We need a version that includes all the following PRs:
     # https://github.com/jbaldwin/libcoro/pull/399, https://github.com/jbaldwin/libcoro/pull/400,
-    # https://github.com/jbaldwin/libcoro/pull/402
-    GIT_TAG ae8f34ea47c1cec3a42098e6b26ad2042476d31e
+    # https://github.com/jbaldwin/libcoro/pull/402, https://github.com/jbaldwin/libcoro/pull/423
+    GIT_TAG f8dd9f744c7e5e00fa8df6aa79f8dfbd573717fd
     GIT_SHALLOW FALSE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"

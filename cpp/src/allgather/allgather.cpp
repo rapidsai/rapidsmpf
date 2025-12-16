@@ -18,6 +18,8 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#include "rapidsmpf/nvtx.hpp"
+
 namespace rapidsmpf::allgather {
 namespace detail {
 
@@ -402,6 +404,7 @@ AllGather::AllGather(
 }
 
 ProgressThread::ProgressState AllGather::event_loop() {
+    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("AllGather::event_loop");
     /*
      * Data flow:
      * User inserts into inserted_
