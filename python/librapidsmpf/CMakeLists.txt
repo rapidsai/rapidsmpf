@@ -16,7 +16,7 @@ include(rapids-find)
 rapids_cuda_init_architectures(librapidsmpf)
 
 project(
-  librapidsmpf
+  librapidsmpf-python
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX CUDA
 )
@@ -35,5 +35,5 @@ endif()
 unset(rapidsmpf_FOUND)
 
 set(CUDA_STATIC_RUNTIME ON)
-add_subdirectory(../../cpp librapidsmpf)
+add_subdirectory(../../cpp librapidsmpf-cpp)
 find_package(CUDAToolkit REQUIRED)
