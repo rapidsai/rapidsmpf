@@ -231,6 +231,21 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, ReserveOverflow) {
+    auto dev_mem_available = []() -> std::int64_t { return 0; };
+    BufferResource br{
+        cudf::get_current_device_resource_ref(),
+        PinnedMemoryResource::Disabled,
+        {{MemoryType::DEVICE, dev_mem_available}}
+    };
+
+    auto [reserve, overbooking] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    EXPECT_EQ(reserve2.size(), 10_KiB);
+    EXPECT_EQ(overbooking2, 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
+}
+
 class BufferResourceReserveOrFailTest : public ::testing::Test {
   protected:
     void SetUp() override {

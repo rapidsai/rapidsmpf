@@ -62,7 +62,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
         - (static_cast<std::int64_t>(reserved) + static_cast<std::int64_t>(size));
     // If negative, we are overbooking.
     std::size_t overbooking =
-        headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
+        headroom < 0 ? std::min(static_cast<std::size_t>(std::abs(headroom)), size) : 0;
     if (overbooking > 0 && !allow_overbooking) {
         // Cancel the reservation, overbooking isn't allowed.
         return {MemoryReservation(mem_type, this, 0), overbooking};
