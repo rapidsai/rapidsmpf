@@ -192,9 +192,7 @@ class MemoryAvailable_NumPartition
         total_num_partitions = std::get<1>(GetParam());
         total_num_rows = std::get<2>(GetParam());
         br = std::make_unique<rapidsmpf::BufferResource>(
-            mr(),
-            rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
-            memory_available
+            mr(), rapidsmpf::PinnedMemoryResource::Disabled, memory_available
         );
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
@@ -633,7 +631,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
-        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        rapidsmpf::PinnedMemoryResource::Disabled,
         get_memory_available_map(rapidsmpf::MemoryType::DEVICE),
         std::nullopt  // disable periodic spill check
     );
@@ -660,7 +658,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
     // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
-        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        rapidsmpf::PinnedMemoryResource::Disabled,
         get_memory_available_map(rapidsmpf::MemoryType::HOST),
         std::nullopt  // disable periodic spill check
     );
@@ -709,7 +707,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     std::int64_t device_memory_available{0};
     rapidsmpf::BufferResource br{
         mr,
-        rapidsmpf::BufferResource::PinnedMemoryResourceDisabled,
+        rapidsmpf::PinnedMemoryResource::Disabled,
         {{rapidsmpf::MemoryType::DEVICE,
           [&device_memory_available]() -> std::int64_t {
               return device_memory_available;

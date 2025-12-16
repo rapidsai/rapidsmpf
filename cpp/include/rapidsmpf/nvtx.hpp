@@ -53,25 +53,57 @@ struct rapidsmpf_domain {
         return a_reg_str;                                                      \
     }(msg)
 
-// Macro overloads of RAPIDSMPF_NVTX_FUNC_RANGE
-#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
+// implement the func range macro with a value
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL(val)              \
+    static_assert(                                                \
+        std::is_arithmetic_v<decltype(val)>,                      \
+        "Value must be integral or floating point type"           \
+    );                                                            \
+    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT(    \
+        _rapidsmpf_nvtx_range, __LINE__                           \
+    ) {                                                           \
+        nvtx3::event_attributes {                                 \
+            RAPIDSMPF_REGISTER_STRING(__func__), nvtx3::payload { \
+                convert_to_64bit(val)                             \
+            }                                                     \
+        }                                                         \
+    }
+
+// implement the func range macro without a value
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
+
+// Macro selector for 0 vs 1 arguments
+#define RAPIDSMPF_GET_MACRO_FUNC(_0, _1, NAME, ...) NAME
+
+// unwrap the arguments and call the appropriate macro
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(...)                                                                                                          \
+    RAPIDSMPF_GET_MACRO_FUNC(dummy __VA_OPT__(, ) __VA_ARGS__, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL)( \
+        __VA_ARGS__                                                                                                                                  \
+    )
 
 /**
  * @brief Convenience macro for generating an NVTX range in the `rapidsmpf` domain
  * from the lifetime of a function.
  *
- * Takes no arguments. The name of the immediately enclosing function returned by
- * `__func__` is used as the message.
+ * The name of the immediately enclosing function returned by `__func__` is used as
+ * the message.
+ *
+ * Usage:
+ * - `RAPIDSMPF_NVTX_FUNC_RANGE()` - Annotate with function name only
+ * - `RAPIDSMPF_NVTX_FUNC_RANGE(payload)` - Annotate with function name and payload
+ *
+ * The optional argument is the payload to annotate (integral or floating-point value).
  *
  * Example:
  * ```
  * void some_function(){
- *    RAPIDSMPF_NVTX_FUNC_RANGE();  // The name `some_function` is used as the message
+ *    RAPIDSMPF_NVTX_FUNC_RANGE();        // `some_function` is used as the message
+ *    RAPIDSMPF_NVTX_FUNC_RANGE(42);      // With payload
  *    ...
  * }
  * ```
  */
-#define RAPIDSMPF_NVTX_FUNC_RANGE() RAPIDSMPF_NVTX_FUNC_RANGE_IMPL()
+#define RAPIDSMPF_NVTX_FUNC_RANGE(...) RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(__VA_ARGS__)
 
 // implement the scoped range macro with a value
 #define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITH_VAL(msg, val)    \

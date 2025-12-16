@@ -55,6 +55,16 @@ namespace {
 static std::mutex output_mutex;
 
 /**
+ * @brief State of --bind-to option specification.
+ */
+enum class BindToState {
+    NotSpecified,  // Default, will be treated as "all"
+    None,  // --bind-to none
+    All,  // --bind-to all
+    Specific  // --bind-to cpu/memory/network (one or more)
+};
+
+/**
  * @brief Configuration for the rrun launcher.
  */
 struct Config {
@@ -67,9 +77,12 @@ struct Config {
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
     bool tag_output{false};  // Tag output with rank number
-    bool bind_cpu{true};  // Bind to CPU affinity (default: true)
-    bool bind_memory{true};  // Bind to NUMA memory (default: true)
-    bool bind_network{true};  // Bind to network devices (default: true)
+    bool bind_cpu{false};  // Bind to CPU affinity
+    bool bind_memory{false};  // Bind to NUMA memory
+    bool bind_network{false};  // Bind to network devices
+    BindToState bind_state{
+        BindToState::NotSpecified
+    };  // State of --bind-to specification
     std::optional<rapidsmpf::SystemTopologyInfo>
         topology;  // Discovered topology information
     std::map<int, rapidsmpf::GpuTopologyInfo const*>
@@ -328,24 +341,51 @@ Config parse_args(int argc, char* argv[]) {
             }
             std::string bind_type = argv[++i];
             if (bind_type == "none") {
+                if (cfg.bind_state == BindToState::Specific
+                    || cfg.bind_state == BindToState::All)
+                {
+                    throw std::runtime_error(
+                        "--bind-to none cannot be combined with other --bind-to options"
+                    );
+                }
+                cfg.bind_state = BindToState::None;
                 cfg.bind_cpu = false;
                 cfg.bind_memory = false;
                 cfg.bind_network = false;
             } else if (bind_type == "all") {
+                if (cfg.bind_state == BindToState::Specific
+                    || cfg.bind_state == BindToState::None)
+                {
+                    throw std::runtime_error(
+                        "--bind-to all cannot be combined with other --bind-to options"
+                    );
+                }
+                cfg.bind_state = BindToState::All;
                 cfg.bind_cpu = true;
                 cfg.bind_memory = true;
-                cfg.bind_network = true;
-            } else if (bind_type == "cpu") {
-                cfg.bind_cpu = true;
-            } else if (bind_type == "memory") {
-                cfg.bind_memory = true;
-            } else if (bind_type == "network") {
                 cfg.bind_network = true;
             } else {
-                throw std::runtime_error(
-                    "Invalid --bind-to option: " + bind_type
-                    + ". Valid options: cpu, memory, network, all, none"
-                );
+                if (cfg.bind_state == BindToState::None
+                    || cfg.bind_state == BindToState::All)
+                {
+                    throw std::runtime_error(
+                        "--bind-to " + bind_type
+                        + " cannot be combined with --bind-to none or --bind-to all"
+                    );
+                }
+                cfg.bind_state = BindToState::Specific;
+                if (bind_type == "cpu") {
+                    cfg.bind_cpu = true;
+                } else if (bind_type == "memory") {
+                    cfg.bind_memory = true;
+                } else if (bind_type == "network") {
+                    cfg.bind_network = true;
+                } else {
+                    throw std::runtime_error(
+                        "Invalid --bind-to option: " + bind_type
+                        + ". Valid options: cpu, memory, network, all, none"
+                    );
+                }
             }
         } else if (arg == "-d") {
             if (i + 1 >= argc) {
@@ -418,6 +458,13 @@ Config parse_args(int argc, char* argv[]) {
     // Generate coordination directory if not specified
     if (cfg.coord_dir.empty()) {
         cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+    }
+
+    // Default to "all" if --bind-to was not explicitly specified
+    if (cfg.bind_state == BindToState::NotSpecified) {
+        cfg.bind_cpu = true;
+        cfg.bind_memory = true;
+        cfg.bind_network = true;
     }
 
     // Discover system topology

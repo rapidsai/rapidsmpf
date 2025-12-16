@@ -38,7 +38,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                 _channel_drain_task(
                     std::move(channel), ctx, py_invoker, std::move(py_function)
                 )
@@ -75,7 +75,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                 _channel_shutdown_task(
                     std::move(channel), py_invoker, std::move(py_function)
                 )
@@ -114,7 +114,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                 _channel_send_task(
                     std::move(channel),
                     std::move(msg),
@@ -163,7 +163,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_function_empty
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                 _channel_recv_task(
                     std::move(channel),
                     msg_output,
