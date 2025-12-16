@@ -192,7 +192,7 @@ class ShufflerAsync {
     [[nodiscard]] Node finished_drain();
 
     std::shared_ptr<Context> ctx_;
-    coro::task_container<coro::thread_pool>
+    coro::task_group<coro::thread_pool>
         notifications_;  ///< Container tracking the notifications that have fired.
     Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)
     coro::latch
