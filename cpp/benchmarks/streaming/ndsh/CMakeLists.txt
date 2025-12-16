@@ -30,6 +30,8 @@ set_target_properties(
              INTERFACE_POSITION_INDEPENDENT_CODE ON
 )
 
+# cuco is not -Wsign-conversion safe
+set_source_files_properties(bloom_filter_impl.cu PROPERTIES COMPILE_OPTIONS "-Wno-sign-conversion")
 target_compile_options(
   rapidsmpfndsh PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
@@ -39,7 +41,7 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-set(RAPIDSMPFNDSH_QUERIES q01 q03 q04 q09)
+set(RAPIDSMPFNDSH_QUERIES q01 q03 q09)
 
 foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
   add_executable(${query} "${query}.cpp")
@@ -60,6 +62,7 @@ foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
                      $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
   )
 endforeach()
+
 install(
   TARGETS rapidsmpfndsh
   COMPONENT benchmarking
