@@ -61,21 +61,21 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
     return requests;
 }
 
-/* Perform final groupby aggregation and sort.
+/* Perform final groupby aggregation.
 
 Since the cardinality of o_orderpriority is very low, the chunkwise groupby
 produces a set of small tables that fits comfortably in memory. We can perform
-regular cudf groupby and sort operations instead of streaming versions.
+regular cudf groupby operations instead of streaming versions.
 
 Input table:
     - o_orderpriority
     - order_count (partial counts from chunkwise groupby)
 
 Output table:
-    - o_orderpriority (sorted ascending)
+    - o_orderpriority
     - order_count (sum of partial counts)
 */
-rapidsmpf::streaming::Node final_groupby_and_sort(
+rapidsmpf::streaming::Node final_groupby_agg(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -112,12 +112,48 @@ rapidsmpf::streaming::Node final_groupby_and_sort(
         std::ranges::move(a.results, std::back_inserter(result));
     }
     std::ignore = std::move(chunk);
-    auto grouped_table = std::make_unique<cudf::table>(std::move(result));
 
-    // Sort by o_orderpriority ascending
+    co_await ch_out->send(
+        rapidsmpf::streaming::to_message(
+            msg.sequence_number(),
+            std::make_unique<rapidsmpf::streaming::TableChunk>(
+                std::make_unique<cudf::table>(std::move(result)), stream
+            )
+        )
+    );
+    co_await ch_out->drain(ctx->executor());
+}
+
+/* Sort the grouped orders table by o_orderpriority.
+
+Input table:
+    - o_orderpriority
+    - order_count
+
+Output table:
+    - o_orderpriority (sorted ascending)
+    - order_count
+*/
+rapidsmpf::streaming::Node sort_by(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    auto msg = co_await ch_in->receive();
+    if (msg.empty()) {
+        co_return;
+    }
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto stream = chunk.stream();
+    auto mr = ctx->br()->device_mr();
+    auto table = chunk.table_view();
+
     auto sorted_table = cudf::sort_by_key(
-        grouped_table->view(),
-        grouped_table->view().select({0}),
+        table,
+        table.select({0}),
         {cudf::order::ASCENDING},
         {cudf::null_order::BEFORE},
         stream,
@@ -564,10 +600,12 @@ int main(int argc, char** argv) {
                 );
             }
             if (ctx->comm()->rank() == 0) {
-                auto sorted_output = ctx->create_channel();
+                auto final_groupby_output = ctx->create_channel();
                 nodes.push_back(
-                    final_groupby_and_sort(ctx, final_groupby_input, sorted_output)
+                    final_groupby_agg(ctx, final_groupby_input, final_groupby_output)
                 );
+                auto sorted_output = ctx->create_channel();
+                nodes.push_back(sort_by(ctx, final_groupby_output, sorted_output));
                 nodes.push_back(
                     rapidsmpf::ndsh::write_parquet(
                         ctx,
