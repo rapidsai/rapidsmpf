@@ -135,10 +135,11 @@ std::shared_ptr<streaming::Context> create_context(
 
     RAPIDSMPF_EXPECTS(
         arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),
-        "Pinned host memory is not supported on this system. CUDA 12.6 is one of the "
-        "requirements, but additional platform or driver constraints may apply. "
-        "If needed, use `--no-pinned-host-memory` to disable pinned host memory, noting "
-        "that this may significantly degrade spilling performance.",
+        "Pinned host memory is not supported on this system. "
+        "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        " is one of the requirements, but additional platform or driver constraints may "
+        "apply. If needed, use `--no-pinned-host-memory` to disable pinned host memory, "
+        "noting that this may significantly degrade spilling performance.",
         std::invalid_argument
     );
 
