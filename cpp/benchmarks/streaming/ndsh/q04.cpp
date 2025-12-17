@@ -622,9 +622,14 @@ int main(int argc, char** argv) {
                 )
             );
 
-            // TODO: configurable
+            // We unconditionally shuffle the filtered lineitem table. This is
+            // necessary to correctly handle duplicates in the left-semi join.
+            // Failing to shuffle (hash partition) the right table on the join
+            // key could allow a record to match multiple times from the
+            // multiple partitions of the right table.  TODO: configurable
+            //
+            // num_partitions
             std::uint32_t num_partitions = 16;
-
             nodes.push_back(
                 rapidsmpf::ndsh::shuffle(
                     ctx,
