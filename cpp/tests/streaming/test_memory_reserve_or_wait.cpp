@@ -127,7 +127,7 @@ TEST_F(StreamingMemoryReserveOrWait, CheckPriority) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         counter = mrow.periodic_memory_check_counter();
-        while (counter >= mrow.periodic_memory_check_counter()) {
+        while (mrow.periodic_memory_check_counter() <= counter) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -138,4 +138,75 @@ TEST_F(StreamingMemoryReserveOrWait, CheckPriority) {
     thd.join();
     EXPECT_EQ(log.log.at(0).first, 2);
     EXPECT_EQ(log.log.at(1).first, 1);
+}
+
+TEST_F(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::seconds{100}};
+
+    // Round 1: create a request, then make memory available.
+    set_mem_avail(0);
+    std::vector<Node> nodes1;
+    nodes1.push_back([](MemoryReserveOrWait& mrow) -> Node {
+        auto res = co_await mrow.reserve_or_wait(10, 0);
+        EXPECT_EQ(res.size(), 10);
+    }(mrow));
+
+    std::thread thd1(run_streaming_pipeline, std::move(nodes1));
+    while (mrow.size() < 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    set_mem_avail(20);
+    thd1.join();
+
+    // Wait until the periodic task has had time to observe "empty" and exit.
+    // (We cannot observe task completion directly, but we can at least ensure
+    // there are no pending requests.)
+    while (mrow.size() != 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Round 2: make memory unavailable again, submit a new request, then satisfy it.
+    set_mem_avail(0);
+    std::vector<Node> nodes2;
+    nodes2.push_back([](MemoryReserveOrWait& mrow) -> Node {
+        auto res = co_await mrow.reserve_or_wait(10, 0);
+        EXPECT_EQ(res.size(), 10);
+    }(mrow));
+
+    std::thread thd2(run_streaming_pipeline, std::move(nodes2));
+    while (mrow.size() < 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    set_mem_avail(20);
+    thd2.join();
+}
+
+TEST_F(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::milliseconds{50}};
+
+    // Do multiple rounds to increase the chance we hit the "task exiting" window.
+    for (int i = 0; i < 50; ++i) {
+        set_mem_avail(0);
+        std::vector<Node> nodes;
+        nodes.push_back([](MemoryReserveOrWait& mrow) -> Node {
+            auto res = co_await mrow.reserve_or_wait(10, 0);
+            EXPECT_EQ(res.size(), 10);
+        }(mrow));
+
+        std::thread thd(run_streaming_pipeline, std::move(nodes));
+
+        while (mrow.size() < 1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        set_mem_avail(20);
+        thd.join();
+    }
 }
