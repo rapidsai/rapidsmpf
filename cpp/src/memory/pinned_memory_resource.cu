@@ -100,13 +100,25 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 };
 #endif
 
-PinnedMemoryResource::PinnedMemoryResource(int numa_id)
-    : impl_(std::make_shared<PinnedMemoryResourceImpl>(numa_id)) {
+PinnedMemoryResource::PinnedMemoryResource(int numa_id) {
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "PinnedMemoryResource is not supported for CUDA versions "
         "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
     );
+
+    RAPIDSMPF_EXPECTS(
+        is_pinned_memory_resources_supported(),
+        "Pinned host memory is not supported on this system. "
+        "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        " is one of the requirements, but additional platform or driver constraints may "
+        "apply. If needed, use `PinnedMemoryResource::Disabled` to disable pinned host "
+        "memory, noting that this may significantly degrade spilling performance.",
+        std::invalid_argument
+    );
+
+
+    impl_ = std::make_unique<PinnedMemoryResourceImpl>(numa_id);
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
