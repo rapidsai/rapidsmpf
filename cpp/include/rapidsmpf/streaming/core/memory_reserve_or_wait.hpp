@@ -79,6 +79,33 @@ class MemoryReserveOrWait {
     );
 
     /**
+     * @brief Attempts to reserve memory, waits, or overbooks on timeout.
+     *
+     * This coroutine submits a memory reservation request and suspends until
+     * either sufficient memory becomes available or no progress is made within the
+     * configured timeout.
+     *
+     * If the request cannot be satisfied within the timeout, the function attempts
+     * to reserve the requested memory by allowing overbooking. This guarantees
+     * forward progress at the cost of potentially exceeding the configured memory
+     * limits.
+     *
+     * @param size Number of bytes to reserve.
+     * @param future_release_potential Estimated number of bytes the requester may release
+     * in the future, used as a heuristic when selecting which eligible request to satisfy
+     * first.
+     * @return A pair consisting of:
+     *   - A `MemoryReservation` representing the allocated memory.
+     *   - The number of bytes by which the reservation overbooked the available memory.
+     *     This value is zero if no overbooking occurred.
+     *
+     * @throws std::runtime_error If shutdown occurs before the request can be processed.
+     */
+    coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
+        std::size_t size, std::size_t future_release_potential
+    );
+
+    /**
      * @brief Returns the number of pending memory reservation requests.
      *
      * It may change concurrently as requests are added or fulfilled.

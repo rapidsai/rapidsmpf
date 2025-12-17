@@ -120,6 +120,19 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     co_return std::move(*request);
 }
 
+coro::task<std::pair<MemoryReservation, std::size_t>>
+MemoryReserveOrWait::reserve_or_wait_or_overbook(
+    std::size_t size, std::size_t future_release_potential
+) {
+    auto ret = co_await reserve_or_wait(size, future_release_potential);
+    if (ret.size() < size) {
+        co_return ctx_->br()->reserve(
+            MemoryType::DEVICE, size, /* allow_overbooking = */ true
+        );
+    }
+    co_return {std::move(ret), size};
+}
+
 std::size_t MemoryReserveOrWait::size() const {
     std::lock_guard lock(mutex_);
     return reservation_requests_.size();

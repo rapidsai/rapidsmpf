@@ -210,3 +210,15 @@ TEST_F(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
         thd.join();
     }
 }
+
+TEST_F(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
+    // Start with no available memory so the request cannot be satisfied normally.
+    set_mem_avail(0);
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::milliseconds{1}};
+        auto [res, overbooked_bytes] = co_await mrow.reserve_or_wait_or_overbook(10, 0);
+        EXPECT_EQ(res.size(), 10);
+        EXPECT_EQ(overbooked_bytes, 10);
+    }(ctx));
+}
