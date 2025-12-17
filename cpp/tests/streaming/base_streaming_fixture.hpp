@@ -12,12 +12,12 @@
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include "../environment.hpp"
-#include "rapidsmpf/memory/pinned_memory_resource.hpp"
 
 extern Environment* GlobalEnvironment;
 

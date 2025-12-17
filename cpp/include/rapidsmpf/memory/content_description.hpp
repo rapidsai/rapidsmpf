@@ -8,8 +8,7 @@
 #include <utility>
 
 #include <rapidsmpf/memory/buffer.hpp>
-
-#include "rapidsmpf/memory/memory_type.hpp"
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
