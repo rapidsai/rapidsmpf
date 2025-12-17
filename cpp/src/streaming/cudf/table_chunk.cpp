@@ -171,57 +171,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     // serialize `table_view()` into a packed_columns and then we move
                     // the packed_columns' gpu_data to a new host buffer.
 
-                    // make a reservation for packing
-                    auto [pack_res, overbooking] = br->reserve(
-                        MemoryType::DEVICE,
-                        estimated_memory_usage(table_view(), stream()),
-                        true
-                    );
-
-                    if (overbooking > 0) {
-                        // there is not enough memory to pack the table.
-                        size_t avail_dev_mem = pack_res.size() - overbooking;
-                        RAPIDSMPF_EXPECTS(
-                            avail_dev_mem > 1 << 20,
-                            "not enough device memory for the bounce buffer",
-                            std::runtime_error
-                        );
-                        auto bounce_buf = br->allocate(avail_dev_mem, stream(), pack_res);
-
-                        packed_data = std::make_unique<PackedData>(
-                            chunked_pack(table_view(), *bounce_buf, reservation)
-                        );
-                    } else {
-                        // if there is enough memory to pack the table, use `cudf::pack`
-                        auto packed_columns =
-                            cudf::pack(table_view(), stream(), br->device_mr());
-                        // clear the reservation as we are done with it.
-                        pack_res.clear();
-                        packed_data = std::make_unique<PackedData>(
-                            std::move(packed_columns.metadata),
-                            br->move(std::move(packed_columns.gpu_data), stream())
-                        );
-
-                        // Handle the case where `cudf::pack` allocates slightly more than
-                        // the input size. This can occur because cudf uses aligned
-                        // allocations, which may exceed the requested size. To
-                        // accommodate this, we allow some wiggle room.
-                        if (packed_data->data->size > reservation.size()) {
-                            if (packed_data->data->size
-                                <= reservation.size()
-                                       + total_packing_wiggle_room(table_view()))
-                            {
-                                reservation =
-                                    br->reserve(
-                                          MemoryType::HOST, packed_data->data->size, true
-                                    )
-                                        .first;
-                            }
-                        }
-                        // finally copy the packed data device buffer to HOST memory
-                        packed_data->data =
-                            br->move(std::move(packed_data->data), reservation);
-                    }
+                    packed_data = pack_to_host(table_view(), stream(), reservation);
                 }
                 return TableChunk(std::move(packed_data));
             }

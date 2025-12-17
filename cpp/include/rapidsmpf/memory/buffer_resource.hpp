@@ -211,7 +211,9 @@ class BufferResource {
                 return std::move(res);
             }
         }
-        RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+        RAPIDSMPF_FAIL(
+            "failed to reserve memory " + std::to_string(size), std::runtime_error
+        );
     }
 
     /**

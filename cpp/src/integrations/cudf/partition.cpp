@@ -272,10 +272,11 @@ PackedData chunked_pack(
     cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
 ) {
     RAPIDSMPF_EXPECTS(
-        bounce_buf.mem_type() == MemoryType::DEVICE,
-        "bounce buffer must be in device memory",
+        is_device_accessible(bounce_buf.mem_type()),
+        "bounce buffer is not device accessible",
         std::invalid_argument
     );
+
     // all copies will be done on the bounce buffer's stream
     auto stream = bounce_buf.stream();
     auto* br = data_res.br();
@@ -314,6 +315,72 @@ PackedData chunked_pack(
     });
 
     return {packer.build_metadata(), std::move(data_buf)};
+}
+
+std::unique_ptr<PackedData> pack_to_host(
+    cudf::table_view const& table,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& host_data_res,
+    float chunked_pack_buffer_size_factor,
+    std::span<MemoryType const> cpack_buf_mem_types
+) {
+    RAPIDSMPF_EXPECTS(
+        is_host_accessible(host_data_res.mem_type()),
+        "memory reservation is not host accessible",
+        std::invalid_argument
+    );
+
+    auto* br = host_data_res.br();
+
+    size_t est_table_size = estimated_memory_usage(table, stream);
+    {
+        // make a device reservation for packing
+        auto [pack_res, overbooking] =
+            br->reserve(MemoryType::DEVICE, est_table_size, true);
+
+        if (overbooking == 0) {
+            // if there is enough memory to pack the table, use `cudf::pack`
+            auto packed_columns = cudf::pack(table, stream, br->device_mr());
+            // clear the reservation as we are done with it.
+            pack_res.clear();
+
+            // note that this is a device buffer, so we need to move it to host memory
+            auto packed_data = std::make_unique<PackedData>(
+                std::move(packed_columns.metadata),
+                br->move(std::move(packed_columns.gpu_data), stream)
+            );
+
+            // Handle the case where `cudf::pack` allocates slightly more than
+            // the input size. This can occur because cudf uses aligned
+            // allocations, which may exceed the requested size. To
+            // accommodate this, we allow some wiggle room.
+            if (packed_data->data->size > host_data_res.size()) {
+                if (packed_data->data->size
+                    <= host_data_res.size() + total_packing_wiggle_room(table))
+                {
+                    host_data_res =
+                        br->reserve(
+                              host_data_res.mem_type(), packed_data->data->size, true
+                        )
+                            .first;
+                }
+            }
+
+            // finally copy the packed data device buffer to HOST memory
+            packed_data->data = br->move(std::move(packed_data->data), host_data_res);
+            return packed_data;
+        }
+    }
+
+    // there is not enough memory to use cudf::pack. Use chunked_pack.
+    auto chunk_size = std::max(
+        static_cast<size_t>(est_table_size * chunked_pack_buffer_size_factor),
+        cudf_chunked_pack_min_buffer_size
+    );
+    auto bounce_res = br->reserve_or_fail(chunk_size, cpack_buf_mem_types);
+    auto bounce_buf = br->allocate(chunk_size, stream, bounce_res);
+
+    return std::make_unique<PackedData>(chunked_pack(table, *bounce_buf, host_data_res));
 }
 
 }  // namespace rapidsmpf

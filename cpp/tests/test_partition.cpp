@@ -19,6 +19,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -149,13 +150,26 @@ class NumOfRows : public ::testing::TestWithParam<std::tuple<int, MemoryType>> {
             }
         }
 
+        if (rapidsmpf::is_pinned_memory_resources_supported()) {
+            pinned_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>();
+        } else {
+            pinned_mr = PinnedMemoryResource::Disabled;
+        }
+
+        if (mem_type == MemoryType::PINNED_HOST
+            && pinned_mr == PinnedMemoryResource::Disabled)
+        {
+            GTEST_SKIP() << "MemoryType::PINNED_HOST isn't supported on the system.";
+        }
+
         br = std::make_unique<BufferResource>(
-            cudf::get_current_device_resource_ref(), memory_available
+            cudf::get_current_device_resource_ref(), pinned_mr, memory_available
         );
         stream = cudf::get_default_stream();
     }
 
     std::unique_ptr<BufferResource> br;
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> pinned_mr;
     rmm::cuda_stream_view stream;
 };
 
@@ -164,8 +178,8 @@ INSTANTIATE_TEST_SUITE_P(
     ChunkedPack,
     NumOfRows,
     ::testing::Combine(
-        ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),
-        ::testing::ValuesIn(MEMORY_TYPES)
+        ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),  // num rows
+        ::testing::ValuesIn(MEMORY_TYPES)  // output memory type
     ),
     [](const testing::TestParamInfo<NumOfRows::ParamType>& info) {
         return "nrows_" + std::to_string(std::get<0>(info.param)) + "_type_"
@@ -176,13 +190,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(NumOfRows, chunked_pack) {
     auto const [num_rows, mem_type] = GetParam();
     std::int64_t const seed = 42;
-
     cudf::table input_table = random_table_with_index(seed, num_rows, 0, 10);
-
-    auto split_result =
-        rapidsmpf::split_and_pack(input_table, {}, stream, br.get());
-    ASSERT_EQ(split_result.size(), 1);
-    auto& split_packed = split_result.at(0);
 
     auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
     auto bounce_buf = br->allocate(chunk_size, stream, bounce_buf_res);
@@ -190,31 +198,99 @@ TEST_P(NumOfRows, chunked_pack) {
     auto data_res =
         br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
-    // Get result from chunked_pack
     auto chunked_packed = rapidsmpf::chunked_pack(input_table, *bounce_buf, data_res);
 
     EXPECT_EQ(mem_type, chunked_packed.data->mem_type());
 
-    // Unpack both and compare the resulting tables
-    cudf::packed_columns split_columns{
-        std::move(split_packed.metadata),
-        std::make_unique<rmm::device_buffer>(
-            split_packed.data->data(), split_packed.data->size, stream, br->device_mr()
-        )
-    };
-    cudf::packed_columns chunked_columns{
-        std::move(chunked_packed.metadata),
-        std::make_unique<rmm::device_buffer>(
-            chunked_packed.data->data(),
-            chunked_packed.data->size,
-            stream,
-            br->device_mr()
-        )
-    };
-
+    auto to_device = std::make_unique<rmm::device_buffer>(
+        chunked_packed.data->data(), chunked_packed.data->size, stream, br->device_mr()
+    );
     stream.synchronize();
 
-    auto split_table = cudf::unpack(split_columns);
-    auto chunked_table = cudf::unpack(chunked_columns);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(split_table, chunked_table);
+    cudf::packed_columns packed_columns(
+        std::move(chunked_packed.metadata), std::move(to_device)
+    );
+    auto unpacked_table = cudf::unpack(packed_columns);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(input_table, unpacked_table);
+}
+
+class PackToHost : public ::testing::TestWithParam<std::tuple<int, MemoryType>> {
+  protected:
+    void SetUp() override {
+        auto mem_type = std::get<1>(GetParam());
+
+        std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available;
+        memory_available[rapidsmpf::MemoryType::DEVICE] = []() {
+            return 1 << 20;
+        };  // 1 MiB
+
+        if (rapidsmpf::is_pinned_memory_resources_supported()) {
+            pinned_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>();
+        } else {
+            pinned_mr = PinnedMemoryResource::Disabled;
+        }
+
+        if (mem_type == MemoryType::PINNED_HOST
+            && pinned_mr == PinnedMemoryResource::Disabled)
+        {
+            GTEST_SKIP() << "MemoryType::PINNED_HOST isn't supported on the system.";
+        }
+
+        br = std::make_unique<BufferResource>(
+            cudf::get_current_device_resource_ref(), pinned_mr, memory_available
+        );
+        stream = cudf::get_default_stream();
+    }
+
+    std::int64_t const seed = 42;
+    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> pinned_mr;
+    rmm::cuda_stream_view stream;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PackToHost,
+    PackToHost,
+    ::testing::Combine(
+        ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),  // num rows
+        ::testing::ValuesIn(SPILL_TARGET_MEMORY_TYPES)  // output memory type
+    ),
+    [](const testing::TestParamInfo<PackToHost::ParamType>& info) {
+        return "nrows_" + std::to_string(std::get<0>(info.param)) + "_type_"
+               + MEMORY_TYPE_NAMES[static_cast<std::size_t>(std::get<1>(info.param))];
+    }
+);
+
+TEST_P(PackToHost, pack_to_host) {
+    auto const [num_rows, mem_type] = GetParam();
+    std::int64_t const seed = 42;
+    cudf::table input_table = random_table_with_index(seed, num_rows, 0, 10);
+
+    auto data_res =
+        br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
+
+    std::unique_ptr<PackedData> packed_data;
+    if (rapidsmpf::is_pinned_memory_resources_supported()) {
+        packed_data = rapidsmpf::pack_to_host(input_table, stream, data_res);
+    } else {
+        // only try to use device memory for the bounce buffer since pinned memory is not
+        // supported. Also force to use a 1MB bounce buffer since device memory is limited
+        // to 1MB.
+        std::array<MemoryType, 1> cpack_buf_mem_types = {MemoryType::DEVICE};
+        packed_data = rapidsmpf::pack_to_host(
+            input_table, stream, data_res, 0.001, cpack_buf_mem_types
+        );
+    }
+    EXPECT_EQ(mem_type, packed_data->data->mem_type());
+
+    auto to_device = std::make_unique<rmm::device_buffer>(
+        packed_data->data->data(), packed_data->data->size, stream, br->device_mr()
+    );
+    stream.synchronize();
+
+    cudf::packed_columns packed_columns(
+        std::move(packed_data->metadata), std::move(to_device)
+    );
+    auto unpacked_table = cudf::unpack(packed_columns);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(input_table, unpacked_table);
 }
