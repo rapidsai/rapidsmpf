@@ -71,3 +71,10 @@ regex = "(?P<value>.*)"
 
 [project.entry-points."cmake.prefix"]
 librapidsmpf = "librapidsmpf"
+
+[tool.pydistcheck]
+select = [
+    "distro-too-large-compressed",
+]
+output_file_size_precision = 4
+max_allowed_size_compressed = '75M'
