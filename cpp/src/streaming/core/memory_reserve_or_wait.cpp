@@ -227,7 +227,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         if (reservation_requests_.empty()) {
             co_return;
         }
-        // The set is already sorted by size (ascending) so we pick the beginning.
+        // The set is sorted by size (ascending). For equal sizes, the request with the
+        // smallest sequence number comes first.
         Request request =
             reservation_requests_.extract(reservation_requests_.begin()).value();
         lock.unlock();
