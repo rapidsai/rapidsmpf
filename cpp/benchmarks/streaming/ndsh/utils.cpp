@@ -133,9 +133,20 @@ std::shared_ptr<streaming::Context> create_context(
     }
     auto statistics = std::make_shared<Statistics>(mr);
 
+    RAPIDSMPF_EXPECTS(
+        arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),
+        "Pinned host memory is not supported on this system. "
+        "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        " is one of the requirements, but additional platform or driver constraints may "
+        "apply. If needed, use `--no-pinned-host-memory` to disable pinned host memory, "
+        "noting that this may significantly degrade spilling performance.",
+        std::invalid_argument
+    );
+
     auto br = std::make_shared<BufferResource>(
         mr,
-        PinnedMemoryResource::Disabled,
+        arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
+                                        : std::make_shared<PinnedMemoryResource>(),
         std::move(memory_available),
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(
@@ -210,6 +221,8 @@ ProgramOptions parse_arguments(int argc, char** argv) {
                     ? std::to_string(options.spill_device_limit.value())
                     : "None")
             << ")\n"
+            << "  --no-pinned-host-memory      Disable pinned host memory (default: "
+            << (options.no_pinned_host_memory ? "true" : "false") << ")\n"
             << "  --periodic-spill <n>         Duration in milliseconds between periodic "
                "spilling checks (default: "
             << (options.periodic_spill.has_value()
@@ -239,6 +252,7 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         {"num-streams", required_argument, nullptr, 9},
         {"comm-type", required_argument, nullptr, 10},
         {"periodic-spill", required_argument, nullptr, 11},
+        {"no-pinned-host-memory", no_argument, nullptr, 12},
         {nullptr, 0, nullptr, 0}
     };
     // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
@@ -364,6 +378,9 @@ ProgramOptions parse_arguments(int argc, char** argv) {
                 options.periodic_spill = std::chrono::milliseconds(val);
                 break;
             }
+        case 12:
+            options.no_pinned_host_memory = true;
+            break;
         case '?':
             if (optopt == 0 && optind > 1) {
                 std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
