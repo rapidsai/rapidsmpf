@@ -164,6 +164,219 @@ std::pair<std::int64_t, std::int64_t> compute_split_range(
 }
 
 /**
+ * @brief Result of chunk assignment containing work distribution for producers.
+ */
+struct ChunkAssignment {
+    std::vector<std::vector<ChunkDesc>> chunks_per_producer;
+    bool rank_has_assigned_work;
+};
+
+/**
+ * @brief Assign chunks using standard file distribution (at least one file per rank).
+ *
+ * Distributes files evenly across ranks, then splits each file's rows into chunks.
+ *
+ * @param files List of all file paths.
+ * @param rank Current rank index.
+ * @param size Total number of ranks.
+ * @param num_producers Number of producer tasks.
+ * @param num_rows_per_chunk Target number of rows per chunk.
+ * @param options Parquet reader options (for skip_rows/num_rows).
+ *
+ * @return ChunkAssignment with chunks distributed across producers.
+ */
+ChunkAssignment assign_chunks_standard(
+    std::vector<std::string> const& files,
+    std::size_t rank,
+    std::size_t size,
+    std::size_t num_producers,
+    cudf::size_type num_rows_per_chunk,
+    cudf::io::parquet_reader_options const& options
+) {
+    std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
+    std::uint64_t sequence_number = 0;
+
+    // Distribute files evenly across ranks
+    std::size_t files_per_rank =
+        files.size() / size + ((rank < (files.size() % size)) ? 1 : 0);
+    std::size_t file_offset =
+        rank * (files.size() / size) + std::min(rank, files.size() % size);
+    auto local_files = std::vector(
+        files.begin() + static_cast<std::ptrdiff_t>(file_offset),
+        files.begin() + static_cast<std::ptrdiff_t>(file_offset + files_per_rank)
+    );
+    bool rank_has_assigned_work = !local_files.empty();
+    auto const num_files = local_files.size();
+
+    // Estimate number of rows per file
+    std::size_t files_per_chunk = 1;
+    if (files.size() > 1) {
+        auto nrows =
+            cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
+                .num_rows();
+        files_per_chunk = static_cast<std::size_t>(
+            std::max(num_rows_per_chunk / nrows, std::int64_t{1})
+        );
+    }
+    auto to_skip = options.get_skip_rows();
+    auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
+    for (std::size_t file_offset = 0; file_offset < num_files;
+         file_offset += files_per_chunk)
+    {
+        std::vector<std::string> chunk_files;
+        auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
+        std::ranges::copy_n(
+            local_files.begin() + static_cast<std::int64_t>(file_offset),
+            static_cast<std::int64_t>(nchunk_files),
+            std::back_inserter(chunk_files)
+        );
+        auto source = cudf::io::source_info(chunk_files);
+        // Must read [skip_rows, skip_rows + num_rows) from full fileset
+        auto chunk_rows = cudf::io::read_parquet_metadata(source).num_rows() - to_skip;
+        auto chunk_skip_rows = to_skip;
+        // If the chunk is larger than the number rows we need to skip, on the next
+        // iteration we don't need to skip any more rows, otherwise we must skip the
+        // remainder.
+        to_skip = std::max(std::int64_t{0}, -chunk_rows);
+        while (chunk_rows > 0 && to_read > 0) {
+            auto rows_read = std::min(
+                {static_cast<std::int64_t>(num_rows_per_chunk), chunk_rows, to_read}
+            );
+            chunks_per_producer[sequence_number % num_producers].emplace_back(
+                sequence_number, chunk_skip_rows, rows_read, source
+            );
+            sequence_number++;
+            to_read = std::max(std::int64_t{0}, to_read - rows_read);
+            chunk_skip_rows += rows_read;
+            chunk_rows -= rows_read;
+        }
+    }
+
+    return {
+        .chunks_per_producer = std::move(chunks_per_producer),
+        .rank_has_assigned_work = rank_has_assigned_work
+    };
+}
+
+/**
+ * @brief Assign chunks by splitting files across multiple ranks.
+ *
+ * Used when there are fewer files than ranks. Splits each file into multiple
+ * row-group-aligned ranges and distributes those splits across ranks.
+ *
+ * @param files List of all file paths.
+ * @param rank Current rank index.
+ * @param size Total number of ranks.
+ * @param num_producers Number of producer tasks.
+ * @param num_rows_per_chunk Target number of rows per chunk.
+ *
+ * @return ChunkAssignment with chunks distributed across producers.
+ */
+ChunkAssignment assign_chunks_split_files(
+    std::vector<std::string> const& files,
+    std::size_t rank,
+    std::size_t size,
+    std::size_t num_producers,
+    cudf::size_type num_rows_per_chunk
+) {
+    std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
+    std::uint64_t sequence_number = 0;
+    auto const num_files = files.size();
+
+    // For single file, read metadata once and reuse; otherwise sample
+    std::optional<FileRowGroupInfo> single_file_info = std::nullopt;
+    std::int64_t estimated_total_rows = 0;
+    if (num_files == 1) {
+        // Single file: read metadata once, use for both estimation and splits
+        single_file_info = get_file_row_group_info(files[0]);
+        estimated_total_rows = single_file_info->total_rows;
+    } else {
+        // Multiple files: sample to estimate
+        estimated_total_rows = estimate_total_rows(files);
+    }
+
+    // Estimate total chunks and splits per file
+    auto estimated_total_chunks = std::max(
+        std::size_t{1},
+        static_cast<std::size_t>(estimated_total_rows / num_rows_per_chunk)
+    );
+    auto splits_per_file =
+        (estimated_total_chunks + num_files - 1) / num_files;  // Round up
+    auto total_splits = num_files * splits_per_file;
+
+    // Distribute split indices across ranks (only use as many ranks as we have splits)
+    auto active_ranks = std::min(size, total_splits);
+    bool rank_has_assigned_work = (rank < active_ranks);
+    if (rank_has_assigned_work) {
+        // Distribute splits evenly across active ranks
+        auto splits_per_rank = total_splits / active_ranks;
+        auto extra_splits = total_splits % active_ranks;
+        auto split_start = rank * splits_per_rank + std::min(rank, extra_splits);
+        auto split_end = split_start + splits_per_rank + (rank < extra_splits ? 1 : 0);
+
+        // Process each split assigned to this rank
+        // Track which file we're currently working on to avoid re-reading metadata
+        std::size_t current_file_idx = std::numeric_limits<std::size_t>::max();
+        FileRowGroupInfo current_file_info{.rg_offsets = {}, .total_rows = 0};
+
+        for (auto split_idx = split_start; split_idx < split_end; ++split_idx) {
+            auto file_idx = split_idx / splits_per_file;
+            auto local_split_idx = split_idx % splits_per_file;
+
+            if (file_idx >= num_files) {
+                // Past the end of files (can happen with rounding)
+                break;
+            }
+
+            // Read file metadata if we haven't already for this file
+            if (file_idx != current_file_idx) {
+                current_file_idx = file_idx;
+                // Reuse cached metadata for single-file case
+                if (single_file_info.has_value() && file_idx == 0) {
+                    current_file_info = *single_file_info;
+                } else {
+                    current_file_info = get_file_row_group_info(files[file_idx]);
+                }
+            }
+
+            // Compute row-group-aligned range for this split
+            auto [skip_rows, total_rows_for_split] =
+                compute_split_range(current_file_info, local_split_idx, splits_per_file);
+
+            if (total_rows_for_split <= 0) {
+                continue;
+            }
+
+            // Produce chunks of num_rows_per_chunk from this split's row range
+            auto source = cudf::io::source_info(files[file_idx]);
+            auto chunk_skip = skip_rows;
+            auto remaining = total_rows_for_split;
+
+            while (remaining > 0) {
+                auto chunk_rows =
+                    std::min(static_cast<std::int64_t>(num_rows_per_chunk), remaining);
+                chunks_per_producer[sequence_number % num_producers].emplace_back(
+                    ChunkDesc{
+                        .sequence_number = sequence_number,
+                        .skip_rows = chunk_skip,
+                        .num_rows = chunk_rows,
+                        .source = source
+                    }
+                );
+                sequence_number++;
+                chunk_skip += chunk_rows;
+                remaining -= chunk_rows;
+            }
+        }
+    }
+
+    return {
+        .chunks_per_producer = std::move(chunks_per_producer),
+        .rank_has_assigned_work = rank_has_assigned_work
+    };
+}
+
+/**
  * @brief Read chunks and send them to an output channel.
  *
  * @param ctx Execution context to use.
@@ -272,164 +485,15 @@ Node read_parquet(
             std::ranges::single_view(filter->stream)
         );
     }
-    std::uint64_t sequence_number = 0;
-    std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
-    bool rank_has_assigned_work = false;  // Track if this rank was assigned work
-
-    if (files.size() >= size) {
-        // Standard case: at least one file per rank
-        // Distribute files evenly across ranks
-        std::size_t files_per_rank =
-            files.size() / size + ((rank < (files.size() % size)) ? 1 : 0);
-        std::size_t file_offset =
-            rank * (files.size() / size) + std::min(rank, files.size() % size);
-        auto local_files = std::vector(
-            files.begin() + static_cast<std::ptrdiff_t>(file_offset),
-            files.begin() + static_cast<std::ptrdiff_t>(file_offset + files_per_rank)
-        );
-        rank_has_assigned_work = !local_files.empty();
-        auto const num_files = local_files.size();
-        // Estimate number of rows per file
-        std::size_t files_per_chunk = 1;
-        if (files.size() > 1) {
-            auto nrows =
-                cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
-                    .num_rows();
-            files_per_chunk = static_cast<std::size_t>(
-                std::max(num_rows_per_chunk / nrows, std::int64_t{1})
-            );
-        }
-        auto to_skip = options.get_skip_rows();
-        auto to_read =
-            options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
-        for (std::size_t file_offset = 0; file_offset < num_files;
-             file_offset += files_per_chunk)
-        {
-            std::vector<std::string> chunk_files;
-            auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
-            std::ranges::copy_n(
-                local_files.begin() + static_cast<std::int64_t>(file_offset),
-                static_cast<std::int64_t>(nchunk_files),
-                std::back_inserter(chunk_files)
-            );
-            auto source = cudf::io::source_info(chunk_files);
-            // Must read [skip_rows, skip_rows + num_rows) from full fileset
-            auto chunk_rows =
-                cudf::io::read_parquet_metadata(source).num_rows() - to_skip;
-            auto chunk_skip_rows = to_skip;
-            // If the chunk is larger than the number rows we need to skip, on the next
-            // iteration we don't need to skip any more rows, otherwise we must skip the
-            // remainder.
-            to_skip = std::max(std::int64_t{0}, -chunk_rows);
-            while (chunk_rows > 0 && to_read > 0) {
-                auto rows_read = std::min(
-                    {static_cast<std::int64_t>(num_rows_per_chunk), chunk_rows, to_read}
-                );
-                chunks_per_producer[sequence_number % num_producers].emplace_back(
-                    sequence_number, chunk_skip_rows, rows_read, source
-                );
-                sequence_number++;
-                to_read = std::max(std::int64_t{0}, to_read - rows_read);
-                chunk_skip_rows += rows_read;
-                chunk_rows -= rows_read;
-            }
-        }
-    } else {
-        // Multi-rank single-file case: fewer files than ranks
-        // Use sampling to estimate chunks and distribute work across ranks
-        auto const num_files = files.size();
-
-        // For single file, read metadata once and reuse; otherwise sample
-        std::optional<FileRowGroupInfo> single_file_info = std::nullopt;
-        std::int64_t estimated_total_rows = 0;
-        if (num_files == 1) {
-            // Single file: read metadata once, use for both estimation and splits
-            single_file_info = get_file_row_group_info(files[0]);
-            estimated_total_rows = single_file_info->total_rows;
-        } else {
-            // Multiple files: sample to estimate
-            estimated_total_rows = estimate_total_rows(files);
-        }
-
-        // Estimate total chunks and splits per file
-        auto estimated_total_chunks = std::max(
-            std::size_t{1},
-            static_cast<std::size_t>(estimated_total_rows / num_rows_per_chunk)
-        );
-        auto splits_per_file =
-            (estimated_total_chunks + num_files - 1) / num_files;  // Round up
-        auto total_splits = num_files * splits_per_file;
-
-        // Distribute split indices across ranks (only use as many ranks as we have
-        // splits)
-        auto active_ranks = std::min(size, total_splits);
-        rank_has_assigned_work = (rank < active_ranks);
-        if (rank_has_assigned_work) {
-            // Distribute splits evenly across active ranks
-            auto splits_per_rank = total_splits / active_ranks;
-            auto extra_splits = total_splits % active_ranks;
-            auto split_start = rank * splits_per_rank + std::min(rank, extra_splits);
-            auto split_end =
-                split_start + splits_per_rank + (rank < extra_splits ? 1 : 0);
-
-            // Process each split assigned to this rank
-            // Track which file we're currently working on to avoid re-reading metadata
-            std::size_t current_file_idx = std::numeric_limits<std::size_t>::max();
-            FileRowGroupInfo current_file_info;
-
-            for (auto split_idx = split_start; split_idx < split_end; ++split_idx) {
-                auto file_idx = split_idx / splits_per_file;
-                auto local_split_idx = split_idx % splits_per_file;
-
-                if (file_idx >= num_files) {
-                    // Past the end of files (can happen with rounding)
-                    break;
-                }
-
-                // Read file metadata if we haven't already for this file
-                if (file_idx != current_file_idx) {
-                    current_file_idx = file_idx;
-                    // Reuse cached metadata for single-file case
-                    if (single_file_info.has_value() && file_idx == 0) {
-                        current_file_info = *single_file_info;
-                    } else {
-                        current_file_info = get_file_row_group_info(files[file_idx]);
-                    }
-                }
-
-                // Compute row-group-aligned range for this split
-                auto [skip_rows, total_rows_for_split] = compute_split_range(
-                    current_file_info, local_split_idx, splits_per_file
-                );
-
-                if (total_rows_for_split <= 0) {
-                    continue;
-                }
-
-                // Produce chunks of num_rows_per_chunk from this split's row range
-                auto source = cudf::io::source_info(files[file_idx]);
-                auto chunk_skip = skip_rows;
-                auto remaining = total_rows_for_split;
-
-                while (remaining > 0) {
-                    auto chunk_rows = std::min(
-                        static_cast<std::int64_t>(num_rows_per_chunk), remaining
-                    );
-                    chunks_per_producer[sequence_number % num_producers].emplace_back(
-                        ChunkDesc{
-                            .sequence_number = sequence_number,
-                            .skip_rows = chunk_skip,
-                            .num_rows = chunk_rows,
-                            .source = source
-                        }
-                    );
-                    sequence_number++;
-                    chunk_skip += chunk_rows;
-                    remaining -= chunk_rows;
-                }
-            }
-        }
-    }
+    // Assign chunks to producers based on file/rank distribution
+    auto [chunks_per_producer, rank_has_assigned_work] =
+        (files.size() >= size)
+            ? assign_chunks_standard(
+                  files, rank, size, num_producers, num_rows_per_chunk, options
+              )
+            : assign_chunks_split_files(
+                  files, rank, size, num_producers, num_rows_per_chunk
+              );
     if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
         if (rank_has_assigned_work) {
             // If we're on the hook to read some files, but the skip_rows/num_rows setup
