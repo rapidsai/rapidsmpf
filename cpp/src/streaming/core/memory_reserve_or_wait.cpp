@@ -55,7 +55,7 @@ Node MemoryReserveOrWait::shutdown() {
     // the periodic task to exit (if one was running).
     if (!reservation_requests.empty()) {
         std::vector<Node> nodes;
-        for (ResReq const& request : reservation_requests) {
+        for (Request const& request : reservation_requests) {
             nodes.push_back(request.queue.shutdown_drain(ctx_->executor()));
         }
         coro_results(co_await coro::when_all(std::move(nodes)));
@@ -82,7 +82,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::unique_lock lock(mutex_);
     bool const spawn_periodic_memory_check = reservation_requests_.empty();
     reservation_requests_.insert(
-        ResReq{
+        Request{
             .size = size,
             .future_release_potential = future_release_potential,
             .sequence_number = sequence_counter++,
@@ -153,11 +153,11 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
     // Helper that returns the subrange of reservation requests with size <= max_size.
     auto eligible_requests = [this](std::size_t max_size)
-        -> std::ranges::subrange<std::set<ResReq>::const_iterator> {
+        -> std::ranges::subrange<std::set<Request>::const_iterator> {
         // Since `reservation_requests_` is sorted by ascending size,
         // upper_bound finds the first element with size > max_size.
         auto last = std::ranges::upper_bound(
-            reservation_requests_, max_size, std::less<>{}, &ResReq::size
+            reservation_requests_, max_size, std::less<>{}, &Request::size
         );
         // The range [begin, last) contains all requests with size <= max_size.
         return {reservation_requests_.begin(), last};
@@ -165,7 +165,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
     // Helper that pushes a memory reservation into a request's queue **without**
     // waiting on the coroutine.
-    auto push_into_queue = [this](ResReq& request, MemoryReservation res) -> void {
+    auto push_into_queue = [this](Request& request, MemoryReservation res) -> void {
         auto err = ctx_->executor()->spawn_detached(
             [](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> Node {
                 RAPIDSMPF_EXPECTS(
@@ -205,7 +205,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                 continue;  // No eligible requests.
             }
             auto it = std::ranges::max_element(
-                eligibles, std::less<>{}, &ResReq::future_release_potential
+                eligibles, std::less<>{}, &Request::future_release_potential
             );
 
             // Try to reserve memory for the selected request.
@@ -215,7 +215,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             }
 
             // Extract the selected request and push the reservation into its queue.
-            ResReq request = reservation_requests_.extract(it).value();
+            Request request = reservation_requests_.extract(it).value();
             lock.unlock();
             push_into_queue(request, std::move(res));
             last_reservation_success = Clock::now();
@@ -228,7 +228,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             co_return;
         }
         // The set is already sorted by size (ascending) so we pick the beginning.
-        ResReq request =
+        Request request =
             reservation_requests_.extract(reservation_requests_.begin()).value();
         lock.unlock();
 

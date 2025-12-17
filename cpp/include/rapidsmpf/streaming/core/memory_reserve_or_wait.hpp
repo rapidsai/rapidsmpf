@@ -128,16 +128,16 @@ class MemoryReserveOrWait {
     /**
      * @brief Represents a single memory reservation request.
      *
-     * A `ResReq` is inserted into a sorted container and processed by
+     * A `Request` is inserted into a sorted container and processed by
      * `periodic_memory_check()`. Each request describes the amount of memory
      * needed, an estimate of how much memory may be released in the future, and
      * its submission order. A reference to the requester's queue is used to
      * deliver the resulting `MemoryReservation` once the request is fulfilled.
      *
-     * The ordering of `ResReq` instances is defined by `operator<`, which sorts
+     * The ordering of `Request` instances is defined by `operator<`, which sorts
      * lexicographically by `(size, future_release_potential, sequence_number)`.
      */
-    struct ResReq {
+    struct Request {
         /// @brief The number of bytes requested.
         std::size_t size;
 
@@ -151,7 +151,7 @@ class MemoryReserveOrWait {
         coro::queue<MemoryReservation>& queue;
 
         /// @brief Lexicographic ordering.
-        friend bool operator<(ResReq const& a, ResReq const& b) {
+        friend bool operator<(Request const& a, Request const& b) {
             return std::tie(a.size, a.future_release_potential, a.sequence_number)
                    < std::tie(b.size, b.future_release_potential, b.sequence_number);
         }
@@ -194,7 +194,7 @@ class MemoryReserveOrWait {
     MemoryType const mem_type_;
     std::shared_ptr<Context> ctx_;
     Duration const timeout_;
-    std::set<ResReq> reservation_requests_;
+    std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;
 };
