@@ -221,16 +221,33 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             last_reservation_success = Clock::now();
         }
 
-        // Reaching this point means we hit the timeout. Let's extract the smallest
-        // request, even if it does not fit in the available memory.
+        // Reaching this point means we hit the timeout. We force progress by selecting
+        // among the smallest pending requests, preferring the one with the largest
+        // future_release_potential.
         std::unique_lock lock(mutex_);
         if (reservation_requests_.empty()) {
             co_return;
         }
-        // The set is sorted by size (ascending). For equal sizes, the request with the
-        // smallest sequence number comes first.
-        Request request =
-            reservation_requests_.extract(reservation_requests_.begin()).value();
+
+        // The set is sorted by size (ascending). First, find the smallest size.
+        auto first = reservation_requests_.begin();
+        auto const smallest_size = first->size;
+
+        // Consider all requests with that size.
+        auto same_size_end = std::ranges::upper_bound(
+            reservation_requests_, smallest_size, std::less<>{}, &Request::size
+        );
+
+        // Among the smallest requests, pick the one with the largest
+        // future_release_potential. If multiple requests tie, we pick the oldest one,
+        // since the set is ordered by size and then sequence_number (ascending).
+        auto it = std::ranges::max_element(
+            std::ranges::subrange(first, same_size_end),
+            std::less<>{},
+            &Request::future_release_potential
+        );
+
+        Request request = reservation_requests_.extract(it).value();
         lock.unlock();
 
         // Reserve memory and accept a zero-size result if it does not fit into the
