@@ -133,6 +133,15 @@ std::shared_ptr<streaming::Context> create_context(
     }
     auto statistics = std::make_shared<Statistics>(mr);
 
+    RAPIDSMPF_EXPECTS(
+        arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),
+        "Pinned host memory is not supported on this system. CUDA 12.6 is one of the "
+        "requirements, but additional platform or driver constraints may apply. "
+        "If needed, use `--no-pinned-host-memory` to disable pinned host memory, noting "
+        "that this may significantly degrade spilling performance.",
+        std::invalid_argument
+    );
+
     auto br = std::make_shared<BufferResource>(
         mr,
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
