@@ -85,12 +85,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 #else  // CUDA_VERSION < RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(int) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
-    }
+    PinnedMemoryResourceImpl(int) {}
 
     void* allocate(rmm::cuda_stream_view, size_t, size_t) {
         return nullptr;
