@@ -47,14 +47,15 @@ Node MemoryReserveOrWait::shutdown() {
     // or suspend, so they must not run while holding the mutex.
     std::unique_lock lock(mutex_);
     auto reservation_requests = std::move(reservation_requests_);
-    auto periodic_memory_check_task = std::exchange(periodic_memory_check_task_, std::nullopt);
+    auto periodic_memory_check_task =
+        std::exchange(periodic_memory_check_task_, std::nullopt);
     lock.unlock();
 
     // Shut down all request queues so any waiters are unblocked, then wait for
     // the periodic task to exit (if one was running).
     if (!reservation_requests.empty()) {
         std::vector<Node> nodes;
-        for (ResReq request : reservation_requests) {
+        for (ResReq const& request : reservation_requests) {
             nodes.push_back(request.queue.shutdown_drain(ctx_->executor()));
         }
         coro_results(co_await coro::when_all(std::move(nodes)));
