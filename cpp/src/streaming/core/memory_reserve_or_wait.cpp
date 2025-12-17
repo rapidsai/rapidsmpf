@@ -47,8 +47,7 @@ Node MemoryReserveOrWait::shutdown() {
     // or suspend, so they must not run while holding the mutex.
     std::unique_lock lock(mutex_);
     auto reservation_requests = std::move(reservation_requests_);
-    auto periodic_memory_check_task = std::move(periodic_memory_check_task_);
-    periodic_memory_check_task_.reset();
+    auto periodic_memory_check_task = std::exchange(periodic_memory_check_task_, std::nullopt);
     lock.unlock();
 
     // Shut down all request queues so any waiters are unblocked, then wait for
@@ -70,7 +69,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 ) {
     // First, check whether the requested memory is immediately available.
     auto [res, _] = ctx_->br()->reserve(mem_type_, size, no_overbooking);
-    if (res.size() > 0) {
+    if (res.size() > 0 || size == 0) {
         co_return std::move(res);
     }
 
@@ -148,7 +147,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // Helper that returns available memory, clamped so negative values become zero.
     auto memory_available = [f = br->memory_available(mem_type_)]() -> std::size_t {
         auto const ret = f();
-        return ret < 0 ? 0 : static_cast<std::size_t>(ret);
+        return static_cast<std::size_t>(std::max(ret, 0));
     };
 
     // Helper that returns the subrange of reservation requests with size <= max_size.
