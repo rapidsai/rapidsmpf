@@ -126,9 +126,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 ) {
     auto ret = co_await reserve_or_wait(size, future_release_potential);
     if (ret.size() < size) {
-        co_return ctx_->br()->reserve(
-            MemoryType::DEVICE, size, /* allow_overbooking = */ true
-        );
+        co_return ctx_->br()->reserve(mem_type_, size, /* allow_overbooking = */ true);
     }
     co_return {std::move(ret), size};
 }
