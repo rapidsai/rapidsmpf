@@ -242,7 +242,7 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         {"num-streams", required_argument, nullptr, 9},
         {"comm-type", required_argument, nullptr, 10},
         {"periodic-spill", required_argument, nullptr, 11},
-        {"no-pinned-host-memory", required_argument, nullptr, 12},
+        {"no-pinned-host-memory", no_argument, nullptr, 12},
         {nullptr, 0, nullptr, 0}
     };
     // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
