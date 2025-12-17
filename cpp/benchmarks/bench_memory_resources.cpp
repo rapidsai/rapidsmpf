@@ -72,8 +72,14 @@ void BM_Allocate(benchmark::State& state) {
     auto const allocation_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
-    auto mr = create_host_memory_resource(resource_type);
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
 
+    auto mr = create_host_memory_resource(resource_type);
     for (auto _ : state) {
         void* ptr = mr->allocate(stream, allocation_size);
         benchmark::DoNotOptimize(ptr);
@@ -96,8 +102,14 @@ void BM_Deallocate(benchmark::State& state) {
     auto const allocation_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
-    auto mr = create_host_memory_resource(resource_type);
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
 
+    auto mr = create_host_memory_resource(resource_type);
     for (auto _ : state) {
         state.PauseTiming();
         void* ptr = mr->allocate(stream, allocation_size);
@@ -118,6 +130,13 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
+
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
 
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
@@ -175,6 +194,13 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
@@ -195,6 +221,13 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
+
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
 
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
@@ -219,6 +252,13 @@ void BM_HostToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const transfer_size = static_cast<size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
+
+    if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
+        && !rapidsmpf::is_pinned_memory_resources_supported())
+    {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
 
     auto host_mr = create_host_memory_resource(resource_type);
 
