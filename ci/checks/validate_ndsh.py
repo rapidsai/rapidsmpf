@@ -5,6 +5,7 @@
 #     "duckdb",
 #     "numpy",
 #     "pyarrow",
+#     "tpchgen-cli",
 # ]
 # ///
 

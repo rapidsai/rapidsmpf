@@ -307,9 +307,13 @@ dependencies:
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - output_types: [conda, pyproject, requirements]
         packages:
-          - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0
+          - duckdb
+          - numpy
           - nvidia-ml-py>=12
+          - psutil  # Used for timeout_with_stack.py
+          - pyarrow
+          - pytest<9.0.0
+          - tpchgen-cli
     specific:
       - output_types: conda
         matrices:
