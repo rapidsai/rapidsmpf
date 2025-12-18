@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <ranges>
 
 #include <cudf/ast/expressions.hpp>
@@ -90,9 +91,21 @@ Node produce_chunks(
         co_await ctx->executor()->schedule();
         // TODO: This reads the metadata ntasks times.
         // See https://github.com/rapidsai/cudf/issues/20311
-        auto sent = co_await ticket->send(
-            read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number)
-        );
+        auto [msg, exception] = [&]() -> std::pair<Message, std::exception_ptr> {
+            try {
+                return {
+                    read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number),
+                    nullptr
+                };
+            } catch (...) {
+                return {Message{}, std::current_exception()};
+            }
+        }();
+        if (exception != nullptr) {
+            co_await ch_out->shutdown();
+            std::rethrow_exception(exception);
+        }
+        auto sent = co_await ticket->send(std::move(msg));
         if (!sent) {
             // Output channel is shutdown, no need for more reads.
             break;

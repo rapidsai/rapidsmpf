@@ -15,11 +15,15 @@ namespace rapidsmpf {
 namespace {
 /// @brief Helper that adds missing functions to the `memory_available` argument.
 auto add_missing_availability_functions(
-    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available
+    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available,
+    bool pinned_mr_is_not_available
 ) {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
+    }
+    if (pinned_mr_is_not_available) {
+        memory_available[MemoryType::PINNED_HOST] = []() -> std::int64_t { return 0; };
     }
     return memory_available;
 }
@@ -27,13 +31,17 @@ auto add_missing_availability_functions(
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
+    std::shared_ptr<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
-      memory_available_{add_missing_availability_functions(std::move(memory_available))},
+      pinned_mr_{std::move(pinned_mr)},
+      memory_available_{add_missing_availability_functions(
+          std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
+      )},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
@@ -106,14 +114,24 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<HostBuffer>(size, stream, host_mr()), stream)
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(size, stream, host_mr()),
+            stream,
+            MemoryType::HOST
+        ));
+        break;
+    case MemoryType::PINNED_HOST:
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+            stream,
+            MemoryType::PINNED_HOST
+        ));
         break;
     case MemoryType::DEVICE:
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr()))
-        );
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr()),
+            MemoryType::DEVICE
+        ));
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -136,7 +154,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -159,7 +177,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         std::invalid_argument
     );
     auto stream = buffer->stream();
-    auto ret = move(std::move(buffer), reservation)->release_device();
+    auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
         ret->stream().value() == stream.value(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
@@ -176,7 +194,7 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), reservation)->release_host();
+    return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
 rmm::cuda_stream_pool const& BufferResource::stream_pool() const {

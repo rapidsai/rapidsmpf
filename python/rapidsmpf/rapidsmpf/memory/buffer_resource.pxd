@@ -1,21 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
-from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr, unique_ptr
-from libcpp.optional cimport optional
-from libcpp.pair cimport pair
-from libcpp.unordered_map cimport unordered_map
+from libcpp.memory cimport shared_ptr
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
-from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
+from rapidsmpf.memory.pinned_memory_resource cimport PinnedMemoryResource
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -29,13 +24,6 @@ cdef extern from "<functional>" nogil:
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
-        cpp_BufferResource(
-            device_memory_resource *device_mr,
-            unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
-            optional[cpp_Duration] periodic_spill_check,
-            shared_ptr[cuda_stream_pool] stream_pool,
-            shared_ptr[cpp_Statistics] statistics,
-        ) except +
         size_t memory_reserved(MemoryType mem_type) except +
         cpp_MemoryAvailable memory_available(MemoryType mem_type) except +
         cpp_SpillManager &spill_manager() except +
@@ -48,7 +36,8 @@ cdef class BufferResource:
     cdef shared_ptr[cpp_BufferResource] _handle
     cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
-    cdef DeviceMemoryResource _mr
+    cdef DeviceMemoryResource _device_mr
+    cdef PinnedMemoryResource _pinned_mr
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
     cdef const cuda_stream_pool* stream_pool(self)

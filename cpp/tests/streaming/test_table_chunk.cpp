@@ -28,7 +28,38 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 
-using StreamingTableChunk = BaseStreamingFixture;
+class StreamingTableChunk : public BaseStreamingFixture,
+                            public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
+  protected:
+    void SetUp() override {
+        rapidsmpf::config::Options options(
+            rapidsmpf::config::get_environment_variables()
+        );
+
+        std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
+            memory_available{};
+        auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        );
+        stream = cudf::get_default_stream();
+        br = std::make_shared<rapidsmpf::BufferResource>(
+            mr_cuda,  // device_mr
+            rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
+            memory_available,  // memory_available
+            std::chrono::milliseconds{1},  // periodic_spill_check
+            stream_pool,  // stream_pool
+            Statistics::disabled()  // statistics
+        );
+        ctx = std::make_shared<rapidsmpf::streaming::Context>(
+            options, GlobalEnvironment->comm_, br
+        );
+    }
+
+    rmm::cuda_stream_view stream;
+    rmm::mr::cuda_memory_resource mr_cuda;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx;
+};
 
 TEST_F(StreamingTableChunk, FromTable) {
     constexpr unsigned int num_rows = 100;
@@ -143,7 +174,23 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
     EXPECT_EQ(chunk.make_available_cost(), 0);
 }
 
-TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
+INSTANTIATE_TEST_SUITE_P(
+    StreamingTableChunkWithSpillTargets,
+    StreamingTableChunk,
+    ::testing::ValuesIn(rapidsmpf::SPILL_TARGET_MEMORY_TYPES),
+    [](testing::TestParamInfo<rapidsmpf::MemoryType> const& info) {
+        return std::string{rapidsmpf::to_string(info.param)};
+    }
+);
+
+TEST_P(StreamingTableChunk, FromPackedDataOn) {
+    auto const spill_mem_type = GetParam();
+    if (spill_mem_type == MemoryType::PINNED_HOST
+        && !is_pinned_memory_resources_supported())
+    {
+        GTEST_SKIP() << "MemoryType::PINNED_HOST isn't supported on the system.";
+    }
+
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
 
@@ -154,12 +201,12 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     // Move the gpu_data to a Buffer (still device memory).
     auto gpu_data_on_device = br->move(std::move(packed_columns.gpu_data), stream);
 
-    // Copy the GPU data to host memory.
-    auto [res, _] = br->reserve(MemoryType::HOST, size, true);
-    auto gpu_data_on_host = br->move(std::move(gpu_data_on_device), res);
+    // Copy the GPU data to the current spill target memory type.
+    auto [res, _] = br->reserve(spill_mem_type, size, true);
+    auto gpu_data_in_spill_memory = br->move(std::move(gpu_data_on_device), res);
 
     auto packed_data = std::make_unique<PackedData>(
-        std::move(packed_columns.metadata), std::move(gpu_data_on_host)
+        std::move(packed_columns.metadata), std::move(gpu_data_in_spill_memory)
     );
     TableChunk chunk{std::move(packed_data)};
 
@@ -187,7 +234,14 @@ TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
 
-TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
+TEST_P(StreamingTableChunk, DeviceToHostRoundTripCopy) {
+    auto const spill_mem_type = GetParam();
+    if (spill_mem_type == MemoryType::PINNED_HOST
+        && !is_pinned_memory_resources_supported())
+    {
+        GTEST_SKIP() << "MemoryType::PINNED_HOST isn't supported on the system.";
+    }
+
     constexpr unsigned int num_rows = 64;
     constexpr std::int64_t seed = 2025;
 
@@ -208,7 +262,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
 
     // Copy to host memory -> new chunk should be unavailable.
     auto host_res = br->reserve_or_fail(
-        dev_chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::HOST
+        dev_chunk.data_alloc_size(MemoryType::DEVICE), spill_mem_type
     );
     auto host_copy = dev_chunk.copy(host_res);
     EXPECT_FALSE(host_copy.is_available());
@@ -224,9 +278,8 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     }
 
     // Host to host copy.
-    auto host_res2 = br->reserve_or_fail(
-        host_copy.data_alloc_size(MemoryType::HOST), MemoryType::HOST
-    );
+    auto host_res2 =
+        br->reserve_or_fail(host_copy.data_alloc_size(spill_mem_type), spill_mem_type);
     auto host_copy2 = host_copy.copy(host_res2);
     EXPECT_FALSE(host_copy2.is_available());
     EXPECT_TRUE(host_copy2.is_spillable());
@@ -242,7 +295,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
 
     // Bring the new host copy back to device and verify equality.
     auto dev_res = br->reserve_or_fail(
-        host_copy2.data_alloc_size(MemoryType::HOST), MemoryType::DEVICE
+        host_copy2.data_alloc_size(spill_mem_type), MemoryType::DEVICE
     );
     auto dev_back = host_copy2.make_available(dev_res);
     EXPECT_TRUE(dev_back.is_available());

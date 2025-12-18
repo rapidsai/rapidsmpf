@@ -23,15 +23,14 @@
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
-#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR \
-    RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
+#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR "v12.6"
 
 namespace rapidsmpf {
 
 /**
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
- * Requires rapidsmpf to be build with cuda>=12.6.
+ * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
  *
  * @note The driver version check is cached and only performed once.
  */
@@ -51,20 +50,6 @@ inline bool is_pinned_memory_resources_supported() {
 class PinnedMemoryResource;
 
 /**
- * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
- * `cuda::experimental::memory_pool_properties`.
- *
- * @sa
- * https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
- *
- * Currently, this is a placeholder and does not have any effect. It was observed that
- * priming async pools have little effect for performance.
- *
- * @sa https://github.com/rapidsai/rmm/issues/1931
- */
-struct PinnedPoolProperties {};
-
-/**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
  * This resource allocates and deallocates pinned host memory asynchronously through
@@ -73,20 +58,38 @@ struct PinnedPoolProperties {};
  */
 class PinnedMemoryResource final : public HostMemoryResource {
   public:
+    /// @brief Sentinel value used to disable pinned host memory.
+    static constexpr auto Disabled = nullptr;
+
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
-     * @param properties Memory pool configuration properties. These are currently
-     * unused but provided for future compatibility.
+     * The pool has no maximum size. To restrict its growth, use
+     * `BufferResource::LimitAvailableMemory` or a similar mechanism.
+     *
      * @param numa_id NUMA node from which memory should be allocated. By default,
      * the resource uses the NUMA node of the calling thread.
      *
-     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported on
+     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(
-        PinnedPoolProperties properties = {}, int numa_id = get_current_numa_node_id()
+    PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+
+    /**
+     * @brief Create a pinned memory resource if the system supports pinned memory.
+     *
+     * @param numa_id The NUMA node to associate with the resource. Defaults to the
+     * current NUMA node.
+     *
+     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
+     * otherwise `PinnedMemoryResource::Disabled`.
+     *
+     * @see PinnedMemoryResource::PinnedMemoryResource
+     */
+    static std::shared_ptr<PinnedMemoryResource> make_if_available(
+        int numa_id = get_current_numa_node_id()
     );
+
     ~PinnedMemoryResource() override;
 
     /**
@@ -145,7 +148,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
     // only be used by the impl in .cu file.
     struct PinnedMemoryResourceImpl;
-    std::unique_ptr<PinnedMemoryResourceImpl> impl_;
+    std::shared_ptr<PinnedMemoryResourceImpl> impl_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

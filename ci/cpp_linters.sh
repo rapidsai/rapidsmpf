@@ -25,5 +25,5 @@ set -u
 source rapids-configure-sccache
 
 # Run the build via CMake, which will run clang-tidy when RAPIDSMPF_CLANG_TIDY is enabled.
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DRAPIDSMPF_CLANG_TIDY=ON -DCMAKE_CUDA_ARCHITECTURES=75 -GNinja
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DRAPIDSMPF_CLANG_TIDY=ON -DBUILD_CUPTI_SUPPORT=ON -DCMAKE_CUDA_ARCHITECTURES=75 -GNinja
 cmake --build cpp/build

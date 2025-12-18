@@ -123,6 +123,7 @@ rapids_find_package(
 include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
+include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
@@ -159,6 +160,7 @@ add_library(
   src/allgather/allgather.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
+  src/bootstrap/utils.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp
@@ -272,7 +274,7 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL cuco::cuco $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
@@ -352,6 +354,12 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
+  # Set BUILD_TESTING to ON. It may be set to OFF by libcoro's CMake code and is needed for CTest to
+  # generate test lists.
+  set(BUILD_TESTING
+      ON
+      CACHE BOOL "Build the testing tree." FORCE
+  )
   include(CTest)
   add_subdirectory(tests)
 endif()

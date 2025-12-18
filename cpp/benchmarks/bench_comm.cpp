@@ -10,6 +10,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
