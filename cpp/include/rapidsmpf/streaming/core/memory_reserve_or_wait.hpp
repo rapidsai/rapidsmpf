@@ -31,13 +31,15 @@ class MemoryReserveOrWait {
     /**
      * @brief Constructs a `MemoryReserveOrWait` instance.
      *
+     * If no reservation request can be satisfied within @p timeout, the coroutine
+     * forces progress by selecting the smallest pending request and attempting to
+     * reserve memory for it. This attempt may result in an empty reservation if the
+     * request still cannot be satisfied.
+     *
      * @param mem_type The memory type for which reservations are requested.
      * @param ctx Streaming context.
-     * @param timeout Optional timeout duration. This timeout applies to how long pending
-     * requests may wait without making progress. If the timeout expires, a
-     * `reserve_or_wait()` returns even if no memory became available. If not explicitly
-     * provided, the timeout is read from the option key `"memory_reserve_timeout_ms"`,
-     * which defaults to 100 ms.
+     * @param timeout Timeout duration. If not explicitly provided, the timeout is read
+     * from the option key `"memory_reserve_timeout_ms"`, which defaults to 100 ms.
      */
     MemoryReserveOrWait(
         MemoryType mem_type,
@@ -56,21 +58,32 @@ class MemoryReserveOrWait {
     Node shutdown();
 
     /**
-     * @brief Attempts to reserve memory or waits until the reservation can be satisfied.
+     * @brief Attempts to reserve memory or waits until progress can be made.
      *
      * This coroutine submits a memory reservation request and then suspends until
-     * either sufficient memory becomes available or no progress is made within the
-     * configured timeout.
+     * either sufficient memory becomes available or no reservation request (including
+     * other pending requests) makes progress within the configured timeout.
      *
-     * If the timeout expires before the request can be fulfilled, an empty
-     * `MemoryReservation` is returned.
+     * The timeout does not apply specifically to this request. Instead, it is used as
+     * a global progress guarantee: if no pending reservation request can be satisfied
+     * within timeout, `MemoryReserveOrWait` forces progress by selecting the smallest
+     * pending request and attempting to reserve memory for it. The forced reservation
+     * attempt may result in an empty `MemoryReservation` if the selected request still
+     * cannot be satisfied.
+     *
+     * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
+     * @p future_release_potential as a heuristic to prefer requests that are expected
+     * to free memory sooner. Operations that do not free memory, for example reading
+     * data from disk into memory, should use a value of zero. Operations that are
+     * expected to reduce memory usage, for example a reduction such as a sum, should
+     * use a value corresponding to the amount of input data that will be released
+     * once the operation completes.
      *
      * @param size Number of bytes to reserve.
-     * @param future_release_potential Estimated number of bytes the requester may release
-     * in the future, used as a heuristic when selecting which eligible request to satisfy
-     * first.
+     * @param future_release_potential Estimated number of bytes the requester may
+     * release in the future.
      * @return A `MemoryReservation` representing the allocated memory, or an empty
-     * reservation if the timeout expires.
+     * reservation if progress could not be made.
      *
      * @throws std::runtime_error If shutdown occurs before the request can be processed.
      */
@@ -79,27 +92,27 @@ class MemoryReserveOrWait {
     );
 
     /**
-     * @brief Attempts to reserve memory, waits, or overbooks on timeout.
+     * @brief Variant of `reserve_or_wait()` that allows overbooking on timeout.
      *
-     * This coroutine submits a memory reservation request and suspends until
-     * either sufficient memory becomes available or no progress is made within the
-     * configured timeout.
+     * This coroutine behaves identically to `reserve_or_wait()` with respect to
+     * request submission, waiting, and progress guarantees. The only difference is
+     * the behavior when the progress timeout expires.
      *
-     * If the request cannot be satisfied within the timeout, the function attempts
-     * to reserve the requested memory by allowing overbooking. This guarantees
-     * forward progress at the cost of potentially exceeding the configured memory
-     * limits.
+     * If no reservation request can be satisfied before the timeout, this method
+     * attempts to reserve the requested memory by allowing overbooking. This
+     * guarantees forward progress, but may exceed the configured memory limits.
      *
      * @param size Number of bytes to reserve.
-     * @param future_release_potential Estimated number of bytes the requester may release
-     * in the future, used as a heuristic when selecting which eligible request to satisfy
-     * first.
+     * @param future_release_potential Estimated number of bytes the requester may
+     * release in the future.
      * @return A pair consisting of:
      *   - A `MemoryReservation` representing the allocated memory.
-     *   - The number of bytes by which the reservation overbooked the available memory.
-     *     This value is zero if no overbooking occurred.
+     *   - The number of bytes by which the reservation overbooked the available
+     *     memory. This value is zero if no overbooking occurred.
      *
      * @throws std::runtime_error If shutdown occurs before the request can be processed.
+     *
+     * @see reserve_or_wait()
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
         std::size_t size, std::size_t future_release_potential
