@@ -1,6 +1,6 @@
 # Nodes
 
-Nodes are coroutine-based asynchronous relational operators that read from
+{term}`Node`s are coroutine-based asynchronous relational operators that read from
 zero-or-more {term}`Channel`s and write to zero-or-more {term}`Channel`s within a {term}`Network`.
 
 **C++**
@@ -49,12 +49,12 @@ async def accumulator(ch_out, ch_in, msg):
 
 ## Node Types
 
-Nodes fall into two categories:
+{term}`Node`s fall into two categories:
 - Local Nodes: These include operations like filtering, projection, or column-wise transforms. They operate exclusively on local data and preserve CSP semantics.
 
-- Collective Nodes: These include operations like shuffle, join, groupby aggregations, etc. which require access to distributed data.
+- Collective Nodes: These include {term}`Collective Operation`s like {term}`Shuffler`, join, groupby aggregations, etc. which require access to distributed data.
 
-In the case of a collective nodes, remote communication is handled internally. For example, a shuffle node may need to access all partitions of a table, both local and remote, but this coordination and data exchange happens inside the CSP-process itself.  As a reminder "Channels" are an abstraction and not used to serialize and pass data between workers
+In the case of collective {term}`Node`s, remote communication is handled internally. For example, a shuffle node may need to access all {term}`Partition`s of a table, both local and remote, but this coordination and data exchange happens inside the CSP-process itself. As a reminder {term}`Channel`s are an abstraction and not used to serialize and pass data between workers.
 
 This hybrid model, which combines a SPMD-style distribution model and a local CSP-style streaming model, offers several advantages:
 
@@ -64,4 +64,4 @@ This hybrid model, which combines a SPMD-style distribution model and a local CS
 
 - It makes inter-worker parallelism explicit through SPMD-style communication.
 
-For examples of communication nodes and collective operations please read the [shuffle architecture page](./shuffle-architecture.md)
+For examples of communication nodes and collective operations please read the [shuffle architecture page](./shuffle-architecture.md).
