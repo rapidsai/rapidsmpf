@@ -14,6 +14,7 @@ include(rapids-cuda)
 include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
 include(rapids-export)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(RAPIDSMPF)
 
@@ -92,6 +93,14 @@ if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
       FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT or BUILD_UCXX_SUPPORT is OFF"
     )
   endif()
+endif()
+
+# ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
 endif()
 
 # ##################################################################################################
