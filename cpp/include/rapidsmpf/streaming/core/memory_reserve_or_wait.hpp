@@ -23,8 +23,8 @@ namespace rapidsmpf::streaming {
  *
  * `MemoryReserveOrWait` provides a coroutine-based mechanism for reserving
  * memory with backpressure. Callers submit reservation requests via
- * `reserve_or_wait()`, which suspends until enough memory is available or the
- * request times out.
+ * `reserve_or_wait()`, which suspends until enough memory is available or
+ * progress must be forced.
  */
 class MemoryReserveOrWait {
   public:
@@ -125,7 +125,7 @@ class MemoryReserveOrWait {
      *
      * @return The number of outstanding reservation requests.
      */
-    [[nodiscard]] std::size_t size() const;
+    [[nodiscard]] std::size_t size() const noexcept;
 
     /**
      * @brief Returns the number of iterations performed by `periodic_memory_check()`.
@@ -135,7 +135,7 @@ class MemoryReserveOrWait {
      *
      * @return The total number of memory-check iterations executed so far.
      */
-    [[nodiscard]] std::size_t periodic_memory_check_counter() const;
+    [[nodiscard]] std::size_t periodic_memory_check_counter() const noexcept;
 
   private:
     /**

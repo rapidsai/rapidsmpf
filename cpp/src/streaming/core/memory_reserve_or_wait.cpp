@@ -131,12 +131,12 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     co_return {std::move(ret), size};
 }
 
-std::size_t MemoryReserveOrWait::size() const {
+std::size_t MemoryReserveOrWait::size() const noexcept {
     std::lock_guard lock(mutex_);
     return reservation_requests_.size();
 }
 
-std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const {
+std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const noexcept {
     return periodic_memory_check_counter_.load(std::memory_order_acquire);
 }
 
