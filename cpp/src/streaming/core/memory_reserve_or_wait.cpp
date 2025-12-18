@@ -163,7 +163,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
     // Helper that pushes a memory reservation into a request's queue **without**
     // waiting on the coroutine.
-    auto push_into_queue = [this](Request& request, MemoryReservation res) -> void {
+    auto push_into_queue =
+        [this](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> void {
         auto err = ctx_->executor()->spawn_detached(
             [](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> Node {
                 RAPIDSMPF_EXPECTS(
@@ -171,7 +172,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                         == coro::queue_produce_result::produced,
                     "could not push memory reservation"
                 );
-            }(request.queue, std::move(res))
+            }(queue, std::move(res))
         );
         RAPIDSMPF_EXPECTS(err, "cannot spawn push-into-queue task");
     };
@@ -215,7 +216,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             // Extract the selected request and push the reservation into its queue.
             Request request = reservation_requests_.extract(it).value();
             lock.unlock();
-            push_into_queue(request, std::move(res));
+            push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
         }
 
@@ -251,7 +252,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
         auto [res, _] = ctx_->br()->reserve(mem_type_, request.size, no_overbooking);
-        push_into_queue(request, std::move(res));
+        push_into_queue(request.queue, std::move(res));
     }
 }
 
