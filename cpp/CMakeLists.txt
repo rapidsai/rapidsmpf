@@ -96,6 +96,10 @@ if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
 endif()
 
 # ##################################################################################################
+# * conda environment -----------------------------------------------------------------------------
+rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
+
+# ##################################################################################################
 # * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
 find_package(Python COMPONENTS Interpreter)
 if(Python_FOUND)
@@ -104,10 +108,6 @@ if(Python_FOUND)
     list(APPEND CMAKE_PREFIX_PATH "${wheel_prefix_path}/lib64/cmake")
   endforeach()
 endif()
-
-# ##################################################################################################
-# * conda environment -----------------------------------------------------------------------------
-rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
 
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------

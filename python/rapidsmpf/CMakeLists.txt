@@ -12,6 +12,7 @@ include(rapids-cpm)
 rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(rapidsmpf-python)
 
@@ -37,6 +38,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # version RAPIDS uses in CI that causes it to handle the resulting -M* flags incorrectly with
 # gcc>=14. We can remove this once we upgrade to a newer sccache version.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+# ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  foreach(wheel_prefix_path IN LISTS wheel_prefix_paths)
+    list(APPEND CMAKE_PREFIX_PATH "${wheel_prefix_path}/lib64/cmake")
+  endforeach()
+endif()
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
