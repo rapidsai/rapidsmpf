@@ -122,6 +122,61 @@ def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> Non
     print(f"  Generated expected: {output_path} ({result.num_rows} rows)")
 
 
+def generate_data(input_dir: Path) -> None:
+    """
+    Generate data for the benchmarks.
+
+    This uses tpchgen-cli to generate the data and casts some columns
+    to the types expected by the benchmarks.
+    """
+    print(f"Generating data for {input_dir}...")
+    subprocess.check_output(
+        [
+            "tpchgen-cli",
+            "--scale-factor",
+            "1",
+            "--format",
+            "parquet",
+            "--output-dir",
+            str(input_dir),
+        ]
+    )
+
+    # Some of our queries are written expecting float (Double)
+    casts = {
+        ("customer", "c_nationkey"): pa.int32(),
+        ("customer", "c_acctbal"): pa.float64(),
+        ("lineitem", "l_linenumber"): pa.int64(),
+        ("lineitem", "l_quantity"): pa.float64(),
+        ("lineitem", "l_extendedprice"): pa.float64(),
+        ("lineitem", "l_discount"): pa.float64(),
+        ("lineitem", "l_tax"): pa.float64(),
+        ("lineitem", "l_shipdate"): pa.timestamp("ms"),
+        ("lineitem", "l_commitdate"): pa.timestamp("ms"),
+        ("lineitem", "l_receiptdate"): pa.timestamp("ms"),
+        ("nation", "n_nationkey"): pa.int32(),
+        ("nation", "n_regionkey"): pa.int32(),
+        ("orders", "o_totalprice"): pa.float64(),
+        ("orders", "o_orderdate"): pa.timestamp("ms"),
+        ("part", "p_retailprice"): pa.float64(),
+        ("partsupp", "ps_availqty"): pa.int64(),
+        ("partsupp", "ps_supplycost"): pa.float64(),
+        ("region", "r_regionkey"): pa.int32(),
+        ("supplier", "s_nationkey"): pa.int32(),
+        ("supplier", "s_acctbal"): pa.float64(),
+    }
+
+    for table_name in TPCH_TABLES:
+        file = (input_dir / table_name).with_suffix(".parquet")
+        table = pq.read_table(file)
+        schema = table.schema
+        for i, field in enumerate(schema):
+            if cast := casts.get((table_name, field.name)):
+                schema = schema.set(i, field.with_type(cast))
+
+        pq.write_table(table.cast(schema), file)
+
+
 def run_benchmark(
     binary_path: Path,
     input_dir: Path,
@@ -386,7 +441,11 @@ def main():
         action="store_true",
         help="Skip running the benchmark if the output file already exists",
     )
-
+    parser.add_argument(
+        "--generate-data",
+        action="store_true",
+        help="Generate data for the benchmarks",
+    )
     args = parser.parse_args()
 
     # Validate paths
@@ -397,6 +456,9 @@ def main():
     if not args.sql_dir.exists():
         print(f"Error: SQL directory does not exist: {args.sql_dir}")
         sys.exit(1)
+
+    if args.generate_data:
+        generate_data(args.input_dir)
 
     if not args.input_dir.exists():
         print(f"Error: Input directory does not exist: {args.input_dir}")
