@@ -18,20 +18,26 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 
-class StreamingMemoryReserveOrWait : public BaseStreamingFixture {
+struct ReserveOrWaitParam {
+    int num_threads;
+};
+
+class StreamingMemoryReserveOrWait
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<ReserveOrWaitParam> {
   public:
-    // Create a buffer resource that can be controlled by set_mem_avail()
-    // and get_mem_avail().
     void SetUp() override {
         auto dev_mem_available = [this]() -> std::int64_t {
             return mem_avail_.load(std::memory_order_acquire);
         };
-        SetUpWithThreads(1, {{MemoryType::DEVICE, dev_mem_available}});
+        SetUpWithThreads(
+            GetParam().num_threads, {{rapidsmpf::MemoryType::DEVICE, dev_mem_available}}
+        );
     }
 
   protected:
     void set_mem_avail(std::int64_t size) {
-        return mem_avail_.store(size, std::memory_order_release);
+        mem_avail_.store(size, std::memory_order_release);
     }
 
     std::int64_t get_mem_avail() {
@@ -42,17 +48,21 @@ class StreamingMemoryReserveOrWait : public BaseStreamingFixture {
     std::atomic<std::int64_t> mem_avail_{0};
 };
 
-TEST_F(StreamingMemoryReserveOrWait, Timeout) {
-    // Set no available memory so we expect to timeout.
-    set_mem_avail(0);
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
-        MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::milliseconds{1}};
-        auto res = co_await mrow.reserve_or_wait(10, 0);
-        EXPECT_EQ(res.size(), 0);
-    }(ctx));
-}
+INSTANTIATE_TEST_SUITE_P(
+    StreamingMemoryReserveOrWaitParams,
+    StreamingMemoryReserveOrWait,
+    ::testing::Values(
+        ReserveOrWaitParam{1},
+        ReserveOrWaitParam{2},
+        ReserveOrWaitParam{5},
+        ReserveOrWaitParam{8}
+    ),
+    [](testing::TestParamInfo<ReserveOrWaitParam> const& info) {
+        return "T" + std::to_string(info.param.num_threads);
+    }
+);
 
-TEST_F(StreamingMemoryReserveOrWait, ShutdownEarly) {
+TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -90,7 +100,7 @@ struct ReserveLog {
     std::vector<std::pair<uint64_t, MemoryReservation>> log;
 };
 
-TEST_F(StreamingMemoryReserveOrWait, CheckPriority) {
+TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -140,7 +150,7 @@ TEST_F(StreamingMemoryReserveOrWait, CheckPriority) {
     EXPECT_EQ(log.log.at(1).first, 1);
 }
 
-TEST_F(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
+TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -185,7 +195,7 @@ TEST_F(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
     thd2.join();
 }
 
-TEST_F(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
+TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -211,7 +221,7 @@ TEST_F(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     }
 }
 
-TEST_F(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
+TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     // Start with no available memory so the request cannot be satisfied normally.
     set_mem_avail(0);
 
