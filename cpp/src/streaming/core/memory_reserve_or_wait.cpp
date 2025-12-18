@@ -70,7 +70,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 ) {
     // First, check whether the requested memory is immediately available.
     auto [res, _] = ctx_->br()->reserve(mem_type_, size, no_overbooking);
-    if (res.size() > 0 || size == 0) {
+    if (res.size() == size) {
         co_return std::move(res);
     }
 
