@@ -126,24 +126,26 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     // Run the pipeline on a dedicated thread.
     std::thread thd(run_streaming_pipeline, std::move(nodes));
 
-    // We must ensure that both nodes have submitted their reservation requests
-    // before checking the order in which MemoryReserveOrWait processed them.
-    // First, we wait until both requests have been submitted (`mrow.size() == 2`),
-    // then we ensure that periodic_memory_check() has had a chance to perform
-    // at least one iteration.
-    {
-        std::uint64_t counter;
-        while (mrow.size() < 2) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        counter = mrow.periodic_memory_check_counter();
-        while (mrow.periodic_memory_check_counter() <= counter) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+    // Ensure both requests are submitted and periodic_memory_check has run at least once.
+    while (mrow.size() < 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    auto const counter = mrow.periodic_memory_check_counter();
+    while (mrow.periodic_memory_check_counter() <= counter) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    // Make memory available, which should priorites the second node
-    // with the highest "future_release_potential".
+    // Only enough memory for ONE request, so completion order reflects selection order.
+    set_mem_avail(10);
+
+    // Wait until exactly one reservation completes.
+    while (log.log.size() < 1)
+    {  // make sure log.log.size() is thread-safe, see note below
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(log.log.at(0).first, 2);
+
+    // Now allow the second request to complete.
     set_mem_avail(20);
     thd.join();
     EXPECT_EQ(log.log.at(0).first, 2);
