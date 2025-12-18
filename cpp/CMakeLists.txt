@@ -100,7 +100,9 @@ endif()
 find_package(Python COMPONENTS Interpreter)
 if(Python_FOUND)
   rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
-  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+  foreach(wheel_prefix_path IN LISTS wheel_prefix_paths)
+    list(APPEND CMAKE_PREFIX_PATH "${wheel_prefix_path}/lib64/cmake")
+  endforeach()
 endif()
 
 # ##################################################################################################
