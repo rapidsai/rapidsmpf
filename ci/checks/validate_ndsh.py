@@ -107,8 +107,7 @@ def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> Non
         elif directory.exists() and directory.is_dir():
             parquet_path = directory / "*.parquet"
         else:
-            # Table might not be needed for this query
-            continue
+            raise FileNotFoundError(f"Table {table} not found in {input_dir}")
 
         con.execute(
             f"CREATE VIEW {table} AS SELECT * FROM read_parquet('{parquet_path}')"
