@@ -161,25 +161,26 @@ streaming::Message semi_join_chunk(
     streaming::TableChunk&& right_chunk,
     [[maybe_unused]] std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
-    std::uint64_t sequence
+    std::uint64_t sequence,
+    CudaEvent* left_event
 ) {
-    CudaEvent event;
+    CudaEvent event;  // TODO: see if this is needed for deallocation.
     right_chunk = to_device(ctx, std::move(right_chunk));
+    auto chunk_stream = right_chunk.stream();
+
+    left_event->stream_wait(chunk_stream);
+
+    // At this point, both left_chunk and right_chunk are valid on
+    // either stream. We'll do everything from here out on the
+    // right_chunk.stream(), so that we don't introduce false dependencies
+    // between the different chunks.
 
     auto joiner = cudf::filtered_join(
         right_chunk.table_view().select(right_on),
         cudf::null_equality::UNEQUAL,
         cudf::set_as_build_table::RIGHT,
-        left_chunk.stream()
+        chunk_stream
     );
-
-    // We need data to be ready on both left and right sides of the table,
-    // so the `semi_join` must be on a stream that's downstream of both left and right.
-    CudaEvent build_event;
-    build_event.record(left_chunk.stream());  // build_event downstream of left
-
-    auto chunk_stream = right_chunk.stream();
-    build_event.stream_wait(chunk_stream);  // build_event downstream of right
 
     auto match = joiner.semi_join(
         left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
@@ -204,6 +205,8 @@ streaming::Message semi_join_chunk(
     ctx->comm()->logger().debug(
         "semi_join_chunk: result_table.num_rows()=", result_table->num_rows()
     );
+    // Deallocation of the join indices will happen on chunk_stream, so add stream dep
+    cuda_stream_join(left_chunk.stream(), chunk_stream, &event);
     return streaming::to_message(
         sequence,
         std::make_unique<streaming::TableChunk>(std::move(result_table), chunk_stream)
@@ -454,6 +457,8 @@ streaming::Node left_semi_join_broadcast_left(
     ctx->comm()->logger().print(
         "Left (probe) table has ", left_table.table_view().num_rows(), " rows"
     );
+    CudaEvent left_event;
+    left_event.record(left_table.stream());
 
     std::size_t sequence = 0;
     while (true) {
@@ -467,7 +472,8 @@ streaming::Node left_semi_join_broadcast_left(
             right_msg.release<streaming::TableChunk>(),
             left_on,
             right_on,
-            sequence++
+            sequence++,
+            &left_event
         ));
     }
 
@@ -491,6 +497,11 @@ streaming::Node left_semi_join_shuffle(
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();
+
+        // We don't have any dependencies across chunks, so make an event per chunk pair.
+        CudaEvent left_event;
+        left_event.record(left_msg.release<streaming::TableChunk>().stream());
+
         if (left_msg.empty()) {
             RAPIDSMPF_EXPECTS(
                 right_msg.empty(), "Left does not have same number of partitions as right"
@@ -508,7 +519,8 @@ streaming::Node left_semi_join_shuffle(
             right_msg.release<streaming::TableChunk>(),
             left_on,
             right_on,
-            left_msg.sequence_number()
+            left_msg.sequence_number(),
+            &left_event
         ));
     }
 }
