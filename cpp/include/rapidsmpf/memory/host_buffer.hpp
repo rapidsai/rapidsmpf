@@ -8,10 +8,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <memory>
 #include <span>
 #include <vector>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -25,6 +28,17 @@ namespace rapidsmpf {
  */
 class HostBuffer {
   public:
+    /**
+     * @brief Type-erased deleter for owned storage.
+     *
+     * This deleter holds a callable that releases the underlying storage when invoked.
+     * It enables `HostBuffer` to take ownership of different storage types
+     * (e.g., `rmm::device_buffer`, `std::vector<uint8_t>`) without exposing their types.
+     * The deleter captures the owned object and destroys it when the deleter itself
+     * is destroyed (the `void*` parameter is ignored).
+     */
+    using OwnedStorageDeleter = std::function<void(void*)>;
+
     /**
      * @brief Allocate a new host buffer.
      *
@@ -139,10 +153,65 @@ class HostBuffer {
         rmm::host_async_resource_ref mr
     );
 
+    /**
+     * @brief Construct a `HostBuffer` by taking ownership of a `std::vector<std::uint8_t>`.
+     *
+     * The buffer takes ownership of the vector's memory. The vector is moved into
+     * internal storage and will be destroyed when the `HostBuffer` is destroyed.
+     *
+     * @note The memory is regular host memory (not pinned). Async operations on this
+     * buffer may require synchronization.
+     *
+     * @param data Vector to take ownership of (will be moved).
+     * @param stream CUDA stream to associate with this buffer.
+     *
+     * @return A new `HostBuffer` owning the vector's memory.
+     */
+    static HostBuffer from_owned_vector(
+        std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
+    );
+
+    /**
+     * @brief Construct a `HostBuffer` by taking ownership of an `rmm::device_buffer`.
+     *
+     * The buffer takes ownership of the device buffer. The caller must ensure that
+     * the device buffer contains host-accessible memory (e.g., pinned host memory
+     * allocated via a managed or pinned memory resource).
+     *
+     * @warning The caller is responsible for ensuring the device buffer's memory is
+     * host-accessible. Using this with non-host-accessible device memory will result
+     * in undefined behavior when accessing the data.
+     *
+     * @param device_buffer Device buffer to take ownership of (will be moved).
+     * @param stream CUDA stream to associate with this buffer.
+     *
+     * @return A new `HostBuffer` owning the device buffer's memory.
+     */
+    static HostBuffer from_owned_device_buffer(
+        std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
+    );
+
   private:
+    /**
+     * @brief Private constructor for creating a buffer with owned storage.
+     *
+     * @param span View of the owned memory.
+     * @param stream CUDA stream associated with this buffer.
+     * @param mr Dummy memory resource (not used for deallocation).
+     * @param owned_storage Unique pointer managing the owned storage lifetime.
+     */
+    HostBuffer(
+        std::span<std::byte> span,
+        rmm::cuda_stream_view stream,
+        rmm::host_async_resource_ref mr,
+        std::unique_ptr<void, OwnedStorageDeleter> owned_storage
+    );
+
     rmm::cuda_stream_view stream_;
     rmm::host_async_resource_ref mr_;
     std::span<std::byte> span_{};
+    /// @brief Optional owned storage that will be released when the buffer is destroyed.
+    std::unique_ptr<void, OwnedStorageDeleter> owned_storage_{nullptr, [](void*) {}};
 };
 
 }  // namespace rapidsmpf
