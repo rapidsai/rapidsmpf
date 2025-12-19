@@ -171,7 +171,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     // serialize `table_view()` into a packed_columns and then we move
                     // the packed_columns' gpu_data to a new host buffer.
 
-                    packed_data = pack_to_host(table_view(), stream(), reservation);
+                    packed_data = pack(table_view(), stream(), reservation);
                 }
                 return TableChunk(std::move(packed_data));
             }

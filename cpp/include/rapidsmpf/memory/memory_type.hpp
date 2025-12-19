@@ -85,7 +85,7 @@ static_assert(std::ranges::equal(
  * @param mem_type The memory type.
  * @return True if the memory type is host accessible, false otherwise.
  */
-constexpr bool is_host_accessible(MemoryType mem_type) noexcept {
+constexpr bool is_host_accessible(MemoryType const& mem_type) noexcept {
     return std::ranges::find(HOST_ACCESSIBLE_MEMORY_TYPES, mem_type)
            != std::ranges::end(HOST_ACCESSIBLE_MEMORY_TYPES);
 };
@@ -96,7 +96,7 @@ constexpr bool is_host_accessible(MemoryType mem_type) noexcept {
  * @param mem_type The memory type.
  * @return True if the memory type is device accessible, false otherwise.
  */
-constexpr bool is_device_accessible(MemoryType mem_type) noexcept {
+constexpr bool is_device_accessible(MemoryType const& mem_type) noexcept {
     return std::ranges::find(DEVICE_ACCESSIBLE_MEMORY_TYPES, mem_type)
            != std::ranges::end(DEVICE_ACCESSIBLE_MEMORY_TYPES);
 };

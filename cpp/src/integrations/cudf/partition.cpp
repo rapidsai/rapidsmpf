@@ -268,6 +268,30 @@ std::vector<PackedData> unspill_partitions(
     return ret;
 }
 
+namespace {
+
+/**
+ * @brief Pad the data reservation to the packed size if the packed size is within the
+ * wiggle room.
+ *
+ * @param data_res The data reservation to pad.
+ * @param packed_size The size of the packed data.
+ * @param table The table to pack.
+ */
+void pad_data_reservation(
+    MemoryReservation& data_res, size_t packed_size, cudf::table_view const& table
+) {
+    if (packed_size > data_res.size()) {
+        if (packed_size <= data_res.size() + total_packing_wiggle_room(table)) {
+            data_res.clear();  // clear the current reservation
+            data_res = std::get<0>(
+                data_res.br()->reserve(data_res.mem_type(), packed_size, true)
+            );
+        }
+    }
+}
+}  // namespace
+
 PackedData chunked_pack(
     cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
 ) {
@@ -287,12 +311,7 @@ PackedData chunked_pack(
 
     // if the packed size > data reservation, and it is within the wiggle room, pad the
     // data reservation to the packed size from the same memory type.
-    if (packed_size > data_res.size()) {
-        if (packed_size <= data_res.size() + total_packing_wiggle_room(table)) {
-            data_res =
-                data_res.br()->reserve(data_res.mem_type(), packed_size, true).first;
-        }
-    }
+    pad_data_reservation(data_res, packed_size, table);
 
     auto data_buf = br->allocate(packed_size, stream, data_res);
 
@@ -317,70 +336,89 @@ PackedData chunked_pack(
     return {packer.build_metadata(), std::move(data_buf)};
 }
 
-std::unique_ptr<PackedData> pack_to_host(
+std::unique_ptr<PackedData> pack(
     cudf::table_view const& table,
     rmm::cuda_stream_view stream,
-    MemoryReservation& host_data_res,
-    float chunked_pack_buffer_size_factor,
+    MemoryReservation& data_res,
     std::span<MemoryType const> cpack_buf_mem_types
 ) {
+    auto* br = data_res.br();
+
+    auto cudf_pack =
+        [&](rmm::device_async_resource_ref device_mr) -> std::unique_ptr<PackedData> {
+        // if there is enough memory to pack the table, use `cudf::pack`
+        auto packed_columns = cudf::pack(table, stream, device_mr);
+
+        auto packed_data = std::make_unique<PackedData>(
+            std::move(packed_columns.metadata),
+            br->move(std::move(packed_columns.gpu_data), stream)
+        );
+
+        pad_data_reservation(data_res, packed_data->data->size, table);
+
+        // Note: in when using pinned memory, data is returned as a rmm::device_buffer.
+        // This data can not be released. Therefore, we need to make a copy.
+        // if the data res is device, this will be a no-op.
+        packed_data->data = br->move(std::move(packed_data->data), data_res);
+
+        return packed_data;
+    };
+
+    size_t est_table_size = estimated_memory_usage(table, stream);
+
+    // irrepective of the memory type, the reservation must be big enough to copy the
+    // output data buffer.
     RAPIDSMPF_EXPECTS(
-        is_host_accessible(host_data_res.mem_type()),
-        "memory reservation is not host accessible",
+        data_res.size() >= est_table_size,
+        "data reservation is not big enough to pack the table",
         std::invalid_argument
     );
 
-    auto* br = host_data_res.br();
+    // if the data reservation is from device accessible memory, use cudf::pack, as it
+    // performs better than chunked_pack. cudf::pack will require O(estimated_table_size)
+    // memory.
+    if (is_device_accessible(data_res.mem_type())) {
+        // use the memory resource corresponding to the data reservation, so that
+        // cudf::pack will allocate memory from that memory type.
+        return cudf_pack(br->get_device_mr(data_res.mem_type()));
+    } else {  // HOST data reservations.
 
-    size_t est_table_size = estimated_memory_usage(table, stream);
-    {
-        // make a device reservation for packing
-        auto [pack_res, overbooking] =
-            br->reserve(MemoryType::DEVICE, est_table_size, true);
+        // try to allocate as much device accessible memory as possible for the bounce
+        // buffer (max est_table_size).
+        for (auto const& mem_type : cpack_buf_mem_types) {
+            auto [res, overbooking] = br->reserve(mem_type, est_table_size, true);
 
-        if (overbooking == 0) {
-            // if there is enough memory to pack the table, use `cudf::pack`
-            auto packed_columns = cudf::pack(table, stream, br->device_mr());
-            // clear the reservation as we are done with it.
-            pack_res.clear();
+            if (overbooking == 0) {
+                // there is enough memory to pack the table, use `cudf::pack`
+                auto packed_data = cudf_pack(br->get_device_mr(mem_type));
 
-            // note that this is a device buffer, so we need to move it to host memory
-            auto packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns.metadata),
-                br->move(std::move(packed_columns.gpu_data), stream)
-            );
+                // finally copy the packed data device buffer to data reservation
 
-            // Handle the case where `cudf::pack` allocates slightly more than
-            // the input size. This can occur because cudf uses aligned
-            // allocations, which may exceed the requested size. To
-            // accommodate this, we allow some wiggle room.
-            if (packed_data->data->size > host_data_res.size()) {
-                if (packed_data->data->size
-                    <= host_data_res.size() + total_packing_wiggle_room(table))
-                {
-                    host_data_res =
-                        br->reserve(
-                              host_data_res.mem_type(), packed_data->data->size, true
-                        )
-                            .first;
-                }
+                // if the packed data size is within a certain wiggle room, pad the data
+                // reservation to that size.
+                pad_data_reservation(data_res, packed_data->data->size, table);
+
+                // finally copy the packed data device buffer to HOST memory.
+                // Note that if the padding exceeds the wiggle room, the following move
+                // will likely OOM.
+                packed_data->data = br->move(std::move(packed_data->data), data_res);
+                return packed_data;
             }
 
-            // finally copy the packed data device buffer to HOST memory
-            packed_data->data = br->move(std::move(packed_data->data), host_data_res);
-            return packed_data;
+            size_t leftover_mem = res.size() > overbooking ? res.size() - overbooking : 0;
+
+            if (leftover_mem >= cudf_chunked_pack_min_buffer_size) {
+                // use device memory for the bounce buffer
+                auto bounce_buf = br->allocate(leftover_mem, stream, res);
+                return std::make_unique<PackedData>(
+                    chunked_pack(table, *bounce_buf, data_res)
+                );
+            }
         }
+
+        // if we get here, all attempts to pack the table have failed.
+        RAPIDSMPF_FAIL("failed to pack the table", std::runtime_error);
     }
-
-    // there is not enough memory to use cudf::pack. Use chunked_pack.
-    auto chunk_size = std::max(
-        static_cast<size_t>(est_table_size * chunked_pack_buffer_size_factor),
-        cudf_chunked_pack_min_buffer_size
-    );
-    auto bounce_res = br->reserve_or_fail(chunk_size, cpack_buf_mem_types);
-    auto bounce_buf = br->allocate(chunk_size, stream, bounce_res);
-
-    return std::make_unique<PackedData>(chunked_pack(table, *bounce_buf, host_data_res));
 }
 
 }  // namespace rapidsmpf

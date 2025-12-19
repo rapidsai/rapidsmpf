@@ -243,35 +243,50 @@ PackedData chunked_pack(
 );
 
 /// @brief The minimum buffer size for `cudf::chunked_pack`.
-constexpr size_t cudf_chunked_pack_min_buffer_size = 1 << 20;  ///< 1 MiB
+constexpr size_t cudf_chunked_pack_min_buffer_size = size_t(1) << 20;  ///< 1 MiB
 
 /**
  * @brief Pack a table to host memory using  `cudf::pack` or `cudf::chunked_pack`.
  *
- * If device memory reservation can be made for the estimated table size, `cudf::pack`
- * is used. Otherwise, `cudf::chunked_pack` is used with a bounce buffer size of the
- * estimated table size * @p cpack_buf_size_factor (with at least
- * `cudf_chunked_pack_min_buffer_size`).
+ * Based on benchmarks (rapidsai/rapidsmpf#745), the order of packing performance is as
+ * follows:
+ * - `cudf::pack`           -> DEVICE
+ * - `cudf::chunked_pack`   -> DEVICE
+ * - `cudf::pack`           -> PINNED_HOST
+ * - `cudf::chunked_pack`   -> PINNED HOST
+ *
+ * This utility using the following strategy:
+ * - data reservation must be big enough to pack the table.
+ * - if the data reservation is from device accessible memory, use cudf::pack, as it
+ * requires O(estimated_table_size) memory, which is already reserved up front.
+ * - if the data reservation is from host memory, for each memory type in @p
+ * bounce_buf_types, do the following:
+ *   - try to reserve estimated_table_size for the memory type.
+ *   - if the reservation is successful without overbooking, use cudf::pack, and move the
+ *     packed data device buffer to the data reservation.
+ *   - else if the leftover memory `>= cudf_chunked_pack_min_buffer_size`, allocate a
+ *     device accessible bounce buffer, and use chunked_pack to pack to the data
+ * reservation.
+ *   - else loop again with the next memory type.
+ *   - if all memory types are tried and no success, fail.
  *
  * @param table The table to pack.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param host_data_res Memory reservation for the host data buffer.
- * @param cpack_buf_size_factor The factor to use for the chunked pack buffer size.
- * Default is 0.1, i.e. 10% of the estimated table size.
- * @param cpack_buf_mem_types The memory types to use for the bounce buffer. Default is
+ * @param data_res Memory reservation for the host data buffer.
+ * @param bounce_buf_types The memory types to use for the bounce buffer. Default is
  * `DEVICE_ACCESSIBLE_MEMORY_TYPES`.
  *
  * @return A `PackedData` containing the packed table.
  *
- * @throws std::invalid_argument If the memory reservation is not host accessible.
- * @throws std::runtime_error If the memory reservation fails.
+ * @throws std::invalid_argument If the memory reservation is not big enough to pack the
+ * table.
+ * @throws std::runtime_error If all attempts to pack the table fail.
  */
-std::unique_ptr<PackedData> pack_to_host(
+std::unique_ptr<PackedData> pack(
     cudf::table_view const& table,
     rmm::cuda_stream_view stream,
-    MemoryReservation& host_data_res,
-    float cpack_buf_size_factor = 0.1,
-    std::span<MemoryType const> cpack_buf_mem_types = DEVICE_ACCESSIBLE_MEMORY_TYPES
+    MemoryReservation& data_res,
+    std::span<MemoryType const> bounce_buf_types = DEVICE_ACCESSIBLE_MEMORY_TYPES
 );
 
 }  // namespace rapidsmpf

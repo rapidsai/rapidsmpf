@@ -49,6 +49,24 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+rmm::device_async_resource_ref BufferResource::get_device_mr(MemoryType const& mem_type) {
+    RAPIDSMPF_EXPECTS(
+        is_device_accessible(mem_type),
+        "memory type must be device accessible",
+        std::invalid_argument
+    );
+    return mem_type == MemoryType::DEVICE ? device_mr() : pinned_mr();
+}
+
+rmm::host_async_resource_ref BufferResource::get_host_mr(MemoryType const& mem_type) {
+    RAPIDSMPF_EXPECTS(
+        is_host_accessible(mem_type),
+        "memory type must be host accessible",
+        std::invalid_argument
+    );
+    return mem_type == MemoryType::PINNED_HOST ? pinned_mr() : host_mr();
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {

@@ -107,12 +107,32 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr() {
         RAPIDSMPF_EXPECTS(
             pinned_mr_, "no pinned memory resource is available", std::invalid_argument
         );
         return *pinned_mr_;
     }
+
+    /**
+     * @brief Get the RMM device memory resource for a given memory type.
+     *
+     * @param mem_type The memory type.
+     * @return Reference to the RMM resource used for device allocations.
+     * @throws std::invalid_argument if the memory type is not device accessible.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref get_device_mr(
+        MemoryType const& mem_type
+    );
+
+    /**
+     * @brief Get the RMM host memory resource for a given memory type.
+     *
+     * @param mem_type The memory type.
+     * @return Reference to the RMM resource used for host allocations.
+     * @throws std::invalid_argument if the memory type is not host accessible.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref get_host_mr(MemoryType const& mem_type);
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
