@@ -104,9 +104,8 @@ rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
 find_package(Python COMPONENTS Interpreter)
 if(Python_FOUND)
   rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
-  foreach(wheel_prefix_path IN LISTS wheel_prefix_paths)
-    list(APPEND CMAKE_PREFIX_PATH "${wheel_prefix_path}/lib64/cmake")
-  endforeach()
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
 endif()
 
 # ##################################################################################################

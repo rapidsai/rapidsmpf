@@ -41,13 +41,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # ##################################################################################################
 # * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
-find_package(Python COMPONENTS Interpreter)
-if(Python_FOUND)
-  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
-  foreach(wheel_prefix_path IN LISTS wheel_prefix_paths)
-    list(APPEND CMAKE_PREFIX_PATH "${wheel_prefix_path}/lib64/cmake")
-  endforeach()
-endif()
+set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
