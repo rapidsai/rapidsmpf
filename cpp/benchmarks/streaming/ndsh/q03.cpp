@@ -390,7 +390,6 @@ rapidsmpf::streaming::Node top_k_by(
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]]
 rapidsmpf::streaming::Node fanout_bounded(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
