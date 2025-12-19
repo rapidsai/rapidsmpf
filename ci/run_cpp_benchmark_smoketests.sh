@@ -46,3 +46,6 @@ for i in {0..2}; do
     exit 1
   fi
 done
+
+# bench pack smoketest (only run 1MB buffer benchmarks)
+python "${TIMEOUT_TOOL_PATH}" 30 ./bench_pack --benchmark_filter="/1/" --benchmark_min_time=0s
