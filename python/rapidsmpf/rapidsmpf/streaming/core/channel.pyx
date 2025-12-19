@@ -142,15 +142,10 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message &msg_output,
         void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_function_msg,
-        rapidsmpf::OwningWrapper py_function_empty
+        rapidsmpf::OwningWrapper py_function
     ) {
         msg_output = co_await channel->receive();
-        if (msg_output.empty()) {
-            py_invoker(py_function_empty.get());
-        } else {
-            py_invoker(py_function_msg.get());
-        }
+        py_invoker(py_function.get());
     }
     }  // namespace
 
@@ -159,8 +154,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message &msg_output,
         void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_function_msg,
-        rapidsmpf::OwningWrapper py_function_empty
+        rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
@@ -168,8 +162,7 @@ cdef extern from * nogil:
                     std::move(channel),
                     msg_output,
                     py_invoker,
-                    std::move(py_function_msg),
-                    std::move(py_function_empty)
+                    std::move(py_function)
                 )
             ),
             "could not spawn task on thread pool"
@@ -181,8 +174,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Channel] channel,
         cpp_Message &msg_output,
         void (*py_invoker)(void*),
-        cpp_OwningWrapper py_function_msg,
-        cpp_OwningWrapper py_function_empty
+        cpp_OwningWrapper py_function
     )
 
 
@@ -312,14 +304,10 @@ cdef class Channel:
         cdef cpp_Message c_msg
         cdef Message msg = Message.from_handle(move(c_msg))
 
-        callback_msg = partial(
-            loop.call_soon_threadsafe, partial(ret.set_result, msg)
-        )
-        callback_empty = partial(
+        callback = partial(
             loop.call_soon_threadsafe, partial(ret.set_result, None)
         )
-        Py_INCREF(callback_msg)
-        Py_INCREF(callback_empty)
+        Py_INCREF(callback)
 
         with nogil:
             cpp_channel_recv(
@@ -327,7 +315,9 @@ cdef class Channel:
                 self._handle,
                 msg._handle,
                 cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback_msg, py_deleter)),
-                move(cpp_OwningWrapper(<void*><PyObject*>callback_empty, py_deleter))
+                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
             )
-        return await ret
+        await ret
+        if msg._handle.empty():
+            return None
+        return msg
