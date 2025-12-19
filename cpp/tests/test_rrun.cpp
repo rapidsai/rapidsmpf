@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/topology_discovery.hpp>
 
 class TopologyBindingTest : public ::testing::Test {
@@ -82,7 +83,7 @@ TEST_F(TopologyBindingTest, CpuAffinity) {
 }
 
 TEST_F(TopologyBindingTest, NumaBinding) {
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::vector<int> expected_memory_binding = expected_gpu_info_.memory_binding;
 
     if (expected_memory_binding.empty()) {
@@ -162,7 +163,7 @@ TEST_F(TopologyBindingTest, UcxNetDevices) {
 
 TEST_F(TopologyBindingTest, AllBindings) {
     std::string actual_cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::string actual_ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
 
     // Check CPU affinity
