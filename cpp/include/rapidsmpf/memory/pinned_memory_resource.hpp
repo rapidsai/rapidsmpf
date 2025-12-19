@@ -13,8 +13,8 @@
 #include <cuda/memory_resource>
 
 #include <rmm/aligned.hpp>
+#include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/detail/runtime_capabilities.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -34,10 +34,15 @@ namespace rapidsmpf {
  * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
  */
 inline bool is_pinned_memory_resources_supported() {
-#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
     static const bool supported = [] {
         // check if the device supports async memory pools
-        if (!rmm::detail::runtime_async_alloc::is_supported()) {
+        int cuda_pool_supported{};
+        auto attr_result = cudaDeviceGetAttribute(
+            &cuda_pool_supported,
+            cudaDevAttrMemoryPoolsSupported,
+            rmm::get_current_cuda_device().value()
+        );
+        if (attr_result != cudaSuccess || cuda_pool_supported != 1) {
             return false;
         }
 
@@ -50,9 +55,6 @@ inline bool is_pinned_memory_resources_supported() {
                && cuda_runtime_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION;
     }();
     return supported;
-#else
-    return false;
-#endif
 }
 
 class PinnedMemoryResource;

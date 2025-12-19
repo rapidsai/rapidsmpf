@@ -62,9 +62,7 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties() {
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
     PinnedMemoryResourceImpl(int numa_id)
-        : pool{numa_id, get_memory_pool_properties()}, resource{pool} {
-        pool.enable_access_from(rmm::get_current_cuda_device().value());
-    }
+        : pool{numa_id, get_memory_pool_properties()}, resource{pool} {}
 
     void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment) {
         return resource.allocate(stream, bytes, alignment);
