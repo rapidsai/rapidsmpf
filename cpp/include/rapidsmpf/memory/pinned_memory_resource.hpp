@@ -23,8 +23,11 @@
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
+// NOLINTBEGIN(modernize-macro-to-enum)
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR "v12.6"
+
+// NOLINTEND(modernize-macro-to-enum)
 
 namespace rapidsmpf {
 
