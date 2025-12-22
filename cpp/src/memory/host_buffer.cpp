@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <utility>
+
 #include <rapidsmpf/memory/host_buffer.hpp>
 
 namespace rapidsmpf {
@@ -10,7 +12,7 @@ namespace rapidsmpf {
 HostBuffer::HostBuffer(
     std::size_t size, rmm::cuda_stream_view stream, rmm::host_async_resource_ref mr
 )
-    : stream_{stream}, mr_{mr} {
+    : stream_{stream}, mr_{std::move(mr)} {
     if (size > 0) {
         auto* ptr = static_cast<std::byte*>(mr_.allocate(stream_, size));
         span_ = std::span<std::byte>{ptr, size};
