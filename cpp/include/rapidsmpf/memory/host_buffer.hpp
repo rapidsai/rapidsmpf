@@ -19,6 +19,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 namespace rapidsmpf {
 
@@ -154,7 +155,8 @@ class HostBuffer {
     );
 
     /**
-     * @brief Construct a `HostBuffer` by taking ownership of a `std::vector<std::uint8_t>`.
+     * @brief Construct a `HostBuffer` by taking ownership of a
+     * `std::vector<std::uint8_t>`.
      *
      * The buffer takes ownership of the vector's memory. The vector is moved into
      * internal storage and will be destroyed when the `HostBuffer` is destroyed.
@@ -168,7 +170,9 @@ class HostBuffer {
      * @return A new `HostBuffer` owning the vector's memory.
      */
     static HostBuffer from_owned_vector(
-        std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
+        std::vector<std::uint8_t>&& data,
+        rmm::host_async_resource_ref mr,
+        rmm::cuda_stream_view stream
     );
 
     /**
@@ -182,13 +186,18 @@ class HostBuffer {
      * host-accessible. Using this with non-host-accessible device memory will result
      * in undefined behavior when accessing the data.
      *
-     * @param device_buffer Device buffer to take ownership of (will be moved).
+     * @param pinned_host_buffer Device buffer to take ownership of (will be moved).
      * @param stream CUDA stream to associate with this buffer.
      *
      * @return A new `HostBuffer` owning the device buffer's memory.
+     *
+     * @throws std::invalid_argument if `pinned_host_buffer` is null or if the memory type
+     * of the buffer is not pinned host.
      */
-    static HostBuffer from_owned_device_buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
+    static HostBuffer from_owned_rmm_pinned_host_buffer(
+        std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
+        PinnedMemoryResource& mr,
+        rmm::cuda_stream_view stream
     );
 
   private:

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
@@ -25,7 +26,10 @@ HostBuffer::HostBuffer(
     rmm::host_async_resource_ref mr,
     std::unique_ptr<void, OwnedStorageDeleter> owned_storage
 )
-    : stream_{stream}, mr_{mr}, span_{span}, owned_storage_{std::move(owned_storage)} {}
+    : stream_{stream},
+      mr_{std::move(mr)},
+      span_{span},
+      owned_storage_{std::move(owned_storage)} {}
 
 void HostBuffer::deallocate_async() noexcept {
     if (!span_.empty()) {
@@ -110,79 +114,51 @@ HostBuffer HostBuffer::from_uint8_vector(
     return ret;
 }
 
-namespace {
-
-/**
- * @brief A dummy host memory resource that terminates if used.
- *
- * This is used as a placeholder for `HostBuffer` instances that take ownership of
- * external storage. The resource is never actually used for allocation/deallocation
- * since such buffers use the `owned_storage_` deleter instead.
- */
-class DummyHostMemoryResource final : public HostMemoryResource {
-  public:
-    void* allocate(rmm::cuda_stream_view, std::size_t, std::size_t) override {
-        RAPIDSMPF_FAIL(
-            "DummyHostMemoryResource should never be used for allocation",
-            std::logic_error
-        );
-    }
-
-    void deallocate(rmm::cuda_stream_view, void*, std::size_t, std::size_t) noexcept
-        override {
-        // This should never be called since buffers with owned_storage_ don't use mr_.
-        // If we get here, something is seriously wrong - terminate.
-        std::terminate();
-    }
-};
-
-/// @brief Get a reference to the static dummy host memory resource.
-rmm::host_async_resource_ref get_dummy_host_mr() {
-    static DummyHostMemoryResource dummy_mr{};
-    return dummy_mr;
-}
-
-}  // namespace
-
 HostBuffer HostBuffer::from_owned_vector(
-    std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
+    std::vector<std::uint8_t>&& data,
+    rmm::host_async_resource_ref mr,
+    rmm::cuda_stream_view stream
 ) {
-    // Get the data pointer and size before moving.
-    // Moving a vector transfers ownership of the internal buffer but doesn't
-    // invalidate the data pointer.
-    auto* ptr = reinterpret_cast<std::byte*>(data.data());
-    auto size = data.size();
+    // Wrap in shared_ptr so the lambda is copyable (required by std::function).
+    auto shared_vec = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
+    auto* ptr = reinterpret_cast<std::byte*>(shared_vec->data());
+    auto size = shared_vec->size();
     std::span<std::byte> span{ptr, size};
 
-    // Move the vector into the lambda. The vector is destroyed when the deleter
-    // (and its captured lambda) is destroyed.
     std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
-        ptr, [v = std::move(data)](void*) mutable { v.clear(); }
+        ptr, [shared_vec_ = std::move(shared_vec)](void*) mutable { shared_vec_.reset(); }
     };
 
-    return HostBuffer{span, stream, get_dummy_host_mr(), std::move(owned_storage)};
+    return HostBuffer{span, stream, std::move(mr), std::move(owned_storage)};
 }
 
-HostBuffer HostBuffer::from_owned_device_buffer(
-    std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
+HostBuffer HostBuffer::from_owned_rmm_pinned_host_buffer(
+    std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
+    PinnedMemoryResource& mr,
+    rmm::cuda_stream_view stream
 ) {
     RAPIDSMPF_EXPECTS(
-        device_buffer != nullptr,
-        "device_buffer must not be null",
+        pinned_host_buffer != nullptr,
+        "pinned_host_buffer must not be null",
         std::invalid_argument
     );
 
-    auto* ptr = static_cast<std::byte*>(device_buffer->data());
-    auto size = device_buffer->size();
-    std::span<std::byte> span{ptr, size};
+    RAPIDSMPF_EXPECTS(
+        ptr_to_memory_type(pinned_host_buffer->data()) == MemoryType::PINNED_HOST,
+        "pinned_host_buffer must be a pinned host buffer",
+        std::invalid_argument
+    );
 
-    // Move the device_buffer into the lambda. The buffer is destroyed when the
-    // deleter (and its captured lambda) is destroyed.
+    // Wrap in shared_ptr so the lambda is copyable (required by std::function).
+    auto shared_db = std::make_shared<rmm::device_buffer>(std::move(*pinned_host_buffer));
+    auto* ptr = static_cast<std::byte*>(shared_db->data());
+    std::span<std::byte> span{ptr, shared_db->size()};
+
     std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
-        ptr, [db = std::move(device_buffer)](void*) mutable { db.reset(); }
+        ptr, [shared_db_ = std::move(shared_db)](void*) mutable { shared_db_.reset(); }
     };
 
-    return HostBuffer{span, stream, get_dummy_host_mr(), std::move(owned_storage)};
+    return HostBuffer{std::move(span), stream, mr, std::move(owned_storage)};
 }
 
 }  // namespace rapidsmpf
