@@ -57,5 +57,8 @@ rapids-logger "Pytest RapidsMPF (MPI+UCXX)"
 rapids-logger "Pytest RapidsMPF (UCXX polling mode)"
 RAPIDSMPF_UCXX_PROGRESS_MODE=polling ./ci/run_pytests.sh --disable-mpi
 
+rapids-logger "Validate NDSH benchmarks"
+python ./ci/checks/validate_ndsh.py --input-dir scale-1/ --output-dir validation/ --generate-data
+
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit "${EXITCODE}"
