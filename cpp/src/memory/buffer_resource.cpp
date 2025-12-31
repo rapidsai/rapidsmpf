@@ -4,6 +4,7 @@
  */
 
 #include <limits>
+#include <utility>
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
@@ -37,10 +38,10 @@ BufferResource::BufferResource(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
-    : device_mr_{device_mr},
+    : device_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
       memory_available_{add_missing_availability_functions(
-          std::move(memory_available), pinned_mr_ == PinnedMemoryResourceDisabled
+          std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
       )},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},

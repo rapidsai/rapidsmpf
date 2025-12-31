@@ -51,9 +51,6 @@ class BufferResource {
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
-    /// @brief Sentinel value used to disable pinned host memory.
-    static constexpr auto PinnedMemoryResourceDisabled = nullptr;
-
     /**
      * @brief Constructs a buffer resource.
      *
@@ -63,9 +60,10 @@ class BufferResource {
      * allocations. If null, pinned host allocations are disabled. In that case, any
      * attempt to allocate pinned memory will fail regardless of what @p memory_available
      * reports.
-     * @param memory_available Optional memory availability functions mapping memory types
-     * to available memory checkers. Memory types without availability functions are
-     * assumed to have unlimited memory.
+     * @param memory_available Optional functions that report available memory for each
+     * memory type. If a memory type is not present in this map, it is treated as having
+     * unlimited available memory. The only exception is `MemoryType::PINNED_HOST`, which
+     * is always assigned a zero-capacity function when `pinned_mr` is disabled.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
@@ -76,7 +74,7 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResourceDisabled,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -202,7 +200,7 @@ class BufferResource {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
             if (mem_type == MemoryType::PINNED_HOST
-                && pinned_mr_ == PinnedMemoryResourceDisabled)
+                && pinned_mr_ == PinnedMemoryResource::Disabled)
             {
                 // Pinned host memory is only available if the memory resource is
                 // available.
