@@ -198,6 +198,11 @@ std::shared_ptr<streaming::Context> create_context(
 ProgramOptions parse_arguments(int argc, char** argv) {
     ProgramOptions options;
 
+    // Reset getopt state and suppress error messages for unknown options
+    // This allows query-specific options to be parsed in a second pass
+    optind = 1;
+    opterr = 0;
+
     static constexpr std::array<std::string_view, static_cast<std::size_t>(CommType::MAX)>
         comm_names{"single", "mpi", "ucxx"};
 
@@ -382,11 +387,8 @@ ProgramOptions parse_arguments(int argc, char** argv) {
             options.no_pinned_host_memory = true;
             break;
         case '?':
-            if (optopt == 0 && optind > 1) {
-                std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
-            }
-            print_usage();
-            std::exit(1);
+            // Silently ignore unknown options - they may be query-specific
+            break;
         default:
             print_usage();
             std::exit(1);
@@ -405,6 +407,9 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         print_usage();
         std::exit(1);
     }
+
+    // Reset optind for potential second-pass parsing by the caller
+    optind = 1;
 
     return options;
 }

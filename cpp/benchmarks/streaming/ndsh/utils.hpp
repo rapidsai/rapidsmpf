@@ -126,6 +126,11 @@ struct ProgramOptions {
 /**
  * @brief Parse commandline arguments
  *
+ * Parses common options shared across all queries. Unknown options are silently
+ * ignored, allowing queries to perform a second pass to parse query-specific
+ * arguments. After this function returns, `optind` is reset to 1 so callers can
+ * re-parse the arguments with their own option definitions.
+ *
  * @param argc Number of arguments
  * @param argv Arguments
  *
