@@ -1,41 +1,66 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Validate topology_discovery JSON output for correctness."""
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
-from typing import Any, List
+from pathlib import Path
+from typing import Any
 
 
 def load_json_from_path_or_stdin(input_path: str) -> Any:
+    """
+    Load JSON from a file path or stdin.
+
+    Parameters
+    ----------
+    input_path
+        Path to JSON file, or "-" to read from stdin.
+
+    Returns
+    -------
+    Parsed JSON data.
+    """
     if input_path == "-":
         try:
             content = sys.stdin.read()
         except Exception as exc:
-            raise RuntimeError(f"failed reading stdin: {exc}")
+            raise RuntimeError(f"failed reading stdin: {exc}") from exc
         if not content.strip():
-            raise ValueError("no input provided on stdin; pass --input <file> or pipe JSON")
+            raise ValueError(
+                "no input provided on stdin; pass --input <file> or pipe JSON"
+            )
         try:
             return json.loads(content)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid JSON from stdin: {exc}")
+            raise ValueError(f"invalid JSON from stdin: {exc}") from exc
     else:
         try:
-            with open(input_path, "r", encoding="utf-8") as f:
+            with Path(input_path).open(encoding="utf-8") as f:
                 return json.load(f)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"input file not found: {input_path}")
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"input file not found: {input_path}") from exc
         except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid JSON in file {input_path}: {exc}")
+            raise ValueError(f"invalid JSON in file {input_path}: {exc}") from exc
 
 
-def ensure_non_empty_string(errors: List[str], obj: Any, key: str, context: str) -> None:
+def ensure_non_empty_string(
+    errors: list[str], obj: Any, key: str, context: str
+) -> None:
+    """Validate that a key contains a non-empty string value."""
     value = obj.get(key)
     if not isinstance(value, str) or not value.strip():
         errors.append(f"{context}.{key} must be a non-empty string")
 
 
-def ensure_int(errors: List[str], obj: Any, key: str, context: str, *, min_value: int = None) -> None:
+def ensure_int(
+    errors: list[str], obj: Any, key: str, context: str, *, min_value: int | None = None
+) -> None:
+    """Validate that a key contains an integer value, optionally with a minimum."""
     value = obj.get(key)
     if not isinstance(value, int):
         errors.append(f"{context}.{key} must be an integer")
@@ -44,14 +69,16 @@ def ensure_int(errors: List[str], obj: Any, key: str, context: str, *, min_value
         errors.append(f"{context}.{key} must be >= {min_value} (got {value})")
 
 
-def ensure_non_empty_list(errors: List[str], obj: Any, key: str, context: str) -> None:
+def ensure_non_empty_list(errors: list[str], obj: Any, key: str, context: str) -> None:
+    """Validate that a key contains a non-empty list."""
     value = obj.get(key)
     if not isinstance(value, list) or len(value) == 0:
         errors.append(f"{context}.{key} must be a non-empty list")
 
 
-def validate_topology(data: Any) -> List[str]:
-    errors: List[str] = []
+def validate_topology(data: Any) -> list[str]:
+    """Validate topology JSON data structure and return list of errors."""
+    errors: list[str] = []
 
     if not isinstance(data, dict):
         return ["top-level JSON must be an object"]
@@ -69,7 +96,9 @@ def validate_topology(data: Any) -> List[str]:
     # GPUs section
     gpus = data.get("gpus")
     if not isinstance(gpus, list) or len(gpus) == 0:
-        errors.append("gpus must be a non-empty array (at least one GPU must be present)")
+        errors.append(
+            "gpus must be a non-empty array (at least one GPU must be present)"
+        )
     else:
         gpu_ids = []
         for index, gpu in enumerate(gpus):
@@ -90,8 +119,12 @@ def validate_topology(data: Any) -> List[str]:
             if not isinstance(cpu_affinity, dict):
                 errors.append(f"{ctx}.cpu_affinity must be an object")
             else:
-                ensure_non_empty_string(errors, cpu_affinity, "cpulist", f"{ctx}.cpu_affinity")
-                ensure_non_empty_list(errors, cpu_affinity, "cores", f"{ctx}.cpu_affinity")
+                ensure_non_empty_string(
+                    errors, cpu_affinity, "cpulist", f"{ctx}.cpu_affinity"
+                )
+                ensure_non_empty_list(
+                    errors, cpu_affinity, "cores", f"{ctx}.cpu_affinity"
+                )
 
         # GPU id uniqueness check
         if len(gpu_ids) != len(set(gpu_ids)):
@@ -112,7 +145,10 @@ def validate_topology(data: Any) -> List[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate topology_discovery JSON output")
+    """Entry point for the topology JSON validator CLI."""
+    parser = argparse.ArgumentParser(
+        description="Validate topology_discovery JSON output"
+    )
     parser.add_argument(
         "input",
         help="Path to JSON file to validate; pass '-' to read from stdin",

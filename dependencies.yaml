@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # Dependency list for https://github.com/rapidsai/dependency-file-generator
@@ -305,11 +305,20 @@ dependencies:
           - gdb
           - mpi4py
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - pip
+          - pip:
+            - tpchgen-cli
+      - output_types: [pyproject, requirements]
+        packages:
+          - tpchgen-cli
       - output_types: [conda, pyproject, requirements]
         packages:
-          - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0
+          - duckdb
+          - numpy
           - nvidia-ml-py>=12
+          - psutil  # Used for timeout_with_stack.py
+          - pyarrow
+          - pytest<9.0.0
     specific:
       - output_types: conda
         matrices:
