@@ -211,6 +211,7 @@ def run_benchmark(
         str(input_dir),
         "--output-file",
         str(output_path),
+        "--allow-run-as-root",
     ]
 
     if extra_args:
