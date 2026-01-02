@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -39,6 +39,7 @@ nvidia-smi
 
 # Support invoking test_python.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
+BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
 
 # Trap ERR so that `EXITCODE` is printed when a command fails and the script
 # exits with error status
@@ -58,7 +59,7 @@ rapids-logger "Pytest RapidsMPF (UCXX polling mode)"
 RAPIDSMPF_UCXX_PROGRESS_MODE=polling ./ci/run_pytests.sh --disable-mpi
 
 rapids-logger "Validate NDSH benchmarks"
-python ./ci/checks/validate_ndsh.py --input-dir scale-1/ --output-dir validation/ --generate-data
+python ./ci/checks/validate_ndsh.py --input-dir scale-1/ --output-dir validation/ --generate-data --benchmark-dir "${BENCHMARKS_DIR}"
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit "${EXITCODE}"
