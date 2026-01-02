@@ -206,12 +206,12 @@ def run_benchmark(
         "mpirun",
         "-np",
         "1",
+        "--allow-run-as-root",
         str(binary_path),
         "--input-directory",
         str(input_dir),
         "--output-file",
         str(output_path),
-        "--allow-run-as-root",
     ]
 
     if extra_args:
