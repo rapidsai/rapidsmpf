@@ -47,7 +47,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_callback
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                  _extract_all_task(
                      gather, ordered, output, py_invoker, std::move(py_callback)
                  )

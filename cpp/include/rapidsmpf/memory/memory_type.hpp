@@ -6,21 +6,26 @@
 
 #include <array>
 #include <ostream>
+#include <ranges>
+#include <span>
 
 namespace rapidsmpf {
 
-/// @brief Enum representing the type of memory.
+/// @brief Enum representing the type of memory sorted in decreasing order of preference.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
-    HOST = 1  ///< Host memory
+    PINNED_HOST = 1,  ///< Pinned host memory
+    HOST = 2  ///< Host memory
 };
 
 /// @brief All memory types sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
+constexpr std::array<MemoryType, 3> MEMORY_TYPES{
+    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
+};
 
-/// @brief Memory type names sorted to match `MEMORY_TYPES`.
+/// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
-    {"DEVICE", "HOST"}
+    {"DEVICE", "PINNED_HOST", "HOST"}
 };
 
 /**
@@ -31,7 +36,34 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
  */
-constexpr std::array<MemoryType, 1> SPILL_TARGET_MEMORY_TYPES{{MemoryType::HOST}};
+constexpr std::array<MemoryType, 2> SPILL_TARGET_MEMORY_TYPES{
+    {MemoryType::PINNED_HOST, MemoryType::HOST}
+};
+
+/**
+ * @brief Get the memory types with preference lower than or equal to @p mem_type.
+ *
+ * The returned span reflects the predefined ordering used in \c MEMORY_TYPES,
+ * which lists memory types in decreasing order of preference.
+ *
+ * @param mem_type The memory type used as the starting point.
+ * @return A span of memory types whose preference is lower than or equal to
+ * the given type.
+ */
+constexpr std::span<MemoryType const> leq_memory_types(MemoryType mem_type) noexcept {
+    return std::views::drop_while(MEMORY_TYPES, [&](MemoryType const& mt) {
+        return mt != mem_type;
+    });
+}
+
+static_assert(std::ranges::equal(leq_memory_types(MemoryType::DEVICE), MEMORY_TYPES));
+static_assert(std::ranges::equal(
+    leq_memory_types(MemoryType::HOST), std::ranges::single_view{MemoryType::HOST}
+));
+// unknown memory type should return an empty view
+static_assert(std::ranges::equal(
+    leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
+));
 
 /**
  * @brief Get the name of a MemoryType.

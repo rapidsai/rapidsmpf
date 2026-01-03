@@ -152,3 +152,35 @@ This table gives an overview of the different statistics collected.
 | `event-loop-check-future-finish` | float | The duration spent checking if any data has finished being sent. The unit is platform dependent. |
 
 Statistics are available in both C++ and [Python](#api-statistics).
+
+### NVTX Annotations
+
+rapidsmpf includes [nvtx](https://github.com/NVIDIA/NVTX) annotations to provide context
+when viewing an [NSight Systems](https://developer.nvidia.com/nsight-systems) report.
+
+For example, if you have a program `spill.py` that uses rapidsmpf, you can run
+it under nsys to capture a report:
+
+```
+$ nsys profile -o spill --trace cuda,nvtx \
+   python -m rapidsmpf.benchmarks.streaming_benchmark --spill-device '1MiB' --out-nparts 4 --part-size 1MiB --local-size 24MiB
+```
+
+The `rapidsmpf.report` command line interface can analyze the rapidsmpf
+statistics from that report:
+
+```
+$ python -m rapidsmpf.report spill.nsys-rep
+Postbox Spilling Summary
+================================================================================
+
+         Metric |        Avg |        Std |      Min |        Max |     Total
+----------------+------------+------------+----------+------------+----------
+       Duration |  491.73 µs |  304.51 µs |  1.15 µs |    1.15 ms |  25.08 ms
+Bytes requested | 266.96 KiB | 125.07 KiB | 288.00 B | 514.04 KiB | 13.30 MiB
+  Bytes spilled | 341.33 KiB | 221.21 KiB |      0 B | 768.00 KiB | 17.00 MiB
+
+Spill count:  51
+Spill satisfaction: 127.9%
+Effective throughput: 677.88 MiB/s
+```
