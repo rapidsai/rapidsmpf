@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -13,6 +13,7 @@
 #include <cuda/memory_resource>
 
 #include <rmm/aligned.hpp>
+#include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
@@ -22,32 +23,44 @@
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
+// NOLINTBEGIN(modernize-macro-to-enum)
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
-#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR \
-    RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
+#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR "v12.6"
+
+// NOLINTEND(modernize-macro-to-enum)
 
 namespace rapidsmpf {
 
 /**
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
- * Requires rapidsmpf to be built with CUDA>=12.6.
+ * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
  *
  * @return True if the PinnedMemoryResource is supported for the current CUDA version,
  *         false otherwise.
- * @note The driver version check is cached and only performed once.
  */
 inline bool is_pinned_memory_resources_supported() {
-#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
     static const bool supported = [] {
-        int driver_version = 0;
-        RAPIDSMPF_CUDA_TRY(cudaDriverGetVersion(&driver_version));
-        return driver_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION;
+        // check if the device supports async memory pools
+        int cuda_pool_supported{};
+        auto attr_result = cudaDeviceGetAttribute(
+            &cuda_pool_supported,
+            cudaDevAttrMemoryPoolsSupported,
+            rmm::get_current_cuda_device().value()
+        );
+        if (attr_result != cudaSuccess || cuda_pool_supported != 1) {
+            return false;
+        }
+
+        int cuda_driver_version{};
+        auto driver_result = cudaDriverGetVersion(&cuda_driver_version);
+        int cuda_runtime_version{};
+        auto runtime_result = cudaRuntimeGetVersion(&cuda_runtime_version);
+        return driver_result == cudaSuccess && runtime_result == cudaSuccess
+               && cuda_driver_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION
+               && cuda_runtime_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION;
     }();
     return supported;
-#else
-    return false;
-#endif
 }
 
 class PinnedMemoryResource;
@@ -61,6 +74,9 @@ class PinnedMemoryResource;
  */
 class PinnedMemoryResource final : public HostMemoryResource {
   public:
+    /// @brief Sentinel value used to disable pinned host memory.
+    static constexpr auto Disabled = nullptr;
+
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
@@ -74,6 +90,22 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * the current CUDA version or if CUDA initialization fails.
      */
     PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+
+    /**
+     * @brief Create a pinned memory resource if the system supports pinned memory.
+     *
+     * @param numa_id The NUMA node to associate with the resource. Defaults to the
+     * current NUMA node.
+     *
+     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
+     * otherwise `PinnedMemoryResource::Disabled`.
+     *
+     * @see PinnedMemoryResource::PinnedMemoryResource
+     */
+    static std::shared_ptr<PinnedMemoryResource> make_if_available(
+        int numa_id = get_current_numa_node_id()
+    );
+
     ~PinnedMemoryResource() override;
 
     /**
@@ -132,7 +164,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
     // only be used by the impl in .cu file.
     struct PinnedMemoryResourceImpl;
-    std::unique_ptr<PinnedMemoryResourceImpl> impl_;
+    std::shared_ptr<PinnedMemoryResourceImpl> impl_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

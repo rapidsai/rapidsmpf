@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -47,7 +47,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_callback
     ) {
         RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn(
+            ctx->executor()->spawn_detached(
                  _extract_all_task(
                      gather, ordered, output, py_invoker, std::move(py_callback)
                  )
