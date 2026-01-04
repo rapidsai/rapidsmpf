@@ -60,7 +60,6 @@
 #include <optional>
 
 #include <cuda_runtime_api.h>
-#include <getopt.h>
 #include <mpi.h>
 
 #include <cudf/aggregation.hpp>
@@ -799,40 +798,13 @@ rapidsmpf::streaming::Node final_groupby_and_sort(
 }  // namespace
 
 // ============================================================================
-// Command Line Parsing
-// ============================================================================
-
-struct Q18Options {
-    std::uint32_t num_partitions{64};
-};
-
-Q18Options parse_options(int argc, char** argv) {
-    Q18Options options;
-    // NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
-    opterr = 0;
-
-    static struct option long_options[] = {
-        {"num-partitions", required_argument, nullptr, 7}, {nullptr, 0, nullptr, 0}
-    };
-    // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
-
-    int opt;
-    int option_index = 0;
-
-    while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
-        switch (opt) {
-        case 1:
-            options.num_partitions = static_cast<std::uint32_t>(std::atoi(optarg));
-            break;
-        }
-    }
-
-    return options;
-}
-
-// ============================================================================
 // Main
 // ============================================================================
+
+namespace {
+/// Known query-specific options for Q18
+std::vector<std::string> const Q18_QUERY_OPTIONS = {"num-partitions"};
+}  // namespace
 
 int main(int argc, char** argv) {
     rapidsmpf::ndsh::FinalizeMPI finalize{};
@@ -842,7 +814,18 @@ int main(int argc, char** argv) {
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
-    auto q18_arguments = parse_options(argc, argv);
+
+    // Validate query-specific options
+    rapidsmpf::ndsh::validate_query_options(arguments, Q18_QUERY_OPTIONS, "Q18");
+
+    // Extract Q18-specific options
+    std::uint32_t num_partitions = 64;
+    if (auto it = arguments.query_options.find("num-partitions");
+        it != arguments.query_options.end())
+    {
+        num_partitions = static_cast<std::uint32_t>(std::stoul(it->second));
+    }
+
     auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
 
@@ -857,8 +840,7 @@ int main(int argc, char** argv) {
         ", Phase 2 mode: ",
         arguments.use_shuffle_join ? "shuffle joins" : "local joins",
         ", partitions: ",
-        // arguments.num_partitions
-        q18_arguments.num_partitions
+        num_partitions
     );
 
     for (int i = 0; i < arguments.num_iterations; i++) {
@@ -875,7 +857,7 @@ int main(int argc, char** argv) {
             arguments.num_rows_per_chunk,
             arguments.input_directory,
             300.0,  // quantity_threshold
-            q18_arguments.num_partitions,
+            num_partitions,
             phase1_op_id
         );
         auto phase1_end = std::chrono::steady_clock::now();
@@ -893,7 +875,6 @@ int main(int argc, char** argv) {
         // Phase 2: Build pre-filtered pipeline
         // ================================================================
         std::vector<rapidsmpf::streaming::Node> nodes;
-        std::uint32_t num_partitions = q18_arguments.num_partitions;
         int phase2_op_id = 0;
 
         // Read and pre-filter lineitem

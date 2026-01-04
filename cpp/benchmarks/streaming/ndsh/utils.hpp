@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <mpi.h>
@@ -121,15 +122,15 @@ struct ProgramOptions {
     bool use_shuffle_join = false;  ///< Use shuffle join for "big" joins?
     std::string output_file;  ///< File to write output to
     std::string input_directory;  ///< Directory containing input files.
+    std::unordered_map<std::string, std::string>
+        query_options;  ///< Query-specific key=value options
 };
 
 /**
  * @brief Parse commandline arguments
  *
- * Parses common options shared across all queries. Unknown options are silently
- * ignored, allowing queries to perform a second pass to parse query-specific
- * arguments. After this function returns, `optind` is reset to 1 so callers can
- * re-parse the arguments with their own option definitions.
+ * Parses common options shared across all queries. Unknown options cause an error.
+ * Query-specific options should be passed via --query-options as key=value pairs.
  *
  * @param argc Number of arguments
  * @param argv Arguments
@@ -137,6 +138,22 @@ struct ProgramOptions {
  * @return `ProgramOptions` struct with parsed arguments.
  */
 ProgramOptions parse_arguments(int argc, char** argv);
+
+/**
+ * @brief Validate that all query options have been consumed
+ *
+ * Checks that the provided known_keys contains all keys in query_options.
+ * Prints an error and exits if unknown query options are found.
+ *
+ * @param options ProgramOptions containing query_options
+ * @param known_keys Set of valid option keys for this query
+ * @param query_name Name of the query (for error messages)
+ */
+void validate_query_options(
+    ProgramOptions const& options,
+    std::vector<std::string> const& known_keys,
+    std::string const& query_name
+);
 
 /**
  * @brief Create a streaming execution context for a query.
