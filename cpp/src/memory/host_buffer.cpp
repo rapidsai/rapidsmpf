@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -116,8 +116,8 @@ HostBuffer HostBuffer::from_uint8_vector(
 
 HostBuffer HostBuffer::from_owned_vector(
     std::vector<std::uint8_t>&& data,
-    rmm::host_async_resource_ref mr,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    rmm::host_async_resource_ref mr
 ) {
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
     auto shared_vec = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
@@ -134,8 +134,8 @@ HostBuffer HostBuffer::from_owned_vector(
 
 HostBuffer HostBuffer::from_owned_rmm_pinned_host_buffer(
     std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
-    PinnedMemoryResource& mr,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    PinnedMemoryResource& mr
 ) {
     RAPIDSMPF_EXPECTS(
         pinned_host_buffer != nullptr,

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -166,13 +166,14 @@ class HostBuffer {
      *
      * @param data Vector to take ownership of (will be moved).
      * @param stream CUDA stream to associate with this buffer.
+     * @param mr Host memory resource used to allocate the buffer.
      *
      * @return A new `HostBuffer` owning the vector's memory.
      */
     static HostBuffer from_owned_vector(
         std::vector<std::uint8_t>&& data,
-        rmm::host_async_resource_ref mr,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        rmm::host_async_resource_ref mr
     );
 
     /**
@@ -188,6 +189,7 @@ class HostBuffer {
      *
      * @param pinned_host_buffer Device buffer to take ownership of (will be moved).
      * @param stream CUDA stream to associate with this buffer.
+     * @param mr Pinned host memory resource used to allocate the buffer.
      *
      * @return A new `HostBuffer` owning the device buffer's memory.
      *
@@ -196,8 +198,8 @@ class HostBuffer {
      */
     static HostBuffer from_owned_rmm_pinned_host_buffer(
         std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
-        PinnedMemoryResource& mr,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        PinnedMemoryResource& mr
     );
 
   private:
