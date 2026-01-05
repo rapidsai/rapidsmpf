@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -87,14 +87,17 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
         }
     }
 
-    // Start with rank 0's contribution as the accumulator (only true with Ordered::YES).
-    auto accum = std::move(gathered[0]);
+    // Start with rank 0's contribution as the left (only true with Ordered::YES).
+    PackedData left = std::move(gathered[0]);
 
     for (std::size_t r = 1; std::cmp_less(r, nranks_); ++r) {
-        reduce_operator_(accum, std::move(gathered[r]));
+        // The operator takes rvalue refs and modifies the left operand's buffer data in
+        // place. The operator accesses left.data.get() to get the buffer pointer, which
+        // doesn't move the unique_ptr, so left remains valid after the operator call.
+        reduce_operator_(std::move(left), std::move(gathered[r]));
     }
 
-    return accum;
+    return left;
 }
 
 }  // namespace rapidsmpf::coll

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,13 +10,22 @@
 #include <chrono>
 #include <concepts>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
 #include <ranges>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#ifdef __CUDACC__
+#include <thrust/execution_policy.h>
+#include <thrust/transform.h>
+#endif
+
+#include <cuda_runtime.h>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -32,9 +41,13 @@ namespace rapidsmpf::coll {
 
 /**
  * @brief Type alias for the reduction function signature.
+ *
+ * The operator must update the left operand in place by combining it with the right
+ * operand. Both operands are passed as rvalue references. The operator modifies the
+ * underlying buffer data of the left operand in place, and the PackedData structure
+ * remains valid after the call.
  */
-using ReduceOperatorFunction =
-    std::function<void(PackedData& accum, PackedData&& incoming)>;
+using ReduceOperatorFunction = std::function<void(PackedData&& left, PackedData&& right)>;
 
 /**
  * @brief Enumeration indicating whether a reduction operator runs on host or device.
@@ -70,11 +83,14 @@ class ReduceOperator {
     /**
      * @brief Call the wrapped operator.
      *
-     * @param accum The accumulator PackedData that will hold the result.
-     * @param incoming The incoming PackedData to combine into the accumulator.
+     * @param left The left PackedData that will hold the result (updated in place).
+     * @param right The right PackedData to combine into the left operand.
      */
-    void operator()(PackedData& accum, PackedData&& incoming) const {
-        fn(accum, std::move(incoming));
+    void operator()(PackedData&& left, PackedData&& right) const {
+        // The operator modifies left's buffer data in place through the reference.
+        // We pass the rvalue refs to fn, but fn only accesses the data, not moving
+        // from the PackedData objects themselves.
+        fn(std::move(left), std::move(right));
     }
 
     /**
@@ -107,7 +123,7 @@ class ReduceOperator {
  * The actual reduction is implemented via a type-erased `ReduceOperator` that is
  * supplied at construction time. Helper factories such as
  * `detail::make_host_reduce_operator` or
- * `detail::make_device_reduce_operator` can be used to build element-wise
+ * `detail::make_device_reduce_operator` can be used to build range-based
  * reductions over contiguous arrays.
  */
 class AllReduce {
@@ -216,190 +232,194 @@ class AllReduce {
 namespace detail {
 
 /**
- * @brief Host-side elementwise operator working on raw bytes.
+ * @brief Host-side range-based reduction operator.
  *
- * The callable receives pointers to a single element of `accum` and `incoming`
- * respectively and must combine them in-place into `accum`. The caller
- * guarantees that both pointers reference `element_size` bytes.
- */
-using HostByteOp = std::function<void(void* accum_elem, void const* incoming_elem)>;
-
-/**
- * @brief Apply a host-based byte-wise reduction operator to the given packed data.
+ * This operator applies a binary operation to entire ranges using std::ranges::transform.
  *
- * @param accum The accumulator packed data.
- * @param incoming The incoming packed data.
- * @param element_size Size of each element in bytes.
- * @param op The host-based byte-wise reduction operator.
+ * @tparam T The element type.
+ * @tparam Op The binary operation type (e.g., std::plus<T>).
  */
-inline void apply_host_byte_op(
-    PackedData& accum,
-    PackedData&& incoming,
-    std::size_t element_size,
-    HostByteOp const& op
-) {
-    RAPIDSMPF_EXPECTS(
-        accum.data && incoming.data,
-        "AllReduce reduction operator requires non-null data buffers"
-    );
+template <typename T, typename Op>
+struct HostOp {
+    Op op;  ///< The binary reduction operator.
 
-    auto* acc_buf = accum.data.get();
-    auto* in_buf = incoming.data.get();
+    /**
+     * @brief Apply the reduction operator to the packed data ranges.
+     *
+     * @param left The left PackedData that will be updated in place.
+     * @param right The right PackedData to combine into the left operand.
+     */
+    void operator()(PackedData&& left, PackedData&& right) {
+        RAPIDSMPF_EXPECTS(
+            left.data && right.data, "HostOp requires non-null data buffers"
+        );
 
-    auto const acc_nbytes = acc_buf->size;
-    auto const in_nbytes = in_buf->size;
-    RAPIDSMPF_EXPECTS(
-        acc_nbytes == in_nbytes,
-        "AllReduce reduction operator requires equal-sized buffers"
-    );
+        auto* left_buf = left.data.get();
+        auto* right_buf = right.data.get();
 
-    auto const nbytes = acc_nbytes;
-    RAPIDSMPF_EXPECTS(
-        element_size > 0 && nbytes % element_size == 0,
-        "AllReduce reduction operator requires buffer size to be a multiple of "
-        "element_size"
-    );
+        auto const left_nbytes = left_buf->size;
+        auto const right_nbytes = right_buf->size;
+        RAPIDSMPF_EXPECTS(
+            left_nbytes == right_nbytes, "HostOp requires equal-sized buffers"
+        );
+        RAPIDSMPF_EXPECTS(
+            left_nbytes % sizeof(T) == 0,
+            "HostOp buffer size must be a multiple of sizeof(T)"
+        );
 
-    auto const count = nbytes / element_size;
+        auto const count = left_nbytes / sizeof(T);
+        if (count == 0) {
+            return;
+        }
 
-    RAPIDSMPF_EXPECTS(
-        acc_buf->mem_type() == MemoryType::HOST && in_buf->mem_type() == MemoryType::HOST,
-        "Host reduction operator expects host memory"
-    );
+        RAPIDSMPF_EXPECTS(
+            left_buf->mem_type() == MemoryType::HOST
+                && right_buf->mem_type() == MemoryType::HOST,
+            "HostOp expects host memory"
+        );
 
-    auto* acc_bytes = acc_buf->exclusive_data_access();
-    auto* in_bytes = in_buf->exclusive_data_access();
+        auto* left_bytes = left_buf->exclusive_data_access();
+        auto* right_bytes = right_buf->exclusive_data_access();
 
-    for (std::size_t i = 0; i < count; ++i) {
-        auto* acc_elem = static_cast<void*>(acc_bytes + i * element_size);
-        auto const* in_elem = static_cast<void const*>(in_bytes + i * element_size);
-        op(acc_elem, in_elem);
+        std::span<T> left_span{reinterpret_cast<T*>(left_bytes), count};
+        std::span<T const> right_span{reinterpret_cast<T const*>(right_bytes), count};
+
+        std::ranges::transform(left_span, right_span, left_span.begin(), op);
+
+        left_buf->unlock();
+        right_buf->unlock();
     }
-
-    acc_buf->unlock();
-    in_buf->unlock();
-}
+};
 
 /**
- * @brief Create a host-based element-wise reduction operator wrapper using a byte-wise
- * op.
+ * @brief Device-side range-based reduction operator.
  *
- * @param element_size Size of each element in bytes.
- * @param op Byte-wise operator invoked per element.
+ * This operator applies a binary operation to entire ranges using thrust::transform.
  *
- * @return The wrapped reduction operator.
+ * @tparam T The element type.
+ * @tparam Op The binary operation type (e.g., cuda::std::plus<T>).
+ *
+ * @note This struct requires CUDA compilation (__CUDACC__) to be instantiated.
+ *       The implementation uses thrust::transform which requires CUDA support.
  */
-inline ReduceOperator make_host_byte_reduce_operator(
-    std::size_t element_size, HostByteOp op
-) {
-    RAPIDSMPF_EXPECTS(
-        element_size > 0, "Host reduction operator requires element_size>0"
-    );
-    RAPIDSMPF_EXPECTS(
-        static_cast<bool>(op), "Host reduction operator requires a callable"
-    );
+template <typename T, typename Op>
+struct DeviceOp {
+    Op op;  ///< The binary reduction operator.
 
+    /**
+     * @brief Apply the reduction operator to the packed data ranges.
+     *
+     * @param left The left PackedData that will be updated in place.
+     * @param right The right PackedData to combine into the left operand.
+     */
+    void operator()(PackedData&& left, PackedData&& right) {
+#ifdef __CUDACC__
+        RAPIDSMPF_EXPECTS(
+            left.data && right.data, "DeviceOp requires non-null data buffers"
+        );
+
+        auto* left_buf = left.data.get();
+        auto* right_buf = right.data.get();
+
+        auto const left_nbytes = left_buf->size;
+        auto const right_nbytes = right_buf->size;
+        RAPIDSMPF_EXPECTS(
+            left_nbytes == right_nbytes, "DeviceOp requires equal-sized buffers"
+        );
+        RAPIDSMPF_EXPECTS(
+            left_nbytes % sizeof(T) == 0,
+            "DeviceOp buffer size must be a multiple of sizeof(T)"
+        );
+
+        auto const count = left_nbytes / sizeof(T);
+        if (count == 0) {
+            return;
+        }
+
+        RAPIDSMPF_EXPECTS(
+            left_buf->mem_type() == MemoryType::DEVICE
+                && right_buf->mem_type() == MemoryType::DEVICE,
+            "DeviceOp expects device memory"
+        );
+
+        cuda_stream_join(left_buf->stream(), right_buf->stream());
+
+        left_buf->write_access([&](std::byte* left_bytes, rmm::cuda_stream_view stream) {
+            auto const* right_bytes =
+                reinterpret_cast<std::byte const*>(right_buf->data());
+
+            T* left_ptr = reinterpret_cast<T*>(left_bytes);
+            T const* right_ptr = reinterpret_cast<T const*>(right_bytes);
+
+            auto policy = thrust::cuda::par.on(stream.value());
+            thrust::transform(
+                policy, right_ptr, right_ptr + count, left_ptr, left_ptr, op
+            );
+            RAPIDSMPF_CUDA_TRY(cudaGetLastError());
+        });
+#else
+        // This should never be reached if DeviceOp is only instantiated with CUDA
+        std::ignore = left;
+        std::ignore = right;
+        throw std::runtime_error(
+            "DeviceOp::operator() called but CUDA compilation (__CUDACC__) "
+            "was not available. DeviceOp requires CUDA/thrust support."
+        );
+#endif
+    }
+};
+
+/**
+ * @brief Create a host-based reduction operator from a typed binary operation.
+ *
+ * @tparam T The element type.
+ * @tparam Op The binary operation type.
+ * @param op The binary operation (e.g., std::plus<T>{}).
+ * @return A ReduceOperator wrapping the HostOp.
+ */
+template <typename T, typename Op>
+    requires std::invocable<Op, T const&, T const&>
+ReduceOperator make_host_reduce_operator(Op op) {
+    HostOp<T, Op> host_op{std::move(op)};
     return ReduceOperator(
-        [element_size, op = std::move(op)](
-            PackedData& accum, PackedData&& incoming
-        ) mutable { apply_host_byte_op(accum, std::move(incoming), element_size, op); },
+        [host_op = std::move(host_op)](PackedData&& left, PackedData&& right) mutable {
+            host_op(std::move(left), std::move(right));
+        },
         ReduceOperatorType::Host
     );
 }
 
 /**
- * @brief Create a host-based element-wise reduction operator wrapper for a typed functor.
+ * @brief Create a device-based reduction operator from a typed binary operation.
+ *
+ * @tparam T The element type.
+ * @tparam Op The binary operation type.
+ * @param op The binary operation (e.g., cuda::std::plus<T>{}).
+ * @return A ReduceOperator wrapping the DeviceOp.
+ *
+ * @note This function requires CUDA compilation (__CUDACC__ defined) to be used.
+ *       Attempting to use it without CUDA will result in a compilation error.
  */
 template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
-ReduceOperator make_host_reduce_operator(Op op) {
-    /**
-     * @brief Create a host-based element-wise reduction operator wrapper for a typed
-     * functor.
-     *
-     * @param op The reduction operator to wrap.
-     *
-     * @return The wrapped reduction operator.
-     */
-    return make_host_byte_reduce_operator(
-        sizeof(T), [op = std::move(op)](void* accum_elem, void const* incoming_elem) {
-            auto* a = reinterpret_cast<T*>(accum_elem);
-            auto const* b = reinterpret_cast<T const*>(incoming_elem);
-            *a = static_cast<T>(std::invoke(op, *a, *b));
-        }
-    );
-}
-
-namespace device {
-
-template <typename DeviceOp>
-ReduceOperatorFunction make_device_byte_reduce_operator(
-    std::size_t element_size, DeviceOp op
-);
-
-}  // namespace device
-
-template <typename DeviceOp>
-ReduceOperator make_device_byte_reduce_operator(std::size_t element_size, DeviceOp op) {
-    /**
-     * @brief Create a device-based element-wise reduction operator wrapper using a
-     * byte-wise op.
-     *
-     * @param element_size Size of each element in bytes.
-     * @param op Byte-wise operator invoked per element.
-     *
-     * @return The wrapped reduction operator.
-     */
+ReduceOperator make_device_reduce_operator(Op op) {
+#ifdef __CUDACC__
+    DeviceOp<T, Op> device_op{std::move(op)};
     return ReduceOperator(
-        device::make_device_byte_reduce_operator(element_size, std::move(op)),
+        [device_op = std::move(device_op)](
+            PackedData&& left, PackedData&& right
+        ) mutable { device_op(std::move(left), std::move(right)); },
         ReduceOperatorType::Device
     );
-}
-
-/**
- * @brief Device-side element-wise reduction operator wrapper for a typed functor.
- */
-#ifdef __CUDACC__
-#define RAPIDSMPF_HD __host__ __device__
 #else
-#define RAPIDSMPF_HD
-#endif
-
-/**
- * @brief Device-side element-wise reduction operator wrapper for a typed functor.
- */
-template <typename T, typename Op>
-struct DeviceElementwiseOp {
-    Op op;  ///< The reduction function to wrap.
-
-    /**
-     * @brief Call the wrapped operator.
-     *
-     * @param accum_elem The accumulator element.
-     * @param incoming_elem The incoming element.
-     */
-    RAPIDSMPF_HD void operator()(void* accum_elem, void const* incoming_elem) const {
-        auto* a = reinterpret_cast<T*>(accum_elem);
-        auto const* b = reinterpret_cast<T const*>(incoming_elem);
-        *a = static_cast<T>(std::invoke(op, *a, *b));
-    }
-};
-
-#undef RAPIDSMPF_HD
-
-/**
- * @brief Create a device-based element-wise reduction operator wrapper for a typed
- * functor.
- *
- * @param op The reduction operator to wrap.
- *
- * @return The wrapped reduction operator.
- */
-template <typename T, typename Op>
-ReduceOperator make_device_reduce_operator(Op op) {
-    return make_device_byte_reduce_operator(
-        sizeof(T), DeviceElementwiseOp<T, Op>{std::move(op)}
+    throw std::runtime_error(
+        "make_device_reduce_operator was called from code that was not compiled "
+        "with NVCC (__CUDACC__ is not defined)."
     );
+
+    std::ignore = op;
+    return ReduceOperator([](PackedData&&, PackedData&&) {}, ReduceOperatorType::Device);
+#endif
 }
 
 }  // namespace detail

@@ -1,10 +1,9 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <rapidsmpf/coll/allreduce.hpp>
-#include <rapidsmpf/coll/allreduce_device.cuh>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 

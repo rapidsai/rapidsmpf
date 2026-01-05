@@ -159,7 +159,6 @@ add_library(
   rapidsmpf
   src/coll/allgather.cpp
   src/coll/allreduce.cpp
-  src/coll/device_kernels.cu
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
   src/bootstrap/utils.cpp

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -102,13 +102,17 @@ T make_input_value(int rank, int elem_idx) {
  * of `CustomValue` in host memory, with equal sizes for all ranks.
  */
 ReduceOperator make_custom_value_reduce_operator_host() {
-    return rapidsmpf::coll::detail::make_host_byte_reduce_operator(
-        sizeof(CustomValue), [](void* accum_elem, void const* incoming_elem) {
-            auto* a = reinterpret_cast<CustomValue*>(accum_elem);
-            auto const* b = reinterpret_cast<CustomValue const*>(incoming_elem);
-            a->value += b->value;
-            a->weight = std::min(a->weight, b->weight);
+    struct CustomValueOp {
+        CustomValue operator()(CustomValue const& a, CustomValue const& b) const {
+            CustomValue result;
+            result.value = a.value + b.value;
+            result.weight = std::min(a.weight, b.weight);
+            return result;
         }
+    };
+
+    return rapidsmpf::coll::detail::make_host_reduce_operator<CustomValue>(
+        CustomValueOp{}
     );
 }
 
@@ -287,20 +291,23 @@ INSTANTIATE_TEST_SUITE_P(
                 MemoryReductionConfig::ALL_HOST, MemoryReductionConfig::HOST_REDUCTION
             },
             MemoryReductionConfig{
+                MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::HOST_REDUCTION
+            },
+            MemoryReductionConfig{
+                MemoryReductionConfig::MIXED, MemoryReductionConfig::HOST_REDUCTION
+            }
+#ifdef __CUDACC__
+            ,
+            MemoryReductionConfig{
                 MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::DEVICE_REDUCTION
             },
             MemoryReductionConfig{
                 MemoryReductionConfig::ALL_HOST, MemoryReductionConfig::DEVICE_REDUCTION
             },
             MemoryReductionConfig{
-                MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::HOST_REDUCTION
-            },
-            MemoryReductionConfig{
-                MemoryReductionConfig::MIXED, MemoryReductionConfig::HOST_REDUCTION
-            },
-            MemoryReductionConfig{
                 MemoryReductionConfig::MIXED, MemoryReductionConfig::DEVICE_REDUCTION
             }
+#endif
         )
     ),
     [](const ::testing::TestParamInfo<std::tuple<int, MemoryReductionConfig>>& info) {
@@ -395,17 +402,30 @@ constexpr const char* ToString(MemoryReductionConfig::ReductionType rt) {
     return "unknown_reduction";
 }
 
-#define ALL_BUFFER_REDUCTION_CASES(T, OP)             \
+#define HOST_BUFFER_REDUCTION_CASES(T, OP)          \
+    AllReduceCase<                                  \
+        T,                                          \
+        OP,                                         \
+        MemoryReductionConfig::ALL_HOST,            \
+        MemoryReductionConfig::HOST_REDUCTION>,     \
+        AllReduceCase<                              \
+            T,                                      \
+            OP,                                     \
+            MemoryReductionConfig::ALL_DEVICE,      \
+            MemoryReductionConfig::HOST_REDUCTION>, \
+        AllReduceCase<                              \
+            T,                                      \
+            OP,                                     \
+            MemoryReductionConfig::MIXED,           \
+            MemoryReductionConfig::HOST_REDUCTION>
+
+#ifdef __CUDACC__
+#define DEVICE_BUFFER_REDUCTION_CASES(T, OP)          \
     AllReduceCase<                                    \
         T,                                            \
         OP,                                           \
-        MemoryReductionConfig::ALL_HOST,              \
-        MemoryReductionConfig::HOST_REDUCTION>,       \
-        AllReduceCase<                                \
-            T,                                        \
-            OP,                                       \
-            MemoryReductionConfig::ALL_DEVICE,        \
-            MemoryReductionConfig::DEVICE_REDUCTION>, \
+        MemoryReductionConfig::ALL_DEVICE,            \
+        MemoryReductionConfig::DEVICE_REDUCTION>,     \
         AllReduceCase<                                \
             T,                                        \
             OP,                                       \
@@ -414,18 +434,18 @@ constexpr const char* ToString(MemoryReductionConfig::ReductionType rt) {
         AllReduceCase<                                \
             T,                                        \
             OP,                                       \
-            MemoryReductionConfig::ALL_DEVICE,        \
-            MemoryReductionConfig::HOST_REDUCTION>,   \
-        AllReduceCase<                                \
-            T,                                        \
-            OP,                                       \
-            MemoryReductionConfig::MIXED,             \
-            MemoryReductionConfig::HOST_REDUCTION>,   \
-        AllReduceCase<                                \
-            T,                                        \
-            OP,                                       \
             MemoryReductionConfig::MIXED,             \
             MemoryReductionConfig::DEVICE_REDUCTION>
+#else
+#define DEVICE_BUFFER_REDUCTION_CASES(T, OP)
+#endif
+
+#ifdef __CUDACC__
+#define ALL_BUFFER_REDUCTION_CASES(T, OP) \
+    HOST_BUFFER_REDUCTION_CASES(T, OP), DEVICE_BUFFER_REDUCTION_CASES(T, OP)
+#else
+#define ALL_BUFFER_REDUCTION_CASES(T, OP) HOST_BUFFER_REDUCTION_CASES(T, OP)
+#endif
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
@@ -446,6 +466,8 @@ using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MaxOp<std::uint64_t>)>;
 
 #undef ALL_BUFFER_REDUCTION_CASES
+#undef HOST_BUFFER_REDUCTION_CASES
+#undef DEVICE_BUFFER_REDUCTION_CASES
 
 template <typename Case>
 class AllReduceTypedOpsTest : public BaseAllReduceTest {
