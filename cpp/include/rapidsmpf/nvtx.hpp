@@ -76,9 +76,9 @@ struct rapidsmpf_domain {
 #define RAPIDSMPF_GET_MACRO_FUNC(_0, _1, NAME, ...) NAME
 
 // unwrap the arguments and call the appropriate macro
-#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(...)                                                                                              \
-    RAPIDSMPF_GET_MACRO_FUNC(dummy, ##__VA_ARGS__, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL)( \
-        __VA_ARGS__                                                                                                                      \
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(...)                                                                                                          \
+    RAPIDSMPF_GET_MACRO_FUNC(dummy __VA_OPT__(, ) __VA_ARGS__, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL)( \
+        __VA_ARGS__                                                                                                                                  \
     )
 
 /**
