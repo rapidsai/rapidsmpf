@@ -70,7 +70,7 @@ rapids-logger "Run rrun gtests"
 BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
 
 rapids-logger "Validate NDSH benchmarks"
-python ./cpp/scripts/validate_ndsh.py \
+python ../cpp/scripts/validate_ndsh.py \
   --input-dir scale-1/ \
   --output-dir validation/ \
   --generate-data \
