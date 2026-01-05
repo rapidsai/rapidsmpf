@@ -1,8 +1,8 @@
 select
     round(sum(l_extendedprice) / 7.0, 2) as avg_yearly
 from
-    read_parquet('/datasets/toaugspurger/tpch-rs/scale-10/lineitem/*.parquet') as lineitem,
-    read_parquet('/datasets/toaugspurger/tpch-rs/scale-10/part/*.parquet') as part
+    lineitem,
+    part
 where
     p_partkey = l_partkey
     and p_brand = 'Brand#23'
