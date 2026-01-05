@@ -298,6 +298,14 @@ dependencies:
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - gdb
+          # NDSH validation dependencies
+          - duckdb
+          - numpy
+          - nvidia-ml-py>=12
+          - pyarrow
+          - pip
+          - pip:
+            - tpchgen-cli
   test_python:
     common:
       - output_types: conda
@@ -305,20 +313,11 @@ dependencies:
           - gdb
           - mpi4py
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-          - pip
-          - pip:
-            - tpchgen-cli
-      - output_types: [pyproject, requirements]
-        packages:
-          - tpchgen-cli
       - output_types: [conda, pyproject, requirements]
         packages:
-          - duckdb
-          - numpy
-          - nvidia-ml-py>=12
           - psutil  # Used for timeout_with_stack.py
-          - pyarrow
           - pytest<9.0.0
+          - nvidia-ml-py>=12
     specific:
       - output_types: conda
         matrices:
