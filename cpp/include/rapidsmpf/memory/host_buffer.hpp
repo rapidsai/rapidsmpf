@@ -161,9 +161,6 @@ class HostBuffer {
      * The buffer takes ownership of the vector's memory. The vector is moved into
      * internal storage and will be destroyed when the `HostBuffer` is destroyed.
      *
-     * @note The memory is regular host memory (not pinned). Async operations on this
-     * buffer may require synchronization.
-     *
      * @param data Vector to take ownership of (will be moved).
      * @param stream CUDA stream to associate with this buffer.
      * @param mr Host memory resource used to allocate the buffer.
