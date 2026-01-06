@@ -38,11 +38,14 @@ class HostMemoryResource : public ::testing::TestWithParam<size_t> {
     }
 
     void test_buffer(auto&& buffer, std::vector<uint8_t> const& source_data) {
-        // Check the contents using std::equal
         ASSERT_EQ(source_data.size(), buffer.size());
         ASSERT_NE(nullptr, buffer.data());
 
+        // Synchronize on stream to ensure copy is complete
+        buffer.stream().synchronize();
+
         const auto* data = buffer.data();
+        // Check the contents using std::equal
         EXPECT_TRUE(
             std::equal(
                 source_data.begin(),
@@ -91,6 +94,7 @@ INSTANTIATE_TEST_SUITE_P(
     HostMemoryResource,
     ::testing::Values(
         1,  // 1B
+        9,  // 9B
         1024,  // 1KB
         1048576  // 1MB
     ),
@@ -110,8 +114,17 @@ TEST_P(HostMemoryResource, from_owned_vector) {
         std::vector<uint8_t>(source_data), stream, *p_mr
     );
 
-    // Synchronize on stream to ensure copy is complete
-    buffer.stream().synchronize();
+    EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
+TEST_P(HostMemoryResource, from_uint8_vector) {
+    const size_t buffer_size = GetParam();
+
+    // Create a vector with random data
+    auto source_data = random_vector<uint8_t>(0, buffer_size);
+
+    // Create a host buffer by copying the vector
+    auto buffer = rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, *p_mr);
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
@@ -134,6 +147,7 @@ INSTANTIATE_TEST_SUITE_P(
     PinnedResource,
     ::testing::Values(
         1,  // 1B
+        9,  // 9B
         1024,  // 1KB
         1048576  // 1MB
     ),
@@ -151,8 +165,19 @@ TEST_P(PinnedResource, from_uint8_vector) {
     // Create a host buffer by copying the vector
     auto buffer = rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, *p_mr);
 
-    // Synchronize on stream to ensure copy is complete
-    buffer.stream().synchronize();
+    EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
+TEST_P(PinnedResource, from_owned_vector) {
+    const size_t buffer_size = GetParam();
+
+    // Create a vector with random data
+    auto source_data = random_vector<uint8_t>(0, buffer_size);
+
+    // Create a host buffer by taking ownership of a vector
+    auto buffer = rapidsmpf::HostBuffer::from_owned_vector(
+        std::vector<uint8_t>(source_data), stream, *p_mr
+    );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
@@ -165,17 +190,15 @@ TEST_P(PinnedResource, from_owned_rmm_pinned_host_buffer) {
 
     auto& pinned_mr = dynamic_cast<rapidsmpf::PinnedMemoryResource&>(*p_mr);
 
-    // Create a host buffer by taking ownership of an rmm::device_buffer
-    auto buffer = rapidsmpf::HostBuffer::from_owned_rmm_pinned_host_buffer(
-        std::make_unique<rmm::device_buffer>(
-            source_data.data(), source_data.size(), stream, pinned_mr
-        ),
-        stream,
-        pinned_mr
+    // create a pinned host buffer using pinned_mr
+    auto pinned_host_buffer = std::make_unique<rmm::device_buffer>(
+        source_data.data(), source_data.size(), stream, pinned_mr
     );
 
-    // Synchronize on stream to ensure copy is complete
-    buffer.stream().synchronize();
+    // Create a host buffer by taking ownership of an rmm::device_buffer
+    auto buffer = rapidsmpf::HostBuffer::from_owned_rmm_pinned_host_buffer(
+        std::move(pinned_host_buffer), stream, pinned_mr
+    );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
