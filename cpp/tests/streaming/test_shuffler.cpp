@@ -11,10 +11,10 @@
 #include <cudf/copying.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
@@ -232,8 +232,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         shuffler->insert(std::move(data));
     }
 
-    auto finish_token =
-        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+    auto finish_token = shuffler->insert_finished();
 
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
@@ -264,8 +263,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
         // all empty partitions
-        auto finish_token =
-            shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        auto finish_token = shuffler->insert_finished();
 
         auto local_pids = shuffler::Shuffler::local_partitions(
             ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
@@ -313,8 +311,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
 
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
-        auto finish_token =
-            shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        auto finish_token = shuffler->insert_finished();
         coro::sync_wait(finish_token);
         auto [extract_any_result, extract_result] =
             produce_results_fn(shuffler.get(), this_pid);

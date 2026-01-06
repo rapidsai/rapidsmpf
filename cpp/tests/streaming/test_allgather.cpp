@@ -10,11 +10,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -87,9 +87,7 @@ TEST_P(StreamingAllGather, basic) {
         });
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
-        allgather.insert(
-            sequence, streaming::PackedDataChunk{{std::move(meta), std::move(buf)}}
-        );
+        allgather.insert(sequence, PackedData{std::move(meta), std::move(buf)});
         latch.count_down();
         co_return;
     };
@@ -104,20 +102,20 @@ TEST_P(StreamingAllGather, basic) {
         std::size_t offset{0};
         for (auto& pd : data) {
             RAPIDSMPF_EXPECTS(
-                pd.data.metadata->size() == sizeof(int), "Invalid metadata buffer size"
+                pd.metadata->size() == sizeof(int), "Invalid metadata buffer size"
             );
             int msize;
-            std::memcpy(&msize, pd.data.metadata->data(), sizeof(int));
+            std::memcpy(&msize, pd.metadata->data(), sizeof(int));
             RAPIDSMPF_EXPECTS(msize == size, "Corrupted metadata value");
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 result.data() + offset,
-                pd.data.data->data(),
-                pd.data.data->size,
+                pd.data->data(),
+                pd.data->size,
                 cudaMemcpyDefault,
-                pd.data.data->stream()
+                pd.data->stream()
             ));
             offset += msize;
-            pd.data.data->stream().synchronize();
+            pd.data->stream().synchronize();
         }
     };
 
@@ -170,9 +168,7 @@ TEST_P(StreamingAllGather, streaming_node) {
         input_messages.emplace_back(
             streaming::to_message(
                 insertion_id,
-                std::make_unique<streaming::PackedDataChunk>(streaming::PackedDataChunk{
-                    PackedData{std::move(meta), std::move(buf)}
-                })
+                std::make_unique<PackedData>(std::move(meta), std::move(buf))
             )
         );
     }
@@ -191,8 +187,7 @@ TEST_P(StreamingAllGather, streaming_node) {
     std::vector<int> actual(size * size * n_inserts);
     std::size_t offset{0};
     for (auto& msg : output_messages) {
-        auto chunk = msg.release<streaming::PackedDataChunk>();
-        auto& pd = chunk.data;
+        auto pd = msg.release<PackedData>();
         RAPIDSMPF_EXPECTS(
             pd.metadata->size() == sizeof(int), "Invalid metadata buffer size"
         );

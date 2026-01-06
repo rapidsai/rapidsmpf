@@ -12,10 +12,12 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+
+#include "rapidsmpf/utils.hpp"
 
 /**
  * @namespace rapidsmpf
@@ -337,7 +339,7 @@ class Communicator {
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
             std::ostringstream full_log_msg;
             full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
-                         << get_thread_id() << "] " << ss.str();
+                         << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }

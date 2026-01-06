@@ -14,11 +14,11 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -129,6 +129,6 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
 
     // Check that contents match original
     auto res = br->reserve_or_fail(back_on_host[0].data->size, MemoryType::HOST);
-    auto actual = br->move_to_host_vector(std::move(back_on_host[0].data), res);
-    EXPECT_EQ(*actual, payload);
+    auto actual = br->move_to_host_buffer(std::move(back_on_host[0].data), res);
+    EXPECT_EQ(actual->copy_to_uint8_vector(), payload);
 }

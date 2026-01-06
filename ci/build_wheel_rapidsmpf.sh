@@ -6,6 +6,7 @@ set -euo pipefail
 
 package_name="rapidsmpf"
 package_dir="python/rapidsmpf"
+
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"

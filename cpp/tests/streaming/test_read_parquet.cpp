@@ -33,8 +33,8 @@
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
@@ -100,8 +100,15 @@ class StreamingReadParquet : public BaseStreamingFixture {
         BaseStreamingFixture::TearDown();
     }
 
-    [[nodiscard]] cudf::io::source_info get_source_info() const {
-        return cudf::io::source_info(source_files);
+    [[nodiscard]] cudf::io::source_info get_source_info(bool truncate_file_list) const {
+        if (truncate_file_list) {
+            std::vector<std::string> files(
+                source_files.begin(), source_files.begin() + 2
+            );
+            return cudf::io::source_info(source_files);
+        } else {
+            return cudf::io::source_info(source_files);
+        }
     }
 
     std::filesystem::path temp_dir;
@@ -109,7 +116,7 @@ class StreamingReadParquet : public BaseStreamingFixture {
 };
 
 using ReadParquetParams =
-    std::tuple<std::optional<int64_t>, std::optional<int64_t>, bool>;
+    std::tuple<std::optional<int64_t>, std::optional<int64_t>, bool, bool>;
 
 class StreamingReadParquetParams
     : public StreamingReadParquet,
@@ -135,12 +142,15 @@ INSTANTIATE_TEST_SUITE_P(
             std::optional<int64_t>{83}
         ),
         // use_filter
+        ::testing::Values(false, true),
+        // truncate file list
         ::testing::Values(false, true)
     ),
     [](const ::testing::TestParamInfo<ReadParquetParams>& info) {
         auto const& skip_rows = std::get<0>(info.param);
         auto const& num_rows = std::get<1>(info.param);
         auto const& use_filter = std::get<2>(info.param);
+        auto const& truncate_file_list = std::get<3>(info.param);
         std::string result = "skip_rows_";
         result += skip_rows.has_value() ? std::to_string(skip_rows.value()) : "none";
         result += "_num_rows_";
@@ -150,13 +160,18 @@ INSTANTIATE_TEST_SUITE_P(
         } else {
             result += "_no_filter";
         }
+        if (truncate_file_list) {
+            result += "_one_file";
+        } else {
+            result += "_all_files";
+        }
         return result;
     }
 );
 
 TEST_P(StreamingReadParquetParams, ReadParquet) {
-    auto [skip_rows, num_rows, use_filter] = GetParam();
-    auto source = get_source_info();
+    auto [skip_rows, num_rows, use_filter, truncate_file_list] = GetParam();
+    auto source = get_source_info(truncate_file_list);
 
     auto options = cudf::io::parquet_reader_options::builder(source).build();
     if (skip_rows.has_value()) {

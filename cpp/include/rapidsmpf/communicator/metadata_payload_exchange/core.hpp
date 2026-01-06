@@ -11,9 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::communicator {

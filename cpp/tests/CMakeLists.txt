@@ -42,45 +42,71 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-add_library(test_sources INTERFACE)
+# Use an object library for test sources to avoid recompiling (especially cudf_tests) them for each
+# executable. Unlike STATIC libraries, OBJECT libraries always include all their object files when
+# linked, which is required for GTest tests that register via global constructors.
+add_library(test_sources OBJECT)
+set_target_properties(
+  test_sources
+  PROPERTIES CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_include_directories(test_sources PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+target_compile_options(
+  test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                       "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  test_sources
+  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PUBLIC GTest::gmock GTest::gtest
+)
+disable_sign_conversion_warning(test_sources)
+
 target_sources(
   test_sources
-  INTERFACE test_allgather.cpp
-            test_buffer_resource.cpp
-            test_chunk.cpp
-            test_communicator.cpp
-            test_config.cpp
-            test_cuda_stream.cpp
-            test_cudf_utils.cpp
-            test_cupti_monitor.cpp
-            test_error_macros.cpp
-            test_metadata_payload_exchange.cpp
-            test_partition.cpp
-            test_pausable_thread_loop.cpp
-            test_pinned_resources.cpp
-            test_progress_thread.cpp
-            test_rmm_resource_adaptor.cpp
-            test_shuffler_many_streams.cpp
-            test_shuffler.cpp
-            test_spill_manager.cpp
-            test_statistics.cpp
-            test_utils.cpp
+  PRIVATE test_allgather.cpp
+          test_buffer_resource.cpp
+          test_chunk.cpp
+          test_communicator.cpp
+          test_config.cpp
+          test_cuda_stream.cpp
+          test_cudf_utils.cpp
+          test_cupti_monitor.cpp
+          test_error_macros.cpp
+          test_metadata_payload_exchange.cpp
+          test_partition.cpp
+          test_pausable_thread_loop.cpp
+          test_pinned_resources.cpp
+          test_progress_thread.cpp
+          test_rmm_resource_adaptor.cpp
+          test_shuffler_many_streams.cpp
+          test_shuffler.cpp
+          test_spill_manager.cpp
+          test_statistics.cpp
+          test_utils.cpp
 )
 
 # if streaming is enabled, add the streaming test sources
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
-    INTERFACE streaming/test_allgather.cpp
-              streaming/test_error_handling.cpp
-              streaming/test_leaf_node.cpp
-              streaming/test_lineariser.cpp
-              streaming/test_message.cpp
-              streaming/test_partition.cpp
-              streaming/test_read_parquet.cpp
-              streaming/test_shuffler.cpp
-              streaming/test_spillable_messages.cpp
-              streaming/test_table_chunk.cpp
+    PRIVATE streaming/test_allgather.cpp
+            streaming/test_error_handling.cpp
+            streaming/test_fanout.cpp
+            streaming/test_leaf_node.cpp
+            streaming/test_lineariser.cpp
+            streaming/test_message.cpp
+            streaming/test_partition.cpp
+            streaming/test_read_parquet.cpp
+            streaming/test_shuffler.cpp
+            streaming/test_spillable_messages.cpp
+            streaming/test_table_chunk.cpp
   )
 endif()
 
@@ -105,8 +131,6 @@ if(RAPIDSMPF_HAVE_MPI)
   target_link_libraries(
     mpi_tests
     PRIVATE rapidsmpf::rapidsmpf
-            cudf::cudftestutil
-            cudf::cudftestutil_impl
             GTest::gmock
             GTest::gtest
             $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
@@ -140,8 +164,6 @@ if(RAPIDSMPF_HAVE_MPI)
     target_link_libraries(
       ucxx_tests
       PRIVATE rapidsmpf::rapidsmpf
-              cudf::cudftestutil
-              cudf::cudftestutil_impl
               GTest::gmock
               GTest::gtest
               ucxx::ucxx
@@ -156,6 +178,31 @@ if(RAPIDSMPF_HAVE_MPI)
     rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
   endif()
 endif()
+
+# rrun_tests - Tests for rrun launcher, topology discovery and resource binding functionality. These
+# tests must be run with rrun, not via ctest/mpirun. Example: `rrun -n 1 gtests/rrun_tests`
+add_executable(rrun_tests main/rrun.cpp test_rrun.cpp)
+set_target_properties(
+  rrun_tests
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+             COMPONENT testing # custom test property, so that this could be searched later
+)
+target_compile_options(
+  rrun_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  rrun_tests
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+)
+disable_sign_conversion_warning(rrun_tests)
 
 add_executable(single_tests main/single.cpp)
 
@@ -176,15 +223,8 @@ target_compile_options(
 )
 target_link_libraries(
   single_tests
-  PRIVATE rapidsmpf::rapidsmpf
-          cudf::cudftestutil
-          cudf::cudftestutil_impl
-          GTest::gmock
-          GTest::gtest
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-          maybe_asan
-          test_sources
+  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan test_sources
 )
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")

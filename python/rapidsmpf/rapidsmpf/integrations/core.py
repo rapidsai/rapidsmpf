@@ -14,14 +14,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, Typ
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.config import (
     Optional,
     OptionalBytes,
     Options,
 )
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.spill_collection import SpillCollection
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler

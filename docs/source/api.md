@@ -84,16 +84,22 @@ libraries.
 ## Buffer
 
 ```{eval-rst}
-.. automodule:: rapidsmpf.buffer
+.. automodule:: rapidsmpf.memory
    :members:
 
-.. automodule:: rapidsmpf.buffer.buffer
+.. automodule:: rapidsmpf.memory.buffer
    :members:
 
-.. automodule:: rapidsmpf.buffer.resource
+.. automodule:: rapidsmpf.memory.memory_reservation
    :members:
 
-.. automodule:: rapidsmpf.buffer.packed_data
+.. automodule:: rapidsmpf.memory.buffer_resource
+   :members:
+
+.. automodule:: rapidsmpf.memory.packed_data
+   :members:
+
+.. automodule:: rapidsmpf.memory.scoped_memory_record
    :members:
 ```
 

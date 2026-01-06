@@ -246,3 +246,49 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
         spilled_got.load(std::memory_order_relaxed)
     );
 }
+
+TEST_F(StreamingSpillableMessages, CopyInvalidIdThrows) {
+    SpillableMessages msgs;
+
+    // Try to copy a non-existent ID should throw.
+    auto reservation = br->reserve_or_fail(10, MemoryType::DEVICE);
+    EXPECT_THROW(std::ignore = msgs.copy(1234, reservation), std::out_of_range);
+}
+
+TEST_F(StreamingSpillableMessages, Copy) {
+    SpillableMessages msgs;
+
+    // Original message is HOST-backed and spillable.
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::HOST, ContentDescription::Spillable::YES)
+    );
+
+    // Sanity check of the initial content description.
+    auto cds_before = msgs.get_content_descriptions();
+    ASSERT_EQ(cds_before.size(), 1);
+    EXPECT_EQ(cds_before.at(mid).content_size(MemoryType::HOST), sizeof(int));
+    EXPECT_EQ(cds_before.at(mid).content_size(MemoryType::DEVICE), 0);
+
+    // Let's copy.
+    auto reservation = br->reserve_or_fail(10, MemoryType::DEVICE);
+    auto copy = msgs.copy(mid, reservation);
+
+    // Copied message has same sequence number and payload.
+    EXPECT_EQ(copy.sequence_number(), 1);
+    EXPECT_EQ(copy.get<int>(), 42);
+
+    // Copied message should now report DEVICE-backed content, not HOST.
+    EXPECT_EQ(copy.content_description().content_size(MemoryType::DEVICE), sizeof(int));
+    EXPECT_EQ(copy.content_description().content_size(MemoryType::HOST), 0);
+
+    // Original message is still present and unchanged in the container.
+    auto cds_after = msgs.get_content_descriptions();
+    ASSERT_EQ(cds_after.size(), 1);
+    EXPECT_EQ(cds_after.at(mid).content_size(MemoryType::HOST), sizeof(int));
+    EXPECT_EQ(cds_after.at(mid).content_size(MemoryType::DEVICE), 0);
+
+    // We can still extract the original message and it has the same payload.
+    auto original = msgs.extract(mid);
+    EXPECT_EQ(original.sequence_number(), 1);
+    EXPECT_EQ(original.get<int>(), 42);
+}

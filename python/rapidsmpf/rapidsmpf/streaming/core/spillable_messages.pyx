@@ -5,11 +5,11 @@ from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
 from libc.stdint cimport uint64_t
 from libcpp.map cimport map as cpp_map
-from libcpp.memory cimport make_unique
+from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.content_description cimport content_description_from_cpp
-from rapidsmpf.buffer.resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.memory.content_description cimport content_description_from_cpp
 
 
 cdef class SpillableMessages:
@@ -30,14 +30,14 @@ cdef class SpillableMessages:
     >>> recovered = msgs.extract(mid=mid)
     """
     def __init__(self):
-        self._handle = make_unique[cpp_SpillableMessages]()
+        self._handle = make_shared[cpp_SpillableMessages]()
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
 
     @staticmethod
-    cdef from_handle(unique_ptr[cpp_SpillableMessages] handle):
+    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle):
         """Create a new instance from an existing C++ handle."""
         cdef SpillableMessages ret = SpillableMessages.__new__(SpillableMessages)
         ret._handle = move(handle)

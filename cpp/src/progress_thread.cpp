@@ -27,7 +27,9 @@ void ProgressThread::FunctionState::operator()() {
 ProgressThread::ProgressThread(
     Communicator::Logger& logger, std::shared_ptr<Statistics> statistics, Duration sleep
 )
-    : thread_(
+    : logger_(logger),
+      statistics_(std::move(statistics)),
+      thread_(
           [this]() {
               if (!is_thread_initialized_) {
                   // This thread needs to have a cuda context associated with it.
@@ -38,9 +40,7 @@ ProgressThread::ProgressThread(
               return event_loop();
           },
           sleep
-      ),
-      logger_(logger),
-      statistics_(std::move(statistics)) {
+      ) {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 

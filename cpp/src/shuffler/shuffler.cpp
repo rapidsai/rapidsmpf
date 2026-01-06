@@ -5,16 +5,15 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <memory>
-#include <numeric>
-#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -25,65 +24,6 @@ namespace rapidsmpf::shuffler {
 using namespace detail;
 
 namespace {
-
-/**
- * @brief Help function to reserve and allocate a new buffer.
- *
- * First reserve the memory type and then use the reservation to allocate a new
- * buffer. Returns null if reservation failed.
- *
- * @param mem_type The target memory type.
- * @param size The size of the buffer in bytes.
- * @param stream CUDA stream to use for device allocations.
- * @param br Buffer resource used for the reservation and allocation.
- * @returns A new buffer or nullptr.
- */
-std::unique_ptr<Buffer> allocate_buffer(
-    MemoryType mem_type,
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-) {
-    auto [reservation, _] = br->reserve(mem_type, size, false);
-    if (reservation.size() != size) {
-        return nullptr;
-    }
-    auto ret = br->allocate(size, stream, reservation);
-    RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return ret;
-}
-
-/**
- * @brief Help function to reserve and allocate a new buffer.
- *
- * First reserve device memory and then use the reservation to allocate a new
- * buffer. If not enough device memory is available, host memory is reserved and
- * allocated instead.
- *
- * @param size The size of the buffer in bytes.
- * @param stream CUDA stream to use for device allocations.
- * @param br Buffer resource used for the reservation and allocation.
- * @returns A new buffer.
- *
- * @throws std::overflow_error if both the reservation of device and host memory
- * failed.
- */
-std::unique_ptr<Buffer> allocate_buffer(
-    std::size_t size, rmm::cuda_stream_view stream, BufferResource* br
-) {
-    std::unique_ptr<Buffer> ret = allocate_buffer(MemoryType::DEVICE, size, stream, br);
-    if (ret) {
-        return ret;
-    }
-    // If not enough device memory is available, we try host memory.
-    ret = allocate_buffer(MemoryType::HOST, size, stream, br);
-    RAPIDSMPF_EXPECTS(
-        ret,
-        "Cannot reserve " + format_nbytes(size) + " of device or host memory",
-        std::overflow_error
-    );
-    return ret;
-}
 
 /**
  * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
@@ -99,7 +39,6 @@ std::unique_ptr<Buffer> allocate_buffer(
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for GPU data allocations.
- * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param amount The maximum amount of data (in bytes) to be spilled.
@@ -112,12 +51,9 @@ std::unique_ptr<Buffer> allocate_buffer(
  */
 template <typename KeyType>
 std::size_t postbox_spilling(
-    BufferResource* br,
-    Communicator::Logger& log,
-    PostBox<KeyType>& postbox,
-    std::size_t amount
+    BufferResource* br, PostBox<KeyType>& postbox, std::size_t amount
 ) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
@@ -128,23 +64,16 @@ std::size_t postbox_spilling(
 
         // TODO: Use a clever strategy to decide which chunks to spill. For now, we
         // just spill the chunks in an arbitrary order.
-        auto [host_reservation, host_overbooking] =
-            br->reserve(MemoryType::HOST, size, true);
-        if (host_overbooking > 0) {
-            log.warn(
-                "Cannot spill to host because of host memory overbooking: ",
-                format_nbytes(host_overbooking)
-            );
-            continue;
-        }
+        auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
         }
     }
+    RAPIDSMPF_NVTX_MARKER("postbox_spilling::total_spilled", total_spilled);
     return total_spilled;
 }
 
@@ -270,12 +199,16 @@ class Shuffler::Progress {
                     if (!chunk.is_data_buffer_set()) {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
-                        chunk.set_data_buffer(allocate_buffer(
-                            chunk.concat_data_size(),
+                        chunk.set_data_buffer(shuffler_.br_->allocate(
                             shuffler_.br_->stream_pool().get_stream(),
-                            shuffler_.br_
+                            shuffler_.br_->reserve_or_fail(
+                                chunk.concat_data_size(), MEMORY_TYPES
+                            )
                         ));
-                        if (chunk.data_memory_type() == MemoryType::HOST) {
+                        if (rapidsmpf::contains(
+                                SPILL_TARGET_MEMORY_TYPES, chunk.data_memory_type()
+                            ))
+                        {
                             stats.add_bytes_stat(
                                 "spill-bytes-recv-to-host", chunk.concat_data_size()
                             );
@@ -589,7 +522,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 
 void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto& log = comm_->logger();
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
@@ -600,21 +532,12 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.data) {
-            auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, packed_data.data->size, true);
-            if (host_overbooking > 0) {
-                log.warn(
-                    "Cannot spill to host because of host memory overbooking: ",
-                    format_nbytes(host_overbooking)
-                );
-                continue;
-            }
+            auto reservation =
+                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
-            chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), host_reservation)
-            );
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
@@ -816,7 +739,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
+        spilled = postbox_spilling(br_, ready_postbox_, spill_need);
     }
     return spilled;
 }

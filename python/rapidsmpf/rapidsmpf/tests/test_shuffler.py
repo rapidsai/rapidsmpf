@@ -11,12 +11,12 @@ import pytest
 import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import (
     Shuffler,

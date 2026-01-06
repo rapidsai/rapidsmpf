@@ -8,9 +8,9 @@ from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 
+from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
-                                             cpp_RmmResourceAdaptor,
-                                             cpp_ScopedMemoryRecord)
+                                             cpp_RmmResourceAdaptor)
 
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:

@@ -46,6 +46,8 @@ class Channel {
      * @param msg The msg to send.
      * @return A coroutine that evaluates to true if the msg was successfully sent or
      * false if the channel was shut down.
+     *
+     * @throws std::logic_error If the message is empty.
      */
     coro::task<bool> send(Message msg);
 
@@ -56,6 +58,8 @@ class Channel {
      *
      * @return A coroutine that evaluates to the message, which will be empty if the
      * channel is shut down.
+     *
+     * @throws std::logic_error If the received message is empty.
      */
     coro::task<Message> receive();
 
@@ -84,6 +88,13 @@ class Channel {
      * @return True if there are no messages in the buffer.
      */
     [[nodiscard]] bool empty() const noexcept;
+
+    /**
+     * @brief Check whether the channel is shut down.
+     *
+     * @return True if the channel is shut down.
+     */
+    [[nodiscard]] bool is_shutdown() const noexcept;
 
   private:
     Channel(std::shared_ptr<SpillableMessages> spillable_messages)

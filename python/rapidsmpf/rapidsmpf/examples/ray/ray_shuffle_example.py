@@ -13,13 +13,13 @@ import ray
 import cudf
 import rmm
 
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,

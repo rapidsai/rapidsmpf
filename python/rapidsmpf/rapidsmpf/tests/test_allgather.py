@@ -13,9 +13,9 @@ import cudf
 from pylibcudf.contiguous_split import pack
 
 from rapidsmpf.allgather import AllGather
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
+from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import (

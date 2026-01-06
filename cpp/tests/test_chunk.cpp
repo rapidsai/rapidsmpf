@@ -12,9 +12,9 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 #include "utils.hpp"
@@ -415,6 +415,7 @@ TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
     // create a new buffer resource with only host memory available
     br = std::make_unique<BufferResource>(
         cudf::get_current_device_resource_ref(),
+        PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
             {MemoryType::DEVICE, []() { return 0; }}
         }

@@ -13,9 +13,9 @@
 #include <rmm/mr/limiting_resource_adaptor.hpp>
 #include <rmm/mr/owning_wrapper.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -31,6 +31,7 @@ TEST(SpillManager, SpillFunction) {
     std::int64_t mem_available = 10_KiB;
     BufferResource br{
         cudf::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE,
           [&mem_available]() -> std::int64_t { return mem_available; }}}
     };
@@ -83,6 +84,7 @@ TEST(SpillManager, PeriodicSpillCheck) {
     std::chrono::milliseconds period{1};
     BufferResource br{
         cudf::get_current_device_resource_ref(),
+        PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, []() -> std::int64_t { return -100_KiB; }}},
         period,
     };

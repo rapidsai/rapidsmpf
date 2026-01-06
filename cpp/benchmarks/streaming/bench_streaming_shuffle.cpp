@@ -10,8 +10,12 @@
 #include <mpi.h>
 #include <unistd.h>
 
+#include <rapidsmpf/bootstrap/bootstrap.hpp>
+#include <rapidsmpf/bootstrap/ucxx.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
@@ -32,17 +36,24 @@
 
 class ArgumentParser {
   public:
-    ArgumentParser(int argc, char* const* argv) {
-        RAPIDSMPF_EXPECTS(
-            rapidsmpf::mpi::is_initialized() == true, "MPI is not initialized"
-        );
+    ArgumentParser(int argc, char* const* argv, bool use_mpi = true) {
+        int rank = 0;
+        int nranks = 1;
 
-        int rank, nranks;
-        RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-        RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        if (use_mpi) {
+            RAPIDSMPF_EXPECTS(
+                rapidsmpf::mpi::is_initialized() == true, "MPI is not initialized"
+            );
+
+            RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+            RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        } else {
+            // When not using MPI, expect to be using bootstrap mode (rrun)
+            nranks = rapidsmpf::bootstrap::get_nranks();
+        }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:xh")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:Lxh")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -60,16 +71,21 @@ class ArgumentParser {
                            << "  -o <num>   Number of output partitions per rank "
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
-                              "managed} "
-                              "(default: pool)\n"
+                              "managed} (default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
-                              "disabled)\n"
+                              "unlimited)\n"
+                           << "  -L         Disable Pinned host memory (default: "
+                              " unlimited)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
                         }
-                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        if (use_mpi) {
+                            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        } else {
+                            std::exit(0);
+                        }
                     }
                     break;
                 case 'C':
@@ -79,7 +95,11 @@ class ArgumentParser {
                             std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
-                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        if (use_mpi) {
+                            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        } else {
+                            std::exit(-1);
+                        }
                     }
                     break;
                 case 'r':
@@ -110,17 +130,28 @@ class ArgumentParser {
                                          "{cuda, pool, async, managed}"
                                       << std::endl;
                         }
-                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        if (use_mpi) {
+                            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        } else {
+                            std::exit(-1);
+                        }
                     }
                     break;
                 case 'l':
                     parse_integer(device_mem_limit_mb, optarg);
                     break;
+                case 'L':
+                    pinned_mem_disable = true;
+                    break;
                 case 'x':
                     enable_memory_profiler = true;
                     break;
                 case '?':
-                    RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    if (use_mpi) {
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    } else {
+                        std::exit(-1);
+                    }
                     break;
                 default:
                     RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
@@ -133,7 +164,11 @@ class ArgumentParser {
             if (rank == 0) {
                 std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
-            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            if (use_mpi) {
+                RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            } else {
+                std::exit(-1);
+            }
         }
 
         local_nbytes =
@@ -169,6 +204,9 @@ class ArgumentParser {
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
+        if (pinned_mem_disable) {
+            ss << "  -L (disable pinned host memory)\n";
+        }
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
@@ -189,6 +227,7 @@ class ArgumentParser {
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
     std::int64_t device_mem_limit_mb{-1};
+    bool pinned_mem_disable{false};
 };
 
 rapidsmpf::streaming::Node consumer(
@@ -263,26 +302,48 @@ rapidsmpf::Duration run(
 }
 
 int main(int argc, char** argv) {
-    // Explicitly initialize MPI with thread support, as this is needed for both mpi
-    // and ucxx communicators.
-    int provided;
-    RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
-    RAPIDSMPF_EXPECTS(
-        provided == MPI_THREAD_MULTIPLE,
-        "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
-    );
-    ArgumentParser args{argc, argv};
+    // Explicitly initialize MPI with thread support, as this is needed for both mpi
+    // and ucxx communicators when not using bootstrap mode.
+    int provided = 0;
+    if (!use_bootstrap) {
+        RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+
+        RAPIDSMPF_EXPECTS(
+            provided == MPI_THREAD_MULTIPLE,
+            "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+        );
+    }
+    ArgumentParser args{argc, argv, !use_bootstrap};
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
+        if (use_bootstrap) {
+            std::cerr
+                << "Error: MPI communicator requires MPI initialization. Don't use with "
+                   "rrun or unset RAPIDSMPF_RANK."
+                << std::endl;
+            return 1;
+        }
         rapidsmpf::mpi::init(&argc, &argv);
         comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
-    } else {  // ucxx
-        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+    } else if (args.comm_type == "ucxx") {
+        if (use_bootstrap) {
+            // Launched with rrun - use bootstrap backend
+            comm = rapidsmpf::bootstrap::create_ucxx_comm(
+                rapidsmpf::bootstrap::Backend::AUTO, options
+            );
+        } else {
+            // Launched with mpirun - use MPI bootstrap
+            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+        }
+    } else {
+        std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
+        return 1;
     }
 
     args.pprint(*comm);
@@ -290,11 +351,7 @@ int main(int argc, char** argv) {
     RAPIDSMPF_EXPECTS(comm->nranks() == 1, "only single-rank runs are supported");
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<rapidsmpf::RmmResourceAdaptor> stat_enabled_mr;
-    if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
-        stat_enabled_mr = set_device_mem_resource_with_stats();
-    }
-
+    auto stat_enabled_mr = set_device_mem_resource_with_stats();
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
     if (args.device_mem_limit_mb >= 0) {
@@ -304,8 +361,12 @@ int main(int argc, char** argv) {
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    auto br =
-        std::make_shared<rapidsmpf::BufferResource>(mr, std::move(memory_available));
+    auto br = std::make_shared<rapidsmpf::BufferResource>(
+        mr,
+        args.pinned_mem_disable ? nullptr
+                                : rapidsmpf::PinnedMemoryResource::make_if_available(),
+        std::move(memory_available)
+    );
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -362,7 +423,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    if (!use_bootstrap) {
+        RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    } else {
+        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
+    }
+
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
@@ -386,6 +452,8 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));
-    RAPIDSMPF_MPI(MPI_Finalize());
+    if (!use_bootstrap) {
+        RAPIDSMPF_MPI(MPI_Finalize());
+    }
     return 0;
 }

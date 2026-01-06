@@ -8,10 +8,10 @@
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 

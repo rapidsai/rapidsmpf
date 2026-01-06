@@ -17,9 +17,10 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
+from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+                                               cpp_BufferResource)
+from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
@@ -242,7 +243,7 @@ def unpack_and_concat(
             _stream,
             _br,
         )
-    return Table.from_libcudf(move(_ret), stream, br._mr)
+    return Table.from_libcudf(move(_ret), stream, br._device_mr)
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:

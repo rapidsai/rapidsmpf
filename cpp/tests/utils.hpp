@@ -18,8 +18,8 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 
 /**
  * @brief User-defined literal for specifying memory sizes in MiB.
@@ -168,10 +168,9 @@ inline void validate_packed_data(
     }
 
     EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
-    auto copied_vec = br.allocate(
-        stream, br.reserve_or_fail(n_elements * sizeof(int), rapidsmpf::MemoryType::HOST)
-    );
-    rapidsmpf::buffer_copy(*copied_vec, *packed_data.data, n_elements * sizeof(int));
+
+    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
+    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
-    EXPECT_EQ(metadata, *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host());
+    EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
 }

@@ -8,13 +8,16 @@
 #ifdef RAPIDSMPF_HAVE_UCXX
 
 #include <chrono>
+#include <cstdlib>
 #include <memory>
+#include <string>
 
 #include <cuda_device_runtime_api.h>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf::bootstrap {
 

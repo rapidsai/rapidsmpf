@@ -6,6 +6,9 @@ set -euo pipefail
 
 . /opt/conda/etc/profile.d/conda.sh
 
+rapids-logger "Configuring conda strict channel priority"
+conda config --set channel_priority strict
+
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
 
 rapids-logger "Generate C++ testing dependencies"
@@ -59,6 +62,10 @@ rapids-logger "Run benchmark smoketests"
 # Ensure tools are runnable
 rapids-logger "Run tools smoketests"
 ./run_cpp_tools_smoketests.sh
+
+# Ensure rrun is runnable
+rapids-logger "Run rrun gtests"
+./run_rrun_tests.sh
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

@@ -125,7 +125,7 @@ class ShufflerAsync {
      *
      * @return A coroutine that, when awaited, indicates the shuffle has completed.
      */
-    [[nodiscard]] Node insert_finished(std::vector<shuffler::PartID>&& pids);
+    [[nodiscard]] Node insert_finished();
 
     /**
      * @brief Asynchronously extracts all data for a specific partition.
@@ -192,7 +192,7 @@ class ShufflerAsync {
     [[nodiscard]] Node finished_drain();
 
     std::shared_ptr<Context> ctx_;
-    coro::task_container<coro::thread_pool>
+    coro::task_group<coro::thread_pool>
         notifications_;  ///< Container tracking the notifications that have fired.
     Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)
     coro::latch

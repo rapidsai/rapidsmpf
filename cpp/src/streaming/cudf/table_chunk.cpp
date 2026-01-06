@@ -5,9 +5,8 @@
 
 #include <memory>
 
-#include <rmm/aligned.hpp>
-
-#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -24,7 +23,6 @@ TableChunk::TableChunk(std::unique_ptr<cudf::table> table, rmm::cuda_stream_view
 
 TableChunk::TableChunk(
     cudf::table_view table_view,
-    std::size_t device_alloc_size,
     rmm::cuda_stream_view stream,
     OwningWrapper&& owner,
     ExclusiveView exclusive_view
@@ -33,7 +31,8 @@ TableChunk::TableChunk(
       table_view_{table_view},
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
-    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
+    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] =
+        estimated_memory_usage(table_view, stream_);
     make_available_cost_ = 0;
 }
 
@@ -66,7 +65,7 @@ TableChunk::TableChunk(std::unique_ptr<PackedData> packed_data)
     );
     data_alloc_size_[static_cast<std::size_t>(packed_data_->data->mem_type())] =
         packed_data_->data->size;
-    if (packed_data_->data->mem_type() == MemoryType::HOST) {
+    if (packed_data_->data->mem_type() != MemoryType::DEVICE) {
         make_available_cost_ = packed_data_->data->size;
     } else {
         make_available_cost_ = 0;
@@ -136,6 +135,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 return TableChunk(std::move(table), stream());
             }
         case MemoryType::HOST:
+        case MemoryType::PINNED_HOST:
             {
                 // Get the packed data either from `packed_columns_` or `table_view().
                 std::unique_ptr<PackedData> packed_data;
@@ -182,11 +182,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     // Handle the case where `cudf::pack` allocates slightly more than the
                     // input size. This can occur because cudf uses aligned allocations,
                     // which may exceed the requested size. To accommodate this, we
-                    // slightly increase the reservation if the packed data fits within
-                    // the aligned size.
+                    // allow some wiggle room.
                     if (packed_data->data->size > reservation.size()) {
-                        auto const aligned_size = rmm::align_up(reservation.size(), 1024);
-                        if (packed_data->data->size <= aligned_size) {
+                        auto const wiggle_room =
+                            1024 * static_cast<std::size_t>(table_view().num_columns());
+                        if (packed_data->data->size <= reservation.size() + wiggle_room) {
                             reservation =
                                 br->reserve(
                                       MemoryType::HOST, packed_data->data->size, true

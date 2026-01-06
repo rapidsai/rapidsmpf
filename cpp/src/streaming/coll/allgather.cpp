@@ -3,9 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <algorithm>
-
-#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -23,7 +21,7 @@ AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
           [this]() {
               // Schedule waiters to resume on the executor.
               // This doesn't resume the frame immediately so we don't have to track
-              // completion of this callback with a task_container.
+              // completion of this callback with a task_group.
               event_.set(ctx_->executor());
           }
       )} {}
@@ -41,27 +39,19 @@ AllGather::~AllGather() {
     return ctx_;
 }
 
-void AllGather::insert(std::uint64_t sequence_number, PackedDataChunk&& packed_data) {
-    gatherer_.insert(sequence_number, std::move(packed_data.data));
+void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
+    gatherer_.insert(sequence_number, std::move(packed_data));
 }
 
 void AllGather::insert_finished() {
     gatherer_.insert_finished();
 }
 
-coro::task<std::vector<PackedDataChunk>> AllGather::extract_all(
-    AllGather::Ordered ordered
-) {
+coro::task<std::vector<PackedData>> AllGather::extract_all(AllGather::Ordered ordered) {
     // Wait until we're notified that everything is done.
     co_await event_;
     // And now this will not block.
-    auto data = gatherer_.wait_and_extract(ordered);
-    std::vector<PackedDataChunk> result;
-    result.reserve(data.size());
-    std::ranges::transform(data, std::back_inserter(result), [](auto&& pd) {
-        return PackedDataChunk{.data = std::move(pd)};
-    });
-    co_return result;
+    co_return gatherer_.wait_and_extract(ordered);
 }
 
 namespace node {
@@ -80,14 +70,14 @@ Node allgather(
         if (msg.empty()) {
             break;
         }
-        gatherer.insert(msg.sequence_number(), msg.release<PackedDataChunk>());
+        gatherer.insert(msg.sequence_number(), msg.release<PackedData>());
     }
     gatherer.insert_finished();
     auto data = co_await gatherer.extract_all(ordered);
     std::uint64_t sequence{0};
     for (auto&& chunk : data) {
         co_await ch_out->send(
-            to_message(sequence++, std::make_unique<PackedDataChunk>(std::move(chunk)))
+            to_message(sequence++, std::make_unique<PackedData>(std::move(chunk)))
         );
     }
     co_await ch_out->drain(ctx->executor());

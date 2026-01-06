@@ -10,7 +10,6 @@ import time
 from typing import TYPE_CHECKING
 
 import cupy as cp
-import ucxx._lib.libucxx as ucx_api
 from mpi4py import MPI
 
 import cudf
@@ -18,16 +17,12 @@ import rmm.mr
 from pylibcudf.contiguous_split import pack
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+import rapidsmpf.bootstrap
 import rapidsmpf.communicator.mpi
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.communicator.ucxx import (
-    barrier,
-    get_root_ucxx_address,
-    new_communicator,
-)
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
@@ -200,6 +195,14 @@ def ucxx_mpi_setup(options: Options) -> Communicator:
     options
         Configuration options.
     """
+    import ucxx._lib.libucxx as ucx_api
+
+    from rapidsmpf.communicator.ucxx import (
+        barrier,
+        get_root_ucxx_address,
+        new_communicator,
+    )
+
     if MPI.COMM_WORLD.Get_rank() == 0:
         comm = new_communicator(MPI.COMM_WORLD.size, None, None, options)
         root_address_str = get_root_ucxx_address(comm)
@@ -231,7 +234,12 @@ def setup_and_run(args: argparse.Namespace) -> None:
     if args.comm == "mpi":
         comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
     elif args.comm == "ucxx":
-        comm = ucxx_mpi_setup(options)
+        if rapidsmpf.bootstrap.is_running_with_rrun():
+            raise ValueError(
+                "UCXX communicator is not supported with rrun yet, due to missing allreduce support"
+            )
+        else:
+            comm = ucxx_mpi_setup(options)
 
     # Create a RMM stack with both a device pool and statistics.
     mr = RmmResourceAdaptor(
@@ -253,7 +261,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         if args.spill_device is None
         else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
     )
-    br = BufferResource(mr, memory_available)
+    br = BufferResource(mr, memory_available=memory_available)
 
     args.out_nparts = args.out_nparts if args.out_nparts is not None else comm.nranks
     args.part_size = args.part_size if args.part_size is not None else args.local_size

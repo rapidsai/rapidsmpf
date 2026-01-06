@@ -4,9 +4,9 @@
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.statistics cimport Statistics
 
 from rapidsmpf.config import get_environment_variables
@@ -60,6 +60,10 @@ cdef class Context:
                 self._br._handle,
                 self._statistics._handle,
             )
+
+        self._spillable_messages = SpillableMessages.from_handle(
+            deref(self._handle).spillable_messages()
+        )
 
     def __dealloc__(self):
         with nogil:
@@ -141,3 +145,13 @@ cdef class Context:
         with nogil:
             ret = deref(self._handle).create_channel()
         return Channel.from_handle(move(ret))
+
+    def spillable_messages(self):
+        """
+        Get spillable messages.
+
+        Returns
+        -------
+        The spillable messages associated with this context.
+        """
+        return self._spillable_messages

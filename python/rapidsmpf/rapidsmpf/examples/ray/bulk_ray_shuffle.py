@@ -16,14 +16,14 @@ import ray
 import pylibcudf as plc
 import rmm.mr
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
@@ -108,7 +108,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
             if self.spill_device is None
             else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_device)}
         )
-        br = BufferResource(mr, memory_available)
+        br = BufferResource(mr, memory_available=memory_available)
         # Create a statistics object
         self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler

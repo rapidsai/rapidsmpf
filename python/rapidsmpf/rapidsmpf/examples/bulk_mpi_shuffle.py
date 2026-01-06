@@ -16,15 +16,16 @@ import pylibcudf as plc
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+import rapidsmpf.bootstrap
 import rapidsmpf.communicator.mpi
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
@@ -43,6 +44,23 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from rapidsmpf.communicator.communicator import Communicator
+
+
+def barrier(comm: Communicator) -> None:
+    """
+    Blocks until all processes in the communicator have reached this point.
+
+    Parameters
+    ----------
+    comm
+        The communicator to barrier.
+    """
+    if rapidsmpf.bootstrap.is_running_with_rrun():
+        from rapidsmpf.communicator.ucxx import barrier as ucxx_barrier
+
+        ucxx_barrier(comm)
+    else:
+        MPI.COMM_WORLD.barrier()
 
 
 def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
@@ -279,7 +297,12 @@ def setup_and_run(args: argparse.Namespace) -> None:
     if args.cluster_type == "mpi":
         comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
     elif args.cluster_type == "ucxx":
-        comm = ucxx_mpi_setup(options)
+        if rapidsmpf.bootstrap.is_running_with_rrun():
+            comm = rapidsmpf.bootstrap.create_ucxx_comm(
+                backend=rapidsmpf.bootstrap.Backend.AUTO, options=options
+            )
+        else:
+            comm = ucxx_mpi_setup(options)
 
     # Create a RMM stack with both a device pool and statistics.
     mr = RmmResourceAdaptor(
@@ -298,7 +321,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         if args.spill_device is None
         else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
     )
-    br = BufferResource(mr, memory_available)
+    br = BufferResource(mr, memory_available=memory_available)
 
     stats = Statistics(enable=args.statistics, mr=mr)
 
@@ -333,7 +356,7 @@ Shuffle:
   --spill-device: {spill_device}"""
         )
 
-    MPI.COMM_WORLD.barrier()
+    barrier(comm)
 
     if cupti_monitor is not None:
         cupti_monitor.start_monitoring()
@@ -351,7 +374,7 @@ Shuffle:
         statistics=stats,
     )
     elapsed_time = MPI.Wtime() - start_time
-    MPI.COMM_WORLD.barrier()
+    barrier(comm)
 
     if cupti_monitor is not None:
         cupti_monitor.stop_monitoring()

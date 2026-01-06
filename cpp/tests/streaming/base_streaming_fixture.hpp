@@ -10,8 +10,8 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>

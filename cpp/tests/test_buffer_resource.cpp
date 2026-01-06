@@ -16,9 +16,9 @@
 #include <rmm/mr/limiting_resource_adaptor.hpp>
 #include <rmm/mr/owning_wrapper.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -56,7 +56,9 @@ TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always have 10 KiB of available device memory.
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
-        cudf::get_current_device_resource_ref(), {{MemoryType::DEVICE, dev_mem_available}}
+        cudf::get_current_device_resource_ref(),
+        PinnedMemoryResource::Disabled,
+        {{MemoryType::DEVICE, dev_mem_available}}
     };
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
@@ -118,6 +120,7 @@ TEST(BufferResource, ReservationReleasing) {
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
         cudf::get_current_device_resource_ref(),
+        PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, dev_mem_available}, {MemoryType::HOST, dev_mem_available}}
     };
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
@@ -167,7 +170,9 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // Create a buffer resource that limit available device memory to 10 KiB.
     LimitAvailableMemory dev_mem_available{&mr, 10_KiB};
-    BufferResource br{mr, {{MemoryType::DEVICE, dev_mem_available}}};
+    BufferResource br{
+        mr, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, dev_mem_available}}
+    };
     EXPECT_EQ(dev_mem_available(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
@@ -235,6 +240,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
         mr = std::make_unique<RmmResourceAdaptor>(*cuda_mr);
         br = std::make_unique<BufferResource>(
             *mr,
+            PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
                 {MemoryType::DEVICE, LimitAvailableMemory{mr.get(), 10_KiB}}
             }
@@ -361,17 +367,12 @@ class BufferResourceCopySliceTest
         slice->stream().synchronize();
         EXPECT_TRUE(slice->is_latest_write_done());
 
-        if (dest_type == MemoryType::HOST) {
-            verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
-        } else {
-            std::vector<uint8_t> verify_data(length);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                verify_data.data(), slice->data(), length, cudaMemcpyDeviceToHost, stream
-            ));
-            stream.synchronize();
-            verify_slice(verify_data, offset, length);
-        }
-
+        std::vector<uint8_t> verify_data(length);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            verify_data.data(), slice->data(), length, cudaMemcpyDefault, stream
+        ));
+        stream.synchronize();
+        verify_slice(verify_data, offset, length);
         return slice;
     }
 
@@ -445,20 +446,16 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
         dest->stream().synchronize();
         EXPECT_TRUE(dest->is_latest_write_done());
 
-        if (dest->mem_type() == MemoryType::HOST) {
-            verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
-        } else {
-            std::vector<uint8_t> verify_data_buf(length);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                verify_data_buf.data(),
-                dest->data() + dest_offset,
-                length,
-                cudaMemcpyDeviceToHost,
-                stream
-            ));
-            stream.synchronize();
-            verify_slice(verify_data_buf, 0, length);
-        }
+        std::vector<uint8_t> verify_data_buf(length);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            verify_data_buf.data(),
+            dest->data() + dest_offset,
+            length,
+            cudaMemcpyDefault,
+            stream
+        ));
+        stream.synchronize();
+        verify_slice(verify_data_buf, 0, length);
     }
 
     // verify the slice of the buffer[offset:offset+length] is the same as the host

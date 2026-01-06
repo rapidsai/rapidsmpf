@@ -17,12 +17,12 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/buffer/spill_manager.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -329,16 +329,13 @@ class PostBox {
      * The spilling is stream ordered by the spilled buffers' CUDA streams.
      *
      * @param br The buffer resource for host and device allocations.
-     * @param log Logger instance.
      * @param amount Requested amount of data to spill in bytes.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".
      */
-    [[nodiscard]] std::size_t spill(
-        BufferResource* br, Communicator::Logger& log, std::size_t amount
-    );
+    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
 
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access

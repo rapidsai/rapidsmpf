@@ -8,8 +8,8 @@
 
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>

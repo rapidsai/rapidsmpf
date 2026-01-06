@@ -5,12 +5,13 @@
 set -euo pipefail
 
 source rapids-configure-sccache
-
 source rapids-date-string
 
 export CMAKE_GENERATOR=Ninja
 
 rapids-print-env
+
+rapids-generate-version > ./VERSION
 
 rapids-logger "Begin py build"
 
@@ -26,7 +27,7 @@ RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
-sccache --zero-stats
+sccache --stop-server 2>/dev/null || true
 
 rapids-logger "Building rapidsmpf"
 
@@ -35,6 +36,7 @@ rattler-build build --recipe conda/recipes/rapidsmpf \
                     "${RATTLER_CHANNELS[@]}"
 
 sccache --show-adv-stats
+sccache --stop-server >/dev/null 2>&1 || true
 
 # remove build_cache directory to avoid uploading the entire source tree
 # tracked in https://github.com/prefix-dev/rattler-build/issues/1424

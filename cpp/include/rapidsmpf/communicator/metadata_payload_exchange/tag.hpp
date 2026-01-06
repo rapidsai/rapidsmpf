@@ -10,9 +10,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::communicator {

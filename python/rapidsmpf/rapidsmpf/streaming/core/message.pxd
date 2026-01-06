@@ -6,8 +6,8 @@ from libc.stdint cimport uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr
 
-from rapidsmpf.buffer.content_description cimport cpp_ContentDescription
-from rapidsmpf.buffer.resource cimport cpp_MemoryReservation
+from rapidsmpf.memory.content_description cimport cpp_ContentDescription
+from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 
 
 cdef extern from "<rapidsmpf/streaming/core/channel.hpp>" nogil:

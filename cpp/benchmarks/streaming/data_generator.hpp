@@ -56,7 +56,7 @@ inline Node random_table_generator(
     co_await ctx->executor()->schedule();
     auto nbytes = static_cast<std::size_t>(ncolumns * nrows) * sizeof(std::int32_t);
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
-        auto res = ctx->br()->reserve_and_spill(MemoryType::DEVICE, nbytes, false);
+        auto res = ctx->br()->reserve_device_memory_and_spill(nbytes, false);
         co_await ch_out->send(to_message(
             seq,
             std::make_unique<TableChunk>(

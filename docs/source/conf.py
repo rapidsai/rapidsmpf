@@ -88,13 +88,13 @@ nitpick_ignore_regex = [
     ("py:class", "DataFrameT"),
     ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
     # Unclear why this was causing a warning
-    ("py:obj", "rapidsmpf.buffer.resource.LimitAvailableMemory.__call__"),
+    ("py:obj", "rapidsmpf.memory.buffer_resource.LimitAvailableMemory.__call__"),
     # autodoc fails to generate references for integer methods (real, image, etc.)
     # for IntEnums coming from Cython.
     ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
-    ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
+    ("py:obj", "rapidsmpf.memory.buffer.MemoryType.*"),
+    ("py:obj", "rapidsmpf.memory.scoped_memory_record.AllocType.*"),
     ("py:obj", "(denominator|imag|numerator|real)"),
-    ('py:obj', 'rapidsmpf.rmm_resource_adaptor.AllocType.*'),
     ('py:class', 'rmm.pylibrmm.stream.Stream'),
     ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
     # We're subclassing this from RMM, and sphinx can't find these methods.

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <ranges>
 
 #include <cudf/ast/expressions.hpp>
@@ -90,9 +91,21 @@ Node produce_chunks(
         co_await ctx->executor()->schedule();
         // TODO: This reads the metadata ntasks times.
         // See https://github.com/rapidsai/cudf/issues/20311
-        auto sent = co_await ticket->send(
-            read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number)
-        );
+        auto [msg, exception] = [&]() -> std::pair<Message, std::exception_ptr> {
+            try {
+                return {
+                    read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number),
+                    nullptr
+                };
+            } catch (...) {
+                return {Message{}, std::current_exception()};
+            }
+        }();
+        if (exception != nullptr) {
+            co_await ch_out->shutdown();
+            std::rethrow_exception(exception);
+        }
+        auto sent = co_await ticket->send(std::move(msg));
         if (!sent) {
             // Output channel is shutdown, no need for more reads.
             break;
@@ -205,13 +218,18 @@ Node read_parquet(
         }
     }
     if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
-        auto empty_opts = options;
-        empty_opts.set_source(cudf::io::source_info(local_files[0]));
-        empty_opts.set_skip_rows(0);
-        empty_opts.set_num_rows(0);
-        co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
-            ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
-        )));
+        if (local_files.size() > 0) {
+            // If we're on the hook to read some files, but the skip_rows/num_rows setup
+            // meant our slice was empty, send an empty table of correct shape.
+            // Anyone with no files will just immediately close their output channel.
+            auto empty_opts = options;
+            empty_opts.set_source(cudf::io::source_info(local_files[0]));
+            empty_opts.set_skip_rows(0);
+            empty_opts.set_num_rows(0);
+            co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
+                ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
+            )));
+        }
     } else {
         std::vector<Node> read_tasks;
         read_tasks.reserve(1 + num_producers);

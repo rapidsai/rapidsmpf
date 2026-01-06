@@ -8,11 +8,11 @@ import pytest
 
 import rmm.mr
 
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.single import (
     new_communicator as single_process_comm,
 )
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.context import Context
 

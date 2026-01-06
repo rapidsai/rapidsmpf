@@ -13,10 +13,12 @@
 #include <optional>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils.hpp>
+
+#include "rapidsmpf/nvtx.hpp"
 
 namespace rapidsmpf::allgather {
 namespace detail {
@@ -194,9 +196,7 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(
-    BufferResource* br, Communicator::Logger& log, std::size_t amount
-) {
+std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
@@ -208,15 +208,8 @@ std::size_t PostBox::spill(
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto [reservation, overbooking] =
-            br->reserve(MemoryType::HOST, chunk->data_size(), true);
-        if (overbooking) {
-            log.warn(
-                "Cannot spill to host because of host memory overbooking: ",
-                format_nbytes(overbooking)
-            );
-            return 0;
-        }
+        auto reservation =
+            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
         chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
         return chunk->data_size();
     };
@@ -372,9 +365,9 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox
-        spilled = for_extraction_.spill(br_, comm_->logger(), spill_need);
+        spilled = for_extraction_.spill(br_, spill_need);
         if (spilled < spill_need) {
-            spilled += inserted_.spill(br_, comm_->logger(), spill_need - spilled);
+            spilled += inserted_.spill(br_, spill_need - spilled);
         }
     }
     return spilled;
@@ -411,6 +404,7 @@ AllGather::AllGather(
 }
 
 ProgressThread::ProgressState AllGather::event_loop() {
+    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("AllGather::event_loop");
     /*
      * Data flow:
      * User inserts into inserted_

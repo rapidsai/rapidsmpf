@@ -3,16 +3,19 @@
 
 from libcpp.memory cimport shared_ptr
 
-from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.statistics cimport Statistics
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
+from rapidsmpf.streaming.core.spillable_messages cimport (
+    SpillableMessages, cpp_SpillableMessages)
 
 
 cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
     cdef cppclass cpp_Context "rapidsmpf::streaming::Context":
         shared_ptr[cpp_Channel] create_channel() except +
+        shared_ptr[cpp_SpillableMessages] spillable_messages() noexcept
 
 
 cdef class Context:
@@ -21,3 +24,4 @@ cdef class Context:
     cdef BufferResource _br
     cdef Options _options
     cdef Statistics _statistics
+    cdef SpillableMessages _spillable_messages

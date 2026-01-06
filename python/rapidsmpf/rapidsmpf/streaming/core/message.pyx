@@ -4,8 +4,8 @@
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.content_description cimport content_description_from_cpp
-from rapidsmpf.buffer.resource cimport MemoryReservation
+from rapidsmpf.memory.content_description cimport content_description_from_cpp
+from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 
 
 cdef class Message:
@@ -134,8 +134,8 @@ cdef class Message:
 
         Examples
         --------
-        >>> res = br.reserve_and_spill(
-        ...    MemoryType.DEVICE, msg.copy_cost(), allow_overbooking=False
+        >>> res = br.reserve_device_memory_and_spill(
+        ...    msg.copy_cost(), allow_overbooking=False
         ... )
         >>> msg_copy = msg.copy(res)
         >>> assert msg_copy.sequence_number == msg.sequence_number

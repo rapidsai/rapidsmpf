@@ -13,13 +13,13 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -51,8 +51,8 @@ partition_and_split(
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto reservation = br->reserve_and_spill(
-        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
+    auto reservation = br->reserve_device_memory_and_spill(
+        estimated_memory_usage(table, stream), allow_overbooking
     );
     auto [partition_table, offsets] = cudf::hash_partition(
         table,
@@ -101,8 +101,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto reservation = br->reserve_and_spill(
-        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
+    auto reservation = br->reserve_device_memory_and_spill(
+        estimated_memory_usage(table, stream), allow_overbooking
     );
     auto [reordered, split_points] = cudf::hash_partition(
         table,
@@ -134,8 +134,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 
     // contiguous split does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto reservation = br->reserve_and_spill(
-        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
+    auto reservation = br->reserve_device_memory_and_spill(
+        estimated_memory_usage(table, stream), allow_overbooking
     );
     auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     reservation.clear();
@@ -168,9 +168,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     size_t non_device_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            total_size += packed_data.data->size;
+            size_t size = packed_data.data->size;
+            total_size += size;
             if (packed_data.data->mem_type() != MemoryType::DEVICE) {
-                non_device_size += 0;
+                non_device_size += size;
             }
         }
     }
@@ -183,8 +184,8 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     packed_data_streams.reserve(partitions.size());
 
     // Reserve device memory for the unspill AND the cudf::unpack() calls.
-    auto reservation = br->reserve_and_spill(
-        MemoryType::DEVICE, total_size + non_device_size, allow_overbooking
+    auto reservation = br->reserve_device_memory_and_spill(
+        total_size + non_device_size, allow_overbooking
     );
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
@@ -210,8 +211,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         packed_columns.gpu_data->set_stream(stream);
     }
 
-    reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, total_size, allow_overbooking);
+    reservation = br->reserve_device_memory_and_spill(total_size, allow_overbooking);
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
 
@@ -229,7 +229,7 @@ std::vector<PackedData> spill_partitions(
         }
     }
     // Spill each partition to host memory.
-    auto reservation = br->reserve_and_spill(MemoryType::HOST, device_size, false);
+    auto reservation = br->reserve_or_fail(device_size, SPILL_TARGET_MEMORY_TYPES);
     std::vector<PackedData> ret;
     ret.reserve(partitions.size());
     for (auto& [metadata, data] : partitions) {
@@ -257,7 +257,7 @@ std::vector<PackedData> unspill_partitions(
 
     // Unspill each partition.
     auto reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking);
+        br->reserve_device_memory_and_spill(non_device_size, allow_overbooking);
     std::vector<PackedData> ret;
     ret.reserve(partitions.size());
     for (auto& [metadata, data] : partitions) {

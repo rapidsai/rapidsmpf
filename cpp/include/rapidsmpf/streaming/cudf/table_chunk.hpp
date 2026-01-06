@@ -13,9 +13,9 @@
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 
-#include <rapidsmpf/buffer/content_description.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -75,7 +75,6 @@ class TableChunk {
      * the TableChunk is destroyed.
      *
      * @param table_view Device-resident table view.
-     * @param device_alloc_size Number of bytes allocated in device memory.
      * @param stream CUDA stream on which the table was created.
      * @param owner Object owning the memory backing @p table_view. This object will be
      * destroyed last when the TableChunk is destroyed or spilled.
@@ -91,7 +90,6 @@ class TableChunk {
      */
     TableChunk(
         cudf::table_view table_view,
-        std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
         OwningWrapper&& owner,
         ExclusiveView exclusive_view

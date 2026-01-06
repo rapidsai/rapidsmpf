@@ -5,12 +5,13 @@ from __future__ import annotations
 
 from rmm.pylibrmm.stream import Stream
 
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.message import PayloadT
+from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 
 class Context:
     def __init__(
@@ -27,3 +28,4 @@ class Context:
     def get_stream_from_pool(self) -> Stream: ...
     def stream_pool_size(self) -> int: ...
     def create_channel(self) -> Channel[PayloadT]: ...
+    def spillable_messages(self) -> SpillableMessages: ...

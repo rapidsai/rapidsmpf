@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -25,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -33,9 +35,16 @@
 #include <thread>
 #include <vector>
 
+#include <sched.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if RAPIDSMPF_HAVE_NUMA
+#include <numa.h>
+#endif
+
+#include <rapidsmpf/topology_discovery.hpp>
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
@@ -44,6 +53,16 @@
 namespace {
 
 static std::mutex output_mutex;
+
+/**
+ * @brief State of --bind-to option specification.
+ */
+enum class BindToState {
+    NotSpecified,  // Default, will be treated as "all"
+    None,  // --bind-to none
+    All,  // --bind-to all
+    Specific  // --bind-to cpu/memory/network (one or more)
+};
 
 /**
  * @brief Configuration for the rrun launcher.
@@ -58,6 +77,16 @@ struct Config {
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
     bool tag_output{false};  // Tag output with rank number
+    bool bind_cpu{false};  // Bind to CPU affinity
+    bool bind_memory{false};  // Bind to NUMA memory
+    bool bind_network{false};  // Bind to network devices
+    BindToState bind_state{
+        BindToState::NotSpecified
+    };  // State of --bind-to specification
+    std::optional<rapidsmpf::SystemTopologyInfo>
+        topology;  // Discovered topology information
+    std::map<int, rapidsmpf::GpuTopologyInfo const*>
+        gpu_topology_map;  // Map GPU ID to topology info
 };
 
 /**
@@ -124,6 +153,11 @@ void print_usage(std::string_view prog_name) {
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
+        << "  --bind-to <type>   Bind to topology resources (default: all)\n"
+        << "                     Can be specified multiple times\n"
+        << "                     Options: cpu, memory, network, all, none\n"
+        << "                     Examples: --bind-to cpu --bind-to network\n"
+        << "                              --bind-to none (disable all bindings)\n"
         << "  -x, --set-env <VAR=val>\n"
         << "                     Set environment variable for all ranks\n"
         << "                     Can be specified multiple times\n"
@@ -142,6 +176,117 @@ void print_usage(std::string_view prog_name) {
         << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
            "./bench_comm\n\n"
         << std::endl;
+}
+
+/**
+ * @brief Parse CPU list string into CPU mask for sched_setaffinity.
+ *
+ * Accepts formats like "0-31,128-159" or comma-separated single cores.
+ * Returns a cpu_set_t mask that can be used with sched_setaffinity.
+ *
+ * @param cpulist CPU list string (e.g., "0-31,128-159").
+ * @param cpuset Output CPU set to populate.
+ * @return true on success, false on failure.
+ */
+bool parse_cpu_list_to_mask(std::string const& cpulist, cpu_set_t* cpuset) {
+    CPU_ZERO(cpuset);
+    if (cpulist.empty()) {
+        return false;
+    }
+
+    std::istringstream iss(cpulist);
+    std::string token;
+    while (std::getline(iss, token, ',')) {
+        size_t dash_pos = token.find('-');
+        if (dash_pos != std::string::npos) {
+            // Range, e.g., "0-31"
+            try {
+                int start = std::stoi(token.substr(0, dash_pos));
+                int end = std::stoi(token.substr(dash_pos + 1));
+                for (int i = start; i <= end; ++i) {
+                    if (i >= 0 && i < static_cast<int>(CPU_SETSIZE)) {
+                        CPU_SET(static_cast<unsigned>(i), cpuset);
+                    }
+                }
+            } catch (...) {
+                return false;
+            }
+        } else {
+            // Single core, e.g., "5"
+            try {
+                int core = std::stoi(token);
+                if (core >= 0 && core < static_cast<int>(CPU_SETSIZE)) {
+                    CPU_SET(static_cast<unsigned>(core), cpuset);
+                }
+            } catch (...) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Set CPU affinity for the current process.
+ *
+ * @param cpu_affinity_list CPU affinity list string (e.g., "0-31,128-159"), as in the
+ * format of `TopologyDiscovery::GpuTopologyInfo::cpu_affinity_list`.
+ * @return true on success, false on failure.
+ */
+bool set_cpu_affinity(std::string const& cpu_affinity_list) {
+    if (cpu_affinity_list.empty()) {
+        return false;
+    }
+
+    cpu_set_t cpuset;
+    if (!parse_cpu_list_to_mask(cpu_affinity_list, &cpuset)) {
+        return false;
+    }
+
+    pid_t pid = getpid();
+    if (sched_setaffinity(pid, sizeof(cpu_set_t), &cpuset) != 0) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Set NUMA memory binding for the current process.
+ *
+ * @param memory_binding Vector of NUMA node IDs to bind memory to.
+ * @return true on success, false on failure or if NUMA is not available.
+ */
+bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
+#if RAPIDSMPF_HAVE_NUMA
+    if (memory_binding.empty()) {
+        return false;
+    }
+
+    if (numa_available() == -1) {
+        return false;
+    }
+
+    struct bitmask* nodemask = numa_allocate_nodemask();
+    if (!nodemask) {
+        return false;
+    }
+
+    numa_bitmask_clearall(nodemask);
+    for (int node : memory_binding) {
+        if (node >= 0) {
+            numa_bitmask_setbit(nodemask, static_cast<unsigned int>(node));
+        }
+    }
+
+    numa_set_membind(nodemask);
+    numa_free_nodemask(nodemask);
+
+    return true;
+#else
+    std::ignore = memory_binding;  // Suppress unused parameter warning
+    return false;
+#endif
 }
 
 /**
@@ -190,6 +335,58 @@ Config parse_args(int argc, char* argv[]) {
             cfg.gpus = parse_gpu_list(argv[++i]);
         } else if (arg == "--tag-output") {
             cfg.tag_output = true;
+        } else if (arg == "--bind-to") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --bind-to");
+            }
+            std::string bind_type = argv[++i];
+            if (bind_type == "none") {
+                if (cfg.bind_state == BindToState::Specific
+                    || cfg.bind_state == BindToState::All)
+                {
+                    throw std::runtime_error(
+                        "--bind-to none cannot be combined with other --bind-to options"
+                    );
+                }
+                cfg.bind_state = BindToState::None;
+                cfg.bind_cpu = false;
+                cfg.bind_memory = false;
+                cfg.bind_network = false;
+            } else if (bind_type == "all") {
+                if (cfg.bind_state == BindToState::Specific
+                    || cfg.bind_state == BindToState::None)
+                {
+                    throw std::runtime_error(
+                        "--bind-to all cannot be combined with other --bind-to options"
+                    );
+                }
+                cfg.bind_state = BindToState::All;
+                cfg.bind_cpu = true;
+                cfg.bind_memory = true;
+                cfg.bind_network = true;
+            } else {
+                if (cfg.bind_state == BindToState::None
+                    || cfg.bind_state == BindToState::All)
+                {
+                    throw std::runtime_error(
+                        "--bind-to " + bind_type
+                        + " cannot be combined with --bind-to none or --bind-to all"
+                    );
+                }
+                cfg.bind_state = BindToState::Specific;
+                if (bind_type == "cpu") {
+                    cfg.bind_cpu = true;
+                } else if (bind_type == "memory") {
+                    cfg.bind_memory = true;
+                } else if (bind_type == "network") {
+                    cfg.bind_network = true;
+                } else {
+                    throw std::runtime_error(
+                        "Invalid --bind-to option: " + bind_type
+                        + ". Valid options: cpu, memory, network, all, none"
+                    );
+                }
+            }
         } else if (arg == "-d") {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing argument for -d");
@@ -261,6 +458,29 @@ Config parse_args(int argc, char* argv[]) {
     // Generate coordination directory if not specified
     if (cfg.coord_dir.empty()) {
         cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+    }
+
+    // Default to "all" if --bind-to was not explicitly specified
+    if (cfg.bind_state == BindToState::NotSpecified) {
+        cfg.bind_cpu = true;
+        cfg.bind_memory = true;
+        cfg.bind_network = true;
+    }
+
+    // Discover system topology
+    rapidsmpf::TopologyDiscovery discovery;
+    if (discovery.discover()) {
+        cfg.topology = discovery.get_topology();
+        // Build GPU ID to topology info mapping
+        for (auto const& gpu : cfg.topology->gpus) {
+            cfg.gpu_topology_map[static_cast<int>(gpu.id)] = &gpu;
+        }
+    } else {
+        if (cfg.verbose) {
+            std::cerr << "Warning: Failed to discover system topology. "
+                      << "CPU affinity, NUMA binding, and UCX network device "
+                      << "configuration will be skipped." << std::endl;
+        }
     }
 
     return cfg;
@@ -354,25 +574,66 @@ pid_t fork_with_piped_stdio(
 pid_t launch_rank_local(
     Config const& cfg, int rank, int* out_fd_stdout, int* out_fd_stderr
 ) {
+    // Capture rank by value explicitly to avoid any potential issues
+    int captured_rank = rank;
     return fork_with_piped_stdio(
         out_fd_stdout,
         out_fd_stderr,
         /*combine_stderr*/ false,
-        [&cfg, rank]() {
+        [&cfg, captured_rank]() {
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
             }
 
             // Set environment variables
-            setenv("RAPIDSMPF_RANK", std::to_string(rank).c_str(), 1);
+            setenv("RAPIDSMPF_RANK", std::to_string(captured_rank).c_str(), 1);
             setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.nranks).c_str(), 1);
             setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
 
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
+            int gpu_id = -1;
             if (!cfg.gpus.empty()) {
-                int gpu_id = cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                gpu_id = cfg.gpus[static_cast<size_t>(captured_rank) % cfg.gpus.size()];
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
+            }
+
+            // Apply topology-based configuration if available
+            if (cfg.topology.has_value() && gpu_id >= 0) {
+                auto it = cfg.gpu_topology_map.find(gpu_id);
+                if (it != cfg.gpu_topology_map.end()) {
+                    auto const& gpu_info = *it->second;
+
+                    if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
+                        if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
+                            std::cerr << "Warning: Failed to set CPU affinity for rank "
+                                      << captured_rank << " (GPU " << gpu_id << ")"
+                                      << std::endl;
+                        }
+                    }
+
+                    if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
+                        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
+#if RAPIDSMPF_HAVE_NUMA
+                            std::cerr
+                                << "Warning: Failed to set NUMA memory binding for rank "
+                                << captured_rank << " (GPU " << gpu_id << ")"
+                                << std::endl;
+#endif
+                        }
+                    }
+
+                    if (cfg.bind_network && !gpu_info.network_devices.empty()) {
+                        std::string ucx_net_devices;
+                        for (size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
+                            if (i > 0) {
+                                ucx_net_devices += ",";
+                            }
+                            ucx_net_devices += gpu_info.network_devices[i];
+                        }
+                        setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1);
+                    }
+                }
             }
 
             // Prepare arguments for execvp
@@ -460,6 +721,24 @@ int main(int argc, char* argv[]) {
                       << "  Application:   " << cfg.app_binary << "\n"
                       << "  Coord Dir:     " << cfg.coord_dir << "\n"
                       << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
+            std::vector<std::string> bind_types;
+            if (cfg.bind_cpu)
+                bind_types.push_back("cpu");
+            if (cfg.bind_memory)
+                bind_types.push_back("memory");
+            if (cfg.bind_network)
+                bind_types.push_back("network");
+            if (bind_types.empty()) {
+                std::cout << "  Bind To:       none\n";
+            } else {
+                std::cout << "  Bind To:       ";
+                for (size_t i = 0; i < bind_types.size(); ++i) {
+                    if (i > 0)
+                        std::cout << ", ";
+                    std::cout << bind_types[i];
+                }
+                std::cout << "\n";
+            }
             if (!cfg.env_vars.empty()) {
                 std::cout << "  Env Vars:      ";
                 bool first = true;
@@ -531,12 +810,17 @@ int main(int argc, char* argv[]) {
             pids.push_back(pid);
 
             if (cfg.verbose) {
-                std::cout << "Launched rank " << rank << " (PID " << pid << ")";
+                std::ostringstream msg;
+                msg << "Launched rank " << rank << " (PID " << pid << ")";
                 if (!cfg.gpus.empty()) {
-                    std::cout << " on GPU "
-                              << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                    msg << " on GPU "
+                        << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
                 }
-                std::cout << std::endl;
+                msg << std::endl;
+                std::string msg_str = msg.str();
+
+                std::cout << msg_str;
+                std::cout.flush();
             }
             // Parent-side forwarders for local stdout and stderr
             start_forwarder(fd_out, rank, false);

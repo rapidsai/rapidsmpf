@@ -10,9 +10,8 @@
 #include <vector>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/streaming/chunks/packed_data.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 
@@ -61,7 +60,7 @@ class AllGather {
      * @param sequence_number The sequence number for this chunk.
      * @param chunk The chunk to insert.
      */
-    void insert(std::uint64_t sequence_number, PackedDataChunk&& chunk);
+    void insert(std::uint64_t sequence_number, PackedData&& chunk);
 
     /// @copydoc rapidsmpf::allgather::AllGather::insert_finished()
     void insert_finished();
@@ -76,7 +75,7 @@ class AllGather {
      * @return Coroutine that completes when all data is available for extraction and
      * returns the data.
      */
-    coro::task<std::vector<PackedDataChunk>> extract_all(Ordered ordered = Ordered::YES);
+    coro::task<std::vector<PackedData>> extract_all(Ordered ordered = Ordered::YES);
 
   private:
     coro::event
@@ -94,8 +93,8 @@ namespace node {
  * packed data received through `Channel`s.
  *
  * @param ctx The streaming context to use.
- * @param ch_in Input channel providing `PackedDataChunk`s to be gathered.
- * @param ch_out Output channel where the gathered `PackedDataChunk`s are sent.
+ * @param ch_in Input channel providing `PackedData`s to be gathered.
+ * @param ch_out Output channel where the gathered `PackedData`s are sent.
  * @param op_id Unique identifier for the operation.
  * @param ordered If the extracted data should be sent to the output channel with sequence
  * numbers corresponding to the global total order of input chunks. If yes, then the

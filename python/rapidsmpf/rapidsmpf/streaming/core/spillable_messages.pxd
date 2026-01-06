@@ -4,10 +4,10 @@
 from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp.map cimport map as cpp_map
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr
 
-from rapidsmpf.buffer.content_description cimport cpp_ContentDescription
-from rapidsmpf.buffer.resource cimport cpp_BufferResource
+from rapidsmpf.memory.buffer_resource cimport cpp_BufferResource
+from rapidsmpf.memory.content_description cimport cpp_ContentDescription
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
@@ -23,7 +23,7 @@ cdef extern from "<rapidsmpf/streaming/core/spillable_messages.hpp>" nogil:
 
 
 cdef class SpillableMessages:
-    cdef unique_ptr[cpp_SpillableMessages] _handle
+    cdef shared_ptr[cpp_SpillableMessages] _handle
 
     @staticmethod
-    cdef from_handle(unique_ptr[cpp_SpillableMessages] handle)
+    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle)

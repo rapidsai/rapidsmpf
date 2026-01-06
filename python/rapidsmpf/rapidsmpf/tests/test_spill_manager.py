@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 if TYPE_CHECKING:
@@ -147,7 +147,7 @@ def test_spill_to_make_headroom(
     assert br.spill_manager.spill_to_make_headroom(110) == 10
 
 
-def test_reserve_and_spill(
+def test_reserve_device_memory_and_spill(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
@@ -168,8 +168,8 @@ def test_reserve_and_spill(
     br.spill_manager.add_spill_function(spill, priority=0)
 
     # We expect to spill on the amount over 100 bytes (the fixed limit).
-    res = br.reserve_and_spill(MemoryType.DEVICE, 100, allow_overbooking=True)
+    res = br.reserve_device_memory_and_spill(100, allow_overbooking=True)
     assert track_spilled[0] == 0
-    res = br.reserve_and_spill(MemoryType.DEVICE, 1000, allow_overbooking=True)
+    res = br.reserve_device_memory_and_spill(1000, allow_overbooking=True)
     assert track_spilled[0] == 1000
     del res
