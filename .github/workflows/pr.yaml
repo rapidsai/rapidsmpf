@@ -175,7 +175,7 @@ jobs:
     with:
       arch: '["amd64", "arm64"]'
       cuda: '["13.1"]'
-      python_package_manager: '["conda"]'
+      python_package_manager: '["conda", "pip"]'
       node_type: "cpu8"
       rapids-aux-secret-1: GIST_REPO_READ_ORG_GITHUB_TOKEN
       env: |
@@ -191,6 +191,5 @@ jobs:
           -DBUILD_TESTS=OFF \
           -DBUILD_BENCHMARKS=ON \
           -DBUILD_NUMA_SUPPORT=OFF \
-          -DCMAKE_PREFIX_PATH="$(python -c 'import os; from importlib.metadata import entry_points; from importlib.resources import files; print(";".join([f"{x}/lib64/cmake" for xs in [[os.fspath(p) for p in path._paths] if hasattr(path, "_path") else [os.fspath(path)] for path in [files(ep.load()) for ep in entry_points(group="cmake.prefix")]] for x in xs]))')" \
           2>&1 | tee telemetry-artifacts/build.log;
         sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;

@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -122,7 +122,6 @@ if(RAPIDSMPF_HAVE_MPI)
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
                COMPONENT testing # custom test property, so that this could be searched later
-               LINK_FLAGS "-Wl,--allow-shlib-undefined"
   )
   target_compile_options(
     mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -155,7 +154,6 @@ if(RAPIDSMPF_HAVE_MPI)
                  CUDA_STANDARD 20
                  CUDA_STANDARD_REQUIRED ON
                  COMPONENT testing # custom test property, so that this could be searched later
-                 LINK_FLAGS "-Wl,--allow-shlib-undefined"
     )
     target_compile_options(
       ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
