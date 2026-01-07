@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -17,7 +17,6 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
 )
 target_compile_options(
   bench_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -44,7 +43,6 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
 )
 target_compile_options(
   bench_comm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -75,7 +73,6 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
 )
 target_compile_options(
   bench_partition PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -108,7 +105,6 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
 )
 target_compile_options(
   bench_memory_resources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
