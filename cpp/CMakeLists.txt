@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -125,6 +125,7 @@ include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cucascade.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -185,7 +186,6 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
-  src/topology_discovery.cpp
   src/utils.cpp
 )
 if(RAPIDSMPF_HAVE_STREAMING)
@@ -275,7 +275,9 @@ target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL cuco::cuco $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
+          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:conda_env>
@@ -379,11 +381,6 @@ endif()
 # * add tools
 # -------------------------------------------------------------------------------------
 add_subdirectory(tools)
-
-# Ensure NVML include directory is also available to the topology_discovery tool
-if(NVML_INCLUDE_DIR AND TARGET topology_discovery)
-  target_include_directories(topology_discovery PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------

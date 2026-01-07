@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,8 +14,8 @@
  *   check_resource_binding [--json <topology.json>] [--gpu-id <id>]
  *
  * If --json is provided, reads expected values from the JSON file.
- * If --gpu-id is provided, uses TopologyDiscovery API to get expected values.
- * Otherwise, just reports current configuration.
+ * If --gpu-id is provided, uses cucascade::memory::topology_discovery API to get expected
+ * values. Otherwise, just reports current configuration.
  */
 
 #include <algorithm>
@@ -29,7 +29,8 @@
 #include <vector>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/topology_discovery.hpp>
+
+#include <memory/topology_discovery.hpp>
 
 namespace {
 
@@ -222,7 +223,7 @@ int main(int argc, char* argv[]) {
                       << "\n"
                       << "Options:\n"
                       << "  --json <file>    Read expected values from JSON file\n"
-                      << "  --gpu-id <id>    Use TopologyDiscovery API for GPU ID\n"
+                      << "  --gpu-id <id>    Use topology discovery API for GPU ID\n"
                       << "  --help, -h       Show this help message\n"
                       << "\n"
                       << "If neither --json nor --gpu-id is provided, "
@@ -309,7 +310,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     } else if (gpu_id >= 0) {
-        rapidsmpf::TopologyDiscovery discovery;
+        cucascade::memory::topology_discovery discovery;
         if (!discovery.discover()) {
             std::cerr << "Error: Failed to discover topology" << std::endl;
             return 1;
@@ -319,7 +320,7 @@ int main(int argc, char* argv[]) {
         auto it = std::find_if(
             topology.gpus.begin(),
             topology.gpus.end(),
-            [gpu_id](rapidsmpf::GpuTopologyInfo const& gpu) {
+            [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
                 return static_cast<int>(gpu.id) == gpu_id;
             }
         );
