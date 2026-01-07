@@ -185,9 +185,9 @@ class HostBuffer {
      *
      * @warning The caller is responsible for ensuring the device buffer's memory is
      * host-accessible. Using this with non-host-accessible device memory will result
-     * in undefined behavior when accessing the data.
+     * in a std::invalid_argument exception.
      *
-     * @param pinned_host_buffer Device buffer to take ownership of (will be moved).
+     * @param pinned_host_buffer Device buffer to take ownership of.
      * @param stream CUDA stream to associate with this buffer.
      * @param mr Pinned host memory resource used to allocate the buffer.
      *
@@ -196,7 +196,7 @@ class HostBuffer {
      * @throws std::invalid_argument if `pinned_host_buffer` is null or if the memory type
      * of the buffer is not pinned host.
      */
-    static HostBuffer from_owned_rmm_pinned_host_buffer(
+    static HostBuffer from_rmm_device_buffer(
         std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
         rmm::cuda_stream_view stream,
         PinnedMemoryResource& mr

@@ -182,7 +182,7 @@ TEST_P(PinnedResource, from_owned_vector) {
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
-TEST_P(PinnedResource, from_owned_rmm_pinned_host_buffer) {
+TEST_P(PinnedResource, from_rmm_device_buffer) {
     const size_t buffer_size = GetParam();
 
     // Create a vector with random data
@@ -196,7 +196,7 @@ TEST_P(PinnedResource, from_owned_rmm_pinned_host_buffer) {
     );
 
     // Create a host buffer by taking ownership of an rmm::device_buffer
-    auto buffer = rapidsmpf::HostBuffer::from_owned_rmm_pinned_host_buffer(
+    auto buffer = rapidsmpf::HostBuffer::from_rmm_device_buffer(
         std::move(pinned_host_buffer), stream, pinned_mr
     );
 

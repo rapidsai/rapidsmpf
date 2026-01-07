@@ -132,7 +132,7 @@ HostBuffer HostBuffer::from_owned_vector(
     return HostBuffer{span, stream, std::move(mr), std::move(owned_storage)};
 }
 
-HostBuffer HostBuffer::from_owned_rmm_pinned_host_buffer(
+HostBuffer HostBuffer::from_rmm_device_buffer(
     std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
     rmm::cuda_stream_view stream,
     PinnedMemoryResource& mr
