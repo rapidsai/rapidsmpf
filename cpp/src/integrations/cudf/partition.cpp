@@ -168,9 +168,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     size_t non_device_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            total_size += packed_data.data->size;
+            size_t size = packed_data.data->size;
+            total_size += size;
             if (packed_data.data->mem_type() != MemoryType::DEVICE) {
-                non_device_size += 0;
+                non_device_size += size;
             }
         }
     }
