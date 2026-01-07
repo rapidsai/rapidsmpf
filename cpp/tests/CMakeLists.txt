@@ -124,7 +124,6 @@ if(RAPIDSMPF_HAVE_MPI)
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
                COMPONENT testing # custom test property, so that this could be searched later
-               LINK_FLAGS "-Wl,--allow-shlib-undefined"
   )
   target_compile_options(
     mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -157,7 +156,6 @@ if(RAPIDSMPF_HAVE_MPI)
                  CUDA_STANDARD 20
                  CUDA_STANDARD_REQUIRED ON
                  COMPONENT testing # custom test property, so that this could be searched later
-                 LINK_FLAGS "-Wl,--allow-shlib-undefined"
     )
     target_compile_options(
       ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
