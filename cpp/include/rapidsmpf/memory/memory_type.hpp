@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -85,16 +85,5 @@ constexpr char const* to_string(MemoryType mem_type) {
 inline std::ostream& operator<<(std::ostream& os, MemoryType mem_type) {
     return os << to_string(mem_type);
 }
-
-/**
- * @brief Get the memory type of a pointer.
- *
- * @param ptr The pointer.
- * @return The memory type of the pointer.
- *
- * @throws std::runtime_error if the memory type is unknown.
- * @throws rapidsmpf::cuda_error if `cudaPointerGetAttributes` fails.
- */
-MemoryType ptr_to_memory_type(void* ptr);
 
 }  // namespace rapidsmpf

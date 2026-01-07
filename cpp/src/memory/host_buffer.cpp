@@ -5,6 +5,8 @@
 
 #include <utility>
 
+#include <cuda/memory>
+
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 
@@ -144,8 +146,8 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     );
 
     RAPIDSMPF_EXPECTS(
-        ptr_to_memory_type(pinned_host_buffer->data()) == MemoryType::PINNED_HOST,
-        "pinned_host_buffer must be a pinned host buffer",
+        cuda::is_host_accessible(pinned_host_buffer->data()),
+        "pinned_host_buffer must be host accessible",
         std::invalid_argument
     );
 
