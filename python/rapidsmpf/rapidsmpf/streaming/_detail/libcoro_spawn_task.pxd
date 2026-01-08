@@ -38,7 +38,7 @@ cdef extern from * nogil:
         rapidsmpf::OwningWrapper py_future,
         coro::task<void> task
     ) {
-        try{
+        try {
             co_await task;
             cpp_set_py_future(py_future.get(), NULL);
         } catch(std::exception const& e) {
