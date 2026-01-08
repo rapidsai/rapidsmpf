@@ -18,6 +18,8 @@ jobs:
       - conda-cpp-linters
       - conda-cpp-tests
       - conda-cpp-memcheck
+      - conda-cpp-racecheck
+      - conda-cpp-synccheck
       - conda-python-build
       - conda-python-tests
       - docs-build
@@ -139,8 +141,20 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
       build_type: pull-request
-      script: "ci/test_cpp_memcheck.sh"
+      script: "ci/test_cpp_sanitizer.sh memcheck single_tests"
       node_type: "gpu-l4-latest-1"
+  # Temporary for testing
+  conda-cpp-racecheck:
+    needs: conda-cpp-build
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "racecheck"
+  # Temporary for testing
+  conda-cpp-synccheck:
+    needs: conda-cpp-build
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "synccheck"
   conda-python-build:
     needs: conda-cpp-build
     secrets: inherit
