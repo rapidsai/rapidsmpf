@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -21,9 +21,12 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
-/**
- * @brief User-defined literal for specifying memory sizes in MiB.
- */
+/// @brief User-defined literal for specifying memory sizes in KiB.
+constexpr std::size_t operator"" _KiB(unsigned long long val) {
+    return val * (1 << 10);
+}
+
+/// @brief User-defined literal for specifying memory sizes in MiB.
 constexpr std::size_t operator"" _MiB(unsigned long long val) {
     return val * (1ull << 20);
 }

@@ -102,6 +102,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_fanout.cpp
             streaming/test_leaf_node.cpp
             streaming/test_lineariser.cpp
+            streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
             streaming/test_read_parquet.cpp
