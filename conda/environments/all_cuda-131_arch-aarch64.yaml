@@ -10,7 +10,7 @@ dependencies:
 - clang-tools==20.1.4
 - clang==20.1.4
 - click >=8.1
-- cmake>=3.30.4,<4
+- cmake>=3.30.4
 - cuda-cudart-dev
 - cuda-cupti-dev
 - cuda-nvcc
@@ -18,14 +18,14 @@ dependencies:
 - cuda-nvrtc-dev
 - cuda-nvtx-dev
 - cuda-sanitizer-api
-- cuda-version=13.0
+- cuda-version=13.1
 - cudf==26.2.*,>=0.0.0a0
 - cxx-compiler
 - cython>=3.0.3,<3.2.0
 - dask-cuda==26.2.*,>=0.0.0a0
 - dask-cudf==26.2.*,>=0.0.0a0
 - doxygen=1.9.1
-- gcc_linux-64=14.*
+- gcc_linux-aarch64=14.*
 - gdb
 - ipython
 - libcudf==26.2.*,>=0.0.0a0
@@ -47,13 +47,12 @@ dependencies:
 - pytest<9.0.0
 - python>=3.10,<3.14
 - rapids-build-backend>=0.4.0,<0.5.0
-- ray-default>=2.49,<2.52
 - rmm==26.2.*,>=0.0.0a0
-- scikit-build-core>=0.10.0
+- scikit-build-core>=0.11.0
 - sphinx-autobuild
 - sphinx-copybutton
 - sphinx>=8.1.0
-- sysroot_linux-64=2.28
+- sysroot_linux-aarch64=2.28
 - ucxx==0.48.*,>=0.0.0a0
 - valgrind
-name: all_cuda-130_arch-x86_64
+name: all_cuda-131_arch-aarch64
