@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -56,7 +56,7 @@ Node MemoryReserveOrWait::shutdown() {
     if (!reservation_requests.empty()) {
         std::vector<Node> nodes;
         for (Request const& request : reservation_requests) {
-            nodes.push_back(request.queue.shutdown_drain(ctx_->executor()));
+            nodes.push_back(request.queue.shutdown());
         }
         coro_results(co_await coro::when_all(std::move(nodes)));
     }
