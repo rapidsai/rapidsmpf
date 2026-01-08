@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -157,6 +157,13 @@ class HostMemoryResource {
     friend void get_property(
         HostMemoryResource const&, cuda::mr::host_accessible
     ) noexcept {}
+
+    /**
+     * @brief Enables the `cuda::mr::async` property
+     *
+     * This property declares that a `HostMemoryResource` supports async operations
+     */
+    friend void get_property(HostMemoryResource const&, cuda::mr::async) noexcept {}
 };
 
 static_assert(cuda::mr::resource<HostMemoryResource>);
