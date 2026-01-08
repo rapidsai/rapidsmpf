@@ -24,8 +24,23 @@ shift
 
 rapids-logger "Running compute-sanitizer --tool ${TOOL_NAME} on ${TEST_NAME}"
 
-# Navigate to test installation directory
-TEST_DIR="${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf"
+# Support customizing the ctests' install location
+# First, try the installed location (CI/conda environments)
+installed_test_location="${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf"
+# Fall back to the build directory (devcontainer environments)
+devcontainers_test_location="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../cpp/build/latest"
+
+if [[ -d "${installed_test_location}" ]]; then
+    TEST_DIR="${installed_test_location}"
+elif [[ -d "${devcontainers_test_location}" ]]; then
+    TEST_DIR="${devcontainers_test_location}"
+else
+    echo "Error: Test location not found. Searched:" >&2
+    echo "  - ${installed_test_location}" >&2
+    echo "  - ${devcontainers_test_location}" >&2
+    exit 1
+fi
+
 TEST_EXECUTABLE="${TEST_DIR}/gtests/${TEST_NAME}"
 
 if [ ! -x "${TEST_EXECUTABLE}" ]; then
