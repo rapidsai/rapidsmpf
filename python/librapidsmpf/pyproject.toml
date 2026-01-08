@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
@@ -42,7 +42,7 @@ build-backend = "scikit_build_core.build"
 dependencies-file = "../../dependencies.yaml"
 matrix-entry = "cuda_suffixed=true"
 requires = [
-    "cmake>=3.30.4,<4",
+    "cmake>=3.30.4",
     "libcudf==26.2.*,>=0.0.0a0",
     "librmm==26.2.*,>=0.0.0a0",
     "libucxx==0.48.*,>=0.0.0a0",
