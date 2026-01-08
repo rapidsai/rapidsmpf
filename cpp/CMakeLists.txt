@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -14,6 +14,7 @@ include(rapids-cuda)
 include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
 include(rapids-export)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(RAPIDSMPF)
 
@@ -97,6 +98,15 @@ endif()
 # ##################################################################################################
 # * conda environment -----------------------------------------------------------------------------
 rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
+
+# ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+endif()
 
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
@@ -185,9 +195,11 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
+  src/system_info.cpp
   src/topology_discovery.cpp
   src/utils.cpp
 )
+
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
@@ -198,6 +210,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/context.cpp
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
+            src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/partition.cpp
@@ -283,6 +296,8 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
           ${CMAKE_DL_LIBS}
 )
+
+target_link_options(rapidsmpf PUBLIC "$<BUILD_LOCAL_INTERFACE:-Wl,--allow-shlib-undefined>")
 
 target_compile_definitions(
   rapidsmpf

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/topology_discovery.hpp>
 
 namespace {
@@ -253,7 +254,7 @@ int main(int argc, char* argv[]) {
 
     // Query current configuration
     std::string actual_cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::string actual_ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
 
     int rank = rapidsmpf::bootstrap::get_rank();

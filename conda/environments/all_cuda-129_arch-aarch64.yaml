@@ -10,7 +10,7 @@ dependencies:
 - clang-tools==20.1.4
 - clang==20.1.4
 - click >=8.1
-- cmake>=3.30.4,<4
+- cmake>=3.30.4
 - cuda-cudart-dev
 - cuda-cupti-dev
 - cuda-nvcc
@@ -48,7 +48,7 @@ dependencies:
 - python>=3.10,<3.14
 - rapids-build-backend>=0.4.0,<0.5.0
 - rmm==26.2.*,>=0.0.0a0
-- scikit-build-core>=0.10.0
+- scikit-build-core>=0.11.0
 - sphinx-autobuild
 - sphinx-copybutton
 - sphinx>=8.1.0
