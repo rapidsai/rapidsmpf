@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -108,10 +108,7 @@ class BufferResource {
      * @return Reference to the RMM resource used for pinned host allocations.
      */
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr() {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
-        );
-        return *pinned_mr_;
+        return get_checked_pinned_mr();
     }
 
     /**
@@ -386,6 +383,18 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics();
 
   private:
+    /**
+     * @brief Get the RMM pinned host memory resource.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] PinnedMemoryResource& get_checked_pinned_mr() {
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+        );
+        return *pinned_mr_;
+    }
+
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::shared_ptr<PinnedMemoryResource> pinned_mr_;

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -56,7 +56,7 @@ rmm::device_async_resource_ref BufferResource::get_device_mr(MemoryType const& m
         "memory type must be device accessible",
         std::invalid_argument
     );
-    return mem_type == MemoryType::DEVICE ? device_mr() : pinned_mr();
+    return mem_type == MemoryType::DEVICE ? device_mr() : get_checked_pinned_mr();
 }
 
 rmm::host_async_resource_ref BufferResource::get_host_mr(MemoryType const& mem_type) {
@@ -65,7 +65,7 @@ rmm::host_async_resource_ref BufferResource::get_host_mr(MemoryType const& mem_t
         "memory type must be host accessible",
         std::invalid_argument
     );
-    return mem_type == MemoryType::PINNED_HOST ? pinned_mr() : host_mr();
+    return mem_type == MemoryType::PINNED_HOST ? get_checked_pinned_mr() : host_mr();
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
