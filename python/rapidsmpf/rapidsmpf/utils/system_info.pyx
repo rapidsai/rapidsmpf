@@ -28,6 +28,9 @@ def get_total_host_memory():
     On WSL and in containerized environments, the returned value reflects
     the memory visible to the Linux kernel instance, which may differ from
     the physical memory of the host.
+
+    Terminates the process if `sysconf(_SC_PAGE_SIZE)` or
+    `sysconf(_SC_PHYS_PAGES)` fails.
     """
     return cpp_get_total_host_memory()
 
