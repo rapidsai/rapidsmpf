@@ -19,6 +19,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils.hpp>
 
 
@@ -159,13 +160,6 @@ class PinnedMemoryResource final : public HostMemoryResource {
     friend void get_property(
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
-
-    /**
-     * @brief Enables the `cuda::mr::async` property.
-     *
-     * This property declares that a `PinnedMemoryResource` supports async operations.
-     */
-    friend void get_property(PinnedMemoryResource const&, cuda::mr::async) noexcept {}
 
   private:
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
