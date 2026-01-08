@@ -95,7 +95,6 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message msg
     ) {
-        //throw std::runtime_error("hej");
         co_await channel->send(std::move(msg));
     }
     }  // namespace
