@@ -136,13 +136,10 @@ jobs:
       script: ci/test_cpp.sh
       sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-memcheck:
-    secrets: inherit
     needs: conda-cpp-build
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
     with:
-      build_type: pull-request
-      script: "ci/test_cpp_sanitizer.sh memcheck single_tests"
-      node_type: "gpu-l4-latest-1"
+      tool_name: "memcheck"
   # Temporary for testing
   conda-cpp-racecheck:
     needs: conda-cpp-build
