@@ -22,17 +22,9 @@ on:
 jobs:
   run-sanitizer-tests:
     name: Run ${{ inputs.tool_name }} on single_tests
-    runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: rapidsai/ci-conda:26.02-latest
-      options: --gpus all
-    continue-on-error: true
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-      - name: Run compute-sanitizer ${{ inputs.tool_name }} on single_tests
-        shell: bash
-        env:
-          TOOL_NAME: "${{ inputs.tool_name }}"
-        run: |
-          ./ci/test_cpp_sanitizer.sh "${TOOL_NAME}" single_tests
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
+      script: "ci/test_cpp_sanitizer.sh ${{ inputs.tool_name }} single_tests"
