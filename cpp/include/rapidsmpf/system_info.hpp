@@ -17,6 +17,9 @@ namespace rapidsmpf {
  * @note On WSL and in containerized environments, the returned value
  * reflects the memory visible to the Linux kernel instance, which may
  * differ from the physical memory of the host.
+ *
+ * @note Terminates the process if `sysconf(_SC_PAGE_SIZE)` or
+ * `sysconf(_SC_PHYS_PAGES)` fails.
  */
 std::uint64_t get_total_host_memory() noexcept;
 
