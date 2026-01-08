@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Tests for AllGather functionality."""
 
@@ -12,7 +12,7 @@ import pytest
 import cudf
 from pylibcudf.contiguous_split import pack
 
-from rapidsmpf.allgather import AllGather
+from rapidsmpf.coll import AllGather
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData

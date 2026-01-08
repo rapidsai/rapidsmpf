@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -21,8 +21,8 @@ rapids_cython_create_modules(
 )
 
 add_subdirectory(_detail)
-add_subdirectory(allgather)
 add_subdirectory(bootstrap)
+add_subdirectory(coll)
 add_subdirectory(memory)
 add_subdirectory(communicator)
 add_subdirectory(integrations/cudf)

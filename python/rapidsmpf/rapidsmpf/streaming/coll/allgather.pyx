@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -13,7 +13,7 @@ from libcpp.vector cimport vector
 import asyncio
 from functools import partial
 
-from rapidsmpf.allgather.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper

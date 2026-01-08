@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -27,13 +27,13 @@
 #include <rapidsmpf/statistics.hpp>
 
 /**
- * @namespace rapidsmpf::allgather
- * @brief Allgather communication interfaces.
+ * @namespace rapidsmpf::coll
+ * @brief Collective communication interfaces.
  *
  * An allgather service for distributed communication where all ranks collect
  * data from all other ranks.
  */
-namespace rapidsmpf::allgather {
+namespace rapidsmpf::coll {
 namespace detail {
 
 /// @brief Type alias for chunk identifiers.
@@ -556,4 +556,4 @@ class AllGather {
     std::vector<std::unique_ptr<Communicator::Future>> receive_futures_{};
 };
 
-}  // namespace rapidsmpf::allgather
+}  // namespace rapidsmpf::coll
