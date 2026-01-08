@@ -195,6 +195,7 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
+  src/system_info.cpp
   src/topology_discovery.cpp
   src/utils.cpp
 )
