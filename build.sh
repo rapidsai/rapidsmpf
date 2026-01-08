@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 # rapidsmpf build script
@@ -157,7 +157,8 @@ fi
 ################################################################################
 # Configure, build, and install librapidsmpf
 
-if buildAll || hasArg librapidsmpf || hasArg rapidsmpf ; then
+# if no arguments are provided, build both librapidsmpf and rapidsmpf (ie !hasArg clean)
+if ! hasArg clean || hasArg librapidsmpf || hasArg rapidsmpf ; then
     if (( BUILD_ALL_GPU_ARCH == 0 )); then
         RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES="${RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES:-NATIVE}"
         if [[ "$RAPIDSMPF_CMAKE_CUDA_ARCHITECTURES" == "NATIVE" ]]; then

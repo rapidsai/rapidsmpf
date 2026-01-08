@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -13,10 +13,10 @@ rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
 
-rapids_cuda_init_architectures(librapidsmpf)
+rapids_cuda_init_architectures(librapidsmpf-python)
 
 project(
-  librapidsmpf
+  librapidsmpf-python
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX CUDA
 )
@@ -26,14 +26,14 @@ project(
 # gcc>=14. We can remove this once we upgrade to a newer sccache version.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-find_package(RAPIDSMPF "${RAPIDS_VERSION}")
+find_package(rapidsmpf "${RAPIDS_VERSION}")
 
-if(RAPIDSMPF_FOUND)
+if(rapidsmpf_FOUND)
   return()
 endif()
 
-unset(RAPIDSMPF_FOUND)
+unset(rapidsmpf_FOUND)
 
 set(CUDA_STATIC_RUNTIME ON)
-add_subdirectory(../../cpp librapidsmpf)
+add_subdirectory(../../cpp librapidsmpf-cpp)
 find_package(CUDAToolkit REQUIRED)

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -117,6 +117,7 @@ struct ProgramOptions {
     std::optional<double> spill_device_limit{
         std::nullopt
     };  ///< Optional fractional spill limit
+    bool no_pinned_host_memory{false};  ///< Disable pinned host memory?
     bool use_shuffle_join = false;  ///< Use shuffle join for "big" joins?
     std::string output_file;  ///< File to write output to
     std::string input_directory;  ///< Directory containing input files.

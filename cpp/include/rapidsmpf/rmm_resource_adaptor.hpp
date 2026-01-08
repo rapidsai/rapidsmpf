@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <rmm/error.hpp>
 #include <rmm/mr/device_memory_resource.hpp>
@@ -40,7 +41,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
         rmm::device_async_resource_ref primary_mr,
         std::optional<rmm::device_async_resource_ref> fallback_mr = std::nullopt
     )
-        : primary_mr_{primary_mr}, fallback_mr_{fallback_mr} {}
+        : primary_mr_{std::move(primary_mr)}, fallback_mr_{std::move(fallback_mr)} {}
 
     RmmResourceAdaptor() = delete;
     ~RmmResourceAdaptor() override = default;
