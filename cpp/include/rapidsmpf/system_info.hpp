@@ -10,13 +10,13 @@
 namespace rapidsmpf {
 
 /**
- * @brief Get the total amount of host (main) memory.
+ * @brief Get the total amount of system memory.
  *
  * @return Total host memory in bytes.
  *
  * @note On WSL and in containerized environments, the returned value
  * reflects the memory visible to the Linux kernel instance, which may
- * differ from the host system's physical memory.
+ * differ from the physical memory of the host.
  */
 std::uint64_t get_total_host_memory() noexcept;
 

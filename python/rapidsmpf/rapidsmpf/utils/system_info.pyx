@@ -17,7 +17,7 @@ cdef extern from "<rapidsmpf/system_info.hpp>" nogil:
 
 def get_total_host_memory():
     """
-    Get the total amount of host (main) memory.
+    Get the total amount of system memory.
 
     Returns
     -------
@@ -27,7 +27,7 @@ def get_total_host_memory():
     -----
     On WSL and in containerized environments, the returned value reflects
     the memory visible to the Linux kernel instance, which may differ from
-    the host system's physical memory.
+    the physical memory of the host.
     """
     return cpp_get_total_host_memory()
 

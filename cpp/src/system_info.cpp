@@ -24,7 +24,7 @@ std::uint64_t get_total_host_memory() noexcept {
         auto const page_size = ::sysconf(_SC_PAGE_SIZE);
         auto const phys_pages = ::sysconf(_SC_PHYS_PAGES);
 
-        if (page_size <= 0 || phys_pages <= 0) {
+        if (page_size == -1 || phys_pages == -1) {
             std::cerr << "get_total_host_memory() - fatal error: "
                       << "sysconf(_SC_PAGE_SIZE/_SC_PHYS_PAGES) failed" << std::endl;
             std::terminate();
@@ -38,7 +38,7 @@ std::uint64_t get_total_host_memory() noexcept {
 int get_current_numa_node() noexcept {
 #if RAPIDSMPF_HAVE_NUMA
     static const int ret = [] {
-        if (!numa_available()) {
+        if (numa_available() == -1) {
             return 0;
         }
         return numa_node_of_cpu(sched_getcpu());
@@ -70,14 +70,14 @@ std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
     long long ret = -1;
 
 #if RAPIDSMPF_HAVE_NUMA
-    if (numa_available() < 0) {
+    if (numa_available() == -1) {
         return get_total_host_memory();
     }
     long long ignored = 0;
     ret = numa_node_size64(numa_id, &ignored);
 #endif
 
-    if (ret < 0) {
+    if (ret == -1) {
         return get_total_host_memory();
     }
     return static_cast<std::uint64_t>(ret);
