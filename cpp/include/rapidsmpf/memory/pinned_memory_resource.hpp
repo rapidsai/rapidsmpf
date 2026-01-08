@@ -19,7 +19,6 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
-#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils.hpp>
 
 
@@ -153,9 +152,10 @@ class PinnedMemoryResource final : public HostMemoryResource {
     [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept override;
 
     /**
-     * @brief Enables the `cuda::mr::host_accessible` property.
+     * @brief Enables the `cuda::mr::device_accessible` property.
      *
-     * This property declares that a `HostMemoryResource` provides host accessible memory.
+     * This property declares that a `PinnedMemoryResource` provides device accessible
+     * memory.
      */
     friend void get_property(
         PinnedMemoryResource const&, cuda::mr::device_accessible

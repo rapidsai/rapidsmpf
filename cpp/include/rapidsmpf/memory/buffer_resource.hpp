@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -111,7 +111,9 @@ class BufferResource {
         RAPIDSMPF_EXPECTS(
             pinned_mr_, "no pinned memory resource is available", std::invalid_argument
         );
-        return *pinned_mr_;
+        // Upcast to HostMemoryResource& to get only host_accessible property
+        // (PinnedMemoryResource has both host_accessible and device_accessible)
+        return static_cast<HostMemoryResource&>(*pinned_mr_);
     }
 
     /**
