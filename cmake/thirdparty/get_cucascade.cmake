@@ -23,11 +23,12 @@ endfunction()
 
 # This function finds cuCascade and sets any additional necessary environment variables.
 #
-# NOTE: We explicitly find RMM and cuDF targets here even though they are already configured
-# earlier in the build process. This is necessary because:
+# NOTE: We explicitly find RMM and cuDF targets here even though they are already configured earlier
+# in the build process. This is necessary because:
+#
 # 1. cuCascade runs as a CMake subdirectory/subproject and needs GLOBAL targets to see them
-# 2. We need to extract rmm_ROOT and cudf_ROOT from the targets to ensure cuCascade uses
-#    the same RMM/cuDF instances as rapidsmpf
+# 2. We need to extract rmm_ROOT and cudf_ROOT from the targets to ensure cuCascade uses the same
+#    RMM/cuDF instances as rapidsmpf
 # 3. Prevents cuCascade from building its own copies of RMM/cuDF via CPM
 function(find_and_configure_cucascade)
   # Ensure rmm and cudf are found first

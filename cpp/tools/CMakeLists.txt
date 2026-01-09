@@ -5,9 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(
-  rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
-)
+add_executable(rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>")
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
@@ -29,8 +27,8 @@ install(
 )
 
 add_executable(
-  topology_discovery
-  "topology_discovery.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
+  topology_discovery "topology_discovery.cpp"
+                     "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
   topology_discovery
@@ -57,8 +55,7 @@ install(
 
 add_executable(
   check_resource_binding
-  "check_resource_binding.cpp"
-  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
+  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
