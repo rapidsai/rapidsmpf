@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -10,18 +10,17 @@ from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-import asyncio
-from functools import partial
-
 from rapidsmpf.allgather.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
+from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
-from rapidsmpf.streaming.core.utilities cimport cython_invoke_python_function
+
+import asyncio
 
 
 cdef extern from * nogil:
@@ -30,12 +29,9 @@ cdef extern from * nogil:
     coro::task<void> _extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        std::vector<rapidsmpf::PackedData> &output
     ) {
         output = co_await gather->extract_all(ordered);
-        py_invoker(py_callback.get());
     }
 
     void cpp_extract_all(
@@ -43,14 +39,16 @@ cdef extern from * nogil:
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         std::vector<rapidsmpf::PackedData> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
-                 _extract_all_task(
-                     gather, ordered, output, py_invoker, std::move(py_callback)
-                 )
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    _extract_all_task(gather, ordered, output)
+                )
             ),
             "could not spawn task on thread pool"
         );
@@ -62,8 +60,8 @@ cdef extern from * nogil:
         cpp_AllGather *gather,
         cpp_Ordered ordered,
         vector[cpp_PackedData] &output,
-        void (*py_invoker)(void*),
-        cpp_OwningWrapper py_callback,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
     ) except +
 
 
@@ -128,19 +126,17 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
-        loop = asyncio.get_running_loop()
-        ret = loop.create_future()
-        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
         cdef vector[cpp_PackedData] c_ret
-        Py_INCREF(callback)
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
         with nogil:
             cpp_extract_all(
                 ctx._handle,
                 self._handle.get(),
                 cpp_Ordered.YES if ordered else cpp_Ordered.NO,
                 c_ret,
-                cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
         return packed_data_vector_to_list(move(c_ret))
