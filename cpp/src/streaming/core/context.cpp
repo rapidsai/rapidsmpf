@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -118,7 +118,7 @@ Context::~Context() noexcept {
     br_->spill_manager().remove_spill_function(spill_function_id_);
 }
 
-config::Options Context::get_options() const noexcept {
+config::Options Context::options() const noexcept {
     return options_;
 }
 
@@ -154,10 +154,6 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
     std::size_t buffer_size
 ) const noexcept {
     return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
-}
-
-config::Options const& Context::options() const noexcept {
-    return options_;
 }
 
 std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {

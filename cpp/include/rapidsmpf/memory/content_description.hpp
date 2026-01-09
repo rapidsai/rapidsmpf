@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,8 +8,7 @@
 #include <utility>
 
 #include <rapidsmpf/memory/buffer.hpp>
-
-#include "rapidsmpf/memory/memory_type.hpp"
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
