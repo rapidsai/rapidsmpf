@@ -37,6 +37,7 @@ files:
       - cuda_version
       - depends_on_librapidsmpf
       - depends_on_librapidsmpf_tests
+      - py_version
       - test_cpp
   test_python:
     output: none
