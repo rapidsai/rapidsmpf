@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
 
 #include <memory/topology_discovery.hpp>
 
@@ -254,7 +255,7 @@ int main(int argc, char* argv[]) {
 
     // Query current configuration
     std::string actual_cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::string actual_ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
 
     int rank = rapidsmpf::bootstrap::get_rank();
