@@ -82,3 +82,7 @@ wheel.exclude = ["*.pyx", "CMakeLists.txt"]
 provider = "scikit_build_core.metadata.regex"
 input = "rapidsmpf/VERSION"
 regex = "(?P<value>.*)"
+
+[[tool.scikit-build.overrides]]
+if.python-version = ">=3.11"
+wheel.py-api = "cp311"
