@@ -21,3 +21,16 @@ def read_parquet(
     num_rows_per_chunk: int,
     filter: Filter | None = None,
 ) -> CppNode: ...
+def read_parquet_uniform(
+    ctx: Context,
+    ch_out: Channel[TableChunk],
+    num_producers: int,
+    options: ParquetReaderOptions,
+    target_num_chunks: int,
+    filter: Filter | None = None,
+) -> CppNode: ...
+def estimate_target_num_chunks(
+    files: list[str],
+    num_rows_per_chunk: int,
+    max_samples: int = 3,
+) -> int: ...
