@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -69,7 +69,7 @@ class Context {
      *
      * @return The Options instance.
      */
-    [[nodiscard]] config::Options get_options() const noexcept;
+    [[nodiscard]] config::Options options() const noexcept;
 
     /**
      * @brief Returns the communicator.
@@ -137,13 +137,6 @@ class Context {
     [[nodiscard]] std::shared_ptr<BoundedQueue> create_bounded_queue(
         std::size_t buffer_size
     ) const noexcept;
-
-    /**
-     * @brief Returns the options.
-     *
-     * @return The Options instance.
-     */
-    [[nodiscard]] config::Options const& options() const noexcept;
 
   private:
     config::Options options_;

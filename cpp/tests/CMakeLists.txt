@@ -79,16 +79,17 @@ target_sources(
           test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp
+          test_host_buffer.cpp
           test_metadata_payload_exchange.cpp
           test_partition.cpp
           test_pausable_thread_loop.cpp
-          test_pinned_resources.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
           test_shuffler_many_streams.cpp
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
+          test_system_utils.cpp
           test_utils.cpp
 )
 
@@ -101,6 +102,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_fanout.cpp
             streaming/test_leaf_node.cpp
             streaming/test_lineariser.cpp
+            streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
             streaming/test_read_parquet.cpp

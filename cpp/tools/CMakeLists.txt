@@ -1,12 +1,13 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
 
 add_executable(
   rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+       "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
   rrun
@@ -32,8 +33,9 @@ install(
 )
 
 add_executable(
-  topology_discovery "topology_discovery.cpp"
-                     "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+  topology_discovery
+  "topology_discovery.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
   topology_discovery
@@ -48,7 +50,8 @@ target_compile_options(
   topology_discovery PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
 target_link_libraries(
-  topology_discovery PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan ${CMAKE_DL_LIBS}
+  topology_discovery PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env>
+                             $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS topology_discovery
@@ -59,8 +62,10 @@ install(
 
 add_executable(
   check_resource_binding
-  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
+  "check_resource_binding.cpp"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
   check_resource_binding
