@@ -43,7 +43,7 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       date: ${{ inputs.date }}
       node_type: "gpu-l4-latest-1"
-      script: ci/test_cpp_memcheck.sh
+      script: ci/test_cpp_sanitizer.sh memcheck single_tests
       sha: ${{ inputs.sha }}
   conda-python-tests:
     secrets: inherit

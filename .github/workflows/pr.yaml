@@ -18,6 +18,8 @@ jobs:
       - conda-cpp-linters
       - conda-cpp-tests
       - conda-cpp-memcheck
+      - conda-cpp-racecheck
+      - conda-cpp-synccheck
       - conda-python-build
       - conda-python-tests
       - docs-build
@@ -134,13 +136,22 @@ jobs:
       script: ci/test_cpp.sh
       sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-memcheck:
-    secrets: inherit
     needs: conda-cpp-build
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
     with:
-      build_type: pull-request
-      script: "ci/test_cpp_memcheck.sh"
-      node_type: "gpu-l4-latest-1"
+      tool_name: "memcheck"
+  # Temporary for testing
+  conda-cpp-racecheck:
+    needs: conda-cpp-build
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "racecheck"
+  # Temporary for testing
+  conda-cpp-synccheck:
+    needs: conda-cpp-build
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "synccheck"
   conda-python-build:
     needs: conda-cpp-build
     secrets: inherit
