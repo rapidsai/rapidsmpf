@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -48,6 +48,24 @@ BufferResource::BufferResource(
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+}
+
+rmm::device_async_resource_ref BufferResource::get_device_mr(MemoryType const& mem_type) {
+    RAPIDSMPF_EXPECTS(
+        is_device_accessible(mem_type),
+        "memory type must be device accessible",
+        std::invalid_argument
+    );
+    return mem_type == MemoryType::DEVICE ? device_mr() : get_checked_pinned_mr();
+}
+
+rmm::host_async_resource_ref BufferResource::get_host_mr(MemoryType const& mem_type) {
+    RAPIDSMPF_EXPECTS(
+        is_host_accessible(mem_type),
+        "memory type must be host accessible",
+        std::invalid_argument
+    );
+    return mem_type == MemoryType::PINNED_HOST ? get_checked_pinned_mr() : host_mr();
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
