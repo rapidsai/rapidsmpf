@@ -26,27 +26,45 @@ if TYPE_CHECKING:
     from rapidsmpf.streaming.core.node import CppNode
 
 
-@pytest.fixture(scope="module")
-def source(
-    tmp_path_factory: pytest.TempPathFactory,
+def _create_parquet_files(
+    tmp_path_factory: pytest.TempPathFactory, num_files: int, nrows_per_file: int = 10
 ) -> plc.io.SourceInfo:
+    """Helper to create parquet files for testing."""
     path = tmp_path_factory.mktemp("read_parquet")
 
-    nrows = 10
     start = 0
     sources = []
-    for i in range(10):
+    for i in range(num_files):
         table = plc.Table(
-            [plc.Column.from_array(np.arange(start, start + nrows, dtype="int32"))]
+            [
+                plc.Column.from_array(
+                    np.arange(start, start + nrows_per_file, dtype="int32")
+                )
+            ]
         )
         # gaps in the column numbering we produce
-        start += nrows + nrows // 2
+        start += nrows_per_file + nrows_per_file // 2
         filename = path / f"{i:3d}.pq"
         sink = plc.io.SinkInfo([filename])
         options = plc.io.parquet.ParquetWriterOptions.builder(sink, table).build()
         plc.io.parquet.write_parquet(options)
         sources.append(filename)
     return plc.io.SourceInfo(sources)
+
+
+@pytest.fixture(scope="module")
+def source(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> plc.io.SourceInfo:
+    return _create_parquet_files(tmp_path_factory, num_files=10)
+
+
+@pytest.fixture(scope="module")
+def single_file_source(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> plc.io.SourceInfo:
+    """Single file source for testing fewer-files-than-ranks scenario."""
+    return _create_parquet_files(tmp_path_factory, num_files=1, nrows_per_file=100)
 
 
 def make_filter(stream: Stream) -> plc.expressions.Expression:
@@ -143,6 +161,55 @@ def test_read_parquet(
         chunk.stream.synchronize()
 
     expected = get_expected(context, source, skip_rows, num_rows, use_filter=use_filter)
+
+    assert got.num_rows() == expected.num_rows()
+    assert got.num_columns() == expected.num_columns()
+    assert got.num_columns() == 1
+
+    all_equal = plc.reduce.reduce(
+        plc.binaryop.binary_operation(
+            got.columns()[0],
+            expected.columns()[0],
+            plc.binaryop.BinaryOperator.EQUAL,
+            plc.DataType(plc.TypeId.BOOL8),
+        ),
+        plc.aggregation.all(),
+        plc.DataType(plc.TypeId.BOOL8),
+    )
+    assert all_equal.to_py()
+
+
+def test_read_parquet_single_file(
+    context: Context,
+    single_file_source: plc.io.SourceInfo,
+) -> None:
+    """Test reading a single file, which exercises the fewer-files-than-ranks code path."""
+    ch: Channel[TableChunk] = context.create_channel()
+
+    options = plc.io.parquet.ParquetReaderOptions.builder(single_file_source).build()
+
+    producer = make_producer(context, ch, options, use_filter=False)
+
+    consumer, deferred_messages = pull_from_channel(context, ch)
+
+    run_streaming_pipeline(nodes=[producer, consumer])
+
+    messages = deferred_messages.release()
+    assert all(
+        m1.sequence_number < m2.sequence_number
+        for m1, m2 in itertools.pairwise(messages)
+    )
+    chunks = [TableChunk.from_message(m) for m in messages]
+    for chunk in chunks:
+        chunk.stream.synchronize()
+
+    got = plc.concatenate.concatenate([chunk.table_view() for chunk in chunks])
+    for chunk in chunks:
+        chunk.stream.synchronize()
+
+    expected = get_expected(
+        context, single_file_source, skip_rows="none", num_rows="all", use_filter=False
+    )
 
     assert got.num_rows() == expected.num_rows()
     assert got.num_columns() == expected.num_columns()
