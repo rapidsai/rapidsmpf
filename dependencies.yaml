@@ -312,7 +312,6 @@ dependencies:
           # NDSH validation dependencies
           - duckdb
           - numpy
-          - nvidia-ml-py>=12
           - pyarrow
           - pip
           - pip:
