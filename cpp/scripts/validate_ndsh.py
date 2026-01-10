@@ -258,15 +258,15 @@ def compare_parquet(
     except Exception as e:
         return False, f"Failed to read parquet files: {e}"
 
-    # Check schema
-    # names
+    # Check the schema and data by validating...
+    # 1. names...
     if output.schema.names != expected.schema.names:
         return (
             False,
             f"Schema name mismatch: {output.schema.names} != {expected.schema.names}",
         )
 
-    # types
+    # 2. types...
     errors = []
     for name in output.schema.names:
         o_field = output.schema.field(name)
@@ -284,17 +284,18 @@ def compare_parquet(
     if errors:
         return False, "\n".join(["Field type mismatch (output != expected)", *errors])
 
-    # row count
+    # 3. row count...
     if output.num_rows != expected.num_rows:
         return False, (
             f"Row count mismatch: output={output.num_rows}, expected={expected.num_rows}"
         )
 
-    # values. For float types, we'll use approximate equality.
+    # 4. and values.
     for name, out_col, expected_col in zip(
         output.column_names, output.columns, expected.columns, strict=False
     ):
         if pa.types.is_floating(out_col.type):
+            # We don't promise exact equality
             try:
                 np.testing.assert_array_almost_equal(
                     out_col.to_numpy(), expected_col.to_numpy(), decimal=decimal
