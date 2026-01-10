@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#include <cuda/memory_resource>
 
 #include <rmm/error.hpp>
 #include <rmm/mr/device_memory_resource.hpp>
@@ -51,7 +53,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept {
+    [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() noexcept {
         return primary_mr_;
     }
 
@@ -63,8 +65,11 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Optional reference to the fallback RMM memory resource.
      */
     [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_resource() const noexcept {
-        return fallback_mr_;
+    get_fallback_resource() noexcept {
+        if (fallback_mr_) {
+            return rmm::device_async_resource_ref{*fallback_mr_};
+        }
+        return std::nullopt;
     }
 
     /**
@@ -160,8 +165,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     ) const noexcept override;
 
     mutable std::mutex mutex_;
-    rmm::device_async_resource_ref primary_mr_;
-    std::optional<rmm::device_async_resource_ref> fallback_mr_;
+    cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr_;
+    std::optional<cuda::mr::any_resource<cuda::mr::device_accessible>> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
 
     /// Tracks memory statistics for the lifetime of the resource.

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -126,19 +126,19 @@ bool RmmResourceAdaptor::do_is_equal(
     if (cast == nullptr) {
         return false;
     }
-    // Manual comparison of optionals to avoid recursive constraint satisfaction in
-    // CCCL 3.2. std::optional::operator== triggers infinite concept checking when the
-    // wrapped type (rmm::device_async_resource_ref) inherits from CCCL's concept-based
-    // resource_ref.
-    // TODO: Revert this after the RMM resource ref types are replaced with
-    // plain cuda::mr ref types. This depends on
-    // https://github.com/rapidsai/rmm/issues/2011.
-    auto this_fallback = get_fallback_resource();
-    auto other_fallback = cast->get_fallback_resource();
-    bool fallbacks_equal =
-        (this_fallback.has_value() == other_fallback.has_value())
-        && (!this_fallback.has_value() || (*this_fallback == *other_fallback));
-    return get_upstream_resource() == cast->get_upstream_resource() && fallbacks_equal;
+    // Compare the owned any_resource members directly.
+    // Note: We must extract values from std::optional before comparing to avoid
+    // recursive constraint satisfaction in CCCL 3.2's concept checking when using
+    // std::optional::operator== with any_resource.
+    bool fallbacks_equal;
+    if (fallback_mr_.has_value() != cast->fallback_mr_.has_value()) {
+        fallbacks_equal = false;
+    } else if (!fallback_mr_.has_value()) {
+        fallbacks_equal = true;
+    } else {
+        fallbacks_equal = (*fallback_mr_ == *cast->fallback_mr_);
+    }
+    return (primary_mr_ == cast->primary_mr_) && fallbacks_equal;
 }
 
 }  // namespace rapidsmpf
