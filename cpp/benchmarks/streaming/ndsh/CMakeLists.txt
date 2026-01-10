@@ -41,7 +41,7 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-set(RAPIDSMPFNDSH_QUERIES q01 q03 q09)
+set(RAPIDSMPFNDSH_QUERIES q01 q03 q09 q21)
 
 foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
   add_executable(${query} "${query}.cpp")
