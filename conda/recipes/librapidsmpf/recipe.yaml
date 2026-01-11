@@ -116,7 +116,7 @@ outputs:
         - cuda-cupti-dev
         - cuda-nvml-dev
         - libcudf =${{ minor_version }}
-        - libpmix >=5.0
+        - libpmix-devel >=5.0
         - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
       run:
