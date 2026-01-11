@@ -31,7 +31,7 @@ dependencies:
 - ipython
 - libcudf==26.2.*,>=0.0.0a0
 - libnuma
-- libpmix-devel >=5.0
+- libpmix-devel >=5.0,<6.0
 - librmm==26.2.*,>=0.0.0a0
 - libucxx==0.48.*,>=0.0.0a0
 - make

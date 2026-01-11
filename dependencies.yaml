@@ -177,7 +177,7 @@ dependencies:
           - cuda-nvcc
           - cxx-compiler
           - libnuma
-          - libpmix-devel >=5.0
+          - libpmix-devel >=5.0,<6.0
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
       - output_types: conda
@@ -223,7 +223,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - libpmix-devel >=5.0
+          - libpmix-devel >=5.0,<6.0
   build-python:
     common:
       - output_types: [conda, pyproject, requirements]
