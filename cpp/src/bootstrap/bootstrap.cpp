@@ -9,6 +9,11 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/file_backend.hpp>
+#include <rapidsmpf/config.hpp>
+
+#ifdef RAPIDSMPF_HAVE_SLURM
+#include <rapidsmpf/bootstrap/slurm_backend.hpp>
+#endif
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
@@ -52,10 +57,21 @@ std::optional<int> getenv_int(std::string_view name) {
  * @brief Detect backend from environment variables.
  */
 Backend detect_backend() {
-    // Check for file-based coordination
+    // Check for file-based coordination first (explicit configuration takes priority)
     if (getenv_optional("RAPIDSMPF_COORD_DIR")) {
         return Backend::FILE;
     }
+
+#ifdef RAPIDSMPF_HAVE_SLURM
+    // Check for PMIx/Slurm environment
+    // PMIX_NAMESPACE is set by PMIx-enabled launchers (srun --mpi=pmix)
+    // SLURM_JOB_ID + SLURM_STEP_ID indicate a Slurm job step
+    if (getenv_optional("PMIX_NAMESPACE")
+        || (getenv_optional("SLURM_JOB_ID") && getenv_optional("SLURM_STEP_ID")))
+    {
+        return Backend::SLURM;
+    }
+#endif
 
     // Default to file-based
     return Backend::FILE;
@@ -108,6 +124,61 @@ Context init(Backend backend) {
             }
             break;
         }
+    case Backend::SLURM:
+        {
+#ifdef RAPIDSMPF_HAVE_SLURM
+            // For SLURM backend, we can get rank/nranks from multiple sources:
+            // 1. Explicit RAPIDSMPF_* variables (override)
+            // 2. PMIx environment variables (set by pmix-enabled srun)
+            // 3. Slurm environment variables (fallback)
+            auto rank_opt = getenv_int("RAPIDSMPF_RANK");
+            if (!rank_opt) {
+                rank_opt = getenv_int("PMIX_RANK");
+            }
+            if (!rank_opt) {
+                rank_opt = getenv_int("SLURM_PROCID");
+            }
+
+            auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
+            if (!nranks_opt) {
+                nranks_opt = getenv_int("SLURM_NPROCS");
+            }
+            if (!nranks_opt) {
+                nranks_opt = getenv_int("SLURM_NTASKS");
+            }
+
+            if (!rank_opt.has_value()) {
+                throw std::runtime_error(
+                    "Could not determine rank for SLURM backend. "
+                    "Ensure you're running with 'srun --mpi=pmix' or set RAPIDSMPF_RANK."
+                );
+            }
+
+            if (!nranks_opt.has_value()) {
+                throw std::runtime_error(
+                    "Could not determine nranks for SLURM backend. "
+                    "Ensure you're running with 'srun --mpi=pmix' or set "
+                    "RAPIDSMPF_NRANKS."
+                );
+            }
+
+            ctx.rank = static_cast<Rank>(*rank_opt);
+            ctx.nranks = static_cast<Rank>(*nranks_opt);
+
+            if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
+                throw std::runtime_error(
+                    "Invalid rank: " + std::to_string(ctx.rank) + " must be in range [0, "
+                    + std::to_string(ctx.nranks) + ")"
+                );
+            }
+            break;
+#else
+            throw std::runtime_error(
+                "SLURM backend requested but rapidsmpf was not built with PMIx support. "
+                "Rebuild with RAPIDSMPF_ENABLE_SLURM=ON and ensure PMIx is available."
+            );
+#endif
+        }
     case Backend::AUTO:
         {
             // Should have been resolved above
@@ -125,6 +196,14 @@ void broadcast(Context const& ctx, void* data, std::size_t size, Rank root) {
             backend.broadcast(data, size, root);
             break;
         }
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case Backend::SLURM:
+        {
+            detail::SlurmBackend backend{ctx};
+            backend.broadcast(data, size, root);
+            break;
+        }
+#endif
     default:
         throw std::runtime_error("broadcast not implemented for this backend");
     }
@@ -138,6 +217,14 @@ void barrier(Context const& ctx) {
             backend.barrier();
             break;
         }
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case Backend::SLURM:
+        {
+            detail::SlurmBackend backend{ctx};
+            backend.barrier();
+            break;
+        }
+#endif
     default:
         throw std::runtime_error("barrier not implemented for this backend");
     }
@@ -151,6 +238,14 @@ void put(Context const& ctx, std::string const& key, std::string const& value) {
             backend.put(key, value);
             break;
         }
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case Backend::SLURM:
+        {
+            detail::SlurmBackend backend{ctx};
+            backend.put(key, value);
+            break;
+        }
+#endif
     default:
         throw std::runtime_error("put not implemented for this backend");
     }
@@ -163,6 +258,13 @@ std::string get(Context const& ctx, std::string const& key, Duration timeout) {
             detail::FileBackend backend{ctx};
             return backend.get(key, timeout);
         }
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case Backend::SLURM:
+        {
+            detail::SlurmBackend backend{ctx};
+            return backend.get(key, timeout);
+        }
+#endif
     default:
         throw std::runtime_error("get not implemented for this backend");
     }
