@@ -25,6 +25,7 @@ dependencies:
 - dask-cuda==26.2.*,>=0.0.0a0
 - dask-cudf==26.2.*,>=0.0.0a0
 - doxygen=1.9.1
+- duckdb
 - gcc_linux-aarch64=14.*
 - gdb
 - ipython
@@ -37,11 +38,14 @@ dependencies:
 - myst-nb
 - myst-parser
 - ninja
+- numpy
 - numpydoc
 - nvidia-ml-py>=12
 - openmpi >=5.0
+- pip
 - pre-commit
 - psutil
+- pyarrow
 - pydata-sphinx-theme>=0.15.4
 - pylibcudf==26.2.*,>=0.0.0a0
 - pytest<9.0.0
@@ -55,4 +59,6 @@ dependencies:
 - sysroot_linux-aarch64=2.28
 - ucxx==0.48.*,>=0.0.0a0
 - valgrind
+- pip:
+  - tpchgen-cli
 name: all_cuda-131_arch-aarch64

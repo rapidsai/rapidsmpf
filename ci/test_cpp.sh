@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -66,6 +66,16 @@ rapids-logger "Run tools smoketests"
 # Ensure rrun is runnable
 rapids-logger "Run rrun gtests"
 ./run_rrun_tests.sh
+
+BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
+
+rapids-logger "Validate NDSH benchmarks"
+python ../cpp/scripts/validate_ndsh.py \
+  --input-dir scale-1/ \
+  --output-dir validation/ \
+  --generate-data \
+  --benchmark-dir "${BENCHMARKS_DIR}" \
+  --benchmark-args='--no-pinned-host-memory'
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}
