@@ -11,6 +11,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_set>
 
 #include <getopt.h>
 #include <mpi.h>
@@ -198,6 +199,10 @@ std::shared_ptr<streaming::Context> create_context(
 ProgramOptions parse_arguments(int argc, char** argv) {
     ProgramOptions options;
 
+    // Reset getopt state. Enable error messages for unknown options.
+    optind = 1;
+    opterr = 1;
+
     static constexpr std::array<std::string_view, static_cast<std::size_t>(CommType::MAX)>
         comm_names{"single", "mpi", "ucxx"};
 
@@ -236,6 +241,10 @@ ProgramOptions parse_arguments(int argc, char** argv) {
             << (options.use_shuffle_join ? "true" : "false") << ")\n"
             << "  --output-file <path>         Output file path (required)\n"
             << "  --input-directory <path>     Input directory path (required)\n"
+            << "  --query-options <opts>       Query-specific options as key=value "
+               "pairs\n"
+            << "                               (e.g., --query-options "
+               "num-partitions=64)\n"
             << "  --help                       Show this help message\n";
     };
 
@@ -253,6 +262,7 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         {"comm-type", required_argument, nullptr, 10},
         {"periodic-spill", required_argument, nullptr, 11},
         {"no-pinned-host-memory", no_argument, nullptr, 12},
+        {"query-options", required_argument, nullptr, 13},
         {nullptr, 0, nullptr, 0}
     };
     // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
@@ -381,10 +391,32 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         case 12:
             options.no_pinned_host_memory = true;
             break;
-        case '?':
-            if (optopt == 0 && optind > 1) {
-                std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
+        case 13:
+            {
+                // Parse query-options: expects key=value format
+                // Can be specified multiple times or as space-separated within one arg
+                std::string arg = optarg;
+                auto pos = arg.find('=');
+                if (pos == std::string::npos || pos == 0 || pos == arg.size() - 1) {
+                    std::cerr
+                        << "Error: Invalid --query-options format: '" << arg << "'\n"
+                        << "Expected format: key=value (e.g., num-partitions=64)\n\n";
+                    print_usage();
+                    std::exit(1);
+                }
+                std::string key = arg.substr(0, pos);
+                std::string value = arg.substr(pos + 1);
+                if (options.query_options.contains(key)) {
+                    std::cerr << "Error: Duplicate query option: '" << key << "'\n\n";
+                    print_usage();
+                    std::exit(1);
+                }
+                options.query_options[key] = value;
+                break;
             }
+        case '?':
+            // Unknown option - getopt already printed an error message
+            std::cerr << "\n";
             print_usage();
             std::exit(1);
         default:
@@ -406,6 +438,49 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         std::exit(1);
     }
 
+    // Check for unexpected positional arguments
+    if (optind < argc) {
+        std::cerr << "Error: Unexpected positional argument(s):";
+        for (int i = optind; i < argc; ++i) {
+            std::cerr << " '" << argv[i] << "'";
+        }
+        std::cerr << "\n\n";
+        print_usage();
+        std::exit(1);
+    }
+
     return options;
+}
+
+void validate_query_options(
+    ProgramOptions const& options,
+    std::vector<std::string> const& known_keys,
+    std::string const& query_name
+) {
+    std::unordered_set<std::string> known_set(known_keys.begin(), known_keys.end());
+    std::vector<std::string> unknown_keys;
+
+    for (auto const& [key, value] : options.query_options) {
+        if (!known_set.contains(key)) {
+            unknown_keys.push_back(key);
+        }
+    }
+
+    if (!unknown_keys.empty()) {
+        std::cerr << "Error: Unknown query option(s) for " << query_name << ":";
+        for (auto const& key : unknown_keys) {
+            std::cerr << " '" << key << "'";
+        }
+        std::cerr << "\n\nValid query options for " << query_name << ":";
+        if (known_keys.empty()) {
+            std::cerr << " (none)";
+        } else {
+            for (auto const& key : known_keys) {
+                std::cerr << "\n  " << key;
+            }
+        }
+        std::cerr << "\n";
+        std::exit(1);
+    }
 }
 }  // namespace rapidsmpf::ndsh
