@@ -189,7 +189,7 @@ std::shared_ptr<streaming::Context> create_context(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",
-            ctx->executor()->thread_count(),
+            ctx->executor()->num_streaming_threads(),
             " threads"
         );
     }

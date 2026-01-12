@@ -141,7 +141,7 @@ std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const noexcept 
 }
 
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
-    BufferResource* br = ctx_->br();
+    auto br = ctx_->br();
 
     // Helper that returns available memory, clamped so negative values become zero.
     auto memory_available = [f = br->memory_available(mem_type_)]() -> std::size_t {
