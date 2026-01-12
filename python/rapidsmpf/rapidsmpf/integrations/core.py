@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Shuffler integration with external libraries."""
 
@@ -670,6 +670,128 @@ def spill_func(
     return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
+def setup_rmm_pool(
+    option_prefix: str,
+    options: Options,
+    worker: Any = None,
+) -> rmm.mr.DeviceMemoryResource:
+    """
+    Set up an RMM memory pool based on configuration options.
+
+    This function mirrors the logic in dask-cuda's RMMSetup plugin to ensure
+    consistent behavior when rapidsmpf manages RMM instead of Dask or another
+    orchestrator.
+
+    Parameters
+    ----------
+    option_prefix
+        Prefix for config-option names (e.g., "dask_").
+    options
+        Configuration options.
+    worker
+        Optional worker reference (for logging filenames).
+
+    Returns
+    -------
+    The configured RMM memory resource, or the current device resource
+    if no RMM options are specified.
+
+    Notes
+    -----
+    If no RMM configuration options are provided, this function returns
+    the current device resource without modification.
+    """
+    # Parse RMM configuration options
+    # Note: Use Optional(None) as default for byte-size options. OptionalBytes can't
+    # be used because it calls parse_bytes() before checking for disabled keywords.
+    # When the user provides a value, we parse it with OptionalBytes.
+    initial_pool_size_opt = options.get_or_default(
+        f"{option_prefix}rmm_pool_size", default_value=Optional(None)
+    ).value
+    initial_pool_size = (
+        OptionalBytes(initial_pool_size_opt).value
+        if initial_pool_size_opt is not None
+        else None
+    )
+    maximum_pool_size_opt = options.get_or_default(
+        f"{option_prefix}rmm_maximum_pool_size", default_value=Optional(None)
+    ).value
+    maximum_pool_size = (
+        OptionalBytes(maximum_pool_size_opt).value
+        if maximum_pool_size_opt is not None
+        else None
+    )
+    managed_memory = options.get_or_default(
+        f"{option_prefix}rmm_managed_memory", default_value=False
+    )
+    async_alloc = options.get_or_default(
+        f"{option_prefix}rmm_async", default_value=False
+    )
+    release_threshold_opt = options.get_or_default(
+        f"{option_prefix}rmm_release_threshold", default_value=Optional(None)
+    ).value
+    release_threshold = (
+        OptionalBytes(release_threshold_opt).value
+        if release_threshold_opt is not None
+        else None
+    )
+    track_allocations = options.get_or_default(
+        f"{option_prefix}rmm_track_allocations", default_value=False
+    )
+
+    # If no RMM options specified, return current resource unchanged
+    if (
+        initial_pool_size is None
+        and not managed_memory
+        and not async_alloc
+        and not track_allocations
+    ):
+        return rmm.mr.get_current_device_resource()
+
+    # Validation (same as dask-cuda)
+    if async_alloc and managed_memory:
+        raise ValueError("`rmm_managed_memory` is incompatible with `rmm_async`.")
+    if not async_alloc and release_threshold is not None:
+        raise ValueError("`rmm_release_threshold` requires `rmm_async`.")
+
+    # Setup based on mode (mirrors dask-cuda's RMMSetup plugin)
+    if async_alloc:
+        # Async allocation path using CudaAsyncMemoryResource
+        mr = rmm.mr.CudaAsyncMemoryResource(
+            initial_pool_size=initial_pool_size or 0,
+            release_threshold=release_threshold or 0,
+        )
+        if maximum_pool_size is not None:
+            mr = rmm.mr.LimitingResourceAdaptor(mr, allocation_limit=maximum_pool_size)
+        rmm.mr.set_current_device_resource(mr)
+    elif initial_pool_size is not None or managed_memory:
+        # Pool/managed allocation path
+        # Choose the upstream memory resource
+        if managed_memory:
+            upstream_mr = rmm.mr.ManagedMemoryResource()
+        else:
+            upstream_mr = rmm.mr.CudaMemoryResource()
+
+        # Create pool if initial_pool_size is specified
+        if initial_pool_size is not None:
+            mr = rmm.mr.PoolMemoryResource(
+                upstream_mr=upstream_mr,
+                initial_pool_size=initial_pool_size,
+                maximum_pool_size=maximum_pool_size,
+            )
+        else:
+            # Only managed memory, no pool
+            mr = upstream_mr
+        rmm.mr.set_current_device_resource(mr)
+
+    # Optionally wrap with tracking adaptor
+    if track_allocations:
+        mr = rmm.mr.get_current_device_resource()
+        rmm.mr.set_current_device_resource(rmm.mr.TrackingResourceAdaptor(mr))
+
+    return rmm.mr.get_current_device_resource()
+
+
 def rmpf_worker_setup(
     worker: Any,
     option_prefix: str,
@@ -698,10 +820,13 @@ def rmpf_worker_setup(
 
     Warnings
     --------
-    This function creates a new RMM memory pool, and
-    sets it as the current device resource.
+    This function may create a new RMM memory pool (if configured),
+    and sets the RMM resource adaptor as the current device resource.
     """
-    # Insert RMM resource adaptor on top of the current RMM resource stack.
+    # Set up RMM pool if configured (otherwise uses existing resource)
+    setup_rmm_pool(option_prefix, options, worker)
+
+    # Insert RMM resource adaptor on top of the (now configured) RMM resource stack.
     mr = RmmResourceAdaptor(
         upstream_mr=rmm.mr.get_current_device_resource(),
         fallback_mr=(
