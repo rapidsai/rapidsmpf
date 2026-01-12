@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -188,7 +188,7 @@ std::shared_ptr<streaming::Context> create_context(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",
-            ctx->executor()->thread_count(),
+            ctx->executor()->num_streaming_threads(),
             " threads"
         );
     }
