@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -404,7 +404,7 @@ Node unbounded_fanout(
 
     ShutdownAtExit ch_in_shutdown{ch_in};
     ShutdownAtExit chs_out_shutdown{chs_out};
-    co_await ctx->executor()->schedule();
+    co_await executor.schedule();
     UnboundedFanout fanout(chs_out.size());
 
     std::vector<Node> tasks;

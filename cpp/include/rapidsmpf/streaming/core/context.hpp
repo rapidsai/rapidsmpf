@@ -13,6 +13,7 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
 #include <coro/coro.hpp>
@@ -40,7 +41,7 @@ class Context {
         config::Options options,
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
-        std::unique_ptr<coro::thread_pool> executor,
+        std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics
     );
@@ -48,12 +49,12 @@ class Context {
     /**
      * @brief Convenience constructor with minimal configuration.
      *
-     * Creates a default ProgressThread and coroutine thread pool.
+     * Creates a default ProgressThread and a CoroThreadPoolExecutor using @p options.
      *
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
-     * @param br Buffer resource used to reserve host memory and perform the move.
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param br Buffer resource used to reserve host memory and perform data movement.
+     * @param statistics Statistics instance to use (disabled by default).
      */
     Context(
         config::Options options,
@@ -97,7 +98,7 @@ class Context {
      *
      * @return Reference to unique pointer to the thread pool.
      */
-    [[nodiscard]] std::unique_ptr<coro::thread_pool>& executor() noexcept;
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
 
     /**
      * @brief Returns the buffer resource.
@@ -142,7 +143,7 @@ class Context {
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    std::unique_ptr<coro::thread_pool> executor_;
+    std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
