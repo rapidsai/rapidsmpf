@@ -23,20 +23,25 @@ endfunction()
 
 # This function finds cuCascade and sets any additional necessary environment variables.
 #
-# NOTE: We explicitly find RMM and cuDF targets here even though they are already configured earlier
-# in the build process. This is necessary because:
+# NOTE: We explicitly find RMM, cuDF, and KvikIO targets here even though they are already
+# configured earlier in the build process. This is necessary because:
 #
 # 1. cuCascade runs as a CMake subdirectory/subproject and needs GLOBAL targets to see them
 # 2. We need to extract rmm_ROOT and cudf_ROOT from the targets to ensure cuCascade uses the same
 #    RMM/cuDF instances as rapidsmpf
 # 3. Prevents cuCascade from building its own copies of RMM/cuDF via CPM
+# 4. KvikIO is a dependency of cuDF and must be explicitly found and linked to ensure proper
+#    transitive linking (cuDF's CMake config may not properly propagate KvikIO dependencies)
 function(find_and_configure_cucascade)
-  # Ensure rmm and cudf are found first
+  # Ensure rmm, cudf, and kvikio are found first
   if(NOT TARGET rmm::rmm)
     find_package(rmm REQUIRED CONFIG)
   endif()
   if(NOT TARGET cudf::cudf)
     find_package(cudf REQUIRED CONFIG)
+  endif()
+  if(NOT TARGET kvikio::kvikio)
+    find_package(kvikio REQUIRED CONFIG)
   endif()
 
   set(cucascade_version "1.0.0")
@@ -44,7 +49,7 @@ function(find_and_configure_cucascade)
   set(cucascade_pinned_tag "update-rmm")
 
   # Mark targets as GLOBAL so they're visible to cuCascade
-  foreach(_target rmm::rmm cudf::cudf CUDA::cudart CUDA::nvml)
+  foreach(_target rmm::rmm cudf::cudf kvikio::kvikio CUDA::cudart CUDA::nvml)
     if(TARGET ${_target})
       set_target_properties(${_target} PROPERTIES IMPORTED_GLOBAL TRUE)
     endif()
@@ -83,10 +88,15 @@ function(find_and_configure_cucascade)
   )
 
   # Create an interface library that wraps cuCascade to avoid export conflicts This target won't be
-  # exported but can be used internally
+  # exported but can be used internally Also link KvikIO to ensure transitive dependencies are
+  # satisfied (cuDF depends on KvikIO)
   if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
     add_library(rapidsmpf_cucascade_internal INTERFACE)
     target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
+    # Link KvikIO to ensure cuDF's dependency is satisfied
+    if(TARGET kvikio::kvikio)
+      target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
+    endif()
     # Mark this as not exported
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
   endif()
