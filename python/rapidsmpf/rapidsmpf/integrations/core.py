@@ -670,6 +670,42 @@ def spill_func(
     return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
+def _parse_pool_size(
+    value: float | None, total_device_memory: int, *, alignment_size: int = 256
+) -> int | None:
+    """
+    Parse a pool size value, supporting fractions of total device memory.
+
+    Parameters
+    ----------
+    value
+        Can be:
+        - None: Returns None
+        - A float in (0, 1]: Interpreted as fraction of total device memory
+        - A float > 1: Interpreted as byte count
+    total_device_memory
+        Total device memory in bytes.
+    alignment_size
+        Byte alignment (RMM pools require 256-byte alignment).
+
+    Returns
+    -------
+    Parsed byte count aligned to alignment_size, or None.
+    """
+    if value is None or value == 0:
+        return None
+
+    if 0.0 < value <= 1.0:
+        # Fraction of device memory
+        byte_count = int(total_device_memory * value)
+    else:
+        # Already a byte count
+        byte_count = int(value)
+
+    # Align to alignment_size
+    return (byte_count // alignment_size) * alignment_size
+
+
 def setup_rmm_pool(
     option_prefix: str,
     options: Options,
@@ -701,40 +737,43 @@ def setup_rmm_pool(
     If no RMM configuration options are provided, this function returns
     the current device resource without modification.
     """
+    # Get total device memory for parsing fractional pool sizes
+    total_device_memory = rmm.mr.available_device_memory()[1]
+
     # Parse RMM configuration options
-    # Note: Use Optional(None) as default for byte-size options. OptionalBytes can't
-    # be used because it calls parse_bytes() before checking for disabled keywords.
-    # When the user provides a value, we parse it with OptionalBytes.
+    # Pool sizes follow the same pattern as spill_device: values in (0, 1] are
+    # fractions of device memory, values > 1 are byte counts.
     initial_pool_size_opt = options.get_or_default(
         f"{option_prefix}rmm_pool_size", default_value=Optional(None)
     ).value
-    initial_pool_size = (
-        OptionalBytes(initial_pool_size_opt).value
-        if initial_pool_size_opt is not None
-        else None
+    initial_pool_size = _parse_pool_size(
+        float(initial_pool_size_opt) if initial_pool_size_opt is not None else None,
+        total_device_memory,
     )
+
     maximum_pool_size_opt = options.get_or_default(
         f"{option_prefix}rmm_maximum_pool_size", default_value=Optional(None)
     ).value
-    maximum_pool_size = (
-        OptionalBytes(maximum_pool_size_opt).value
-        if maximum_pool_size_opt is not None
-        else None
+    maximum_pool_size = _parse_pool_size(
+        float(maximum_pool_size_opt) if maximum_pool_size_opt is not None else None,
+        total_device_memory,
     )
+
     managed_memory = options.get_or_default(
         f"{option_prefix}rmm_managed_memory", default_value=False
     )
     async_alloc = options.get_or_default(
         f"{option_prefix}rmm_async", default_value=False
     )
+
     release_threshold_opt = options.get_or_default(
         f"{option_prefix}rmm_release_threshold", default_value=Optional(None)
     ).value
-    release_threshold = (
-        OptionalBytes(release_threshold_opt).value
-        if release_threshold_opt is not None
-        else None
+    release_threshold = _parse_pool_size(
+        float(release_threshold_opt) if release_threshold_opt is not None else None,
+        total_device_memory,
     )
+
     track_allocations = options.get_or_default(
         f"{option_prefix}rmm_track_allocations", default_value=False
     )
@@ -758,8 +797,8 @@ def setup_rmm_pool(
     if async_alloc:
         # Async allocation path using CudaAsyncMemoryResource
         mr = rmm.mr.CudaAsyncMemoryResource(
-            initial_pool_size=initial_pool_size or 0,
-            release_threshold=release_threshold or 0,
+            initial_pool_size=initial_pool_size,
+            release_threshold=release_threshold,
         )
         if maximum_pool_size is not None:
             mr = rmm.mr.LimitingResourceAdaptor(mr, allocation_limit=maximum_pool_size)

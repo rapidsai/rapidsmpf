@@ -19,7 +19,7 @@ from rapidsmpf.examples.dask import (
     dask_cudf_join,
     dask_cudf_shuffle,
 )
-from rapidsmpf.integrations.core import setup_rmm_pool
+from rapidsmpf.integrations.core import _parse_pool_size, setup_rmm_pool
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import (
     clear_shuffle_statistics,
@@ -122,7 +122,7 @@ async def test_dask_rmm_setup_async() -> None:
                 {
                     "dask_spill_device": "0.1",
                     "dask_rmm_async": "true",
-                    "dask_rmm_pool_size": "128 MiB",
+                    "dask_rmm_pool_size": "0.1",  # 10% of device memory
                 }
             ),
         )
@@ -148,7 +148,7 @@ async def test_dask_rmm_setup_pool() -> None:
                 {
                     "dask_spill_device": "0.1",
                     "dask_rmm_async": "false",
-                    "dask_rmm_pool_size": "128 MiB",
+                    "dask_rmm_pool_size": "0.1",  # 10% of device memory
                 }
             ),
         )
@@ -203,11 +203,35 @@ def test_rmm_setup_validation_errors() -> None:
             Options(
                 {
                     "test_rmm_async": "false",
-                    "test_rmm_pool_size": "128 MiB",
-                    "test_rmm_release_threshold": "64 MiB",
+                    "test_rmm_pool_size": "0.1",  # 10% of device memory
+                    "test_rmm_release_threshold": "0.05",  # 5% of device memory
                 }
             ),
         )
+
+
+# Use a fixed total memory for deterministic tests
+_TOTAL_MEMORY = 16 * 1024 * 1024 * 1024  # 16 GiB
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # None and zero return None
+        (None, None),
+        (0, None),
+        (0.0, None),
+        # Fractions (0 < value <= 1) are % of device memory
+        (0.5, 8 * 1024 * 1024 * 1024),  # 50% of 16 GiB = 8 GiB
+        (1.0, _TOTAL_MEMORY),  # 100% of device memory
+        # Values > 1 are byte counts (aligned to 256)
+        (1024 * 1024 * 1024, 1024 * 1024 * 1024),  # 1 GiB
+        (1000, 768),  # floor(1000 / 256) * 256
+    ],
+)
+def test_parse_pool_size(value: float | None, expected: int | None) -> None:
+    """Test _parse_pool_size with various inputs."""
+    assert _parse_pool_size(value, _TOTAL_MEMORY) == expected
 
 
 @pytest.mark.parametrize("partition_count", [None, 3])
