@@ -105,7 +105,7 @@ class Context {
      *
      * @return Raw pointer to the buffer resource.
      */
-    [[nodiscard]] BufferResource* br() const noexcept;
+    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
 
     /**
      * @brief Returns the statistics collector.

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <memory>
@@ -45,7 +45,7 @@ Node partition_and_pack(
                 hash_function,
                 seed,
                 tbl.stream(),
-                ctx->br(),
+                ctx->br().get(),
                 ctx->statistics()
             )
         };
@@ -86,9 +86,9 @@ Node unpack_and_concat(
         auto stream = ctx->br()->stream_pool().get_stream();
 
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(data), ctx->br(), false),
+            rapidsmpf::unspill_partitions(std::move(data), ctx->br().get(), false),
             stream,
-            ctx->br(),
+            ctx->br().get(),
             ctx->statistics()
         );
         co_await ch_out->send(

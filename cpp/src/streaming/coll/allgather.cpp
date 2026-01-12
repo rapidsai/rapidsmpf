@@ -16,7 +16,7 @@ AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
           ctx_->comm(),
           ctx_->progress_thread(),
           op_id,
-          ctx_->br(),
+          ctx_->br().get(),
           ctx_->statistics(),
           [this]() {
               // Schedule waiters to resume on the executor.

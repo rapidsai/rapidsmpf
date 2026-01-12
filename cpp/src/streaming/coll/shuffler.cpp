@@ -106,7 +106,7 @@ ShufflerAsync::ShufflerAsync(
           ctx_->progress_thread(),
           op_id,
           total_num_partitions,
-          ctx_->br(),
+          ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
               // Libcoro may resume suspended coroutines during cv notification, using the

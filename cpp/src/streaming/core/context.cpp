@@ -121,8 +121,8 @@ std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
     return executor_;
 }
 
-BufferResource* Context::br() const noexcept {
-    return br_.get();
+std::shared_ptr<BufferResource> Context::br() const noexcept {
+    return br_;
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {
