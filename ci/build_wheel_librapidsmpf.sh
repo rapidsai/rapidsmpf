@@ -38,6 +38,7 @@ export SITE_PACKAGES
 
 python -m auditwheel repair \
     --exclude libcudf.so \
+    --exclude libkvikio.so \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude libucp.so.0 \
