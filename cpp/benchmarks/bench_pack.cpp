@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -85,8 +85,7 @@ static void BM_Pack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::pack with pinned memory
  */
 static void BM_Pack_pinned(benchmark::State& state) {
-    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
-    /* if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -102,7 +101,7 @@ static void BM_Pack_pinned(benchmark::State& state) {
     };
     rapidsmpf::PinnedMemoryResource pinned_mr;
 
-    run_pack(state, table_size_mb, pool_mr, pinned_mr, stream); */
+    run_pack(state, table_size_mb, pool_mr, pinned_mr, stream);
 }
 
 /**
@@ -206,8 +205,7 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::chunked_pack pinned memory
  */
 static void BM_ChunkedPack_pinned(benchmark::State& state) {
-    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
-    /*     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -228,7 +226,7 @@ static void BM_ChunkedPack_pinned(benchmark::State& state) {
 
     run_chunked_pack(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    ); */
+    );
 }
 
 // Custom argument generator for the benchmark
@@ -286,8 +284,7 @@ static void BM_ChunkedPack_fixed_table_device(benchmark::State& state) {
  * and keeping table size fixed at 1GB
  */
 static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
-    state.SkipWithMessage("Skipping until cudf#20886 is fixed");
-    /* if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
     }
@@ -305,7 +302,7 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
 
     run_chunked_pack(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, stream
-    ); */
+    );
 }
 
 // Custom argument generator for the benchmark
