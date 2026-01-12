@@ -5,12 +5,10 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules channel.pyx context.pyx fanout.pyx leaf_node.pyx message.pyx
-                   spillable_messages.pyx node.pyx
-)
+set(cython_modules libcoro_spawn_task.pyx)
 
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan MODULE_PREFIX streaming_core_
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan MODULE_PREFIX streaming_detail_
 )

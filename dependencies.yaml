@@ -29,6 +29,7 @@ files:
       - py_version
       - rapids_build_skbuild
       - test_cpp
+      - test_cpp_ndsh
       - test_python
       - docs
   test_cpp:
@@ -37,7 +38,9 @@ files:
       - cuda_version
       - depends_on_librapidsmpf
       - depends_on_librapidsmpf_tests
+      - py_version
       - test_cpp
+      - test_cpp_ndsh
   test_python:
     output: none
     includes:
@@ -302,6 +305,17 @@ dependencies:
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - gdb
+  test_cpp_ndsh:
+    common:
+      - output_types: conda
+        packages:
+          # NDSH validation dependencies
+          - duckdb
+          - numpy
+          - pyarrow
+          - pip
+          - pip:
+            - tpchgen-cli
   test_python:
     common:
       - output_types: conda
