@@ -6,6 +6,8 @@
 #include <limits>
 #include <utility>
 
+#include <cuda/memory>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -166,12 +168,24 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> data,
+    rmm::cuda_stream_view stream,
+    MemoryType mem_type
 ) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
+    }
+    // if the device_buffer is host accessible, wrap it in a HostBuffer
+    if (mem_type == MemoryType::PINNED_HOST) {
+        return std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(HostBuffer::from_rmm_device_buffer(
+                std::move(data), stream, get_checked_pinned_mr()
+            )),
+            stream,
+            MemoryType::PINNED_HOST
+        ));
     }
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }

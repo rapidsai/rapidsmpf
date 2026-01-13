@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/memory>
+
 #include <cudf/contiguous_split.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf_test/base_fixture.hpp>
@@ -202,10 +204,12 @@ class NumOfRows_MemType : public ::testing::TestWithParam<std::tuple<int, Memory
     rmm::cuda_stream_view stream;
 };
 
+class ChunkedPackTest : public NumOfRows_MemType {};
+
 // test different `num_rows` and `MemoryType`.
 INSTANTIATE_TEST_SUITE_P(
     ChunkedPack,
-    NumOfRows_MemType,
+    ChunkedPackTest,
     ::testing::Combine(
         ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),  // num rows
         ::testing::ValuesIn(MEMORY_TYPES)  // output memory type
@@ -216,7 +220,7 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-TEST_P(NumOfRows_MemType, chunked_pack) {
+TEST_P(ChunkedPackTest, chunked_pack) {
     cudf::table input_table = random_table_with_index(seed, num_rows, 0, 10);
 
     auto [bounce_buf_res, _] = br->reserve(MemoryType::DEVICE, chunk_size, true);
@@ -230,11 +234,11 @@ TEST_P(NumOfRows_MemType, chunked_pack) {
     EXPECT_NO_THROW(validate_packed_table(input_table, std::move(chunked_packed)));
 }
 
-class NumOfRows_MemType2 : public NumOfRows_MemType {};
+class PackToHostTest : public NumOfRows_MemType {};
 
 INSTANTIATE_TEST_SUITE_P(
-    PackTable,
-    NumOfRows_MemType2,
+    PackTableToHost,
+    PackToHostTest,
     ::testing::Combine(
         ::testing::Values(0, 9, 1'000, 1'000'000, 10'000'000),  // num rows
         ::testing::Values(MemoryType::HOST)  // output memory type
@@ -246,7 +250,7 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 // device table to host packed data using 1MB device buffer
-TEST_P(NumOfRows_MemType2, pack_to_host_with_1MB_device_buffer) {
+TEST_P(PackToHostTest, pack_to_host_with_1MB_device_buffer) {
     // override br with just 1MB device memory.
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{
         {rapidsmpf::MemoryType::DEVICE, [] { return 1 << 20; }}
@@ -265,7 +269,7 @@ TEST_P(NumOfRows_MemType2, pack_to_host_with_1MB_device_buffer) {
 }
 
 // device table to host packed data using 1MB device buffer
-TEST_P(NumOfRows_MemType2, pack_to_host_with_unlimited_device_buffer) {
+TEST_P(PackToHostTest, pack_to_host_with_unlimited_device_buffer) {
     // override br with just 1MB device memory.
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{
         {rapidsmpf::MemoryType::DEVICE,
@@ -278,6 +282,9 @@ TEST_P(NumOfRows_MemType2, pack_to_host_with_unlimited_device_buffer) {
     auto data_res =
         br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
+    std::cout << data_res.size() << " "
+              << rapidsmpf::total_packing_wiggle_room(input_table) << std::endl;
+
     std::array device_type{MemoryType::DEVICE};
     auto packed_data = rapidsmpf::pack(input_table, stream, data_res, device_type);
 
@@ -285,7 +292,7 @@ TEST_P(NumOfRows_MemType2, pack_to_host_with_unlimited_device_buffer) {
 }
 
 // device table to host packed data using 1MB pinned buffer
-TEST_P(NumOfRows_MemType2, pack_to_host_with_1MB_pinned_buffer) {
+TEST_P(PackToHostTest, pack_to_host_with_1MB_pinned_buffer) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory resources are not supported on the system.";
         return;
@@ -301,13 +308,14 @@ TEST_P(NumOfRows_MemType2, pack_to_host_with_1MB_pinned_buffer) {
     auto data_res =
         br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
-    auto packed_data = rapidsmpf::pack(input_table, stream, data_res);
+    auto packed_data =
+        rapidsmpf::pack(input_table, stream, data_res, DEVICE_ACCESSIBLE_MEMORY_TYPES);
 
     EXPECT_NO_THROW(validate_packed_table(input_table, std::move(*packed_data)));
 }
 
 // device table to host packed data using unlimited pinned memory
-TEST_P(NumOfRows_MemType2, pack_to_host_with_unlimited_pinned_buffer) {
+TEST_P(PackToHostTest, pack_to_host_with_unlimited_pinned_buffer) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory resources are not supported on the system.";
         return;
@@ -324,7 +332,8 @@ TEST_P(NumOfRows_MemType2, pack_to_host_with_unlimited_pinned_buffer) {
     auto data_res =
         br->reserve_or_fail(estimated_memory_usage(input_table, stream), mem_type);
 
-    auto packed_data = rapidsmpf::pack(input_table, stream, data_res);
+    auto packed_data =
+        rapidsmpf::pack(input_table, stream, data_res, DEVICE_ACCESSIBLE_MEMORY_TYPES);
 
     EXPECT_NO_THROW(validate_packed_table(input_table, std::move(*packed_data)));
 }

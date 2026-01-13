@@ -345,24 +345,15 @@ std::unique_ptr<PackedData> pack(
 ) {
     auto* br = data_res.br();
 
-    auto cudf_pack =
-        [&](rmm::device_async_resource_ref device_mr) -> std::unique_ptr<PackedData> {
-        // if there is enough memory to pack the table, use `cudf::pack`
-        auto packed_columns = cudf::pack(table, stream, device_mr);
+    // use cudf::pack to pack the table to the data reservation.
+    auto cudf_pack = [&](MemoryReservation& res) -> std::unique_ptr<PackedData> {
+        auto dev_mr = br->get_device_mr(res.mem_type());
+        auto packed_columns = cudf::pack(table, stream, dev_mr);
 
-        auto packed_data = std::make_unique<PackedData>(
+        return std::make_unique<PackedData>(
             std::move(packed_columns.metadata),
-            br->move(std::move(packed_columns.gpu_data), stream)
+            br->move(std::move(packed_columns.gpu_data), stream, res.mem_type())
         );
-
-        pad_data_reservation(data_res, packed_data->data->size, table);
-
-        // Note: in when using pinned memory, data is returned as a rmm::device_buffer.
-        // This data can not be released. Therefore, we need to make a copy.
-        // if the data res is device, this will be a no-op.
-        packed_data->data = br->move(std::move(packed_data->data), data_res);
-
-        return packed_data;
     };
 
     size_t est_table_size = estimated_memory_usage(table, stream);
@@ -381,7 +372,12 @@ std::unique_ptr<PackedData> pack(
     if (is_device_accessible(data_res.mem_type())) {
         // use the memory resource corresponding to the data reservation, so that
         // cudf::pack will allocate memory from that memory type.
-        return cudf_pack(br->get_device_mr(data_res.mem_type()));
+        auto packed_data = cudf_pack(data_res);
+
+        // release the amount of memory used by the packed data.
+        br->release(data_res, packed_data->data->size);
+
+        return packed_data;
     } else {  // HOST data reservations.
 
         // try to allocate as much device accessible memory as possible for the bounce
@@ -391,9 +387,9 @@ std::unique_ptr<PackedData> pack(
 
             if (overbooking == 0) {
                 // there is enough memory to pack the table, use `cudf::pack`
-                auto packed_data = cudf_pack(br->get_device_mr(mem_type));
+                auto packed_data = cudf_pack(res);
 
-                // finally copy the packed data device buffer to data reservation
+                // finally copy the packed data device buffer to data reservation.
 
                 // if the packed data size is within a certain wiggle room, pad the data
                 // reservation to that size.

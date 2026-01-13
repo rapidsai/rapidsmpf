@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,7 +45,7 @@ void CudaEvent::record(rmm::cuda_stream_view stream) {
     RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
 }
 
-[[nodiscard]] bool CudaEvent::CudaEvent::is_ready() const {
+[[nodiscard]] bool CudaEvent::is_ready() const {
     auto result = cudaEventQuery(event_);
     if (result != cudaSuccess && result != cudaErrorNotReady) {
         RAPIDSMPF_CUDA_TRY(result);
@@ -53,7 +53,7 @@ void CudaEvent::record(rmm::cuda_stream_view stream) {
     return result == cudaSuccess;
 }
 
-void CudaEvent::CudaEvent::host_wait() const {
+void CudaEvent::host_wait() const {
     RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
 }
 

@@ -9,6 +9,8 @@
 #include <ranges>
 #include <span>
 
+#include <rapidsmpf/utils.hpp>
+
 namespace rapidsmpf {
 
 /// @brief Enum representing the type of memory sorted in decreasing order of preference.
@@ -86,8 +88,7 @@ static_assert(std::ranges::equal(
  * @return True if the memory type is host accessible, false otherwise.
  */
 constexpr bool is_host_accessible(MemoryType const& mem_type) noexcept {
-    return std::ranges::find(HOST_ACCESSIBLE_MEMORY_TYPES, mem_type)
-           != std::ranges::end(HOST_ACCESSIBLE_MEMORY_TYPES);
+    return contains(HOST_ACCESSIBLE_MEMORY_TYPES, mem_type);
 };
 
 /**
@@ -97,8 +98,7 @@ constexpr bool is_host_accessible(MemoryType const& mem_type) noexcept {
  * @return True if the memory type is device accessible, false otherwise.
  */
 constexpr bool is_device_accessible(MemoryType const& mem_type) noexcept {
-    return std::ranges::find(DEVICE_ACCESSIBLE_MEMORY_TYPES, mem_type)
-           != std::ranges::end(DEVICE_ACCESSIBLE_MEMORY_TYPES);
+    return contains(DEVICE_ACCESSIBLE_MEMORY_TYPES, mem_type);
 };
 
 /**
