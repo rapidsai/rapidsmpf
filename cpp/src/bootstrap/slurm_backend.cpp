@@ -9,7 +9,6 @@
 
 #include <chrono>
 #include <cstring>
-#include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -119,9 +118,6 @@ SlurmBackend::~SlurmBackend() {
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
-    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Put: key='" << key
-              << "', value_len=" << value.size() << std::endl;
-
     pmix_value_t pmix_value;
     PMIX_VALUE_CONSTRUCT(&pmix_value);
     pmix_value.type = PMIX_BYTE_OBJECT;
@@ -137,8 +133,6 @@ void SlurmBackend::put(std::string const& key, std::string const& value) {
 
     // Commit to make the data available
     commit();
-
-    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Put + Commit succeeded" << std::endl;
 }
 
 void SlurmBackend::commit() {
@@ -150,9 +144,6 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{100};
 
-    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Get: waiting for key='" << key << "'"
-              << std::endl;
-
     // Get from rank 0 specifically (since that's where the key is stored)
     // Using PMIX_RANK_WILDCARD doesn't seem to work reliably
     pmix_proc_t proc;
@@ -163,9 +154,6 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     while (true) {
         pmix_value_t* val = nullptr;
         pmix_status_t rc = PMIx_Get(&proc, key.c_str(), nullptr, 0, &val);
-
-        std::cerr << "[Rank " << ctx_.rank
-                  << "] PMIx_Get returned: " << pmix_error_string(rc) << std::endl;
 
         if (rc == PMIX_SUCCESS && val != nullptr) {
             std::string result;
@@ -185,9 +173,6 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             }
 
             PMIX_VALUE_RELEASE(val);
-
-            std::cerr << "[Rank " << ctx_.rank << "] PMIx_Get succeeded: key='" << key
-                      << "', value_len=" << result.size() << std::endl;
             return result;
         }
 
@@ -221,14 +206,9 @@ void SlurmBackend::barrier() {
     PMIX_INFO_CONSTRUCT(&info);
     PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
 
-    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Fence: entering barrier" << std::endl;
-
     // PMIx_Fence performs synchronization barrier and data exchange
     pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
     PMIX_INFO_DESTRUCT(&info);
-
-    std::cerr << "[Rank " << ctx_.rank
-              << "] PMIx_Fence returned: " << pmix_error_string(rc) << std::endl;
 
     // Accept both SUCCESS and PARTIAL_SUCCESS for the fence
     // PARTIAL_SUCCESS can occur in some PMIx implementations when not all
@@ -236,8 +216,6 @@ void SlurmBackend::barrier() {
     if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
         throw std::runtime_error("PMIx_Fence (barrier) failed: " + pmix_error_string(rc));
     }
-
-    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Fence: exited barrier" << std::endl;
 }
 
 void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
