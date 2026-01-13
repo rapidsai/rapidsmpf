@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -15,6 +15,10 @@ from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
+from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
+    MemoryReserveOrWait
+
+from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 
 cdef class Context:
@@ -64,6 +68,11 @@ cdef class Context:
         self._spillable_messages = SpillableMessages.from_handle(
             deref(self._handle).spillable_messages()
         )
+        self._memory = {}
+        for mem_type in py_MemoryType:
+            self._memory[mem_type] = MemoryReserveOrWait.from_handle(
+                deref(self._handle).memory(mem_type), self._br
+            )
 
     def __dealloc__(self):
         with nogil:
@@ -155,3 +164,27 @@ cdef class Context:
         The spillable messages associated with this context.
         """
         return self._spillable_messages
+
+    def memory(self, MemoryType mem_type):
+        """
+        Get the memory reservation handle for a given memory type.
+
+        Returns an object that coordinates asynchronous memory reservation requests
+        for the specified memory type. The returned instance provides backpressure
+        and global progress guarantees and should be used to reserve memory before
+        performing operations that require memory.
+
+        A recommended usage pattern is to reserve all required memory up front as a
+        single atomic reservation. This allows callers to await the reservation and
+        only start executing the operation once all required memory is available.
+
+        Parameters
+        ----------
+        mem_type
+            Memory type for which reservations are requested.
+
+        Returns
+        -------
+        Handle that coordinates memory reservation requests for the given memory type.
+        """
+        return self._memory[mem_type]
