@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -162,7 +162,8 @@ std::shared_ptr<streaming::Context> create_context(
     switch (arguments.comm_type) {
     case CommType::MPI:
         RAPIDSMPF_EXPECTS(
-            !bootstrap::is_running_with_rrun(), "Can't use MPI communicator with rrun"
+            !bootstrap::is_running_with_bootstrap(),
+            "Can't use MPI communicator with rrun/srun bootstrap mode"
         );
         mpi::init(nullptr, nullptr);
 
@@ -172,7 +173,7 @@ std::shared_ptr<streaming::Context> create_context(
         comm = std::make_shared<Single>(options);
         break;
     case CommType::UCXX:
-        if (bootstrap::is_running_with_rrun()) {
+        if (bootstrap::is_running_with_bootstrap()) {
             comm = bootstrap::create_ucxx_comm(bootstrap::Backend::AUTO, options);
         } else {
             mpi::init(nullptr, nullptr);

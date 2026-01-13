@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -41,7 +41,14 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
             std::get<std::shared_ptr<::ucxx::Address>>(listener_address.address)
                 ->getString();
         put(ctx, "ucxx_root_address", root_worker_address_str);
-    } else {
+    }
+
+    // All ranks must barrier to make PMIx put() data visible.
+    // For file backend this is a no-op synchronization.
+    // For PMIx/Slurm backend this executes PMIx_Fence to exchange data.
+    barrier(ctx);
+
+    if (ctx.rank != 0) {
         // Worker ranks retrieve the root address and connect
         auto root_worker_address_str =
             get(ctx, "ucxx_root_address", std::chrono::seconds{30});
@@ -52,6 +59,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
             ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
         comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
     }
+
     comm->barrier();
     return comm;
 }

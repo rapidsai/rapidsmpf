@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -23,6 +24,20 @@
 namespace rapidsmpf::bootstrap::detail {
 
 namespace {
+
+// PMIx initialization is process-global and must only happen once.
+// Once initialized, PMIx stays active for the lifetime of the process.
+// We track initialization state but do NOT finalize PMIx in the destructor,
+// as multiple SlurmBackend instances may be created/destroyed during the
+// bootstrap process. PMIx will be cleaned up when the process exits.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::mutex g_pmix_mutex;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+bool g_pmix_initialized = false;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+pmix_proc_t g_pmix_proc{};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::array<char, PMIX_MAX_NSLEN + 1> g_pmix_nspace{};
 
 /**
  * @brief Convert PMIx status to string for error messages.
@@ -50,53 +65,64 @@ void check_pmix_status(pmix_status_t status, std::string const& operation) {
 }  // namespace
 
 SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
-    pmix_status_t rc;
-    pmix_proc_t proc;
+    std::lock_guard<std::mutex> lock{g_pmix_mutex};
 
-    rc = PMIx_Init(&proc, nullptr, 0);
-    if (rc != PMIX_SUCCESS) {
-        throw std::runtime_error(
-            "PMIx_Init failed: " + pmix_error_string(rc)
-            + ". Ensure you're running under Slurm with --mpi=pmix"
-        );
+    if (!g_pmix_initialized) {
+        // First instance - initialize PMIx (will stay initialized for process lifetime)
+        pmix_proc_t proc;
+        pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
+        if (rc != PMIX_SUCCESS) {
+            throw std::runtime_error(
+                "PMIx_Init failed: " + pmix_error_string(rc)
+                + ". Ensure you're running under Slurm with --mpi=pmix"
+            );
+        }
+
+        g_pmix_proc = proc;
+        // Copy full nspace buffer (both are PMIX_MAX_NSLEN + 1 in size)
+        static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
+        std::memcpy(g_pmix_nspace.data(), proc.nspace, g_pmix_nspace.size());
+        g_pmix_initialized = true;
     }
+
     pmix_initialized_ = true;
 
-    proc_ = proc;
-    // Copy full nspace buffer (both are PMIX_MAX_NSLEN + 1 in size)
-    static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
-    std::memcpy(nspace_.data(), proc.nspace, nspace_.size());
+    // Copy global state to instance members
+    proc_ = g_pmix_proc;
+    nspace_ = g_pmix_nspace;
 
     // Verify rank matches what we expect (if context has a valid rank)
     // Note: For SLURM backend, ctx_.rank may be set from environment variables
     // before PMIx_Init, so we verify they match
-    if (ctx_.rank >= 0 && std::cmp_not_equal(proc.rank, ctx_.rank)) {
+    if (ctx_.rank >= 0 && std::cmp_not_equal(g_pmix_proc.rank, ctx_.rank)) {
         throw std::runtime_error(
-            "PMIx rank (" + std::to_string(proc.rank) + ") doesn't match context rank ("
-            + std::to_string(ctx_.rank) + ")"
+            "PMIx rank (" + std::to_string(g_pmix_proc.rank)
+            + ") doesn't match context rank (" + std::to_string(ctx_.rank) + ")"
         );
     }
 
     // Update context rank from PMIx if not already set
     if (ctx_.rank < 0) {
-        ctx_.rank = static_cast<Rank>(proc.rank);
+        ctx_.rank = static_cast<Rank>(g_pmix_proc.rank);
     }
 }
 
 SlurmBackend::~SlurmBackend() {
-    if (pmix_initialized_) {
-        pmix_status_t rc = PMIx_Finalize(nullptr, 0);
-        if (rc != PMIX_SUCCESS) {
-            // Log but don't throw from destructor
-            std::cerr << "Warning: PMIx_Finalize failed: " << pmix_error_string(rc)
-                      << std::endl;
-        }
-    }
+    // Intentionally do NOT call PMIx_Finalize here.
+    // PMIx must stay initialized for the lifetime of the process because
+    // multiple SlurmBackend instances may be created and destroyed during
+    // bootstrap operations (put, barrier, get each create a new instance).
+    //
+    // TODO: Check whether it's safe to let PMIx clean itself up when the
+    // process exits, and potentially come up with a better solution. Maybe
+    // refcounting?
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
-    pmix_value_t pmix_value;
+    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Put: key='" << key
+              << "', value_len=" << value.size() << std::endl;
 
+    pmix_value_t pmix_value;
     PMIX_VALUE_CONSTRUCT(&pmix_value);
     pmix_value.type = PMIX_BYTE_OBJECT;
     pmix_value.data.bo.bytes = const_cast<char*>(value.data());
@@ -109,12 +135,10 @@ void SlurmBackend::put(std::string const& key, std::string const& value) {
         );
     }
 
-    // Note: We don't call PMIX_VALUE_DESTRUCT here because we don't own the
-    // byte data (it points to value.data()). PMIX_VALUE_DESTRUCT would try
-    // to free that memory.
-
-    // Commit to make the data available for subsequent fence
+    // Commit to make the data available
     commit();
+
+    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Put + Commit succeeded" << std::endl;
 }
 
 void SlurmBackend::commit() {
@@ -124,17 +148,24 @@ void SlurmBackend::commit() {
 
 std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     auto start = std::chrono::steady_clock::now();
-    auto poll_interval = std::chrono::milliseconds{10};
+    auto poll_interval = std::chrono::milliseconds{100};
 
-    // Create proc to get from (wildcard to search all ranks in namespace)
+    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Get: waiting for key='" << key << "'"
+              << std::endl;
+
+    // Get from rank 0 specifically (since that's where the key is stored)
+    // Using PMIX_RANK_WILDCARD doesn't seem to work reliably
     pmix_proc_t proc;
     PMIX_PROC_CONSTRUCT(&proc);
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
-    proc.rank = PMIX_RANK_WILDCARD;
+    proc.rank = 0;  // Get from rank 0 specifically
 
     while (true) {
         pmix_value_t* val = nullptr;
         pmix_status_t rc = PMIx_Get(&proc, key.c_str(), nullptr, 0, &val);
+
+        std::cerr << "[Rank " << ctx_.rank
+                  << "] PMIx_Get returned: " << pmix_error_string(rc) << std::endl;
 
         if (rc == PMIX_SUCCESS && val != nullptr) {
             std::string result;
@@ -154,6 +185,9 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             }
 
             PMIX_VALUE_RELEASE(val);
+
+            std::cerr << "[Rank " << ctx_.rank << "] PMIx_Get succeeded: key='" << key
+                      << "', value_len=" << result.size() << std::endl;
             return result;
         }
 
@@ -165,15 +199,12 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
                 + std::to_string(
                     std::chrono::duration_cast<std::chrono::seconds>(timeout).count()
                 )
-                + "s timeout"
+                + "s timeout (last error: " + pmix_error_string(rc) + ")"
             );
         }
 
-        // Sleep before retry with exponential backoff
+        // Sleep before retry
         std::this_thread::sleep_for(poll_interval);
-        if (poll_interval < std::chrono::milliseconds{100}) {
-            poll_interval = std::min(poll_interval * 2, std::chrono::milliseconds{100});
-        }
     }
 }
 
@@ -184,9 +215,29 @@ void SlurmBackend::barrier() {
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
     proc.rank = PMIX_RANK_WILDCARD;
 
-    // PMIx_Fence performs barrier and exchanges committed data
-    pmix_status_t rc = PMIx_Fence(&proc, 1, nullptr, 0);
-    check_pmix_status(rc, "PMIx_Fence (barrier)");
+    // Set up info to collect data during fence
+    pmix_info_t info;
+    bool collect = true;
+    PMIX_INFO_CONSTRUCT(&info);
+    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
+
+    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Fence: entering barrier" << std::endl;
+
+    // PMIx_Fence performs synchronization barrier and data exchange
+    pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
+    PMIX_INFO_DESTRUCT(&info);
+
+    std::cerr << "[Rank " << ctx_.rank
+              << "] PMIx_Fence returned: " << pmix_error_string(rc) << std::endl;
+
+    // Accept both SUCCESS and PARTIAL_SUCCESS for the fence
+    // PARTIAL_SUCCESS can occur in some PMIx implementations when not all
+    // processes have data to contribute, but the synchronization succeeded
+    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
+        throw std::runtime_error("PMIx_Fence (barrier) failed: " + pmix_error_string(rc));
+    }
+
+    std::cerr << "[Rank " << ctx_.rank << "] PMIx_Fence: exited barrier" << std::endl;
 }
 
 void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {

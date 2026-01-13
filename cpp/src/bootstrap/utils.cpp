@@ -94,9 +94,42 @@ bool is_running_with_rrun() {
     return std::getenv("RAPIDSMPF_RANK") != nullptr;
 }
 
+bool is_running_with_slurm() {
+    // Check for PMIx namespace (set by PMIx-enabled launchers like srun --mpi=pmix)
+    if (std::getenv("PMIX_NAMESPACE") != nullptr) {
+        return true;
+    }
+    // Check for Slurm job step (SLURM_JOB_ID + SLURM_STEP_ID indicate a job step)
+    if (std::getenv("SLURM_JOB_ID") != nullptr && std::getenv("SLURM_STEP_ID") != nullptr)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool is_running_with_bootstrap() {
+    return is_running_with_rrun() || is_running_with_slurm();
+}
+
 Rank get_rank() {
-    char* rank_env = std::getenv("RAPIDSMPF_RANK");
-    if (rank_env) {
+    // Check rrun first (explicit configuration takes priority)
+    if (char* rank_env = std::getenv("RAPIDSMPF_RANK")) {
+        try {
+            return std::stoi(rank_env);
+        } catch (...) {
+            // Ignore parse errors, try next source
+        }
+    }
+    // Check PMIx rank
+    if (char* rank_env = std::getenv("PMIX_RANK")) {
+        try {
+            return std::stoi(rank_env);
+        } catch (...) {
+            // Ignore parse errors, try next source
+        }
+    }
+    // Check Slurm process ID
+    if (char* rank_env = std::getenv("SLURM_PROCID")) {
         try {
             return std::stoi(rank_env);
         } catch (...) {
@@ -107,29 +140,50 @@ Rank get_rank() {
 }
 
 Rank get_nranks() {
-    if (!is_running_with_rrun()) {
+    if (!is_running_with_bootstrap()) {
         throw std::runtime_error(
-            "get_nranks() can only be called when running with `rrun`. "
-            "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'."
+            "get_nranks() can only be called when running with a bootstrap launcher. "
+            "Use 'rrun' or 'srun --mpi=pmix' to launch the application."
         );
     }
 
-    char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS");
-    if (nranks_str == nullptr) {
-        throw std::runtime_error(
-            "RAPIDSMPF_NRANKS environment variable not set. "
-            "Make sure to use a rrun launcher to call this function."
-        );
+    // Check rrun first (explicit configuration takes priority)
+    if (char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS")) {
+        try {
+            return std::stoi(nranks_str);
+        } catch (...) {
+            throw std::runtime_error(
+                "Failed to parse integer from RAPIDSMPF_NRANKS: "
+                + std::string(nranks_str)
+            );
+        }
     }
 
-    try {
-        return std::stoi(nranks_str);
-    } catch (...) {
-        throw std::runtime_error(
-            "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
-            + std::string(nranks_str)
-        );
+    // Check Slurm environment variables
+    if (char const* nranks_str = std::getenv("SLURM_NPROCS")) {
+        try {
+            return std::stoi(nranks_str);
+        } catch (...) {
+            throw std::runtime_error(
+                "Failed to parse integer from SLURM_NPROCS: " + std::string(nranks_str)
+            );
+        }
     }
+
+    if (char const* nranks_str = std::getenv("SLURM_NTASKS")) {
+        try {
+            return std::stoi(nranks_str);
+        } catch (...) {
+            throw std::runtime_error(
+                "Failed to parse integer from SLURM_NTASKS: " + std::string(nranks_str)
+            );
+        }
+    }
+
+    throw std::runtime_error(
+        "Could not determine number of ranks. "
+        "Ensure RAPIDSMPF_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
+    );
 }
 
 std::vector<int> parse_cpu_list(std::string const& cpulist) {
