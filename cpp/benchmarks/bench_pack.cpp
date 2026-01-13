@@ -87,6 +87,11 @@ static void BM_Pack_device(benchmark::State& state) {
  * @brief Benchmark for cudf::pack with device memory
  */
 static void BM_Pack_pinned_host(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
 
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
