@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -87,6 +87,10 @@ struct Config {
         topology;  // Discovered topology information
     std::map<int, rapidsmpf::GpuTopologyInfo const*>
         gpu_topology_map;  // Map GPU ID to topology info
+    bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
+    int slurm_local_id{-1};  // Local rank within node (SLURM_LOCALID)
+    int slurm_global_rank{-1};  // Global rank (SLURM_PROCID)
+    int slurm_ntasks{-1};  // Total number of tasks (SLURM_NTASKS)
 };
 
 /**
@@ -147,12 +151,20 @@ void print_usage(std::string_view prog_name) {
         << "rrun - RapidsMPF Process Launcher\n\n"
         << "Usage: " << prog_name << " [options] <application> [app_args...]\n\n"
         << "Single-Node Options:\n"
-        << "  -n <nranks>        Number of ranks to launch (required)\n"
+        << "  -n <nranks>        Number of ranks to launch (required in single-node "
+           "mode)\n"
         << "  -g <gpu_list>      Comma-separated list of GPU IDs (e.g., 0,1,2,3)\n"
         << "                     If not specified, auto-detect available GPUs\n\n"
+        << "Slurm Options:\n"
+        << "  --slurm            Run in Slurm mode (apply topology bindings only)\n"
+        << "                     Auto-detected when SLURM_JOB_ID is set\n"
+        << "                     In this mode, rrun applies topology bindings and\n"
+        << "                     execs the application (no process launching)\n\n"
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
+        << "                     Not used in Slurm mode with PMIx backend\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
+        << "                     Not applicable in Slurm mode\n"
         << "  --bind-to <type>   Bind to topology resources (default: all)\n"
         << "                     Can be specified multiple times\n"
         << "                     Options: cpu, memory, network, all, none\n"
@@ -175,6 +187,12 @@ void print_usage(std::string_view prog_name) {
         << "  # Launch with custom environment variables:\n"
         << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
            "./bench_comm\n\n"
+        << "Slurm Examples:\n"
+        << "  # Multi-node with topology binding (2 nodes, 4 GPUs per node):\n"
+        << "  srun --mpi=pmix -N 2 --ntasks-per-node=4 --gres=gpu:4 rrun --slurm "
+           "./bench_shuffle -C ucxx\n\n"
+        << "  # Auto-detect Slurm mode:\n"
+        << "  srun --mpi=pmix -n 4 rrun ./bench_shuffle -C ucxx\n\n"
         << std::endl;
 }
 
@@ -287,6 +305,105 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
     std::ignore = memory_binding;  // Suppress unused parameter warning
     return false;
 #endif
+}
+
+/**
+ * @brief Check if running under Slurm and populate Slurm-related config fields.
+ *
+ * @param cfg Configuration to populate with Slurm information.
+ * @return true if running under Slurm with required environment variables.
+ */
+bool detect_slurm_environment(Config& cfg) {
+    // Check for required Slurm environment variables
+    char const* slurm_job_id = std::getenv("SLURM_JOB_ID");
+    char const* slurm_local_id = std::getenv("SLURM_LOCALID");
+    char const* slurm_procid = std::getenv("SLURM_PROCID");
+    char const* slurm_ntasks = std::getenv("SLURM_NTASKS");
+
+    // Need at least job ID and local ID to be in Slurm mode
+    if (!slurm_job_id || !slurm_local_id) {
+        return false;
+    }
+
+    try {
+        cfg.slurm_local_id = std::stoi(slurm_local_id);
+
+        if (slurm_procid) {
+            cfg.slurm_global_rank = std::stoi(slurm_procid);
+        }
+
+        if (slurm_ntasks) {
+            cfg.slurm_ntasks = std::stoi(slurm_ntasks);
+        } else {
+            // Try SLURM_NPROCS as fallback
+            char const* slurm_nprocs = std::getenv("SLURM_NPROCS");
+            if (slurm_nprocs) {
+                cfg.slurm_ntasks = std::stoi(slurm_nprocs);
+            }
+        }
+
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+/**
+ * @brief Apply topology-based bindings for a specific GPU.
+ *
+ * This function sets CPU affinity, NUMA memory binding, and network device
+ * environment variables based on the topology information for the given GPU.
+ *
+ * @param cfg Configuration containing topology information.
+ * @param gpu_id GPU ID to apply bindings for.
+ * @param verbose Print warnings on failure.
+ */
+void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
+    if (!cfg.topology.has_value() || gpu_id < 0) {
+        return;
+    }
+
+    auto it = cfg.gpu_topology_map.find(gpu_id);
+    if (it == cfg.gpu_topology_map.end()) {
+        if (verbose) {
+            std::cerr << "Warning: No topology information for GPU " << gpu_id
+                      << std::endl;
+        }
+        return;
+    }
+
+    auto const& gpu_info = *it->second;
+
+    if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
+        if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
+            if (verbose) {
+                std::cerr << "Warning: Failed to set CPU affinity for GPU " << gpu_id
+                          << std::endl;
+            }
+        }
+    }
+
+    if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
+        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
+#if RAPIDSMPF_HAVE_NUMA
+            if (verbose) {
+                std::cerr << "Warning: Failed to set NUMA memory binding for GPU "
+                          << gpu_id << std::endl;
+            }
+#endif
+        }
+    }
+
+    if (cfg.bind_network && !gpu_info.network_devices.empty()) {
+        std::string ucx_net_devices;
+        for (size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
+            if (i > 0) {
+                ucx_net_devices += ",";
+            }
+            ucx_net_devices += gpu_info.network_devices[i];
+        }
+        setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1);
+    }
 }
 
 /**
@@ -414,6 +531,17 @@ Config parse_args(int argc, char* argv[]) {
             cfg.verbose = true;
         } else if (arg == "--no-cleanup") {
             cfg.cleanup = false;
+        } else if (arg == "--slurm") {
+            cfg.slurm_mode = true;
+        } else if (arg == "--") {
+            // Everything after -- is the application and its arguments
+            if (i + 1 < argc) {
+                cfg.app_binary = argv[i + 1];
+                for (int j = i + 2; j < argc; ++j) {
+                    cfg.app_args.push_back(argv[j]);
+                }
+            }
+            break;
         } else if (arg[0] == '-') {
             throw std::runtime_error("Unknown option: " + arg);
         } else {
@@ -433,9 +561,39 @@ Config parse_args(int argc, char* argv[]) {
         throw std::runtime_error("Missing application binary");
     }
 
-    // Single-node mode validation
-    if (cfg.nranks <= 0) {
-        throw std::runtime_error("Number of ranks (-n) must be specified and positive");
+    // Auto-detect Slurm mode if not explicitly specified
+    if (!cfg.slurm_mode) {
+        cfg.slurm_mode = detect_slurm_environment(cfg);
+    } else {
+        // --slurm was specified, populate Slurm info
+        if (!detect_slurm_environment(cfg)) {
+            throw std::runtime_error(
+                "--slurm specified but required Slurm environment variables "
+                "(SLURM_JOB_ID, SLURM_LOCALID) are not set. "
+                "Ensure you're running under srun."
+            );
+        }
+    }
+
+    if (cfg.slurm_mode) {
+        // Slurm mode validation
+        if (cfg.slurm_local_id < 0) {
+            throw std::runtime_error(
+                "SLURM_LOCALID environment variable not set or invalid"
+            );
+        }
+
+        // In Slurm mode, nranks comes from SLURM_NTASKS
+        if (cfg.slurm_ntasks > 0) {
+            cfg.nranks = cfg.slurm_ntasks;
+        }
+    } else {
+        // Single-node mode validation
+        if (cfg.nranks <= 0) {
+            throw std::runtime_error(
+                "Number of ranks (-n) must be specified and positive"
+            );
+        }
     }
 
     // Auto-detect GPUs if not specified
@@ -448,15 +606,17 @@ Config parse_args(int argc, char* argv[]) {
         }
     }
 
-    // Validate GPU count vs rank count
-    if (!cfg.gpus.empty() && cfg.nranks > static_cast<int>(cfg.gpus.size())) {
+    // Validate GPU count vs rank count (only warn in single-node mode)
+    if (!cfg.slurm_mode && !cfg.gpus.empty()
+        && cfg.nranks > static_cast<int>(cfg.gpus.size()))
+    {
         std::cerr << "Warning: Number of ranks (" << cfg.nranks
                   << ") exceeds number of GPUs (" << cfg.gpus.size()
                   << "). Multiple ranks will share GPUs." << std::endl;
     }
 
-    // Generate coordination directory if not specified
-    if (cfg.coord_dir.empty()) {
+    // Generate coordination directory if not specified (not needed in Slurm mode)
+    if (cfg.coord_dir.empty() && !cfg.slurm_mode) {
         cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
     }
 
@@ -598,43 +758,7 @@ pid_t launch_rank_local(
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
             }
 
-            // Apply topology-based configuration if available
-            if (cfg.topology.has_value() && gpu_id >= 0) {
-                auto it = cfg.gpu_topology_map.find(gpu_id);
-                if (it != cfg.gpu_topology_map.end()) {
-                    auto const& gpu_info = *it->second;
-
-                    if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
-                        if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
-                            std::cerr << "Warning: Failed to set CPU affinity for rank "
-                                      << captured_rank << " (GPU " << gpu_id << ")"
-                                      << std::endl;
-                        }
-                    }
-
-                    if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
-                        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
-#if RAPIDSMPF_HAVE_NUMA
-                            std::cerr
-                                << "Warning: Failed to set NUMA memory binding for rank "
-                                << captured_rank << " (GPU " << gpu_id << ")"
-                                << std::endl;
-#endif
-                        }
-                    }
-
-                    if (cfg.bind_network && !gpu_info.network_devices.empty()) {
-                        std::string ucx_net_devices;
-                        for (size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
-                            if (i > 0) {
-                                ucx_net_devices += ",";
-                            }
-                            ucx_net_devices += gpu_info.network_devices[i];
-                        }
-                        setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1);
-                    }
-                }
-            }
+            apply_topology_bindings(cfg, gpu_id, cfg.verbose);
 
             // Prepare arguments for execvp
             std::vector<char*> exec_args;
@@ -702,7 +826,8 @@ int main(int argc, char* argv[]) {
 
         if (cfg.verbose) {
             std::cout << "rrun configuration:\n";
-            std::cout << "  Mode:          Single-node\n"
+            std::cout << "  Mode:          " << (cfg.slurm_mode ? "Slurm" : "Single-node")
+                      << "\n"
                       << "  GPUs:          ";
             if (cfg.gpus.empty()) {
                 std::cout << "(none)\n";
@@ -714,13 +839,19 @@ int main(int argc, char* argv[]) {
                 }
                 std::cout << "\n";
             }
-            if (cfg.tag_output) {
-                std::cout << "  Tag Output:    Yes\n";
+            if (cfg.slurm_mode) {
+                std::cout << "  Slurm Local ID: " << cfg.slurm_local_id << "\n"
+                          << "  Slurm Rank:     " << cfg.slurm_global_rank << "\n"
+                          << "  Slurm NTasks:   " << cfg.slurm_ntasks << "\n";
+            } else {
+                if (cfg.tag_output) {
+                    std::cout << "  Tag Output:    Yes\n";
+                }
+                std::cout << "  Ranks:         " << cfg.nranks << "\n"
+                          << "  Coord Dir:     " << cfg.coord_dir << "\n"
+                          << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
             }
-            std::cout << "  Ranks:         " << cfg.nranks << "\n"
-                      << "  Application:   " << cfg.app_binary << "\n"
-                      << "  Coord Dir:     " << cfg.coord_dir << "\n"
-                      << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
+            std::cout << "  Application:   " << cfg.app_binary << "\n";
             std::vector<std::string> bind_types;
             if (cfg.bind_cpu)
                 bind_types.push_back("cpu");
@@ -752,6 +883,50 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
         }
 
+        // =====================================================================
+        // Slurm Mode: Apply topology bindings and exec the application
+        // =====================================================================
+        if (cfg.slurm_mode) {
+            // Set custom environment variables
+            for (auto const& env_pair : cfg.env_vars) {
+                setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+            }
+
+            // Determine GPU for this local rank
+            int gpu_id = -1;
+            if (!cfg.gpus.empty()) {
+                gpu_id =
+                    cfg.gpus[static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
+                setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
+
+                if (cfg.verbose) {
+                    std::cerr << "[rrun] Slurm local_id=" << cfg.slurm_local_id
+                              << " assigned to GPU " << gpu_id << std::endl;
+                }
+            }
+
+            apply_topology_bindings(cfg, gpu_id, cfg.verbose);
+
+            // Prepare arguments for execvp
+            std::vector<char*> exec_args;
+            exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
+            for (auto const& arg : cfg.app_args) {
+                exec_args.push_back(const_cast<char*>(arg.c_str()));
+            }
+            exec_args.push_back(nullptr);
+
+            // Exec the application (this replaces the current process)
+            execvp(cfg.app_binary.c_str(), exec_args.data());
+
+            // If we get here, execvp failed
+            std::cerr << "Failed to execute " << cfg.app_binary << ": "
+                      << std::strerror(errno) << std::endl;
+            return 1;
+        }
+
+        // =====================================================================
+        // Single-Node Mode: Fork processes locally
+        // =====================================================================
         std::filesystem::create_directories(cfg.coord_dir);
 
         std::vector<pid_t> pids;
