@@ -223,6 +223,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/coro_executor.cpp
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
