@@ -215,29 +215,6 @@ static void BM_Pack_pinned_copy_to_host(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::pack with pinned memory
- */
-static void BM_Pack_pinned_copy_to_pinned_host(benchmark::State& state) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-        state.SkipWithMessage("Pinned memory resources are not supported");
-        return;
-    }
-
-    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
-
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-
-    // Create memory resources
-    rmm::mr::cuda_async_memory_resource cuda_mr;
-    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
-        cuda_mr, rmm::percent_of_free_device_memory(40)
-    };
-    rapidsmpf::PinnedMemoryResource pinned_mr;
-
-    run_pack_and_copy(state, table_size_mb, pool_mr, pinned_mr, pinned_mr, stream);
-}
-
-/**
  * @brief Runs the cudf::chunked_pack benchmark
  * @param state The benchmark state
  * @param bounce_buffer_size The size of the bounce buffer in bytes
