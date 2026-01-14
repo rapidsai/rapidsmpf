@@ -28,6 +28,8 @@
 #include <string>
 #include <vector>
 
+#include <cuda_runtime.h>
+
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/topology_discovery.hpp>
@@ -196,6 +198,25 @@ bool extract_gpu_info_from_json(
     return true;
 }
 
+/**
+ * @brief Get PCI bus ID for a GPU device.
+ *
+ * @param gpu_id GPU device ID.
+ * @return PCI bus ID string, or "(unknown)" on error.
+ */
+std::string get_gpu_pci_bus_id(int gpu_id) {
+    if (gpu_id < 0) {
+        return "(unknown)";
+    }
+    std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
+    cudaError_t err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), gpu_id);
+    if (err != cudaSuccess) {
+        return "(unknown)";
+    }
+    // Trim to actual string length
+    return pci_bus_id.substr(0, pci_bus_id.find('\0'));
+}
+
 }  // namespace
 
 /**
@@ -218,36 +239,37 @@ int main(int argc, char* argv[]) {
             gpu_id = std::stoi(argv[++i]);
             validate = true;
         } else if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: " << argv[0]
-                      << " [--json <topology.json>] [--gpu-id <id>]\n"
-                      << "\n"
-                      << "Options:\n"
-                      << "  --json <file>    Read expected values from JSON file\n"
-                      << "  --gpu-id <id>    Use TopologyDiscovery API for GPU ID\n"
-                      << "  --help, -h       Show this help message\n"
-                      << "\n"
-                      << "If neither --json nor --gpu-id is provided, "
-                      << "just reports current configuration.\n"
-                      << "\n"
-                      << "Examples usage to validate resource binding on GPU 3 only:\n"
-                      << "  $ topology_discovery > topology.json\n"
-                      << "  $ rrun -n 1 -g 3 check_resource_binding--json topology.json\n"
-                      << "    === Topology Binding Test ===\n"
-                      << "    Rank: 0\n"
-                      << "    GPU ID: 3\n"
-                      << "    CPU Affinity: 0-19,40-59\n"
-                      << "    NUMA Nodes: 0\n"
-                      << "    UCX_NET_DEVICES: mlx5_1\n"
-                      << "    \n"
-                      << "    === Validation ===\n"
-                      << "    CPU Affinity: PASS\n"
-                      << "    NUMA Binding: PASS\n"
-                      << "    UCX_NET_DEVICES: PASS\n"
-                      << "    \n"
-                      << "    === Result ===\n"
-                      << "    All checks PASSED\n"
-                      << "\n"
-                      << std::endl;
+            std::cout
+                << "Usage: " << argv[0] << " [--json <topology.json>] [--gpu-id <id>]\n"
+                << "\n"
+                << "Options:\n"
+                << "  --json <file>    Read expected values from JSON file\n"
+                << "  --gpu-id <id>    Use TopologyDiscovery API for GPU ID\n"
+                << "  --help, -h       Show this help message\n"
+                << "\n"
+                << "If neither --json nor --gpu-id is provided, "
+                << "just reports current configuration.\n"
+                << "\n"
+                << "Examples usage to validate resource binding on GPU 3 only:\n"
+                << "  $ topology_discovery > topology.json\n"
+                << "  $ rrun -n 1 -g 3 check_resource_binding --json topology.json\n"
+                << "    === Topology Binding Test ===\n"
+                << "    Rank: 0\n"
+                << "    GPU ID: 3\n"
+                << "    GPU PCI Bus ID: 00000000:41:00.0\n"
+                << "    CPU Affinity: 0-19,40-59\n"
+                << "    NUMA Nodes: 0\n"
+                << "    UCX_NET_DEVICES: mlx5_1\n"
+                << "    \n"
+                << "    === Validation ===\n"
+                << "    CPU Affinity: PASS\n"
+                << "    NUMA Binding: PASS\n"
+                << "    UCX_NET_DEVICES: PASS\n"
+                << "    \n"
+                << "    === Result ===\n"
+                << "    All checks PASSED\n"
+                << "\n"
+                << std::endl;
             return 0;
         }
     }
@@ -270,6 +292,7 @@ int main(int argc, char* argv[]) {
     }
     if (gpu_id >= 0) {
         std::cout << "GPU ID: " << gpu_id << std::endl;
+        std::cout << "GPU PCI Bus ID: " << get_gpu_pci_bus_id(gpu_id) << std::endl;
     }
     std::cout << "CPU Affinity: "
               << (actual_cpu_affinity.empty() ? "(none)" : actual_cpu_affinity)
