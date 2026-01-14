@@ -80,6 +80,12 @@ Context::Context(
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );
+
+    // Setup a MemoryReserveOrWait instance for each memory type.
+    for (auto mem_type : MEMORY_TYPES) {
+        mrows_[static_cast<std::size_t>(mem_type)] =
+            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
+    }
 }
 
 Context::Context(
@@ -99,6 +105,12 @@ Context::Context(
 
 Context::~Context() noexcept {
     br_->spill_manager().remove_spill_function(spill_function_id_);
+
+    // By shutting down the executor explicitly, we guarantee that any dangling
+    // references to the executor will fail if they attempt to use it, and that
+    // the executor's destructor does not trigger shutdown on a different thread
+    // than the one that created the executor.
+    executor_->shutdown();
 }
 
 config::Options Context::options() const noexcept {
@@ -123,6 +135,10 @@ std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
 
 std::shared_ptr<BufferResource> Context::br() const noexcept {
     return br_;
+}
+
+std::shared_ptr<MemoryReserveOrWait> Context::mrow(MemoryType mem_type) const noexcept {
+    return mrows_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

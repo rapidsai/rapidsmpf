@@ -14,6 +14,7 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
+#include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
 #include <coro/coro.hpp>
@@ -33,7 +34,7 @@ class Context {
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
      * @param progress_thread Shared pointer to a progress thread.
-     * @param executor Unique pointer to a coroutine thread pool.
+     * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
      * @param statistics Shared pointer to a statistics collector.
      */
@@ -47,9 +48,7 @@ class Context {
     );
 
     /**
-     * @brief Convenience constructor with minimal configuration.
-     *
-     * Creates a default ProgressThread and a CoroThreadPoolExecutor using @p options.
+     * @brief Convenience constructor using the provided configuration options.
      *
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
@@ -108,6 +107,16 @@ class Context {
     [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
 
     /**
+     * @brief Get the `MemoryReserveOrWait` instance for the given memory type.
+     *
+     * @param mem_type Memory type for which reservations are requested.
+     * @return Shared pointer to the corresponding `MemoryReserveOrWait` instance.
+     */
+    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> mrow(
+        MemoryType mem_type
+    ) const noexcept;
+
+    /**
      * @brief Returns the statistics collector.
      *
      * @return Shared pointer to the statistics instance.
@@ -145,6 +154,7 @@ class Context {
     std::shared_ptr<ProgressThread> progress_thread_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
+    std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> mrows_ = {};
     std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
