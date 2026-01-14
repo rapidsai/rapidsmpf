@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include <atomic>
 #include <thread>
 
@@ -79,7 +78,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     std::vector<Node> nodes;
     nodes.push_back([](MemoryReserveOrWait& mrow) -> Node {
         EXPECT_THROW(
-            std::ignore = co_await mrow.reserve_or_wait(10, 1), std::runtime_error
+            std::ignore = co_await mrow.reserve_or_wait(10, 0), std::runtime_error
         );
     }(mrow));
 
@@ -119,16 +118,16 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
         ctx->br()
     };
 
-    // Create two reserve request while no memory is available.
+    // Create two reserve requests while no memory is available.
     set_mem_avail(0);
     std::vector<Node> nodes;
-    // One request with `future_release_potential = 1`.
+    // One request with `net_memory_delta = 1`.
     nodes.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Node {
         auto res = co_await mrow.reserve_or_wait(10, 1);
         EXPECT_EQ(res.size(), 10);
         log.add(1, std::move(res));
     }(log, mrow));
-    // And one request with `future_release_potential = 2`.
+    // And one request with `net_memory_delta = 2`.
     nodes.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Node {
         auto res = co_await mrow.reserve_or_wait(10, 2);
         EXPECT_EQ(res.size(), 10);
@@ -150,18 +149,19 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     // Only enough memory for ONE request, so completion order reflects selection order.
     set_mem_avail(10);
 
-    // Wait until exactly one reservation completes.
-    while (log.log.size() < 1)
-    {  // make sure log.log.size() is thread-safe, see note below
+    // Wait until at least one reservation completes.
+    while (log.log.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    EXPECT_EQ(log.log.at(0).first, 2);
+
+    // Smaller `net_memory_delta` has higher priority, so request 1 should complete first.
+    EXPECT_EQ(log.log.at(0).first, 1);
 
     // Now allow the second request to complete.
     set_mem_avail(20);
     thd.join();
-    EXPECT_EQ(log.log.at(0).first, 2);
-    EXPECT_EQ(log.log.at(1).first, 1);
+    EXPECT_EQ(log.log.at(0).first, 1);
+    EXPECT_EQ(log.log.at(1).first, 2);
 }
 
 TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {

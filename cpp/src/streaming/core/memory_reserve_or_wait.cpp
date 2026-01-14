@@ -69,7 +69,7 @@ Node MemoryReserveOrWait::shutdown() {
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
-    std::size_t size, std::size_t future_release_potential
+    std::size_t size, std::int64_t net_memory_delta
 ) {
     // First, check whether the requested memory is immediately available.
     auto [res, _] = br_->reserve(mem_type_, size, no_overbooking);
@@ -87,7 +87,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     reservation_requests_.insert(
         Request{
             .size = size,
-            .future_release_potential = future_release_potential,
+            .net_memory_delta = net_memory_delta,
             .sequence_number = sequence_counter++,
             .queue = request_queue
         }
@@ -124,9 +124,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 
 coro::task<std::pair<MemoryReservation, std::size_t>>
 MemoryReserveOrWait::reserve_or_wait_or_overbook(
-    std::size_t size, std::size_t future_release_potential
+    std::size_t size, std::int64_t net_memory_delta
 ) {
-    auto ret = co_await reserve_or_wait(size, future_release_potential);
+    auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
         co_return br_->reserve(mem_type_, size, /* allow_overbooking = */ true);
     }
@@ -134,9 +134,9 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
-    std::size_t size, std::size_t future_release_potential
+    std::size_t size, std::int64_t net_memory_delta
 ) {
-    auto ret = co_await reserve_or_wait(size, future_release_potential);
+    auto ret = co_await reserve_or_wait(size, net_memory_delta);
     RAPIDSMPF_EXPECTS(
         ret.size() == size,
         "cannot reserve " + std::string{to_string(mem_type_)} + " memory ("
@@ -209,15 +209,16 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             }
             auto const max_size = memory_available();
 
-            // Find the request with the greatest future_release_potential that fits
+            // Find the request with the smallest net_memory_delta that fits
             // into the currently available memory.
             std::unique_lock lock(mutex_);
             auto eligibles = eligible_requests(max_size);
-            if (eligibles.begin() == eligibles.end()) {
+            if (eligibles.empty()) {
                 continue;  // No eligible requests.
             }
-            auto it = std::ranges::max_element(
-                eligibles, std::less<>{}, &Request::future_release_potential
+
+            auto it = std::ranges::min_element(
+                eligibles, std::less<>{}, &Request::net_memory_delta
             );
 
             // Try to reserve memory for the selected request.
@@ -234,8 +235,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         }
 
         // Reaching this point means we hit the timeout. We force progress by selecting
-        // among the smallest pending requests, preferring the one with the largest
-        // future_release_potential.
+        // among the smallest pending requests, preferring the one with the smallest
+        // net_memory_delta.
         std::unique_lock lock(mutex_);
         if (reservation_requests_.empty()) {
             co_return;
@@ -250,13 +251,13 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             reservation_requests_, smallest_size, std::less<>{}, &Request::size
         );
 
-        // Among the smallest requests, pick the one with the largest
-        // future_release_potential. If multiple requests tie, we pick the oldest one,
+        // Among the smallest requests, pick the one with the smallest
+        // net_memory_delta. If multiple requests tie, we pick the oldest one,
         // since the set is ordered by size and then sequence_number (ascending).
-        auto it = std::ranges::max_element(
+        auto it = std::ranges::min_element(
             std::ranges::subrange(first, same_size_end),
             std::less<>{},
-            &Request::future_release_potential
+            &Request::net_memory_delta
         );
 
         Request request = reservation_requests_.extract(it).value();
