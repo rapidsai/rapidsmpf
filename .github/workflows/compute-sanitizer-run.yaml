@@ -1,0 +1,30 @@
+name: Compute Sanitizer Run
+
+on:
+  workflow_call:
+    inputs:
+      tool_name:
+        required: true
+        type: string
+        description: "Compute sanitizer tool to run (memcheck, racecheck, initcheck, synccheck)"
+  workflow_dispatch:
+    inputs:
+      tool_name:
+        required: true
+        type: choice
+        description: "Compute sanitizer tool to run"
+        options:
+          - memcheck
+          - racecheck
+          - initcheck
+          - synccheck
+
+jobs:
+  run-sanitizer-tests:
+    name: Run ${{ inputs.tool_name }} on single_tests
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.1.0
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
+      script: "ci/test_cpp_sanitizer.sh ${{ inputs.tool_name }} single_tests"
