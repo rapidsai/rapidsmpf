@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 set -eou pipefail
@@ -7,8 +7,16 @@ set -eou pipefail
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
+
+
+if [[ "${RAPIDS_PY_VERSION}" != "3.10" ]]; then
+    PYTHON_WHEELHOUSE=$(rapids-download-from-github "$(rapids-package-name "wheel_python" rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")")
+    source ./ci/use_upstream_sabi_wheels.sh
+else
+    PYTHON_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="rapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
+fi
+
 CPP_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
-PYTHON_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="rapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
 
 # echo to expand wildcard before adding '[extra]' requires for pip
 rapids-pip-retry install \
