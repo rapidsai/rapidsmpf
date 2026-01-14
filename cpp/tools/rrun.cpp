@@ -50,6 +50,36 @@
 #include <pmix.h>
 #endif
 
+// Hex encoding for binary-safe address transmission
+namespace {
+std::string hex_encode(std::string const& input) {
+    static constexpr const char* hex_chars = "0123456789abcdef";
+    std::string result;
+    result.reserve(input.size() * 2);
+    for (char ch : input) {
+        auto c = static_cast<unsigned char>(ch);
+        result.push_back(hex_chars[c >> 4]);
+        result.push_back(hex_chars[c & 0x0F]);
+    }
+    return result;
+}
+
+std::string hex_decode(std::string const& input) {
+    std::string result;
+    result.reserve(input.size() / 2);
+    for (size_t i = 0; i < input.size(); i += 2) {
+        auto high = static_cast<unsigned char>(
+            (input[i] >= 'a') ? (input[i] - 'a' + 10) : (input[i] - '0')
+        );
+        auto low = static_cast<unsigned char>(
+            (input[i + 1] >= 'a') ? (input[i + 1] - 'a' + 10) : (input[i + 1] - '0')
+        );
+        result.push_back(static_cast<char>((high << 4) | low));
+    }
+    return result;
+}
+}  // namespace
+
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
 // Prefer throwing standard exceptions instead.
@@ -778,17 +808,20 @@ std::string coordinate_root_address_via_pmix(
     std::string root_address;
 
     if (is_root) {
-        // Root parent publishes the address
+        // Root parent publishes the address (hex-encoded for binary safety)
+        std::string encoded_address = hex_encode(root_address_to_publish);
+
         if (verbose) {
-            std::cout << "[rrun] Publishing root address via PMIx: "
-                      << root_address_to_publish << std::endl;
+            std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
+                      << root_address_to_publish.size() << " bytes -> "
+                      << encoded_address.size() << " chars)" << std::endl;
         }
 
         // Use PMIx_Put with GLOBAL scope
         pmix_value_t value;
         PMIX_VALUE_CONSTRUCT(&value);
         value.type = PMIX_STRING;
-        value.data.string = strdup(root_address_to_publish.c_str());
+        value.data.string = strdup(encoded_address.c_str());
 
         rc = PMIx_Put(PMIX_GLOBAL, "rapidsmpf_root_address", &value);
         PMIX_VALUE_DESTRUCT(&value);
@@ -857,12 +890,15 @@ std::string coordinate_root_address_via_pmix(
             throw std::runtime_error("PMIx_Get returned non-string value");
         }
 
-        root_address = value->data.string;
+        std::string encoded_address = value->data.string;
         PMIX_VALUE_RELEASE(value);
 
+        root_address = hex_decode(encoded_address);
+
         if (verbose) {
-            std::cout << "[rrun] Retrieved root address via PMIx: " << root_address
-                      << std::endl;
+            std::cout << "[rrun] Retrieved root address via PMIx (hex-encoded, "
+                      << encoded_address.size() << " chars -> " << root_address.size()
+                      << " bytes)" << std::endl;
         }
     }
 
@@ -919,13 +955,17 @@ pid_t launch_rank_local(
             setenv("RAPIDSMPF_RANK", std::to_string(captured_global_rank).c_str(), 1);
             setenv("RAPIDSMPF_NRANKS", std::to_string(captured_total_ranks).c_str(), 1);
 
-            // If root address was pre-coordinated by parent, set it
+            // Always set coord_dir for bootstrap initialization
+            // (needed even if using RAPIDSMPF_ROOT_ADDRESS for coordination)
+            if (!cfg.coord_dir.empty()) {
+                setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
+            }
+
+            // If root address was pre-coordinated by parent, set it (hex-encoded)
             // This allows children to skip bootstrap coordination entirely
             if (!captured_root_address.empty()) {
-                setenv("RAPIDSMPF_ROOT_ADDRESS", captured_root_address.c_str(), 1);
-            } else {
-                // Use FILE backend coordination
-                setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
+                std::string encoded_address = hex_encode(captured_root_address);
+                setenv("RAPIDSMPF_ROOT_ADDRESS", encoded_address.c_str(), 1);
             }
 
             // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion
@@ -1129,6 +1169,17 @@ int main(int argc, char* argv[]) {
                           << std::endl;
             }
 
+            // Set up coordination directory (needed by all tasks for child bootstrap)
+            char const* job_id = std::getenv("SLURM_JOB_ID");
+            if (cfg.coord_dir.empty()) {
+                if (job_id) {
+                    cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
+                } else {
+                    cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+                }
+            }
+            std::filesystem::create_directories(cfg.coord_dir);
+
             // Root parent needs to launch rank 0 first to get address
             bool is_root_parent = (cfg.slurm_global_rank == 0);
 
@@ -1140,15 +1191,9 @@ int main(int argc, char* argv[]) {
                         << std::endl;
                 }
 
-                // We need to extract the root address from rank 0's output
-                // This is a bit tricky - we'll launch it with a special mode
-                // For now, we'll rely on the fact that the root address will be
-                // printed or we can read it from a pipe
-
-                // Actually, let's use a temporary file for the root to write its address
-                // This is cleaner than parsing stdout
+                // Set up address file for rank 0 to write to
                 std::string address_file = "/tmp/rapidsmpf_root_address_"
-                                           + std::string{std::getenv("SLURM_JOB_ID")};
+                                           + std::string{job_id ? job_id : "unknown"};
                 setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
 
                 // Launch rank 0
@@ -1221,14 +1266,19 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                // Read the address
+                // Read the hex-encoded address, decode and remove file
+                std::string encoded_address;
                 std::ifstream addr_stream(address_file);
-                std::getline(addr_stream, coordinated_root_address);
+                std::getline(addr_stream, encoded_address);
                 addr_stream.close();
+                coordinated_root_address = hex_decode(encoded_address);
+                std::filesystem::remove(address_file);
 
                 if (cfg.verbose) {
-                    std::cout << "[rrun] Got root address from rank 0: "
-                              << coordinated_root_address << std::endl;
+                    std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
+                              << encoded_address.size() << " chars -> "
+                              << coordinated_root_address.size() << " bytes)"
+                              << std::endl;
                 }
 
                 // Coordinate with other parents via PMIx
@@ -1238,7 +1288,6 @@ int main(int argc, char* argv[]) {
 
                 // Rank 0 is already running - we'll track its PID separately
                 // It will be handled along with other children
-
                 if (rank0_stdout_forwarder.joinable())
                     rank0_stdout_forwarder.detach();
                 if (rank0_stderr_forwarder.joinable())
