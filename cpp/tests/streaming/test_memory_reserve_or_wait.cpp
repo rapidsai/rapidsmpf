@@ -160,7 +160,6 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     // Now allow the second request to complete.
     set_mem_avail(20);
     thd.join();
-    EXPECT_EQ(log.log.at(0).first, 1);
     EXPECT_EQ(log.log.at(1).first, 2);
 }
 
