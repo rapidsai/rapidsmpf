@@ -46,6 +46,10 @@
 
 #include <rapidsmpf/topology_discovery.hpp>
 
+#ifdef RAPIDSMPF_HAVE_SLURM
+#include <pmix.h>
+#endif
+
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
 // Prefer throwing standard exceptions instead.
@@ -740,6 +744,136 @@ pid_t fork_with_piped_stdio(
     return pid;
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
+/**
+ * @brief Coordinate root address between parent processes using PMIx
+ *
+ * This function is called by parent rrun processes in Slurm hybrid mode.
+ * The root parent (PMIX_RANK=0) publishes the root address, and non-root
+ * parents retrieve it. This avoids file-based coordination.
+ *
+ * @param is_root Whether this is the root parent (PMIX_RANK=0)
+ * @param root_address_to_publish Address to publish (only used if is_root)
+ * @param verbose Whether to print debug messages
+ * @return Root address (either published or retrieved)
+ * @throws std::runtime_error on PMIx errors
+ */
+std::string coordinate_root_address_via_pmix(
+    bool is_root, std::string const& root_address_to_publish, bool verbose
+) {
+    // Initialize PMIx for parent process
+    pmix_proc_t proc;
+    pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
+    if (rc != PMIX_SUCCESS) {
+        throw std::runtime_error(
+            "PMIx_Init failed in rrun parent: " + std::string{PMIx_Error_string(rc)}
+        );
+    }
+
+    if (verbose) {
+        std::cout << "[rrun] Parent PMIx initialized: rank " << proc.rank
+                  << ", namespace " << proc.nspace << std::endl;
+    }
+
+    std::string root_address;
+
+    if (is_root) {
+        // Root parent publishes the address
+        if (verbose) {
+            std::cout << "[rrun] Publishing root address via PMIx: "
+                      << root_address_to_publish << std::endl;
+        }
+
+        // Use PMIx_Put with GLOBAL scope
+        pmix_value_t value;
+        PMIX_VALUE_CONSTRUCT(&value);
+        value.type = PMIX_STRING;
+        value.data.string = strdup(root_address_to_publish.c_str());
+
+        rc = PMIx_Put(PMIX_GLOBAL, "rapidsmpf_root_address", &value);
+        PMIX_VALUE_DESTRUCT(&value);
+
+        if (rc != PMIX_SUCCESS) {
+            PMIx_Finalize(nullptr, 0);
+            throw std::runtime_error(
+                "PMIx_Put failed: " + std::string{PMIx_Error_string(rc)}
+            );
+        }
+
+        // Commit the data
+        rc = PMIx_Commit();
+        if (rc != PMIX_SUCCESS) {
+            PMIx_Finalize(nullptr, 0);
+            throw std::runtime_error(
+                "PMIx_Commit failed: " + std::string{PMIx_Error_string(rc)}
+            );
+        }
+
+        root_address = root_address_to_publish;
+    }
+
+    // Barrier with PMIX_COLLECT_DATA to ensure data exchange
+    pmix_info_t info;
+    PMIX_INFO_CONSTRUCT(&info);
+    bool collect_data = true;
+    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect_data, PMIX_BOOL);
+
+    pmix_proc_t proc_wildcard;
+    PMIX_PROC_CONSTRUCT(&proc_wildcard);
+    std::memcpy(proc_wildcard.nspace, proc.nspace, PMIX_MAX_NSLEN + 1);
+    proc_wildcard.rank = PMIX_RANK_WILDCARD;
+
+    rc = PMIx_Fence(&proc_wildcard, 1, &info, 1);
+    PMIX_INFO_DESTRUCT(&info);
+
+    // Accept partial success (some PMIx implementations return this for fences)
+    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
+        PMIx_Finalize(nullptr, 0);
+        throw std::runtime_error(
+            "PMIx_Fence failed: " + std::string{PMIx_Error_string(rc)}
+        );
+    }
+
+    if (!is_root) {
+        // Non-root parents retrieve the address
+        pmix_proc_t source_proc;
+        PMIX_PROC_CONSTRUCT(&source_proc);
+        std::memcpy(source_proc.nspace, proc.nspace, PMIX_MAX_NSLEN + 1);
+        source_proc.rank = 0;  // Get from rank 0
+
+        pmix_value_t* value = nullptr;
+        rc = PMIx_Get(&source_proc, "rapidsmpf_root_address", nullptr, 0, &value);
+
+        if (rc != PMIX_SUCCESS || value == nullptr) {
+            PMIx_Finalize(nullptr, 0);
+            throw std::runtime_error(
+                "PMIx_Get failed: " + std::string{PMIx_Error_string(rc)}
+            );
+        }
+
+        if (value->type != PMIX_STRING) {
+            PMIX_VALUE_RELEASE(value);
+            PMIx_Finalize(nullptr, 0);
+            throw std::runtime_error("PMIx_Get returned non-string value");
+        }
+
+        root_address = value->data.string;
+        PMIX_VALUE_RELEASE(value);
+
+        if (verbose) {
+            std::cout << "[rrun] Retrieved root address via PMIx: " << root_address
+                      << std::endl;
+        }
+    }
+
+    // Keep PMIx session alive - will finalize after children complete
+    // Note: We don't call PMIx_Finalize here because we want the session
+    // to stay alive while children are running
+
+    return root_address;
+}
+#endif  // RAPIDSMPF_HAVE_SLURM
+
 /**
  * @brief Launch a single rank locally (fork-based).
  *
@@ -747,6 +881,7 @@ pid_t fork_with_piped_stdio(
  * @param global_rank Global rank number (used for RAPIDSMPF_RANK).
  * @param local_rank Local rank for GPU assignment (defaults to global_rank).
  * @param total_ranks Total number of ranks across all tasks (used for RAPIDSMPF_NRANKS).
+ * @param root_address Optional pre-coordinated root address (for hybrid mode).
  * @param out_fd_stdout Output file descriptor for stdout.
  * @param out_fd_stderr Output file descriptor for stderr.
  * @return Child process PID.
@@ -756,18 +891,25 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
+    std::string const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 ) {
-    // Capture ranks by value explicitly to avoid any potential issues
+    // Capture all parameters by value to avoid any potential issues
     int captured_global_rank = global_rank;
     int captured_local_rank = local_rank;
     int captured_total_ranks = total_ranks;
+    std::string captured_root_address = root_address;
+
     return fork_with_piped_stdio(
         out_fd_stdout,
         out_fd_stderr,
         /*combine_stderr*/ false,
-        [&cfg, captured_global_rank, captured_local_rank, captured_total_ranks]() {
+        [&cfg,
+         captured_global_rank,
+         captured_local_rank,
+         captured_total_ranks,
+         captured_root_address]() {
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
@@ -776,16 +918,23 @@ pid_t launch_rank_local(
             // Set environment variables
             setenv("RAPIDSMPF_RANK", std::to_string(captured_global_rank).c_str(), 1);
             setenv("RAPIDSMPF_NRANKS", std::to_string(captured_total_ranks).c_str(), 1);
-            setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
 
-            // In Slurm hybrid mode, unset Slurm rank variables to avoid confusion
-            // Children inherit parent's SLURM_PROCID, which could interfere with
-            // bootstrap Since RAPIDSMPF_COORD_DIR is set, FILE backend will be used
-            // anyway
+            // If root address was pre-coordinated by parent, set it
+            // This allows children to skip bootstrap coordination entirely
+            if (!captured_root_address.empty()) {
+                setenv("RAPIDSMPF_ROOT_ADDRESS", captured_root_address.c_str(), 1);
+            } else {
+                // Use FILE backend coordination
+                setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
+            }
+
+            // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion
+            // Children should not try to initialize PMIx themselves
             if (cfg.slurm_mode) {
                 unsetenv("SLURM_PROCID");
                 unsetenv("SLURM_LOCALID");
                 unsetenv("PMIX_RANK");
+                unsetenv("PMIX_NAMESPACE");
             }
 
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
@@ -922,6 +1071,9 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
         }
 
+        // Variable to hold pre-coordinated root address (for Slurm hybrid mode)
+        std::string coordinated_root_address;
+
         // =====================================================================
         // Slurm Mode: Two sub-modes based on whether -n was specified
         // =====================================================================
@@ -967,17 +1119,153 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            // ===== Hybrid Mode: Fork multiple ranks within this Slurm task =====
+            // ===== Hybrid Mode: Parent-mediated coordination via PMIx =====
+#ifdef RAPIDSMPF_HAVE_SLURM
             if (cfg.verbose) {
                 std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm_global_rank
                           << " launching " << cfg.nranks << " ranks per task"
                           << std::endl;
+                std::cout << "[rrun] Using PMIx for parent coordination (no file I/O)"
+                          << std::endl;
+            }
+
+            // Root parent needs to launch rank 0 first to get address
+            bool is_root_parent = (cfg.slurm_global_rank == 0);
+
+            if (is_root_parent) {
+                // Root parent: Launch ONLY rank 0 first to get UCXX address
+                if (cfg.verbose) {
+                    std::cout
+                        << "[rrun] Root parent: launching rank 0 first to get address"
+                        << std::endl;
+                }
+
+                // We need to extract the root address from rank 0's output
+                // This is a bit tricky - we'll launch it with a special mode
+                // For now, we'll rely on the fact that the root address will be
+                // printed or we can read it from a pipe
+
+                // Actually, let's use a temporary file for the root to write its address
+                // This is cleaner than parsing stdout
+                std::string address_file = "/tmp/rapidsmpf_root_address_"
+                                           + std::string{std::getenv("SLURM_JOB_ID")};
+                setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
+
+                // Launch rank 0
+                int fd_out = -1, fd_err = -1;
+                int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
+                int total_ranks = slurm_ntasks * cfg.nranks;
+
+                pid_t rank0_pid =
+                    launch_rank_local(cfg, 0, 0, total_ranks, "", &fd_out, &fd_err);
+
+                // Start forwarders for rank 0 output
+                std::thread rank0_stdout_forwarder;
+                std::thread rank0_stderr_forwarder;
+                auto suppress = std::make_shared<std::atomic<bool>>(false);
+
+                if (fd_out >= 0) {
+                    rank0_stdout_forwarder = std::thread([fd_out, suppress]() {
+                        FILE* stream = fdopen(fd_out, "r");
+                        if (!stream) {
+                            close(fd_out);
+                            return;
+                        }
+                        char buffer[4096];
+                        while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                            if (suppress->load())
+                                continue;
+                            std::lock_guard<std::mutex> lock(output_mutex);
+                            fputs(buffer, stdout);
+                            fflush(stdout);
+                        }
+                        fclose(stream);
+                    });
+                }
+
+                if (fd_err >= 0) {
+                    rank0_stderr_forwarder = std::thread([fd_err, suppress]() {
+                        FILE* stream = fdopen(fd_err, "r");
+                        if (!stream) {
+                            close(fd_err);
+                            return;
+                        }
+                        char buffer[4096];
+                        while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                            if (suppress->load())
+                                continue;
+                            std::lock_guard<std::mutex> lock(output_mutex);
+                            fputs(buffer, stderr);
+                            fflush(stderr);
+                        }
+                        fclose(stream);
+                    });
+                }
+
+                // Wait for rank 0 to write the address file (with timeout)
+                auto start = std::chrono::steady_clock::now();
+                while (!std::filesystem::exists(address_file)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    auto elapsed = std::chrono::steady_clock::now() - start;
+                    if (elapsed > std::chrono::seconds(30)) {
+                        suppress->store(true);
+                        kill(rank0_pid, SIGKILL);
+                        waitpid(rank0_pid, nullptr, 0);
+                        if (rank0_stdout_forwarder.joinable())
+                            rank0_stdout_forwarder.join();
+                        if (rank0_stderr_forwarder.joinable())
+                            rank0_stderr_forwarder.join();
+                        throw std::runtime_error(
+                            "Timeout waiting for rank 0 to write root address"
+                        );
+                    }
+                }
+
+                // Read the address
+                std::ifstream addr_stream(address_file);
+                std::getline(addr_stream, coordinated_root_address);
+                addr_stream.close();
+
+                if (cfg.verbose) {
+                    std::cout << "[rrun] Got root address from rank 0: "
+                              << coordinated_root_address << std::endl;
+                }
+
+                // Coordinate with other parents via PMIx
+                coordinated_root_address = coordinate_root_address_via_pmix(
+                    true, coordinated_root_address, cfg.verbose
+                );
+
+                // Rank 0 is already running - we'll track its PID separately
+                // It will be handled along with other children
+
+                if (rank0_stdout_forwarder.joinable())
+                    rank0_stdout_forwarder.detach();
+                if (rank0_stderr_forwarder.joinable())
+                    rank0_stderr_forwarder.detach();
+
+            } else {
+                // Non-root parent: Get address from root via PMIx
+                coordinated_root_address =
+                    coordinate_root_address_via_pmix(false, "", cfg.verbose);
+            }
+
+            // Now all parents have the coordinated_root_address
+            // Continue to fork-based launch below with this address
+            unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
+#else
+            // Fallback to FILE backend if PMIx not available
+            if (cfg.verbose) {
+                std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm_global_rank
+                          << " launching " << cfg.nranks << " ranks per task"
+                          << std::endl;
+                std::cout
+                    << "[rrun] WARNING: PMIx not available, falling back to FILE backend"
+                    << std::endl;
             }
 
             // Generate coordination directory if not specified
-            // In hybrid mode, we need FILE backend since PMIx doesn't know about children
             if (cfg.coord_dir.empty()) {
-                // Use Slurm job ID for coordination directory to ensure uniqueness
                 char const* job_id = std::getenv("SLURM_JOB_ID");
                 if (job_id) {
                     cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
@@ -987,26 +1275,34 @@ int main(int argc, char* argv[]) {
             }
 
             std::filesystem::create_directories(cfg.coord_dir);
-
-            // Continue to fork-based launch below (like single-node mode)
-            // cfg.nranks already contains ranks per task, will be adjusted below
+            coordinated_root_address = "";  // Empty means use FILE backend
+#endif
         }
 
         // =====================================================================
         // Fork-based Launch: Single-Node or Slurm Hybrid Mode
         // =====================================================================
-        std::filesystem::create_directories(cfg.coord_dir);
+
+        // For non-Slurm mode or FILE backend fallback, create coord dir
+        if (!cfg.slurm_mode || coordinated_root_address.empty()) {
+            if (cfg.coord_dir.empty()) {
+                cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+            }
+            std::filesystem::create_directories(cfg.coord_dir);
+        }
 
         // Determine rank offset and total ranks
         int rank_offset = 0;
         int ranks_per_task = cfg.nranks;  // Ranks to launch in this process
         int total_ranks = cfg.nranks;  // Total ranks across all processes
+        bool is_root_parent = false;
 
         if (cfg.slurm_mode) {
             // Hybrid mode: multiple ranks per Slurm task
             int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
             rank_offset = cfg.slurm_global_rank * ranks_per_task;
             total_ranks = slurm_ntasks * ranks_per_task;
+            is_root_parent = (cfg.slurm_global_rank == 0);
 
             if (cfg.verbose) {
                 std::cout << "[rrun] Task " << cfg.slurm_global_rank
@@ -1065,12 +1361,23 @@ int main(int argc, char* argv[]) {
         };
 
         // Launch ranks (with offset for Slurm hybrid mode)
-        for (int local_rank = 0; local_rank < ranks_per_task; ++local_rank) {
+        // Note: Root parent already launched rank 0 in PMIx coordination phase
+        int start_local_rank =
+            (is_root_parent && !coordinated_root_address.empty()) ? 1 : 0;
+
+        for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank)
+        {
             int global_rank = rank_offset + local_rank;
             int fd_out = -1;
             int fd_err = -1;
             pid_t pid = launch_rank_local(
-                cfg, global_rank, local_rank, total_ranks, &fd_out, &fd_err
+                cfg,
+                global_rank,
+                local_rank,
+                total_ranks,
+                coordinated_root_address,
+                &fd_out,
+                &fd_err
             );
             pids.push_back(pid);
 
@@ -1143,11 +1450,24 @@ int main(int argc, char* argv[]) {
             std::cout << "\nAll ranks completed successfully." << std::endl;
         }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
+        if (cfg.slurm_mode && !coordinated_root_address.empty()) {
+            if (cfg.verbose) {
+                std::cout << "[rrun] Finalizing PMIx in parent" << std::endl;
+            }
+            PMIx_Finalize(nullptr, 0);
+        }
+#endif
+
         return exit_status;
 
     } catch (std::exception const& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         std::cerr << "Run with -h or --help for usage information." << std::endl;
+
+#ifdef RAPIDSMPF_HAVE_SLURM
+        PMIx_Finalize(nullptr, 0);
+#endif
         return 1;
     }
 }
