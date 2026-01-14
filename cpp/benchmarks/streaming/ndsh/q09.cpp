@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -174,7 +174,7 @@ rapidsmpf::streaming::Node filter_part(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
@@ -216,7 +216,7 @@ rapidsmpf::streaming::Node select_columns(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
@@ -292,8 +292,9 @@ rapidsmpf::streaming::Node round_sum_profit(
     RAPIDSMPF_EXPECTS(!msg.empty(), "Expecting to see a single chunk");
     auto next = co_await ch_in->receive();
     RAPIDSMPF_EXPECTS(next.empty(), "Not expecting to see a second chunk");
-    auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto chunk = co_await rapidsmpf::ndsh::to_device(
+        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+    );
     auto table = chunk.table_view();
     auto rounded = cudf::round(
         table.column(2),

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -370,8 +370,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     // Copy the chunk back to device and verify.
     {
         auto chunk = m3.release<TableChunk>();
-        auto res = br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE);
-        chunk = chunk.make_available(res);
+        chunk = chunk.make_available(
+            br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
+        );
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
     }
 

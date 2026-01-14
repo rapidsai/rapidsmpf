@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -104,6 +104,11 @@ TableChunk TableChunk::make_available(MemoryReservation& reservation) {
         ),
         stream
     };
+}
+
+TableChunk TableChunk::make_available(MemoryReservation&& reservation) {
+    MemoryReservation& res = reservation;
+    return make_available(res);
 }
 
 cudf::table_view TableChunk::table_view() const {
