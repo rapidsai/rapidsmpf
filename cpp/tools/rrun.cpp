@@ -778,6 +778,16 @@ pid_t launch_rank_local(
             setenv("RAPIDSMPF_NRANKS", std::to_string(captured_total_ranks).c_str(), 1);
             setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
 
+            // In Slurm hybrid mode, unset Slurm rank variables to avoid confusion
+            // Children inherit parent's SLURM_PROCID, which could interfere with
+            // bootstrap Since RAPIDSMPF_COORD_DIR is set, FILE backend will be used
+            // anyway
+            if (cfg.slurm_mode) {
+                unsetenv("SLURM_PROCID");
+                unsetenv("SLURM_LOCALID");
+                unsetenv("PMIX_RANK");
+            }
+
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
             // Use local_rank for GPU assignment (for Slurm hybrid mode)
             int gpu_id = -1;
