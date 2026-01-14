@@ -130,7 +130,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     if (ret.size() < size) {
         co_return br_->reserve(mem_type_, size, /* allow_overbooking = */ true);
     }
-    co_return {std::move(ret), size};
+    co_return {std::move(ret), 0};
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
