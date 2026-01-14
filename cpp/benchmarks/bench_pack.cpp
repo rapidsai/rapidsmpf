@@ -545,7 +545,7 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
-static void BM_ChunkedPack_pinned(benchmark::State& state) {
+static void BM_ChunkedPack_pinned_device_mr(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
         return;
@@ -567,6 +567,37 @@ static void BM_ChunkedPack_pinned(benchmark::State& state) {
 
     run_chunked_pack_without_bounce_buffer<rapidsmpf::HostBuffer>(
         state, bounce_buffer_size, table_size_bytes, pool_mr, pool_mr, pinned_mr, stream
+    );
+}
+
+/**
+ * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
+ * buffer.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
+static void BM_ChunkedPack_pinned_pinned_mr(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
+    auto const table_size_bytes = table_size_mb * MB;
+
+    // Bounce buffer size: max(1MB, table_size / 10)
+    auto const bounce_buffer_size = std::max(MB, table_size_bytes / 10);
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+
+    run_chunked_pack_without_bounce_buffer<rapidsmpf::HostBuffer>(
+        state, bounce_buffer_size, table_size_bytes, pool_mr, pinned_mr, pinned_mr, stream
     );
 }
 
@@ -620,7 +651,12 @@ BENCHMARK(BM_ChunkedPack_device)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
 
-BENCHMARK(BM_ChunkedPack_pinned)
+BENCHMARK(BM_ChunkedPack_pinned_device_mr)
+    ->Apply(PackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_pinned_pinned_mr)
     ->Apply(PackArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
