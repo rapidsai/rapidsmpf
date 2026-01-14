@@ -32,10 +32,12 @@ Node partition_and_pack(
             break;
         }
         auto table = msg.release<TableChunk>();
-        auto reservation = ctx->br()->reserve_device_memory_and_spill(
-            table.make_available_cost(), false
+        auto const net_memory_delta =
+            static_cast<std::int64_t>(table.make_available_cost());
+        auto tbl = table.make_available(
+            co_await ctx->memory(MemoryType::DEVICE)
+                ->reserve_or_wait_or_fail(table.make_available_cost(), net_memory_delta)
         );
-        auto tbl = table.make_available(reservation);
 
         PartitionMapChunk partition_map{
             .data = rapidsmpf::partition_and_pack(

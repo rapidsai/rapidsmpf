@@ -57,7 +57,7 @@ coro::task<streaming::Message> broadcast(
             if (msg.empty()) {
                 break;
             }
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
             cuda_stream_join(gather_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
@@ -90,7 +90,7 @@ coro::task<streaming::Message> broadcast(
                 break;
             }
             // TODO: If this chunk is already in pack form, this is unnecessary.
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
             auto pack =
                 cudf::pack(chunk.table_view(), chunk.stream(), ctx->br()->device_mr());
             auto packed_data = PackedData(
@@ -144,8 +144,8 @@ streaming::Node broadcast(
 /**
  * @brief Join a table chunk against a build hash table returning a message of the result.
  *
- * @param ctx Streaming context
- * @param right_chunk Chunk to join
+ * @param ctx Streaming context.
+ * @param right_chunk Chunk to join. Must be on device e.g. use to_device() on the chunk.
  * @param sequence Sequence number of the output
  * @param joiner hash_join object, representing the build table.
  * @param build_carrier Columns from the build-side table to be included in the output.
@@ -166,7 +166,6 @@ streaming::Message inner_join_chunk(
     CudaEvent* build_event
 ) {
     CudaEvent event;
-    right_chunk = to_device(ctx, std::move(right_chunk));
     auto chunk_stream = right_chunk.stream();
     build_event->stream_wait(chunk_stream);
     auto probe_table = right_chunk.table_view();
@@ -232,7 +231,7 @@ streaming::Node inner_join_broadcast(
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto build_table = to_device(
+    auto build_table = co_await to_device(
         ctx,
         (co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
             .release<streaming::TableChunk>()
@@ -267,7 +266,7 @@ streaming::Node inner_join_broadcast(
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
-            right_msg.release<streaming::TableChunk>(),
+            co_await to_device(ctx, right_msg.release<streaming::TableChunk>()),
             right_msg.sequence_number(),
             joiner,
             build_carrier,
@@ -308,7 +307,8 @@ streaming::Node inner_join_shuffle(
             "Mismatching sequence numbers"
         );
         // TODO: currently always using left as build table.
-        auto build_chunk = to_device(ctx, left_msg.release<streaming::TableChunk>());
+        auto build_chunk =
+            co_await to_device(ctx, left_msg.release<streaming::TableChunk>());
         auto build_stream = build_chunk.stream();
         auto joiner = cudf::hash_join(
             build_chunk.table_view().select(left_on),
@@ -330,7 +330,7 @@ streaming::Node inner_join_shuffle(
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
-            right_msg.release<streaming::TableChunk>(),
+            co_await to_device(ctx, right_msg.release<streaming::TableChunk>()),
             left_msg.sequence_number(),
             joiner,
             build_carrier,
@@ -359,7 +359,7 @@ streaming::Node shuffle(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         auto packed = partition_and_pack(
             chunk.table_view(),
             keys,

@@ -67,11 +67,10 @@ namespace detail {
  *
  * @param ctx Streaming context
  * @param ch Channel to consume messages from.
+ * @return Coroutine representing consuming and discarding messages in channel.
  *
  * @note If the channel contains `TableChunk`s, moves them to device and prints small
  * amount of detail about them (row and column count).
- *
- * @return Coroutine representing consuming and discarding messages in channel.
  */
 [[nodiscard]] streaming::Node consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
@@ -82,16 +81,13 @@ namespace detail {
  *
  * @param ctx Streaming context
  * @param chunk Chunk to move from device, is left in a moved-from state
- * @param allow_overbooking Whether reserving memory is allowed to overbook
- *
  * @return New `TableChunk` on device
+ *
  * @throws std::overflow_error if overbooking is not allowed and not enough memory is
  * available to reserve.
  */
-[[nodiscard]] streaming::TableChunk to_device(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& chunk,
-    bool allow_overbooking = false
+[[nodiscard]] coro::task<streaming::TableChunk> to_device(
+    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
 );
 
 ///< @brief Communicator type to use
