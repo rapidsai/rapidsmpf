@@ -9,6 +9,7 @@
 #include <mutex>
 #include <ranges>
 #include <stdexcept>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
@@ -21,21 +22,23 @@ constexpr bool no_overbooking = false;
 }
 
 MemoryReserveOrWait::MemoryReserveOrWait(
-    MemoryType mem_type, std::shared_ptr<Context> ctx, std::optional<Duration> timeout
+    config::Options options,
+    MemoryType mem_type,
+    std::shared_ptr<CoroThreadPoolExecutor> executor,
+    std::shared_ptr<BufferResource> br
 )
     : mem_type_{mem_type},
-      ctx_{std::move(ctx)},
+      executor_{std::move(executor)},
+      br_{std::move(br)},
       timeout_{
-          // Use timeout if it is set, otherwise read the Context.options().
-          timeout.has_value()
-              ? *timeout
-              : ctx_->options().get<Duration>(
-                    "memory_reserve_timeout_ms", [](std::string const& s) {
-                        return s.empty() ? std::chrono::milliseconds{100}
-                                         : std::chrono::milliseconds{std::stoi(s)};
-                    }
-                )
-      } {}
+          options.get<Duration>("memory_reserve_timeout_ms", [](std::string const& s) {
+              return s.empty() ? std::chrono::milliseconds{100}
+                               : std::chrono::milliseconds{std::stoi(s)};
+          })
+      } {
+    RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
+}
 
 MemoryReserveOrWait::~MemoryReserveOrWait() noexcept {
     coro::sync_wait(shutdown());
@@ -69,7 +72,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::size_t future_release_potential
 ) {
     // First, check whether the requested memory is immediately available.
-    auto [res, _] = ctx_->br()->reserve(mem_type_, size, no_overbooking);
+    auto [res, _] = br_->reserve(mem_type_, size, no_overbooking);
     if (res.size() == size) {
         co_return std::move(res);
     }
@@ -100,8 +103,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
         // We take ownership of that task here and await it below before proceeding,
         // ensuring that at most one periodic task is active at any time.
         previous_periodic_task = std::move(periodic_memory_check_task_);
-        periodic_memory_check_task_ =
-            ctx_->executor()->spawn_joinable(periodic_memory_check());
+        periodic_memory_check_task_ = executor_->spawn_joinable(periodic_memory_check());
     }
     lock.unlock();
 
@@ -126,9 +128,22 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 ) {
     auto ret = co_await reserve_or_wait(size, future_release_potential);
     if (ret.size() < size) {
-        co_return ctx_->br()->reserve(mem_type_, size, /* allow_overbooking = */ true);
+        co_return br_->reserve(mem_type_, size, /* allow_overbooking = */ true);
     }
     co_return {std::move(ret), size};
+}
+
+coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
+    std::size_t size, std::size_t future_release_potential
+) {
+    auto ret = co_await reserve_or_wait(size, future_release_potential);
+    RAPIDSMPF_EXPECTS(
+        ret.size() == size,
+        "cannot reserve " + std::string{to_string(mem_type_)} + " memory ("
+            + format_nbytes(size) + ")",
+        std::overflow_error
+    );
+    co_return ret;
 }
 
 std::size_t MemoryReserveOrWait::size() const noexcept {
@@ -141,10 +156,8 @@ std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const noexcept 
 }
 
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
-    auto br = ctx_->br();
-
     // Helper that returns available memory, clamped so negative values become zero.
-    auto memory_available = [f = br->memory_available(mem_type_)]() -> std::size_t {
+    auto memory_available = [f = br_->memory_available(mem_type_)]() -> std::size_t {
         std::int64_t const ret = f();
         return static_cast<std::size_t>(std::max(ret, std::int64_t{0}));
     };
@@ -165,7 +178,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // waiting on the coroutine.
     auto push_into_queue =
         [this](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> void {
-        auto err = ctx_->executor()->spawn_detached(
+        auto err = executor_->spawn_detached(
             [](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> Node {
                 RAPIDSMPF_EXPECTS(
                     co_await queue.push(std::move(res))
@@ -188,7 +201,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                 }
             }
             periodic_memory_check_counter_.fetch_add(1, std::memory_order_acq_rel);
-            co_await ctx_->executor()->yield();
+            co_await executor_->yield();
             if (Clock::now() - last_reservation_success > timeout_) {
                 // This is the only way out of the while-loop that doesn't shutdown
                 // the periodic memory check.
@@ -208,7 +221,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             );
 
             // Try to reserve memory for the selected request.
-            auto [res, _] = ctx_->br()->reserve(mem_type_, it->size, no_overbooking);
+            auto [res, _] = br_->reserve(mem_type_, it->size, no_overbooking);
             if (res.size() == 0) {
                 continue;  // Memory is no longer available.
             }
@@ -251,7 +264,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
-        auto [res, _] = ctx_->br()->reserve(mem_type_, request.size, no_overbooking);
+        auto [res, _] = br_->reserve(mem_type_, request.size, no_overbooking);
         push_into_queue(request.queue, std::move(res));
     }
 }

@@ -9,8 +9,10 @@
 #include <set>
 
 #include <rapidsmpf/config.hpp>
-#include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/streaming/core/coro_executor.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #include <coro/task.hpp>
@@ -31,20 +33,22 @@ class MemoryReserveOrWait {
     /**
      * @brief Constructs a `MemoryReserveOrWait` instance.
      *
-     * If no reservation request can be satisfied within @p timeout, the coroutine
-     * forces progress by selecting the smallest pending request and attempting to
-     * reserve memory for it. This attempt may result in an empty reservation if the
-     * request still cannot be satisfied.
+     * If no reservation request can be satisfied within the timeout specified by
+     * the `"memory_reserve_timeout_ms"` key in @p options, the coroutine forces
+     * progress by selecting the smallest pending request and attempting to reserve
+     * memory for it. This attempt may result in an empty reservation if the request
+     * still cannot be satisfied.
      *
+     * @param options Configuration options.
      * @param mem_type The memory type for which reservations are requested.
-     * @param ctx Streaming context.
-     * @param timeout Timeout duration. If not explicitly provided, the timeout is read
-     * from the option key `"memory_reserve_timeout_ms"`, which defaults to 100 ms.
+     * @param executor Shared pointer to a coroutine executor.
+     * @param br Buffer resource for memory allocation.*
      */
     MemoryReserveOrWait(
+        config::Options options,
         MemoryType mem_type,
-        std::shared_ptr<Context> ctx,
-        std::optional<Duration> timeout = std::nullopt
+        std::shared_ptr<CoroThreadPoolExecutor> executor,
+        std::shared_ptr<BufferResource> br
     );
 
     ~MemoryReserveOrWait() noexcept;
@@ -115,6 +119,31 @@ class MemoryReserveOrWait {
      * @see reserve_or_wait()
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
+        std::size_t size, std::size_t future_release_potential
+    );
+
+    /**
+     * @brief Variant of `reserve_or_wait()` that fails if no progress is possible.
+     *
+     * This coroutine behaves identically to `reserve_or_wait()` with respect to
+     * request submission, waiting, and progress guarantees until the progress
+     * timeout expires.
+     *
+     * If no reservation request can be satisfied before the timeout, this method
+     * fails instead of forcing progress. Overbooking is not allowed, and no memory
+     * reservation is made.
+     *
+     * @param size Number of bytes to reserve.
+     * @param future_release_potential Estimated number of bytes the requester may
+     * release in the future.
+     * @return A `MemoryReservation` representing the allocated memory.
+     *
+     * @throws std::overflow_error If no progress is possible within the timeout.
+     * @throws std::runtime_error If shutdown occurs before the request can be processed.
+     *
+     * @see reserve_or_wait()
+     */
+    coro::task<MemoryReservation> reserve_or_wait_or_fail(
         std::size_t size, std::size_t future_release_potential
     );
 
@@ -199,7 +228,8 @@ class MemoryReserveOrWait {
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
-    std::shared_ptr<Context> ctx_;
+    std::shared_ptr<CoroThreadPoolExecutor> executor_;
+    std::shared_ptr<BufferResource> br_;
     Duration const timeout_;
     std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};

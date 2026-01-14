@@ -65,8 +65,14 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::seconds{100}};
+    };
+    MemoryReserveOrWait mrow{
+        // Use a very high timeout to effectively disable timeout in this test.
+        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
 
     // Create a reserve request while no memory is available.
     set_mem_avail(0);
@@ -105,7 +111,13 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
     ReserveLog log;
-    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::seconds{100}};
+    MemoryReserveOrWait mrow{
+        // Use a very high timeout to effectively disable timeout in this test.
+        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
 
     // Create two reserve request while no memory is available.
     set_mem_avail(0);
@@ -157,7 +169,13 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
-    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::seconds{100}};
+    MemoryReserveOrWait mrow{
+        // Use a very high timeout to effectively disable timeout in this test.
+        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
 
     // Round 1: create a request, then make memory available.
     set_mem_avail(0);
@@ -202,7 +220,13 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
-    MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::milliseconds{50}};
+    MemoryReserveOrWait mrow{
+        // Use a very high timeout to effectively disable timeout in this test.
+        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
 
     // Do multiple rounds to increase the chance we hit the "task exiting" window.
     for (int i = 0; i < 50; ++i) {
@@ -228,9 +252,34 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     set_mem_avail(0);
 
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
-        MemoryReserveOrWait mrow{MemoryType::DEVICE, ctx, std::chrono::milliseconds{1}};
+        MemoryReserveOrWait mrow{
+            // Use a very small timeout to trigger timeout immediately.
+            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            MemoryType::DEVICE,
+            ctx->executor(),
+            ctx->br()
+        };
         auto [res, overbooked_bytes] = co_await mrow.reserve_or_wait_or_overbook(10, 0);
         EXPECT_EQ(res.size(), 10);
         EXPECT_EQ(overbooked_bytes, 10);
+    }(ctx));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
+    // Start with no available memory so the request cannot be satisfied.
+    set_mem_avail(0);
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        MemoryReserveOrWait mrow{
+            // Use a very small timeout to trigger timeout immediately.
+            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            MemoryType::DEVICE,
+            ctx->executor(),
+            ctx->br()
+        };
+        EXPECT_THROW(
+            std::ignore = co_await mrow.reserve_or_wait_or_fail(10, 0),
+            std::overflow_error
+        );
     }(ctx));
 }
