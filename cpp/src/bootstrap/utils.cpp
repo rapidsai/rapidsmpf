@@ -95,12 +95,7 @@ bool is_running_with_rrun() {
 }
 
 bool is_running_with_slurm() {
-    // Check for PMIx namespace (set by PMIx-enabled launchers like srun --mpi=pmix)
-    if (std::getenv("PMIX_NAMESPACE") != nullptr) {
-        return true;
-    }
-    // Check for Slurm job step (SLURM_JOB_ID + SLURM_STEP_ID indicate a job step)
-    if (std::getenv("SLURM_JOB_ID") != nullptr && std::getenv("SLURM_STEP_ID") != nullptr)
+    if (std::getenv("SLURM_JOB_ID") != nullptr && std::getenv("SLURM_PROCID") != nullptr)
     {
         return true;
     }

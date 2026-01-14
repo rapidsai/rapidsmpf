@@ -63,12 +63,11 @@ Backend detect_backend() {
     }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
-    // Check for PMIx/Slurm environment
-    // PMIX_NAMESPACE is set by PMIx-enabled launchers (srun --mpi=pmix)
-    // SLURM_JOB_ID + SLURM_STEP_ID indicate a Slurm job step
-    if (getenv_optional("PMIX_NAMESPACE")
-        || (getenv_optional("SLURM_JOB_ID") && getenv_optional("SLURM_STEP_ID")))
-    {
+    // Check for Slurm-specific environment variables.
+    // Note: We don't check PMIX_NAMESPACE alone because OpenMPI also uses PMIx
+    // internally and sets PMIX_NAMESPACE when launched with mpirun.
+    // SLURM_JOB_ID + SLURM_PROCID is specific to Slurm srun tasks.
+    if (getenv_optional("SLURM_JOB_ID") && getenv_optional("SLURM_PROCID")) {
         return Backend::SLURM;
     }
 #endif
