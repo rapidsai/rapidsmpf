@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -56,7 +56,7 @@ Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
-    std::unique_ptr<coro::thread_pool> executor,
+    std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
@@ -92,24 +92,7 @@ Context::Context(
           options,
           comm,
           std::make_shared<ProgressThread>(comm->logger(), statistics),
-          coro::thread_pool::make_unique(
-              coro::thread_pool::options{
-                  .thread_count = options.get<std::uint32_t>(
-                      "num_streaming_threads",
-                      [](std::string const& s) {
-                          if (s.empty()) {
-                              return 1;  // Default number of threads.
-                          }
-                          if (int v = std::stoi(s); v > 0) {
-                              return v;
-                          }
-                          throw std::invalid_argument(
-                              "num_streaming_threads must be positive"
-                          );
-                      }
-                  )
-              }
-          ),
+          std::make_shared<CoroThreadPoolExecutor>(options),
           br,
           statistics
       ) {}
@@ -118,7 +101,7 @@ Context::~Context() noexcept {
     br_->spill_manager().remove_spill_function(spill_function_id_);
 }
 
-config::Options Context::get_options() const noexcept {
+config::Options Context::options() const noexcept {
     return options_;
 }
 
@@ -134,12 +117,12 @@ std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
 
-std::unique_ptr<coro::thread_pool>& Context::executor() noexcept {
+std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
     return executor_;
 }
 
-BufferResource* Context::br() const noexcept {
-    return br_.get();
+std::shared_ptr<BufferResource> Context::br() const noexcept {
+    return br_;
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {
@@ -154,10 +137,6 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
     std::size_t buffer_size
 ) const noexcept {
     return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
-}
-
-config::Options const& Context::options() const noexcept {
-    return options_;
 }
 
 std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {

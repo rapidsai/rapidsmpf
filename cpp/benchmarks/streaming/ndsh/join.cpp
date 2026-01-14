@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -117,10 +117,10 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result), ctx->br(), true, ctx->statistics()
+                            std::move(result), ctx->br().get(), true, ctx->statistics()
                         ),
                         stream,
-                        ctx->br(),
+                        ctx->br().get(),
                         ctx->statistics()
                     ),
                     stream
@@ -551,7 +551,7 @@ streaming::Node shuffle(
             cudf::hash_id::HASH_MURMUR3,
             0,
             chunk.stream(),
-            ctx->br(),
+            ctx->br().get(),
             ctx->statistics()
         );
         shuffler.insert(std::move(packed));
@@ -567,10 +567,13 @@ streaming::Node shuffle(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(*packed_data), ctx->br(), true, ctx->statistics()
+                            std::move(*packed_data),
+                            ctx->br().get(),
+                            true,
+                            ctx->statistics()
                         ),
                         stream,
-                        ctx->br(),
+                        ctx->br().get(),
                         ctx->statistics()
                     ),
                     stream

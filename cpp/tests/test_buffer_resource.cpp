@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -22,11 +22,9 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
-using namespace rapidsmpf;
+#include "utils.hpp"
 
-constexpr std::size_t operator"" _KiB(unsigned long long n) {
-    return n * (1 << 10);
-}
+using namespace rapidsmpf;
 
 /**
  * @brief Allocate a Buffer and initialize its contents to zero.

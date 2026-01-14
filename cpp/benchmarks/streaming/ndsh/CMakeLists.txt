@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -41,7 +41,7 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-set(RAPIDSMPFNDSH_QUERIES q01 q03 q04 q09)
+set(RAPIDSMPFNDSH_QUERIES q01 q03 q04 q09 bench_read)
 
 foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
   add_executable(${query} "${query}.cpp")
