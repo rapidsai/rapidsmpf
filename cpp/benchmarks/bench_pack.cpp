@@ -252,7 +252,7 @@ void run_chunked_pack(
         total_size = packer.get_total_contiguous_size();
     }
 
-    // Allocate bounce buffer and destination buffer using the pack_mr
+    // Allocate bounce buffer using the pack_mr & destination buffer using the dest_mr
     rmm::device_buffer bounce_buffer(bounce_buffer_size, stream, pack_mr);
     DestinationBufferType destination(total_size, stream, dest_mr);
 
@@ -261,11 +261,9 @@ void run_chunked_pack(
 
         std::size_t offset = 0;
         while (packer.has_next()) {
-            auto const bytes_copied = packer.next(
-                cudf::device_span<std::uint8_t>(
-                    static_cast<std::uint8_t*>(bounce_buffer.data()), bounce_buffer_size
-                )
-            );
+            auto const bytes_copied = packer.next(cudf::device_span<std::uint8_t>(
+                static_cast<std::uint8_t*>(bounce_buffer.data()), bounce_buffer_size
+            ));
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 static_cast<std::byte*>(destination.data()) + offset,
                 bounce_buffer.data(),
@@ -443,6 +441,136 @@ static void BM_ChunkedPack_pinned_copy_to_host(benchmark::State& state) {
 }
 
 /**
+ * @brief Runs the cudf::chunked_pack benchmark
+ * @param state The benchmark state
+ * @param bounce_buffer_size The size of the bounce buffer in bytes
+ * @param table_size The size of the table in bytes
+ * @param table_mr The memory resource for the table
+ * @param pack_mr The memory resource for the packed data
+ * @param dest_mr The memory resource for the destination data
+ * @param stream The CUDA stream to use
+ *
+ * @tparam DestinationBufferType The type of the destination buffer
+ */
+template <typename DestinationBufferType = rapidsmpf::HostBuffer>
+void run_chunked_pack_without_bounce_buffer(
+    benchmark::State& state,
+    std::size_t bounce_buffer_size,
+    std::size_t table_size,
+    rmm::device_async_resource_ref table_mr,
+    rmm::device_async_resource_ref pack_mr,
+    auto& dest_mr,
+    rmm::cuda_stream_view stream
+) {
+    // Calculate number of rows for a single-column table of the desired size
+    auto const nrows = static_cast<cudf::size_type>(table_size / sizeof(random_data_t));
+    auto table = random_table(1, nrows, 0, 1000, stream, table_mr);
+
+    // Create the chunked_pack instance to get total output size
+    size_t total_size;
+    {
+        cudf::chunked_pack packer(table.view(), bounce_buffer_size, stream, table_mr);
+        // upper bound multiple of bounce buffer size
+        total_size = ((packer.get_total_contiguous_size() + bounce_buffer_size - 1)
+                      / bounce_buffer_size)
+                     * bounce_buffer_size;
+    }
+
+    // Allocate the destination buffer
+    DestinationBufferType destination(total_size, stream, dest_mr);
+
+    auto run_packer = [&] {
+        cudf::chunked_pack packer(table.view(), bounce_buffer_size, stream, pack_mr);
+
+        std::size_t offset = 0;
+        while (packer.has_next()) {
+            auto const bytes_copied = packer.next(cudf::device_span<std::uint8_t>(
+                reinterpret_cast<std::uint8_t*>(destination.data()) + offset,
+                bounce_buffer_size
+            ));
+            offset += bytes_copied;
+        }
+    };
+
+    {  // Warm up
+        run_packer();
+        stream.synchronize();
+    }
+
+    for (auto _ : state) {
+        run_packer();
+        benchmark::DoNotOptimize(destination);
+        stream.synchronize();
+    }
+
+    state.SetBytesProcessed(
+        static_cast<std::int64_t>(state.iterations())
+        * static_cast<std::int64_t>(table_size)
+    );
+    state.counters["table_size_mb"] =
+        static_cast<double>(table_size) / static_cast<double>(MB);
+    state.counters["num_rows"] = nrows;
+    state.counters["bounce_buffer_mb"] =
+        static_cast<double>(bounce_buffer_size) / static_cast<double>(MB);
+}
+
+/**
+ * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
+ * buffer.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
+static void BM_ChunkedPack_device(benchmark::State& state) {
+    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
+    auto const table_size_bytes = table_size_mb * MB;
+
+    // Bounce buffer size: max(1MB, table_size / 10)
+    auto const bounce_buffer_size = std::max(MB, table_size_bytes / 10);
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+
+    run_chunked_pack_without_bounce_buffer<rmm::device_buffer>(
+        state, bounce_buffer_size, table_size_bytes, pool_mr, pool_mr, pool_mr, stream
+    );
+}
+
+/**
+ * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
+ * buffer.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
+static void BM_ChunkedPack_pinned(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    auto const table_size_mb = static_cast<std::size_t>(state.range(0));
+    auto const table_size_bytes = table_size_mb * MB;
+
+    // Bounce buffer size: max(1MB, table_size / 10)
+    auto const bounce_buffer_size = std::max(MB, table_size_bytes / 10);
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pool_memory_resource<rmm::mr::cuda_async_memory_resource> pool_mr{
+        cuda_mr, rmm::percent_of_free_device_memory(40)
+    };
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+
+    run_chunked_pack_without_bounce_buffer<rapidsmpf::HostBuffer>(
+        state, bounce_buffer_size, table_size_bytes, pool_mr, pool_mr, pinned_mr, stream
+    );
+}
+
+/**
  * @brief Custom argument generator for pack benchmarks.
  *
  * Configures benchmarks to run with various table sizes ranging from 1MB to 4GB.
@@ -486,6 +614,16 @@ BENCHMARK(BM_Pack_pinned_copy_to_host)
     ->Unit(benchmark::kMillisecond);
 
 // Chunked pack benchmarks
+
+BENCHMARK(BM_ChunkedPack_device)
+    ->Apply(PackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_pinned)
+    ->Apply(PackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_ChunkedPack_device_copy_to_device)
     ->Apply(PackArguments)
