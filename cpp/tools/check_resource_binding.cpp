@@ -249,17 +249,22 @@ bool extract_gpu_info_from_json(
 }
 
 /**
- * @brief Get PCI bus ID for a GPU device.
+ * @brief Get PCI bus ID for the current CUDA device.
  *
- * @param gpu_id GPU device ID.
+ * When CUDA_VISIBLE_DEVICES is set (as done by rrun), CUDA only sees
+ * the assigned GPU as logical device 0, regardless of the physical GPU ID.
+ * This function queries the PCI bus ID of the current CUDA device.
+ *
  * @return PCI bus ID string, or "(unknown)" on error.
  */
-std::string get_gpu_pci_bus_id(int gpu_id) {
-    if (gpu_id < 0) {
+std::string get_gpu_pci_bus_id() {
+    int device = 0;
+    cudaError_t err = cudaGetDevice(&device);
+    if (err != cudaSuccess) {
         return "(unknown)";
     }
     std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-    cudaError_t err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), gpu_id);
+    err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), device);
     if (err != cudaSuccess) {
         return "(unknown)";
     }
@@ -353,7 +358,7 @@ ActualBinding collect_actual_binding(int gpu_id_hint) {
         (gpu_id_hint >= 0) ? gpu_id_hint : rapidsmpf::bootstrap::get_gpu_id();
 
     if (binding.gpu_id >= 0) {
-        binding.gpu_pci_bus_id = get_gpu_pci_bus_id(binding.gpu_id);
+        binding.gpu_pci_bus_id = get_gpu_pci_bus_id();
     }
 
     return binding;
