@@ -73,8 +73,8 @@ class MemoryReserveOrWait {
      * as a global progress guarantee: if no pending reservation request can be
      * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
      * selecting the smallest pending request and attempting to reserve memory for
-     * it. The forced reservation attempt may result in an empty
-     * `MemoryReservation` if the selected request still cannot be satisfied.
+     * it. The forced reservation attempt may result in an empty `MemoryReservation`
+     * if the selected request still cannot be satisfied.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
