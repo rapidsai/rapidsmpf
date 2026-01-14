@@ -137,7 +137,7 @@ std::shared_ptr<BufferResource> Context::br() const noexcept {
     return br_;
 }
 
-std::shared_ptr<MemoryReserveOrWait> Context::mrow(MemoryType mem_type) const noexcept {
+std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
     return mrows_[static_cast<std::size_t>(mem_type)];
 }
 

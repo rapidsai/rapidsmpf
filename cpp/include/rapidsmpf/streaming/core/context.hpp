@@ -107,12 +107,18 @@ class Context {
     [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
 
     /**
-     * @brief Get the `MemoryReserveOrWait` instance for the given memory type.
+     * @brief Get the handle for memory reservations for a given memory type.
+     *
+     * Returns an object that coordinates asynchronous memory reservation requests
+     * for the specified memory type. The returned instance provides backpressure
+     * and global progress guarantees, and should be used to reserve memory before
+     * performing operations that require memory. A recommended usage pattern is to
+     * reserve all required memory up front before starting an operation.
      *
      * @param mem_type Memory type for which reservations are requested.
-     * @return Shared pointer to the corresponding `MemoryReserveOrWait` instance.
+     * @return Shared pointer to the corresponding memory reservation coordinator.
      */
-    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> mrow(
+    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> memory(
         MemoryType mem_type
     ) const noexcept;
 
