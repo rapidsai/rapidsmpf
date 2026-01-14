@@ -112,8 +112,12 @@ class Context {
      * Returns an object that coordinates asynchronous memory reservation requests
      * for the specified memory type. The returned instance provides backpressure
      * and global progress guarantees, and should be used to reserve memory before
-     * performing operations that require memory. A recommended usage pattern is to
-     * reserve all required memory up front before starting an operation.
+     * performing operations that require memory.
+     *
+     * A recommended usage pattern is to reserve all required memory up front as a
+     * single atomic reservation. This allows callers to `co_await` the reservation
+     * request and only start executing the operation once all required memory is
+     * available.
      *
      * @param mem_type Memory type for which reservations are requested.
      * @return Shared pointer to the corresponding memory reservation coordinator.
