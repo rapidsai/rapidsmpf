@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <numeric>
 #include <vector>
 
 #include <cudf/column/column_view.hpp>
@@ -261,7 +260,6 @@ streaming::Node inner_join_broadcast(
         );
         build_carrier = build_table.table_view().select(to_keep);
     }
-    std::size_t sequence = 0;
     while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
@@ -270,7 +268,7 @@ streaming::Node inner_join_broadcast(
         co_await ch_out->send(inner_join_chunk(
             ctx,
             right_msg.release<streaming::TableChunk>(),
-            sequence++,
+            right_msg.sequence_number(),
             joiner,
             build_carrier,
             right_on,
