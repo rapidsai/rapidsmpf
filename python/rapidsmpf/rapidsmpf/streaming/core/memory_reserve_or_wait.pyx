@@ -506,3 +506,63 @@ cdef class MemoryReserveOrWait:
         with nogil:
             _ret = deref(self._handle).size()
         return _ret
+
+
+async def reserve_memory(
+    Context ctx not None,
+    size,
+    *,
+    net_memory_delta,
+    mem_type = MemoryType.DEVICE,
+    allow_overbooking = True
+):
+    """
+    Reserve memory using the context memory reservation mechanism.
+
+    Submits a memory reservation request for the specified memory type and
+    suspends until the request is satisfied or no further progress can be
+    made. The behavior when the progress timeout expires depends on whether
+    overbooking is allowed.
+
+    This is a convenience helper that returns only the memory reservation.
+    If more control is required, for example inspecting the amount of
+    overbooking, callers should use the context memory reservation system
+    directly, such as
+    ``ctx.memory(MemoryType.DEVICE).reserve_or_wait_or_overbook(...)``.
+
+    Parameters
+    ----------
+    ctx
+        Node context used to obtain the memory reservation handle.
+    size
+        Number of bytes to reserve.
+    net_memory_delta
+        Heuristic used to prioritize eligible requests. See
+        `MemoryReserveOrWait.reserve_or_wait()` for details and semantics.
+    mem_type
+        Memory type for which to reserve memory.
+    allow_overbooking
+        Whether to allow overbooking if no progress is possible.
+
+    Returns
+    -------
+    The allocated memory reservation.
+
+    Raises
+    ------
+    RuntimeError
+        If shutdown occurs before the request can be processed.
+    OverflowError
+        If no progress is possible within the timeout and overbooking is
+        disabled.
+    """
+    memory = ctx.memory(mem_type)
+    if allow_overbooking:
+        ret, _ = await memory.reserve_or_wait_or_overbook(
+            size=size, net_memory_delta=net_memory_delta
+        )
+    else:
+        ret = await memory.reserve_or_wait_or_fail(
+            size=size, net_memory_delta=net_memory_delta
+        )
+    return ret

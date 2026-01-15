@@ -19,3 +19,12 @@ class MemoryReserveOrWait:
         self, size: int, *, net_memory_delta: int
     ) -> MemoryReservation: ...
     def size(self) -> int: ...
+
+async def reserve_memory(
+    ctx: Context,
+    size: int,
+    *,
+    net_memory_delta: int,
+    mem_type: MemoryType = MemoryType.DEVICE,
+    allow_overbooking: bool = True,
+) -> MemoryReservation: ...

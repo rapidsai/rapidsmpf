@@ -21,6 +21,7 @@ from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
     MemoryReserveOrWait,
+    reserve_memory,
 )
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 
@@ -28,8 +29,13 @@ if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
 
-def make_context(*, dev_limit: int) -> Context:
-    options = Options(get_environment_variables())
+def make_context(
+    *, dev_limit: int, overwrite_options: dict[str, str] | None = None
+) -> Context:
+    env = get_environment_variables()
+    if overwrite_options is not None:
+        env.update(overwrite_options)
+    options = Options(env)
     comm = single_process_comm(options)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -176,6 +182,51 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
         # Request cannot be satisfied and overbooking is not allowed.
         with pytest.raises((OverflowError, RuntimeError)):
             await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
+
+    run_streaming_pipeline(
+        nodes=[node(context)],
+        py_executor=py_executor,
+    )
+
+
+def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
+    context = make_context(
+        dev_limit=1024, overwrite_options={"memory_reserve_timeout_ms": "1"}
+    )
+
+    @define_py_node()
+    async def node(ctx: Context) -> None:
+        # Fits within limit, should always succeed.
+        res = await reserve_memory(
+            ctx,
+            512,
+            net_memory_delta=0,
+            mem_type=MemoryType.DEVICE,
+            allow_overbooking=False,
+        )
+        assert res.mem_type == MemoryType.DEVICE
+        assert res.size == 512
+
+        # Exceeds limit, overbooking enabled, should succeed.
+        res = await reserve_memory(
+            ctx,
+            2048,
+            net_memory_delta=0,
+            mem_type=MemoryType.DEVICE,
+            allow_overbooking=True,
+        )
+        assert res.mem_type == MemoryType.DEVICE
+        assert res.size == 2048
+
+        # Exceeds limit, overbooking disabled, should fail.
+        with pytest.raises((OverflowError, RuntimeError)):
+            await reserve_memory(
+                ctx,
+                2048,
+                net_memory_delta=0,
+                mem_type=MemoryType.DEVICE,
+                allow_overbooking=False,
+            )
 
     run_streaming_pipeline(
         nodes=[node(context)],
