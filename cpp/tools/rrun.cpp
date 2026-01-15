@@ -776,6 +776,111 @@ pid_t fork_with_piped_stdio(
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
+ * @brief Launch rank 0 first to obtain its UCXX root address
+ *
+ * @param cfg Configuration
+ * @param address_file Path to file where rank 0 will write its address
+ * @param total_ranks Total number of ranks across all tasks
+ * @return Hex-encoded root address
+ * @throws std::runtime_error on timeout or launch failure
+ */
+std::string launch_rank0_and_get_address(
+    Config const& cfg, std::string const& address_file, int total_ranks
+) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Root parent: launching rank 0 first to get address"
+                  << std::endl;
+    }
+
+    setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
+
+    int fd_out = -1, fd_err = -1;
+    pid_t rank0_pid = launch_rank_local(cfg, 0, 0, total_ranks, "", &fd_out, &fd_err);
+
+    // Start forwarders for rank 0 output
+    std::thread rank0_stdout_forwarder;
+    std::thread rank0_stderr_forwarder;
+    auto suppress = std::make_shared<std::atomic<bool>>(false);
+
+    if (fd_out >= 0) {
+        rank0_stdout_forwarder = std::thread([fd_out, suppress]() {
+            FILE* stream = fdopen(fd_out, "r");
+            if (!stream) {
+                close(fd_out);
+                return;
+            }
+            char buffer[4096];
+            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                if (suppress->load())
+                    continue;
+                std::lock_guard<std::mutex> lock(output_mutex);
+                fputs(buffer, stdout);
+                fflush(stdout);
+            }
+            fclose(stream);
+        });
+    }
+
+    if (fd_err >= 0) {
+        rank0_stderr_forwarder = std::thread([fd_err, suppress]() {
+            FILE* stream = fdopen(fd_err, "r");
+            if (!stream) {
+                close(fd_err);
+                return;
+            }
+            char buffer[4096];
+            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                if (suppress->load())
+                    continue;
+                std::lock_guard<std::mutex> lock(output_mutex);
+                fputs(buffer, stderr);
+                fflush(stderr);
+            }
+            fclose(stream);
+        });
+    }
+
+    // Wait for rank 0 to write the address file (with timeout)
+    auto start = std::chrono::steady_clock::now();
+    while (!std::filesystem::exists(address_file)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed > std::chrono::seconds(30)) {
+            suppress->store(true);
+            kill(rank0_pid, SIGKILL);
+            waitpid(rank0_pid, nullptr, 0);
+            if (rank0_stdout_forwarder.joinable())
+                rank0_stdout_forwarder.join();
+            if (rank0_stderr_forwarder.joinable())
+                rank0_stderr_forwarder.join();
+            throw std::runtime_error("Timeout waiting for rank 0 to write root address");
+        }
+    }
+
+    // Read the hex-encoded address, decode and remove file
+    std::string encoded_address;
+    std::ifstream addr_stream(address_file);
+    std::getline(addr_stream, encoded_address);
+    addr_stream.close();
+    std::string root_address = hex_decode(encoded_address);
+    std::filesystem::remove(address_file);
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
+                  << encoded_address.size() << " chars -> " << root_address.size()
+                  << " bytes)" << std::endl;
+    }
+
+    // Rank 0 is already running - detach forwarders
+    if (rank0_stdout_forwarder.joinable())
+        rank0_stdout_forwarder.detach();
+    if (rank0_stderr_forwarder.joinable())
+        rank0_stderr_forwarder.detach();
+
+    return root_address;
+}
+
+/**
  * @brief Coordinate root address between parent processes using PMIx
  *
  * This function is called by parent rrun processes in Slurm hybrid mode.
@@ -909,6 +1014,161 @@ std::string coordinate_root_address_via_pmix(
     return root_address;
 }
 #endif  // RAPIDSMPF_HAVE_SLURM
+
+/**
+ * @brief Launch multiple ranks locally using fork
+ *
+ * @param cfg Configuration
+ * @param rank_offset Starting global rank for this task
+ * @param ranks_per_task Number of ranks to launch
+ * @param total_ranks Total ranks across all tasks
+ * @param root_address Pre-coordinated root address (empty for FILE backend)
+ * @param is_root_parent Whether this is root parent (affects which ranks to launch)
+ * @return Exit status (0 for success)
+ */
+int launch_ranks_fork_based(
+    Config const& cfg,
+    int rank_offset,
+    int ranks_per_task,
+    int total_ranks,
+    std::string const& root_address,
+    bool is_root_parent
+) {
+    std::vector<pid_t> pids;
+    pids.reserve(static_cast<size_t>(ranks_per_task));
+
+    // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
+    sigset_t signal_set;
+    sigemptyset(&signal_set);
+    sigaddset(&signal_set, SIGINT);
+    sigaddset(&signal_set, SIGTERM);
+    sigprocmask(SIG_BLOCK, &signal_set, nullptr);
+
+    // Output suppression flag and forwarder threads
+    auto suppress_output = std::make_shared<std::atomic<bool>>(false);
+    std::vector<std::thread> forwarders;
+    forwarders.reserve(static_cast<size_t>(ranks_per_task) * 2);
+
+    // Helper to start a forwarder thread for a given fd
+    auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
+        if (fd < 0) {
+            return;
+        }
+        forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
+            FILE* stream = fdopen(fd, "r");
+            if (!stream) {
+                close(fd);
+                return;
+            }
+            std::string tag =
+                cfg.tag_output ? ("[" + std::to_string(rank) + "] ") : std::string{};
+            char buffer[4096];
+            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                if (suppress_output->load(std::memory_order_relaxed)) {
+                    continue;
+                }
+                FILE* out = to_stderr ? stderr : stdout;
+                {
+                    std::lock_guard<std::mutex> lock(output_mutex);
+                    if (!tag.empty()) {
+                        fputs(tag.c_str(), out);
+                    }
+                    fputs(buffer, out);
+                    fflush(out);
+                }
+            }
+            fclose(stream);
+        });
+    };
+
+    // Launch ranks (skip rank 0 if root parent already launched it)
+    int start_local_rank = (is_root_parent && !root_address.empty()) ? 1 : 0;
+
+    for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
+        int global_rank = rank_offset + local_rank;
+        int fd_out = -1;
+        int fd_err = -1;
+        pid_t pid = launch_rank_local(
+            cfg, global_rank, local_rank, total_ranks, root_address, &fd_out, &fd_err
+        );
+        pids.push_back(pid);
+
+        if (cfg.verbose) {
+            std::ostringstream msg;
+            msg << "Launched rank " << global_rank << " (PID " << pid << ")";
+            if (!cfg.gpus.empty()) {
+                msg << " on GPU "
+                    << cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
+            }
+            msg << std::endl;
+            std::string msg_str = msg.str();
+
+            std::cout << msg_str;
+            std::cout.flush();
+        }
+        start_forwarder(fd_out, global_rank, false);
+        start_forwarder(fd_err, global_rank, true);
+    }
+
+    // Start a signal-waiting thread to forward signals.
+    std::thread([signal_set, &pids, suppress_output]() mutable {
+        for (;;) {
+            int sig = 0;
+            int rc = sigwait(&signal_set, &sig);
+            if (rc != 0) {
+                continue;
+            }
+            suppress_output->store(true, std::memory_order_relaxed);
+            for (pid_t pid : pids) {
+                kill(pid, sig);
+            }
+            return;
+        }
+    }).detach();
+
+    std::cout << "\nAll ranks launched. Waiting for completion...\n" << std::endl;
+
+    // Wait for all processes
+    int exit_status = 0;
+    for (size_t i = 0; i < pids.size(); ++i) {
+        int status = 0;
+        pid_t pid = pids[i];
+        if (waitpid(pid, &status, 0) < 0) {
+            std::cerr << "Failed to wait for rank " << i << " (PID " << pid
+                      << "): " << std::strerror(errno) << std::endl;
+            exit_status = 1;
+            continue;
+        }
+
+        if (WIFEXITED(status)) {
+            int code = WEXITSTATUS(status);
+            if (code != 0) {
+                std::cerr << "Rank "
+                          << (rank_offset
+                              + (is_root_parent && !root_address.empty() ? i + 1 : i))
+                          << " (PID " << pid << ") exited with code " << code
+                          << std::endl;
+                exit_status = code;
+            }
+        } else if (WIFSIGNALED(status)) {
+            int sig = WTERMSIG(status);
+            std::cerr << "Rank "
+                      << (rank_offset
+                          + (is_root_parent && !root_address.empty() ? i + 1 : i))
+                      << " (PID " << pid << ") terminated by signal " << sig << std::endl;
+            exit_status = 128 + sig;
+        }
+    }
+
+    // Wait for forwarder threads to finish
+    for (auto& t : forwarders) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
+
+    return exit_status;
+}
 
 /**
  * @brief Launch a single rank locally (fork-based).
@@ -1183,116 +1443,19 @@ int main(int argc, char* argv[]) {
             // Root parent needs to launch rank 0 first to get address
             bool is_root_parent = (cfg.slurm_global_rank == 0);
 
-            if (is_root_parent) {
-                // Root parent: Launch ONLY rank 0 first to get UCXX address
-                if (cfg.verbose) {
-                    std::cout
-                        << "[rrun] Root parent: launching rank 0 first to get address"
-                        << std::endl;
-                }
+            // Coordinate root address via PMIx
+            int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
+            int total_ranks = slurm_ntasks * cfg.nranks;
 
-                // Set up address file for rank 0 to write to
+            if (is_root_parent) {
+                // Root parent: Launch rank 0, get address, coordinate via PMIx
                 std::string address_file = "/tmp/rapidsmpf_root_address_"
                                            + std::string{job_id ? job_id : "unknown"};
-                setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
-
-                // Launch rank 0
-                int fd_out = -1, fd_err = -1;
-                int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
-                int total_ranks = slurm_ntasks * cfg.nranks;
-
-                pid_t rank0_pid =
-                    launch_rank_local(cfg, 0, 0, total_ranks, "", &fd_out, &fd_err);
-
-                // Start forwarders for rank 0 output
-                std::thread rank0_stdout_forwarder;
-                std::thread rank0_stderr_forwarder;
-                auto suppress = std::make_shared<std::atomic<bool>>(false);
-
-                if (fd_out >= 0) {
-                    rank0_stdout_forwarder = std::thread([fd_out, suppress]() {
-                        FILE* stream = fdopen(fd_out, "r");
-                        if (!stream) {
-                            close(fd_out);
-                            return;
-                        }
-                        char buffer[4096];
-                        while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                            if (suppress->load())
-                                continue;
-                            std::lock_guard<std::mutex> lock(output_mutex);
-                            fputs(buffer, stdout);
-                            fflush(stdout);
-                        }
-                        fclose(stream);
-                    });
-                }
-
-                if (fd_err >= 0) {
-                    rank0_stderr_forwarder = std::thread([fd_err, suppress]() {
-                        FILE* stream = fdopen(fd_err, "r");
-                        if (!stream) {
-                            close(fd_err);
-                            return;
-                        }
-                        char buffer[4096];
-                        while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                            if (suppress->load())
-                                continue;
-                            std::lock_guard<std::mutex> lock(output_mutex);
-                            fputs(buffer, stderr);
-                            fflush(stderr);
-                        }
-                        fclose(stream);
-                    });
-                }
-
-                // Wait for rank 0 to write the address file (with timeout)
-                auto start = std::chrono::steady_clock::now();
-                while (!std::filesystem::exists(address_file)) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    auto elapsed = std::chrono::steady_clock::now() - start;
-                    if (elapsed > std::chrono::seconds(30)) {
-                        suppress->store(true);
-                        kill(rank0_pid, SIGKILL);
-                        waitpid(rank0_pid, nullptr, 0);
-                        if (rank0_stdout_forwarder.joinable())
-                            rank0_stdout_forwarder.join();
-                        if (rank0_stderr_forwarder.joinable())
-                            rank0_stderr_forwarder.join();
-                        throw std::runtime_error(
-                            "Timeout waiting for rank 0 to write root address"
-                        );
-                    }
-                }
-
-                // Read the hex-encoded address, decode and remove file
-                std::string encoded_address;
-                std::ifstream addr_stream(address_file);
-                std::getline(addr_stream, encoded_address);
-                addr_stream.close();
-                coordinated_root_address = hex_decode(encoded_address);
-                std::filesystem::remove(address_file);
-
-                if (cfg.verbose) {
-                    std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
-                              << encoded_address.size() << " chars -> "
-                              << coordinated_root_address.size() << " bytes)"
-                              << std::endl;
-                }
-
-                // Coordinate with other parents via PMIx
+                coordinated_root_address =
+                    launch_rank0_and_get_address(cfg, address_file, total_ranks);
                 coordinated_root_address = coordinate_root_address_via_pmix(
                     true, coordinated_root_address, cfg.verbose
                 );
-
-                // Rank 0 is already running - we'll track its PID separately
-                // It will be handled along with other children
-                if (rank0_stdout_forwarder.joinable())
-                    rank0_stdout_forwarder.detach();
-                if (rank0_stderr_forwarder.joinable())
-                    rank0_stderr_forwarder.detach();
-
             } else {
                 // Non-root parent: Get address from root via PMIx
                 coordinated_root_address =
@@ -1342,12 +1505,11 @@ int main(int argc, char* argv[]) {
 
         // Determine rank offset and total ranks
         int rank_offset = 0;
-        int ranks_per_task = cfg.nranks;  // Ranks to launch in this process
-        int total_ranks = cfg.nranks;  // Total ranks across all processes
+        int ranks_per_task = cfg.nranks;
+        int total_ranks = cfg.nranks;
         bool is_root_parent = false;
 
         if (cfg.slurm_mode) {
-            // Hybrid mode: multiple ranks per Slurm task
             int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
             rank_offset = cfg.slurm_global_rank * ranks_per_task;
             total_ranks = slurm_ntasks * ranks_per_task;
@@ -1361,123 +1523,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        std::vector<pid_t> pids;
-        pids.reserve(static_cast<size_t>(ranks_per_task));
-
-        // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
-        sigset_t signal_set;
-        sigemptyset(&signal_set);
-        sigaddset(&signal_set, SIGINT);
-        sigaddset(&signal_set, SIGTERM);
-        sigprocmask(SIG_BLOCK, &signal_set, nullptr);
-
-        // Output suppression flag and forwarder threads
-        auto suppress_output = std::make_shared<std::atomic<bool>>(false);
-        std::vector<std::thread> forwarders;
-        forwarders.reserve(static_cast<size_t>(ranks_per_task) * 2);
-
-        // Helper to start a forwarder thread for a given fd
-        auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
-            if (fd < 0) {
-                return;
-            }
-            forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
-                FILE* stream = fdopen(fd, "r");
-                if (!stream) {
-                    close(fd);
-                    return;
-                }
-                std::string tag =
-                    cfg.tag_output ? ("[" + std::to_string(rank) + "] ") : std::string{};
-                char buffer[4096];
-                while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                    if (suppress_output->load(std::memory_order_relaxed)) {
-                        // Discard further lines after suppression
-                        continue;
-                    }
-                    FILE* out = to_stderr ? stderr : stdout;
-                    {
-                        std::lock_guard<std::mutex> lock(output_mutex);
-                        if (!tag.empty()) {
-                            fputs(tag.c_str(), out);
-                        }
-                        fputs(buffer, out);
-                        fflush(out);
-                    }
-                }
-                fclose(stream);
-            });
-        };
-
-        // Launch ranks (with offset for Slurm hybrid mode)
-        // Note: Root parent already launched rank 0 in PMIx coordination phase
-        int start_local_rank =
-            (is_root_parent && !coordinated_root_address.empty()) ? 1 : 0;
-
-        for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank)
-        {
-            int global_rank = rank_offset + local_rank;
-            int fd_out = -1;
-            int fd_err = -1;
-            pid_t pid = launch_rank_local(
-                cfg,
-                global_rank,
-                local_rank,
-                total_ranks,
-                coordinated_root_address,
-                &fd_out,
-                &fd_err
-            );
-            pids.push_back(pid);
-
-            if (cfg.verbose) {
-                std::ostringstream msg;
-                msg << "Launched rank " << global_rank << " (PID " << pid << ")";
-                if (!cfg.gpus.empty()) {
-                    msg << " on GPU "
-                        << cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
-                }
-                msg << std::endl;
-                std::string msg_str = msg.str();
-
-                std::cout << msg_str;
-                std::cout.flush();
-            }
-            // Parent-side forwarders for local stdout and stderr
-            start_forwarder(fd_out, global_rank, false);
-            start_forwarder(fd_err, global_rank, true);
-        }
-
-        // Start a signal-waiting thread to forward signals.
-        std::thread([signal_set, &pids, suppress_output]() mutable {
-            for (;;) {
-                int sig = 0;
-                int rc = sigwait(&signal_set, &sig);
-                if (rc != 0) {
-                    return;
-                }
-                // Stop printing further output immediately
-                suppress_output->store(true, std::memory_order_relaxed);
-                // Forward signal to all local children
-                for (pid_t pid : pids) {
-                    std::ignore = kill(pid, sig);
-                }
-            }
-        }).detach();
-
-        if (cfg.verbose) {
-            std::cout << "\nAll ranks launched. Waiting for completion...\n" << std::endl;
-        }
-
-        // Wait for all ranks to complete
-        int exit_status = wait_for_ranks(pids);
-
-        // Join forwarders before cleanup
-        for (auto& th : forwarders) {
-            if (th.joinable()) {
-                th.join();
-            }
-        }
+        // Launch ranks and wait for completion
+        int exit_status = launch_ranks_fork_based(
+            cfg,
+            rank_offset,
+            ranks_per_task,
+            total_ranks,
+            coordinated_root_address,
+            is_root_parent
+        );
 
         if (cfg.cleanup) {
             if (cfg.verbose) {
