@@ -81,7 +81,6 @@ Context::Context(
         -1  // set priority lower than in the Shuffler and AllGather.
     );
 
-    // Setup a MemoryReserveOrWait instance for each memory type.
     for (auto mem_type : MEMORY_TYPES) {
         mrows_[static_cast<std::size_t>(mem_type)] =
             std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
