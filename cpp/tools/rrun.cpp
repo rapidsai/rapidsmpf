@@ -776,6 +776,207 @@ pid_t fork_with_piped_stdio(
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
+ * @brief Execute application in Slurm passthrough mode (single rank per task).
+ *
+ * Applies topology bindings and executes the application directly without forking.
+ *
+ * @param cfg Configuration.
+ * @return Exit status. Does not return on success, only on error.
+ */
+int execute_slurm_passthrough_mode(Config const& cfg) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
+                  << std::endl;
+    }
+
+    // Set custom environment variables
+    for (auto const& env_pair : cfg.env_vars) {
+        setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+    }
+
+    // Determine GPU for this Slurm task
+    int gpu_id = -1;
+    if (!cfg.gpus.empty()) {
+        gpu_id = cfg.gpus[static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
+        setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
+
+        if (cfg.verbose) {
+            std::cerr << "[rrun] Slurm task (passthrough) local_id=" << cfg.slurm_local_id
+                      << " assigned to GPU " << gpu_id << std::endl;
+        }
+    }
+
+    apply_topology_bindings(cfg, gpu_id, cfg.verbose);
+
+    // Prepare arguments for execvp
+    std::vector<char*> exec_args;
+    exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
+    for (auto const& arg : cfg.app_args) {
+        exec_args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    exec_args.push_back(nullptr);
+
+    // Exec the application (this replaces the current process)
+    execvp(cfg.app_binary.c_str(), exec_args.data());
+
+    // If we get here, execvp failed
+    std::cerr << "Failed to execute " << cfg.app_binary << ": " << std::strerror(errno)
+              << std::endl;
+    return 1;
+}
+
+/**
+ * @brief Execute application in Slurm hybrid mode with PMIx coordination.
+ *
+ * Root parent launches rank 0 first to get address, coordinates via PMIx, then parents
+ * on all nodes launch their remaining ranks. Uses fork-based execution.
+ *
+ * @param cfg Configuration.
+ * @return Exit status (0 for success)
+ */
+int execute_slurm_hybrid_mode(Config& cfg) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm_global_rank
+                  << " launching " << cfg.nranks << " ranks per task" << std::endl;
+        std::cout << "[rrun] Using PMIx for parent coordination (no file I/O)"
+                  << std::endl;
+    }
+
+    // Set up coordination directory (needed by all tasks for child bootstrap)
+    char const* job_id = std::getenv("SLURM_JOB_ID");
+    if (cfg.coord_dir.empty()) {
+        if (job_id) {
+            cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
+        } else {
+            cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+        }
+    }
+    std::filesystem::create_directories(cfg.coord_dir);
+
+    // Root parent needs to launch rank 0 first to get address
+    bool is_root_parent = (cfg.slurm_global_rank == 0);
+
+    // Coordinate root address with other nodes via PMIx
+    int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
+    int total_ranks = slurm_ntasks * cfg.nranks;
+    std::string coordinated_root_address;
+
+    if (is_root_parent) {
+        // Root parent: Launch rank 0, get address, coordinate via PMIx
+        std::string address_file =
+            "/tmp/rapidsmpf_root_address_" + std::string{job_id ? job_id : "unknown"};
+        coordinated_root_address =
+            launch_rank0_and_get_address(cfg, address_file, total_ranks);
+        coordinated_root_address =
+            coordinate_root_address_via_pmix(true, coordinated_root_address, cfg.verbose);
+    } else {
+        // Non-root parent: Get address from root via PMIx
+        coordinated_root_address =
+            coordinate_root_address_via_pmix(false, "", cfg.verbose);
+    }
+
+    // Now all parents have the coordinated_root_address
+    // Continue to fork-based launch below with this address
+    unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
+
+    // Calculate rank offsets
+    int rank_offset = cfg.slurm_global_rank * cfg.nranks;
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Task " << cfg.slurm_global_rank << " launching ranks "
+                  << rank_offset << "-" << (rank_offset + cfg.nranks - 1)
+                  << " (total: " << total_ranks << " ranks)" << std::endl;
+    }
+
+    // Launch ranks and wait for completion
+    int exit_status = launch_ranks_fork_based(
+        cfg,
+        rank_offset,
+        cfg.nranks,
+        total_ranks,
+        coordinated_root_address,
+        is_root_parent
+    );
+
+    // Cleanup
+    if (cfg.cleanup) {
+        if (cfg.verbose) {
+            std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
+                      << std::endl;
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(cfg.coord_dir, ec);
+        if (ec) {
+            std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir << ": "
+                      << ec.message() << std::endl;
+        }
+    } else if (cfg.verbose) {
+        std::cout << "Coordination directory preserved: " << cfg.coord_dir << std::endl;
+    }
+
+    if (cfg.verbose && exit_status == 0) {
+        std::cout << "\nAll ranks completed successfully." << std::endl;
+    }
+
+    // Finalize PMIx
+    if (!coordinated_root_address.empty()) {
+        if (cfg.verbose) {
+            std::cout << "[rrun] Finalizing PMIx in parent" << std::endl;
+        }
+        PMIx_Finalize(nullptr, 0);
+    }
+
+    return exit_status;
+}
+#endif  // RAPIDSMPF_HAVE_SLURM
+
+/**
+ * @brief Execute application in single-node mode with FILE backend
+ *
+ * Uses fork-based execution with file-based coordination.
+ *
+ * @param cfg Configuration
+ * @return Exit status (0 for success)
+ */
+int execute_single_node_mode(Config& cfg) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Single-node mode: launching " << cfg.nranks << " ranks"
+                  << std::endl;
+    }
+
+    // Set up coordination directory
+    if (cfg.coord_dir.empty()) {
+        cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+    }
+    std::filesystem::create_directories(cfg.coord_dir);
+
+    // Launch ranks and wait for completion
+    int exit_status = launch_ranks_fork_based(cfg, 0, cfg.nranks, cfg.nranks, "", false);
+
+    // Cleanup
+    if (cfg.cleanup) {
+        if (cfg.verbose) {
+            std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
+                      << std::endl;
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(cfg.coord_dir, ec);
+        if (ec) {
+            std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir << ": "
+                      << ec.message() << std::endl;
+        }
+    } else if (cfg.verbose) {
+        std::cout << "Coordination directory preserved: " << cfg.coord_dir << std::endl;
+    }
+
+    if (cfg.verbose && exit_status == 0) {
+        std::cout << "\nAll ranks completed successfully." << std::endl;
+    }
+
+    return exit_status;
+}
+
+/**
  * @brief Launch rank 0 first to obtain its UCXX root address
  *
  * @param cfg Configuration
@@ -1016,15 +1217,15 @@ std::string coordinate_root_address_via_pmix(
 #endif  // RAPIDSMPF_HAVE_SLURM
 
 /**
- * @brief Launch multiple ranks locally using fork
+ * @brief Launch multiple ranks locally using fork.
  *
- * @param cfg Configuration
- * @param rank_offset Starting global rank for this task
- * @param ranks_per_task Number of ranks to launch
- * @param total_ranks Total ranks across all tasks
- * @param root_address Pre-coordinated root address (empty for FILE backend)
- * @param is_root_parent Whether this is root parent (affects which ranks to launch)
- * @return Exit status (0 for success)
+ * @param cfg Configuration.
+ * @param rank_offset Starting global rank for this task.
+ * @param ranks_per_task Number of ranks to launch.
+ * @param total_ranks Total ranks across all tasks.
+ * @param root_address Pre-coordinated root address (empty for FILE backend).
+ * @param is_root_parent Whether this is root parent (affects which ranks to launch).
+ * @return Exit status (0 for success).
  */
 int launch_ranks_fork_based(
     Config const& cfg,
@@ -1371,206 +1572,31 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
         }
 
-        // Variable to hold pre-coordinated root address (for Slurm hybrid mode)
-        std::string coordinated_root_address;
-
-        // =====================================================================
-        // Slurm Mode: Two sub-modes based on whether -n was specified
-        // =====================================================================
         if (cfg.slurm_mode) {
             if (cfg.nranks == 1) {
-                // ===== Passthrough Mode: Just apply bindings and exec =====
-                // Set custom environment variables
-                for (auto const& env_pair : cfg.env_vars) {
-                    setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
-                }
-
-                // Determine GPU for this Slurm task
-                int gpu_id = -1;
-                if (!cfg.gpus.empty()) {
-                    gpu_id =
-                        cfg.gpus
-                            [static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
-                    setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
-
-                    if (cfg.verbose) {
-                        std::cerr << "[rrun] Slurm task (passthrough) local_id="
-                                  << cfg.slurm_local_id << " assigned to GPU " << gpu_id
-                                  << std::endl;
-                    }
-                }
-
-                apply_topology_bindings(cfg, gpu_id, cfg.verbose);
-
-                // Prepare arguments for execvp
-                std::vector<char*> exec_args;
-                exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
-                for (auto const& arg : cfg.app_args) {
-                    exec_args.push_back(const_cast<char*>(arg.c_str()));
-                }
-                exec_args.push_back(nullptr);
-
-                // Exec the application (this replaces the current process)
-                execvp(cfg.app_binary.c_str(), exec_args.data());
-
-                // If we get here, execvp failed
-                std::cerr << "Failed to execute " << cfg.app_binary << ": "
-                          << std::strerror(errno) << std::endl;
-                return 1;
-            }
-
-            // ===== Hybrid Mode: Parent-mediated coordination via PMIx =====
-#ifdef RAPIDSMPF_HAVE_SLURM
-            if (cfg.verbose) {
-                std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm_global_rank
-                          << " launching " << cfg.nranks << " ranks per task"
-                          << std::endl;
-                std::cout << "[rrun] Using PMIx for parent coordination (no file I/O)"
-                          << std::endl;
-            }
-
-            // Set up coordination directory (needed by all tasks for child bootstrap)
-            char const* job_id = std::getenv("SLURM_JOB_ID");
-            if (cfg.coord_dir.empty()) {
-                if (job_id) {
-                    cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
-                } else {
-                    cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
-                }
-            }
-            std::filesystem::create_directories(cfg.coord_dir);
-
-            // Root parent needs to launch rank 0 first to get address
-            bool is_root_parent = (cfg.slurm_global_rank == 0);
-
-            // Coordinate root address via PMIx
-            int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
-            int total_ranks = slurm_ntasks * cfg.nranks;
-
-            if (is_root_parent) {
-                // Root parent: Launch rank 0, get address, coordinate via PMIx
-                std::string address_file = "/tmp/rapidsmpf_root_address_"
-                                           + std::string{job_id ? job_id : "unknown"};
-                coordinated_root_address =
-                    launch_rank0_and_get_address(cfg, address_file, total_ranks);
-                coordinated_root_address = coordinate_root_address_via_pmix(
-                    true, coordinated_root_address, cfg.verbose
-                );
+                // Slurm passthrough mode: single rank per task, no forking
+                return execute_slurm_passthrough_mode(cfg);
             } else {
-                // Non-root parent: Get address from root via PMIx
-                coordinated_root_address =
-                    coordinate_root_address_via_pmix(false, "", cfg.verbose);
-            }
-
-            // Now all parents have the coordinated_root_address
-            // Continue to fork-based launch below with this address
-            unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
-#else
-            // Fallback to FILE backend if PMIx not available
-            if (cfg.verbose) {
-                std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm_global_rank
-                          << " launching " << cfg.nranks << " ranks per task"
-                          << std::endl;
-                std::cout
-                    << "[rrun] WARNING: PMIx not available, falling back to FILE backend"
-                    << std::endl;
-            }
-
-            // Generate coordination directory if not specified
-            if (cfg.coord_dir.empty()) {
-                char const* job_id = std::getenv("SLURM_JOB_ID");
-                if (job_id) {
-                    cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
-                } else {
-                    cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
-                }
-            }
-
-            std::filesystem::create_directories(cfg.coord_dir);
-            coordinated_root_address = "";  // Empty means use FILE backend
-#endif
-        }
-
-        // =====================================================================
-        // Fork-based Launch: Single-Node or Slurm Hybrid Mode
-        // =====================================================================
-
-        // For non-Slurm mode or FILE backend fallback, create coord dir
-        if (!cfg.slurm_mode || coordinated_root_address.empty()) {
-            if (cfg.coord_dir.empty()) {
-                cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
-            }
-            std::filesystem::create_directories(cfg.coord_dir);
-        }
-
-        // Determine rank offset and total ranks
-        int rank_offset = 0;
-        int ranks_per_task = cfg.nranks;
-        int total_ranks = cfg.nranks;
-        bool is_root_parent = false;
-
-        if (cfg.slurm_mode) {
-            int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
-            rank_offset = cfg.slurm_global_rank * ranks_per_task;
-            total_ranks = slurm_ntasks * ranks_per_task;
-            is_root_parent = (cfg.slurm_global_rank == 0);
-
-            if (cfg.verbose) {
-                std::cout << "[rrun] Task " << cfg.slurm_global_rank
-                          << " launching ranks " << rank_offset << "-"
-                          << (rank_offset + ranks_per_task - 1)
-                          << " (total: " << total_ranks << " ranks)" << std::endl;
-            }
-        }
-
-        // Launch ranks and wait for completion
-        int exit_status = launch_ranks_fork_based(
-            cfg,
-            rank_offset,
-            ranks_per_task,
-            total_ranks,
-            coordinated_root_address,
-            is_root_parent
-        );
-
-        if (cfg.cleanup) {
-            if (cfg.verbose) {
-                std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
-                          << std::endl;
-            }
-            std::error_code ec;
-            std::filesystem::remove_all(cfg.coord_dir, ec);
-            if (ec) {
-                std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir
-                          << ": " << ec.message() << std::endl;
-            }
-        } else if (cfg.verbose) {
-            std::cout << "Coordination directory preserved: " << cfg.coord_dir
-                      << std::endl;
-        }
-
-        if (cfg.verbose && exit_status == 0) {
-            std::cout << "\nAll ranks completed successfully." << std::endl;
-        }
-
+                // Slurm hybrid mode: multiple ranks per task with PMIx coordination
 #ifdef RAPIDSMPF_HAVE_SLURM
-        if (cfg.slurm_mode && !coordinated_root_address.empty()) {
-            if (cfg.verbose) {
-                std::cout << "[rrun] Finalizing PMIx in parent" << std::endl;
-            }
-            PMIx_Finalize(nullptr, 0);
-        }
+                return execute_slurm_hybrid_mode(cfg);
+#else
+                std::cerr << "Error: Slurm hybrid mode requires PMIx support but "
+                          << "rapidsmpf was not built with PMIx." << std::endl;
+                std::cerr
+                    << "Rebuild with -DBUILD_SLURM_SUPPORT=ON or use passthrough mode "
+                    << "(without -n flag)." << std::endl;
+                return 1;
 #endif
-
-        return exit_status;
+            }
+        } else {
+            // Single-node mode with FILE backend
+            return execute_single_node_mode(cfg);
+        }
 
     } catch (std::exception const& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         std::cerr << "Run with -h or --help for usage information." << std::endl;
-
-#ifdef RAPIDSMPF_HAVE_SLURM
-        PMIx_Finalize(nullptr, 0);
-#endif
         return 1;
     }
 }
