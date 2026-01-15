@@ -23,6 +23,20 @@ namespace rapidsmpf::streaming {
 
 /**
  * @brief Context for nodes (coroutines) in rapidsmpf.
+ *
+ * The context owns shared resources used during execution, including the
+ * coroutine executor and memory reservation infrastructure.
+ *
+ * @warning A `Context` instance must be created and destroyed on the same
+ * thread. Destroying the context on a different thread results in program
+ * termination. This is important in coroutine-based code, where stack
+ * unwinding may occur on a different thread if ownership is not carefully
+ * managed.
+ *
+ * A recommended usage pattern is to create a single `Context` instance up front
+ * on the main thread and reuse it throughout the lifetime of the program. This
+ * reduces overhead and avoids issues related to destruction on a different
+ * thread.
  */
 class Context {
   public:
