@@ -13,6 +13,8 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/coro_executor.hpp>
+#include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
 #include <coro/coro.hpp>
@@ -21,6 +23,20 @@ namespace rapidsmpf::streaming {
 
 /**
  * @brief Context for nodes (coroutines) in rapidsmpf.
+ *
+ * The context owns shared resources used during execution, including the
+ * coroutine executor and memory reservation infrastructure.
+ *
+ * @warning A `Context` instance must be created and destroyed on the same
+ * thread. Destroying the context on a different thread results in program
+ * termination. This is important in coroutine-based code, where stack
+ * unwinding may occur on a different thread if ownership is not carefully
+ * managed.
+ *
+ * A recommended usage pattern is to create a single `Context` instance up front
+ * on the main thread and reuse it throughout the lifetime of the program. This
+ * reduces overhead and avoids issues related to destruction on a different
+ * thread.
  */
 class Context {
   public:
@@ -32,7 +48,7 @@ class Context {
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
      * @param progress_thread Shared pointer to a progress thread.
-     * @param executor Unique pointer to a coroutine thread pool.
+     * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
      * @param statistics Shared pointer to a statistics collector.
      */
@@ -40,20 +56,18 @@ class Context {
         config::Options options,
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
-        std::unique_ptr<coro::thread_pool> executor,
+        std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics
     );
 
     /**
-     * @brief Convenience constructor with minimal configuration.
-     *
-     * Creates a default ProgressThread and coroutine thread pool.
+     * @brief Convenience constructor using the provided configuration options.
      *
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
-     * @param br Buffer resource used to reserve host memory and perform the move.
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param br Buffer resource used to reserve host memory and perform data movement.
+     * @param statistics Statistics instance to use (disabled by default).
      */
     Context(
         config::Options options,
@@ -93,18 +107,38 @@ class Context {
     [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const noexcept;
 
     /**
-     * @brief Returns the coroutine thread pool.
+     * @brief Returns the coroutine executor.
      *
-     * @return Reference to unique pointer to the thread pool.
+     * @return Reference to unique pointer to the executor.
      */
-    [[nodiscard]] std::unique_ptr<coro::thread_pool>& executor() noexcept;
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
 
     /**
      * @brief Returns the buffer resource.
      *
      * @return Raw pointer to the buffer resource.
      */
-    [[nodiscard]] BufferResource* br() const noexcept;
+    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+
+    /**
+     * @brief Get the handle for memory reservations for a given memory type.
+     *
+     * Returns an object that coordinates asynchronous memory reservation requests
+     * for the specified memory type. The returned instance provides backpressure
+     * and global progress guarantees, and should be used to reserve memory before
+     * performing operations that require memory.
+     *
+     * A recommended usage pattern is to reserve all required memory up front as a
+     * single atomic reservation. This allows callers to `co_await` the reservation
+     * request and only start executing the operation once all required memory is
+     * available.
+     *
+     * @param mem_type Memory type for which reservations are requested.
+     * @return Shared pointer to the corresponding memory reservation coordinator.
+     */
+    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> memory(
+        MemoryType mem_type
+    ) const noexcept;
 
     /**
      * @brief Returns the statistics collector.
@@ -142,8 +176,9 @@ class Context {
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    std::unique_ptr<coro::thread_pool> executor_;
+    std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
+    std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};
     std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};

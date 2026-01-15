@@ -56,7 +56,7 @@ Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
-    std::unique_ptr<coro::thread_pool> executor,
+    std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
@@ -80,6 +80,11 @@ Context::Context(
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );
+
+    for (auto mem_type : MEMORY_TYPES) {
+        memory_[static_cast<std::size_t>(mem_type)] =
+            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
+    }
 }
 
 Context::Context(
@@ -92,30 +97,19 @@ Context::Context(
           options,
           comm,
           std::make_shared<ProgressThread>(comm->logger(), statistics),
-          coro::thread_pool::make_unique(
-              coro::thread_pool::options{
-                  .thread_count = options.get<std::uint32_t>(
-                      "num_streaming_threads",
-                      [](std::string const& s) {
-                          if (s.empty()) {
-                              return 1;  // Default number of threads.
-                          }
-                          if (int v = std::stoi(s); v > 0) {
-                              return v;
-                          }
-                          throw std::invalid_argument(
-                              "num_streaming_threads must be positive"
-                          );
-                      }
-                  )
-              }
-          ),
+          std::make_shared<CoroThreadPoolExecutor>(options),
           br,
           statistics
       ) {}
 
 Context::~Context() noexcept {
     br_->spill_manager().remove_spill_function(spill_function_id_);
+
+    // By shutting down the executor explicitly, we guarantee that any dangling
+    // references to the executor will fail if they attempt to use it, and that
+    // the executor's destructor does not trigger shutdown on a different thread
+    // than the one that created the executor.
+    executor_->shutdown();
 }
 
 config::Options Context::options() const noexcept {
@@ -134,12 +128,16 @@ std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
 
-std::unique_ptr<coro::thread_pool>& Context::executor() noexcept {
+std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
     return executor_;
 }
 
-BufferResource* Context::br() const noexcept {
-    return br_.get();
+std::shared_ptr<BufferResource> Context::br() const noexcept {
+    return br_;
+}
+
+std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
+    return memory_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

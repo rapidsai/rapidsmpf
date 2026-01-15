@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -154,8 +154,10 @@ class BoundedQueue {
      *
      * @return A coroutine representing completion of the shutdown drain.
      */
-    [[nodiscard]] coro::task<void> drain(std::unique_ptr<coro::thread_pool>& executor) {
-        co_await q_.shutdown_drain(executor);
+    [[nodiscard]] coro::task<void> drain(
+        std::shared_ptr<CoroThreadPoolExecutor> executor
+    ) {
+        co_await q_.shutdown_drain(executor->get());
         co_await semaphore_.shutdown();
     }
 
