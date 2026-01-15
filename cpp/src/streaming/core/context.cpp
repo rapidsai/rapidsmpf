@@ -82,7 +82,7 @@ Context::Context(
     );
 
     for (auto mem_type : MEMORY_TYPES) {
-        mrows_[static_cast<std::size_t>(mem_type)] =
+        memory_[static_cast<std::size_t>(mem_type)] =
             std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
     }
 }
@@ -137,7 +137,7 @@ std::shared_ptr<BufferResource> Context::br() const noexcept {
 }
 
 std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
-    return mrows_[static_cast<std::size_t>(mem_type)];
+    return memory_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

@@ -164,7 +164,7 @@ class Context {
     std::shared_ptr<ProgressThread> progress_thread_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
-    std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> mrows_ = {};
+    std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};
     std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
