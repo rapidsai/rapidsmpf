@@ -61,6 +61,25 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
+    constexpr std::int64_t timeout_ms = 12345;
+    config::Options options{
+        {{"memory_reserve_timeout_ms", config::OptionValue(std::to_string(timeout_ms))}}
+    };
+
+    MemoryReserveOrWait mrow{options, MemoryType::DEVICE, ctx->executor(), ctx->br()};
+
+    // Executor and buffer resource should match the context.
+    EXPECT_EQ(mrow.executor(), ctx->executor());
+    EXPECT_EQ(mrow.br(), ctx->br());
+
+    // Timeout should match the configured value.
+    EXPECT_EQ(
+        std::chrono::duration_cast<std::chrono::milliseconds>(mrow.timeout()).count(),
+        timeout_ms
+    );
+}
+
 TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";

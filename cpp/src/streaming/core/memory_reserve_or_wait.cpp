@@ -155,6 +155,18 @@ std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const noexcept 
     return periodic_memory_check_counter_.load(std::memory_order_acquire);
 }
 
+std::shared_ptr<CoroThreadPoolExecutor> MemoryReserveOrWait::executor() const noexcept {
+    return executor_;
+}
+
+std::shared_ptr<BufferResource> MemoryReserveOrWait::br() const noexcept {
+    return br_;
+}
+
+Duration MemoryReserveOrWait::timeout() const noexcept {
+    return timeout_;
+}
+
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // Helper that returns available memory, clamped so negative values become zero.
     auto memory_available = [f = br_->memory_available(mem_type_)]() -> std::size_t {

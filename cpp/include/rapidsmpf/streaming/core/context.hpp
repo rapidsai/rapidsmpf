@@ -107,9 +107,9 @@ class Context {
     [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const noexcept;
 
     /**
-     * @brief Returns the coroutine thread pool.
+     * @brief Returns the coroutine executor.
      *
-     * @return Reference to unique pointer to the thread pool.
+     * @return Reference to unique pointer to the executor.
      */
     [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
 

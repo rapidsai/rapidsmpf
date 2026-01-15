@@ -181,6 +181,27 @@ class MemoryReserveOrWait {
      */
     [[nodiscard]] std::size_t periodic_memory_check_counter() const noexcept;
 
+    /**
+     * @brief Get the coroutine executor used by this instance.
+     *
+     * @return Shared pointer to the coroutine executor.
+     */
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
+
+    /**
+     * @brief Get the buffer resource used for memory reservations.
+     *
+     * @return Shared pointer to the buffer resource.
+     */
+    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+
+    /**
+     * @brief Get the configured progress timeout.
+     *
+     * @return The progress timeout duration.
+     */
+    [[nodiscard]] Duration timeout() const noexcept;
+
   private:
     /**
      * @brief Represents a single memory reservation request.
