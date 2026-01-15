@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,8 @@
 #include <ostream>
 #include <ranges>
 #include <span>
+
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
@@ -41,6 +43,20 @@ constexpr std::array<MemoryType, 2> SPILL_TARGET_MEMORY_TYPES{
 };
 
 /**
+ * @brief Memory types that are device accessible in the order of preference.
+ */
+constexpr std::array<MemoryType, 2> DEVICE_ACCESSIBLE_MEMORY_TYPES{
+    {MemoryType::DEVICE, MemoryType::PINNED_HOST}
+};
+
+/**
+ * @brief Memory types that are host accessible in the order of preference.
+ */
+constexpr std::array<MemoryType, 2> HOST_ACCESSIBLE_MEMORY_TYPES{
+    {MemoryType::PINNED_HOST, MemoryType::HOST}
+};
+
+/**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.
  *
  * The returned span reflects the predefined ordering used in \c MEMORY_TYPES,
@@ -64,6 +80,26 @@ static_assert(std::ranges::equal(
 static_assert(std::ranges::equal(
     leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
 ));
+
+/**
+ * @brief Check if the memory type is host accessible.
+ *
+ * @param mem_type The memory type.
+ * @return True if the memory type is host accessible, false otherwise.
+ */
+constexpr bool is_host_accessible(MemoryType const& mem_type) noexcept {
+    return contains(HOST_ACCESSIBLE_MEMORY_TYPES, mem_type);
+};
+
+/**
+ * @brief Check if the memory type is device accessible.
+ *
+ * @param mem_type The memory type.
+ * @return True if the memory type is device accessible, false otherwise.
+ */
+constexpr bool is_device_accessible(MemoryType const& mem_type) noexcept {
+    return contains(DEVICE_ACCESSIBLE_MEMORY_TYPES, mem_type);
+};
 
 /**
  * @brief Get the name of a MemoryType.

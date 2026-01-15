@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -107,12 +107,29 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
-        );
-        return *pinned_mr_;
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr() {
+        return get_checked_pinned_mr();
     }
+
+    /**
+     * @brief Get the RMM device memory resource for a given memory type.
+     *
+     * @param mem_type The memory type.
+     * @return Reference to the RMM resource used for device allocations.
+     * @throws std::invalid_argument if the memory type is not device accessible.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref get_device_mr(
+        MemoryType const& mem_type
+    );
+
+    /**
+     * @brief Get the RMM host memory resource for a given memory type.
+     *
+     * @param mem_type The memory type.
+     * @return Reference to the RMM resource used for host allocations.
+     * @throws std::invalid_argument if the memory type is not host accessible.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref get_host_mr(MemoryType const& mem_type);
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -211,7 +228,9 @@ class BufferResource {
                 return std::move(res);
             }
         }
-        RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+        RAPIDSMPF_FAIL(
+            "failed to reserve memory " + std::to_string(size), std::runtime_error
+        );
     }
 
     /**
@@ -271,10 +290,10 @@ class BufferResource {
     );
 
     /**
-     * @brief Move device buffer data into a Buffer.
+     * @brief Move device/ pinned host buffer data into a Buffer.
      *
      * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * device memory.
+     * device/ pinned host memory.
      *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
@@ -283,10 +302,15 @@ class BufferResource {
      * @param data Unique pointer to the device buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
+     * @param mem_type The memory type of the device buffer. Defaults to
+     * `MemoryType::DEVICE`.
+     *
      * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+        std::unique_ptr<rmm::device_buffer> data,
+        rmm::cuda_stream_view stream,
+        MemoryType mem_type = MemoryType::DEVICE
     );
 
     /**
@@ -364,6 +388,18 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics();
 
   private:
+    /**
+     * @brief Get the RMM pinned host memory resource.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] PinnedMemoryResource& get_checked_pinned_mr() {
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+        );
+        return *pinned_mr_;
+    }
+
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::shared_ptr<PinnedMemoryResource> pinned_mr_;

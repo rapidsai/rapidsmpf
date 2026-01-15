@@ -1,10 +1,11 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <memory>
 
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -170,32 +171,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     // serialize `table_view()` into a packed_columns and then we move
                     // the packed_columns' gpu_data to a new host buffer.
 
-                    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
-                    // `cudf::pack()` allocates device memory we haven't reserved.
-                    auto packed_columns =
-                        cudf::pack(table_view(), stream(), br->device_mr());
-                    packed_data = std::make_unique<PackedData>(
-                        std::move(packed_columns.metadata),
-                        br->move(std::move(packed_columns.gpu_data), stream())
-                    );
-
-                    // Handle the case where `cudf::pack` allocates slightly more than the
-                    // input size. This can occur because cudf uses aligned allocations,
-                    // which may exceed the requested size. To accommodate this, we
-                    // allow some wiggle room.
-                    if (packed_data->data->size > reservation.size()) {
-                        auto const wiggle_room =
-                            1024 * static_cast<std::size_t>(table_view().num_columns());
-                        if (packed_data->data->size <= reservation.size() + wiggle_room) {
-                            reservation =
-                                br->reserve(
-                                      MemoryType::HOST, packed_data->data->size, true
-                                )
-                                    .first;
-                        }
-                    }
-                    packed_data->data =
-                        br->move(std::move(packed_data->data), reservation);
+                    packed_data = pack(table_view(), stream(), reservation);
                 }
                 return TableChunk(std::move(packed_data));
             }
