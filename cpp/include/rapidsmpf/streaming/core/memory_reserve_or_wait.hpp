@@ -79,8 +79,8 @@ class MemoryReserveOrWait {
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
      * reduce memory pressure sooner. The value represents the estimated net change
-     * in memory usage after the reservation has been granted and the dependent
-     * operation completes (that is, the memory impact after both reserving @p size
+     * in memory usage after the reservation has been allocated and the dependent
+     * operation completes (that is, the memory impact after both allocating @p size
      * and finishing the work that consumes the reservation):
      *   - > 0: expected net increase in memory usage
      *   - = 0: memory-neutral
@@ -96,8 +96,8 @@ class MemoryReserveOrWait {
      *
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Estimated net change in memory usage after the
-     * reservation is granted and the dependent operation completes. Smaller values
-     * have higher priority.
+     * reservation is allocated and the dependent operation completes. Smaller
+     * values have higher priority.
      * @return A `MemoryReservation` representing the allocated memory, or an empty
      * reservation if progress could not be made.
      *
@@ -192,7 +192,7 @@ class MemoryReserveOrWait {
         /// @brief The number of bytes requested.
         std::size_t size;
 
-        /// @brief Estimated net change in memory usage after the reservation is granted
+        /// @brief Estimated net change in memory usage after the reservation is allocated
         /// and the dependent operation completes. Smaller values have higher priority.
         std::int64_t net_memory_delta;
 
