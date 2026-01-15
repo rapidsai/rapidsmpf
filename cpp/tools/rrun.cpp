@@ -78,6 +78,34 @@ std::string hex_decode(std::string const& input) {
     }
     return result;
 }
+
+// Forward declarations of helper functions
+struct Config;
+#ifdef RAPIDSMPF_HAVE_SLURM
+std::string launch_rank0_and_get_address(
+    Config const& cfg, std::string const& address_file, int total_ranks
+);
+std::string coordinate_root_address_via_pmix(
+    std::optional<std::string> const& root_address_to_publish, bool verbose
+);
+#endif
+int launch_ranks_fork_based(
+    Config const& cfg,
+    int rank_offset,
+    int ranks_per_task,
+    int total_ranks,
+    std::string const& root_address,
+    bool is_root_parent
+);
+pid_t launch_rank_local(
+    Config const& cfg,
+    int global_rank,
+    int local_rank,
+    int total_ranks,
+    std::string const& root_address,
+    int* out_fd_stdout,
+    int* out_fd_stderr
+);
 }  // namespace
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
@@ -868,11 +896,11 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         coordinated_root_address =
             launch_rank0_and_get_address(cfg, address_file, total_ranks);
         coordinated_root_address =
-            coordinate_root_address_via_pmix(true, coordinated_root_address, cfg.verbose);
+            coordinate_root_address_via_pmix(coordinated_root_address, cfg.verbose);
     } else {
         // Non-root parent: Get address from root via PMIx
         coordinated_root_address =
-            coordinate_root_address_via_pmix(false, "", cfg.verbose);
+            coordinate_root_address_via_pmix(std::nullopt, cfg.verbose);
     }
 
     // Now all parents have the coordinated_root_address
@@ -976,6 +1004,7 @@ int execute_single_node_mode(Config& cfg) {
     return exit_status;
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Launch rank 0 first to obtain its UCXX root address
  *
@@ -1082,20 +1111,21 @@ std::string launch_rank0_and_get_address(
 }
 
 /**
- * @brief Coordinate root address between parent processes using PMIx
+ * @brief Coordinate root address between parent processes using PMIx.
  *
  * This function is called by parent rrun processes in Slurm hybrid mode.
  * The root parent (PMIX_RANK=0) publishes the root address, and non-root
  * parents retrieve it. This avoids file-based coordination.
  *
- * @param is_root Whether this is the root parent (PMIX_RANK=0)
- * @param root_address_to_publish Address to publish (only used if is_root)
- * @param verbose Whether to print debug messages
- * @return Root address (either published or retrieved)
- * @throws std::runtime_error on PMIx errors
+ * @param root_address_to_publish Root address to publish. If set (has_value()), this is
+ *                                the root parent and it will publish. If empty (nullopt),
+ *                                this is a non-root parent and it will retrieve.
+ * @param verbose Whether to print debug messages.
+ * @return Root address (either published or retrieved).
+ * @throws std::runtime_error on PMIx errors.
  */
 std::string coordinate_root_address_via_pmix(
-    bool is_root, std::string const& root_address_to_publish, bool verbose
+    std::optional<std::string> const& root_address_to_publish, bool verbose
 ) {
     // Initialize PMIx for parent process
     pmix_proc_t proc;
@@ -1113,13 +1143,13 @@ std::string coordinate_root_address_via_pmix(
 
     std::string root_address;
 
-    if (is_root) {
+    if (root_address_to_publish.has_value()) {
         // Root parent publishes the address (hex-encoded for binary safety)
-        std::string encoded_address = hex_encode(root_address_to_publish);
+        std::string encoded_address = hex_encode(root_address_to_publish.value());
 
         if (verbose) {
             std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
-                      << root_address_to_publish.size() << " bytes -> "
+                      << root_address_to_publish.value().size() << " bytes -> "
                       << encoded_address.size() << " chars)" << std::endl;
         }
 
@@ -1148,7 +1178,7 @@ std::string coordinate_root_address_via_pmix(
             );
         }
 
-        root_address = root_address_to_publish;
+        root_address = root_address_to_publish.value();
     }
 
     // Barrier with PMIX_COLLECT_DATA to ensure data exchange
@@ -1173,7 +1203,7 @@ std::string coordinate_root_address_via_pmix(
         );
     }
 
-    if (!is_root) {
+    if (!root_address_to_publish.has_value()) {
         // Non-root parents retrieve the address
         pmix_proc_t source_proc;
         PMIX_PROC_CONSTRUCT(&source_proc);
@@ -1345,7 +1375,7 @@ int launch_ranks_fork_based(
             int code = WEXITSTATUS(status);
             if (code != 0) {
                 std::cerr << "Rank "
-                          << (rank_offset
+                          << (static_cast<size_t>(rank_offset)
                               + (is_root_parent && !root_address.empty() ? i + 1 : i))
                           << " (PID " << pid << ") exited with code " << code
                           << std::endl;
@@ -1354,7 +1384,7 @@ int launch_ranks_fork_based(
         } else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
             std::cerr << "Rank "
-                      << (rank_offset
+                      << (static_cast<size_t>(rank_offset)
                           + (is_root_parent && !root_address.empty() ? i + 1 : i))
                       << " (PID " << pid << ") terminated by signal " << sig << std::endl;
             exit_status = 128 + sig;
@@ -1465,47 +1495,6 @@ pid_t launch_rank_local(
     );
 }
 
-/**
- * @brief Wait for all child processes and check their exit status.
- */
-int wait_for_ranks(std::vector<pid_t> const& pids) {
-    int overall_status = 0;
-
-    for (size_t i = 0; i < pids.size(); ++i) {
-        int status;
-        while (true) {
-            pid_t result = waitpid(pids[i], &status, 0);
-
-            if (result < 0) {
-                if (errno == EINTR) {
-                    // Retry waitpid for the same pid
-                    continue;
-                }
-                std::cerr << "Error waiting for rank " << i << ": "
-                          << std::strerror(errno) << std::endl;
-                overall_status = 1;
-                break;
-            }
-
-            if (WIFEXITED(status)) {
-                int exit_code = WEXITSTATUS(status);
-                if (exit_code != 0) {
-                    std::cerr << "Rank " << i << " (PID " << pids[i]
-                              << ") exited with code " << exit_code << std::endl;
-                    overall_status = exit_code;
-                }
-            } else if (WIFSIGNALED(status)) {
-                int signal = WTERMSIG(status);
-                std::cerr << "Rank " << i << " (PID " << pids[i]
-                          << ") terminated by signal " << signal << std::endl;
-                overall_status = 128 + signal;
-            }
-            break;
-        }
-    }
-
-    return overall_status;
-}
 }  // namespace
 
 int main(int argc, char* argv[]) {
