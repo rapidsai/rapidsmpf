@@ -189,7 +189,8 @@ std::vector<int> detect_gpus() {
     FILE* pipe =
         popen("nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null", "r");
     if (!pipe) {
-        std::cerr << "Warning: Could not detect GPUs using nvidia-smi" << std::endl;
+        std::cerr << "[rrun] Warning: Could not detect GPUs using nvidia-smi"
+                  << std::endl;
         return {};
     }
 
@@ -436,7 +437,7 @@ void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
     auto it = cfg.gpu_topology_map.find(gpu_id);
     if (it == cfg.gpu_topology_map.end()) {
         if (verbose) {
-            std::cerr << "Warning: No topology information for GPU " << gpu_id
+            std::cerr << "[rrun] Warning: No topology information for GPU " << gpu_id
                       << std::endl;
         }
         return;
@@ -447,8 +448,8 @@ void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
     if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
         if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
             if (verbose) {
-                std::cerr << "Warning: Failed to set CPU affinity for GPU " << gpu_id
-                          << std::endl;
+                std::cerr << "[rrun] Warning: Failed to set CPU affinity for GPU "
+                          << gpu_id << std::endl;
             }
         }
     }
@@ -457,7 +458,7 @@ void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
         if (!set_numa_memory_binding(gpu_info.memory_binding)) {
 #if RAPIDSMPF_HAVE_NUMA
             if (verbose) {
-                std::cerr << "Warning: Failed to set NUMA memory binding for GPU "
+                std::cerr << "[rrun] Warning: Failed to set NUMA memory binding for GPU "
                           << gpu_id << std::endl;
             }
 #endif
@@ -674,9 +675,9 @@ Config parse_args(int argc, char* argv[]) {
     if (cfg.gpus.empty()) {
         cfg.gpus = detect_gpus();
         if (cfg.gpus.empty()) {
-            std::cerr
-                << "Warning: No GPUs detected. CUDA_VISIBLE_DEVICES will not be set."
-                << std::endl;
+            std::cerr << "[rrun] Warning: No GPUs detected. CUDA_VISIBLE_DEVICES will "
+                         "not be set."
+                      << std::endl;
         }
     }
 
@@ -684,7 +685,7 @@ Config parse_args(int argc, char* argv[]) {
     if (!cfg.slurm_mode && !cfg.gpus.empty()
         && cfg.nranks > static_cast<int>(cfg.gpus.size()))
     {
-        std::cerr << "Warning: Number of ranks (" << cfg.nranks
+        std::cerr << "[rrun] Warning: Number of ranks (" << cfg.nranks
                   << ") exceeds number of GPUs (" << cfg.gpus.size()
                   << "). Multiple ranks will share GPUs." << std::endl;
     }
@@ -711,7 +712,7 @@ Config parse_args(int argc, char* argv[]) {
         }
     } else {
         if (cfg.verbose) {
-            std::cerr << "Warning: Failed to discover system topology. "
+            std::cerr << "[rrun] Warning: Failed to discover system topology. "
                       << "CPU affinity, NUMA binding, and UCX network device "
                       << "configuration will be skipped." << std::endl;
         }
@@ -848,8 +849,8 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
     execvp(cfg.app_binary.c_str(), exec_args.data());
 
     // If we get here, execvp failed
-    std::cerr << "Failed to execute " << cfg.app_binary << ": " << std::strerror(errno)
-              << std::endl;
+    std::cerr << "[rrun] Failed to execute " << cfg.app_binary << ": "
+              << std::strerror(errno) << std::endl;
     return 1;
 }
 
@@ -929,21 +930,22 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     // Cleanup
     if (cfg.cleanup) {
         if (cfg.verbose) {
-            std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
+            std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
                       << std::endl;
         }
         std::error_code ec;
         std::filesystem::remove_all(cfg.coord_dir, ec);
         if (ec) {
-            std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir << ": "
-                      << ec.message() << std::endl;
+            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
+                      << ": " << ec.message() << std::endl;
         }
     } else if (cfg.verbose) {
-        std::cout << "Coordination directory preserved: " << cfg.coord_dir << std::endl;
+        std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
+                  << std::endl;
     }
 
     if (cfg.verbose && exit_status == 0) {
-        std::cout << "\nAll ranks completed successfully." << std::endl;
+        std::cout << "\n[rrun] All ranks completed successfully." << std::endl;
     }
 
     // Finalize PMIx
@@ -984,21 +986,22 @@ int execute_single_node_mode(Config& cfg) {
     // Cleanup
     if (cfg.cleanup) {
         if (cfg.verbose) {
-            std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
+            std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
                       << std::endl;
         }
         std::error_code ec;
         std::filesystem::remove_all(cfg.coord_dir, ec);
         if (ec) {
-            std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir << ": "
-                      << ec.message() << std::endl;
+            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
+                      << ": " << ec.message() << std::endl;
         }
     } else if (cfg.verbose) {
-        std::cout << "Coordination directory preserved: " << cfg.coord_dir << std::endl;
+        std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
+                  << std::endl;
     }
 
     if (cfg.verbose && exit_status == 0) {
-        std::cout << "\nAll ranks completed successfully." << std::endl;
+        std::cout << "\n[rrun] All ranks completed successfully." << std::endl;
     }
 
     return exit_status;
@@ -1326,7 +1329,7 @@ int launch_ranks_fork_based(
 
         if (cfg.verbose) {
             std::ostringstream msg;
-            msg << "Launched rank " << global_rank << " (PID " << pid << ")";
+            msg << "[rrun] Launched rank " << global_rank << " (PID " << pid << ")";
             if (!cfg.gpus.empty()) {
                 msg << " on GPU "
                     << cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
@@ -1357,7 +1360,7 @@ int launch_ranks_fork_based(
         }
     }).detach();
 
-    std::cout << "\nAll ranks launched. Waiting for completion...\n" << std::endl;
+    std::cout << "\n[rrun] All ranks launched. Waiting for completion...\n" << std::endl;
 
     // Wait for all processes
     int exit_status = 0;
@@ -1365,7 +1368,7 @@ int launch_ranks_fork_based(
         int status = 0;
         pid_t pid = pids[i];
         if (waitpid(pid, &status, 0) < 0) {
-            std::cerr << "Failed to wait for rank " << i << " (PID " << pid
+            std::cerr << "[rrun] Failed to wait for rank " << i << " (PID " << pid
                       << "): " << std::strerror(errno) << std::endl;
             exit_status = 1;
             continue;
@@ -1374,7 +1377,7 @@ int launch_ranks_fork_based(
         if (WIFEXITED(status)) {
             int code = WEXITSTATUS(status);
             if (code != 0) {
-                std::cerr << "Rank "
+                std::cerr << "[rrun] Rank "
                           << (static_cast<size_t>(rank_offset)
                               + (is_root_parent && !root_address.empty() ? i + 1 : i))
                           << " (PID " << pid << ") exited with code " << code
@@ -1383,7 +1386,7 @@ int launch_ranks_fork_based(
             }
         } else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
-            std::cerr << "Rank "
+            std::cerr << "[rrun] Rank "
                       << (static_cast<size_t>(rank_offset)
                           + (is_root_parent && !root_address.empty() ? i + 1 : i))
                       << " (PID " << pid << ") terminated by signal " << sig << std::endl;
@@ -1488,7 +1491,7 @@ pid_t launch_rank_local(
             exec_args.push_back(nullptr);
 
             execvp(cfg.app_binary.c_str(), exec_args.data());
-            std::cerr << "Failed to execute " << cfg.app_binary << ": "
+            std::cerr << "[rrun] Failed to execute " << cfg.app_binary << ": "
                       << std::strerror(errno) << std::endl;
             _exit(1);
         }
@@ -1570,11 +1573,11 @@ int main(int argc, char* argv[]) {
 #ifdef RAPIDSMPF_HAVE_SLURM
                 return execute_slurm_hybrid_mode(cfg);
 #else
-                std::cerr << "Error: Slurm hybrid mode requires PMIx support but "
+                std::cerr << "[rrun] Error: Slurm hybrid mode requires PMIx support but "
                           << "rapidsmpf was not built with PMIx." << std::endl;
-                std::cerr
-                    << "Rebuild with -DBUILD_SLURM_SUPPORT=ON or use passthrough mode "
-                    << "(without -n flag)." << std::endl;
+                std::cerr << "[rrun] Rebuild with -DBUILD_SLURM_SUPPORT=ON or use "
+                             "passthrough mode "
+                          << "(without -n flag)." << std::endl;
                 return 1;
 #endif
             }
@@ -1584,8 +1587,8 @@ int main(int argc, char* argv[]) {
         }
 
     } catch (std::exception const& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        std::cerr << "Run with -h or --help for usage information." << std::endl;
+        std::cerr << "[rrun] Error: " << e.what() << std::endl;
+        std::cerr << "[rrun] Run with -h or --help for usage information." << std::endl;
         return 1;
     }
 }
