@@ -363,9 +363,8 @@ cdef class MemoryReserveOrWait:
 
         Returns
         -------
-        MemoryReservation
-            A memory reservation representing the allocated memory. The reservation may
-            be empty if progress could not be made.
+        A memory reservation representing the allocated memory. The reservation may be
+        empty if progress could not be made.
 
         Raises
         ------
@@ -555,6 +554,25 @@ async def reserve_memory(
     OverflowError
         If no progress is possible within the timeout and overbooking is
         disabled.
+
+    Examples
+    --------
+    Reserve device memory inside a node:
+    >>> res = await reserve_memory(
+    ...     ctx,
+    ...     size=1024,
+    ...     net_memory_delta=0,
+    ... )
+    >>> res.size
+    1024
+
+    Disable overbooking and fail if no progress is possible:
+    >>> res = await reserve_memory(
+    ...     ctx,
+    ...     size=2048,
+    ...     net_memory_delta=0,
+    ...     allow_overbooking=False,
+    ... )
     """
     memory = ctx.memory(mem_type)
     if allow_overbooking:

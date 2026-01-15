@@ -23,19 +23,33 @@ from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 cdef class Context:
     """
-    Context for streaming nodes (coroutines) in RapidsMPF.
+    Context for nodes (coroutines) in rapidsmpf.
+
+    The context owns shared resources used during execution, including the
+    coroutine executor and memory reservation infrastructure.
+
+    A ``Context`` instance must be created and destroyed on the same thread.
+    Destroying the context on a different thread results in program termination.
+    This is particularly important in coroutine-based code, where stack
+    unwinding may occur on a different thread if ownership is not carefully
+    managed.
+
+    A recommended usage pattern is to create a single ``Context`` instance on
+    the main thread and reuse it throughout the lifetime of the program. This
+    reduces overhead and avoids issues related to destruction on a different
+    thread.
 
     Parameters
     ----------
     comm
-        The communicator to use.
+        Communicator to use.
     br
         Buffer resource to use.
     options
-        Configuration options to use. Missing config options are read
-        from environment variables.
+        Configuration options. Missing options are read from environment
+        variables.
     statistics
-        The statistics instance to use. If None, statistics are disabled.
+        The statistics to use. If None, statistics are disabled.
     """
     def __cinit__(
         self,
