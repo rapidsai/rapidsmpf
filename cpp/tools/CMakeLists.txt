@@ -94,7 +94,7 @@ target_compile_definitions(
   check_resource_binding PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
 )
 target_link_libraries(
-  check_resource_binding PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  check_resource_binding PRIVATE CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
                                  $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
 )
 install(
