@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -44,8 +44,6 @@ set_current_rmm_stack(std::string const& name) {
     } else {
         RAPIDSMPF_FAIL("unknown RMM stack name: " + name);
     }
-    // Note, RMM maintains two default resources, we set both here.
-    rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
 }
@@ -61,7 +59,6 @@ set_device_mem_resource_with_stats() {
     auto ret = std::make_shared<rapidsmpf::RmmResourceAdaptor>(
         cudf::get_current_device_resource_ref()
     );
-    rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
 }

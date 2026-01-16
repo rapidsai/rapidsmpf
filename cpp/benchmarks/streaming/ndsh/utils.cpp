@@ -121,7 +121,6 @@ streaming::TableChunk to_device(
 std::shared_ptr<streaming::Context> create_context(
     ProgramOptions& arguments, RmmResourceAdaptor* mr
 ) {
-    rmm::mr::set_current_device_resource(mr);
     rmm::mr::set_current_device_resource_ref(mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
     if (arguments.spill_device_limit.has_value()) {
