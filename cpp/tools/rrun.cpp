@@ -803,6 +803,70 @@ pid_t fork_with_piped_stdio(
     return pid;
 }
 
+/**
+ * @brief Common helper to set up coordination, launch ranks, and cleanup.
+ *
+ * This function encapsulates the common workflow shared by both Slurm hybrid mode
+ * and single-node mode: create coordination directory, launch ranks via fork,
+ * cleanup, and report results.
+ *
+ * @param cfg Configuration (will modify coord_dir if empty).
+ * @param rank_offset Starting global rank for this task.
+ * @param ranks_per_task Number of ranks to launch locally.
+ * @param total_ranks Total ranks across all tasks.
+ * @param root_address Pre-coordinated root address (empty for FILE backend).
+ * @param is_root_parent Whether this is root parent (affects launch logic).
+ * @param coord_dir_hint Hint for coordination directory name (e.g., job ID).
+ * @return Exit status (0 for success).
+ */
+int setup_launch_and_cleanup(
+    Config& cfg,
+    int rank_offset,
+    int ranks_per_task,
+    int total_ranks,
+    std::string const& root_address,
+    bool is_root_parent,
+    std::string const& coord_dir_hint = ""
+) {
+    // Set up coordination directory
+    if (cfg.coord_dir.empty()) {
+        if (!coord_dir_hint.empty()) {
+            cfg.coord_dir = "/tmp/rrun_" + coord_dir_hint;
+        } else {
+            cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+        }
+    }
+    std::filesystem::create_directories(cfg.coord_dir);
+
+    // Launch ranks and wait for completion
+    int exit_status = launch_ranks_fork_based(
+        cfg, rank_offset, ranks_per_task, total_ranks, root_address, is_root_parent
+    );
+
+    // Cleanup
+    if (cfg.cleanup) {
+        if (cfg.verbose) {
+            std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
+                      << std::endl;
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(cfg.coord_dir, ec);
+        if (ec) {
+            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
+                      << ": " << ec.message() << std::endl;
+        }
+    } else if (cfg.verbose) {
+        std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
+                  << std::endl;
+    }
+
+    if (cfg.verbose && exit_status == 0) {
+        std::cout << "\n[rrun] All ranks completed successfully." << std::endl;
+    }
+
+    return exit_status;
+}
+
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Execute application in Slurm passthrough mode (single rank per task).
@@ -871,17 +935,6 @@ int execute_slurm_hybrid_mode(Config& cfg) {
                   << std::endl;
     }
 
-    // Set up coordination directory (needed by all tasks for child bootstrap)
-    char const* job_id = std::getenv("SLURM_JOB_ID");
-    if (cfg.coord_dir.empty()) {
-        if (job_id) {
-            cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
-        } else {
-            cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
-        }
-    }
-    std::filesystem::create_directories(cfg.coord_dir);
-
     // Root parent needs to launch rank 0 first to get address
     bool is_root_parent = (cfg.slurm_global_rank == 0);
 
@@ -890,6 +943,7 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     int total_ranks = slurm_ntasks * cfg.nranks;
     std::string coordinated_root_address;
 
+    char const* job_id = std::getenv("SLURM_JOB_ID");
     if (is_root_parent) {
         // Root parent: Launch rank 0, get address, coordinate via PMIx
         std::string address_file =
@@ -917,36 +971,17 @@ int execute_slurm_hybrid_mode(Config& cfg) {
                   << " (total: " << total_ranks << " ranks)" << std::endl;
     }
 
-    // Launch ranks and wait for completion
-    int exit_status = launch_ranks_fork_based(
+    // Use common helper for launch and cleanup
+    std::string coord_hint = job_id ? ("slurm_" + std::string{job_id}) : "";
+    int exit_status = setup_launch_and_cleanup(
         cfg,
         rank_offset,
         cfg.nranks,
         total_ranks,
         coordinated_root_address,
-        is_root_parent
+        is_root_parent,
+        coord_hint
     );
-
-    // Cleanup
-    if (cfg.cleanup) {
-        if (cfg.verbose) {
-            std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
-                      << std::endl;
-        }
-        std::error_code ec;
-        std::filesystem::remove_all(cfg.coord_dir, ec);
-        if (ec) {
-            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
-                      << ": " << ec.message() << std::endl;
-        }
-    } else if (cfg.verbose) {
-        std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
-                  << std::endl;
-    }
-
-    if (cfg.verbose && exit_status == 0) {
-        std::cout << "\n[rrun] All ranks completed successfully." << std::endl;
-    }
 
     // Finalize PMIx
     if (!coordinated_root_address.empty()) {
@@ -974,37 +1009,10 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    // Set up coordination directory
-    if (cfg.coord_dir.empty()) {
-        cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
-    }
-    std::filesystem::create_directories(cfg.coord_dir);
-
-    // Launch ranks and wait for completion
-    int exit_status = launch_ranks_fork_based(cfg, 0, cfg.nranks, cfg.nranks, "", false);
-
-    // Cleanup
-    if (cfg.cleanup) {
-        if (cfg.verbose) {
-            std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
-                      << std::endl;
-        }
-        std::error_code ec;
-        std::filesystem::remove_all(cfg.coord_dir, ec);
-        if (ec) {
-            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
-                      << ": " << ec.message() << std::endl;
-        }
-    } else if (cfg.verbose) {
-        std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
-                  << std::endl;
-    }
-
-    if (cfg.verbose && exit_status == 0) {
-        std::cout << "\n[rrun] All ranks completed successfully." << std::endl;
-    }
-
-    return exit_status;
+    // Use common helper for launch and cleanup
+    // rank_offset=0, ranks_per_task=nranks, total_ranks=nranks, no root_address, not
+    // root_parent
+    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, "", false);
 }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
