@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,7 +23,8 @@ enum class Backend {
      * @brief Automatically detect the best backend based on environment.
      *
      * Detection order:
-     * 1. File-based (default fallback)
+     * 1. Slurm/PMIx (if PMIX_NAMESPACE or SLURM environment detected)
+     * 2. File-based (default fallback)
      */
     AUTO,
 
@@ -35,6 +36,22 @@ enum class Backend {
      * RAPIDSMPF_NRANKS, RAPIDSMPF_COORD_DIR environment variables.
      */
     FILE,
+
+    /**
+     * @brief Slurm-based coordination using PMIx.
+     *
+     * Uses PMIx (Process Management Interface for Exascale) for scalable process
+     * coordination without requiring a shared filesystem. Designed for Slurm clusters
+     * and supports multi-node deployments.
+     *
+     * Run with: `srun --mpi=pmix -n <nranks> ./program`
+     *
+     * Environment variables (automatically set by Slurm):
+     * - PMIX_NAMESPACE: PMIx namespace identifier
+     * - SLURM_PROCID: Process rank
+     * - SLURM_NPROCS/SLURM_NTASKS: Total number of processes
+     */
+    SLURM,
 };
 
 /**

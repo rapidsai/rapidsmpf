@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -302,7 +302,7 @@ rapidsmpf::Duration run(
 }
 
 int main(int argc, char** argv) {
-    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_bootstrap();
 
     // Explicitly initialize MPI with thread support, as this is needed for both mpi
     // and ucxx communicators when not using bootstrap mode.
@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
         if (use_bootstrap) {
             std::cerr
                 << "Error: MPI communicator requires MPI initialization. Don't use with "
-                   "rrun or unset RAPIDSMPF_RANK."
+                   "rrun/srun bootstrap mode."
                 << std::endl;
             return 1;
         }
@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
         comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
-            // Launched with rrun - use bootstrap backend
+            // Launched with rrun or srun --mpi=pmix - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
                 rapidsmpf::bootstrap::Backend::AUTO, options
             );
