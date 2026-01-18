@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -19,19 +19,44 @@ from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 
 cdef class Context:
     """
-    Context for streaming nodes (coroutines) in RapidsMPF.
+    Context for nodes (coroutines) in rapidsmpf.
+
+    The context owns shared resources used during execution, including the
+    coroutine executor and memory reservation infrastructure.
+
+    A ``Context`` instance must be created and shut down on the same thread.
+    Shutting down the context from a different thread results in program
+    termination. This is particularly important in coroutine-based code, where
+    execution and stack unwinding may occur on different threads if ownership
+    is not carefully managed.
+
+    In Python, it is easy to accidentally keep dangling references to a
+    ``Context`` instance, which may delay destruction and cause shutdown to
+    occur on an unintended thread. For this reason, it is strongly recommended
+    to use ``Context`` as a context manager (that is, via a ``with`` statement),
+    which guarantees that ``shutdown()`` is invoked deterministically and on
+    the same thread that created the context.
 
     Parameters
     ----------
     comm
         The communicator to use.
     br
-        Buffer resource to use.
+        The buffer resource to use.
     options
-        Configuration options to use. Missing config options are read
-        from environment variables.
+        The configuration options to use. Missing options are read from environment
+        variables.
     statistics
-        The statistics instance to use. If None, statistics are disabled.
+        The statistics to use. If None, statistics are disabled.
+
+    Examples
+    --------
+    >>> with streaming.Context(
+    ...     comm=...,
+    ...     br=BufferResource(...),
+    ...     options=Options(...),
+    ... ) as ctx:
+    ...     ch = ctx.create_channel()
     """
     def __cinit__(
         self,
@@ -65,9 +90,37 @@ cdef class Context:
             deref(self._handle).spillable_messages()
         )
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.shutdown()
+        return False  # do not suppress exceptions
+
     def __dealloc__(self):
+        # Shut down the C++ context explicitly to ensure shutdown happens immediately
+        # and not later via a dangling reference on another thread. Recall that
+        # shutting down a C++ context on a different thread than the one that created
+        # it results in program termination.
         with nogil:
+            deref(self._handle).shutdown()
             self._handle.reset()
+
+    def shutdown(self):
+        """
+        Shut down the context.
+
+        This method is idempotent and only performs shutdown once. Subsequent calls
+        have no effect.
+
+        Warning
+        -------
+        Shutdown must be initiated from the same thread that constructed the
+        executor. Calling this method from a different thread results in program
+        termination.
+        """
+        with nogil:
+            deref(self._handle).shutdown()
 
     def options(self):
         """
