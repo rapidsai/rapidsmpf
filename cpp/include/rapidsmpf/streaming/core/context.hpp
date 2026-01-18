@@ -76,6 +76,14 @@ class Context {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    // No copy constructor and assignment operator.
+    Context(Context const&) = delete;
+    Context& operator=(Context const&) = delete;
+
+    // No move constructor and assignment operator.
+    Context(Context&&) = delete;
+    Context& operator=(Context&&) = delete;
+
     ~Context() noexcept;
 
     /**
