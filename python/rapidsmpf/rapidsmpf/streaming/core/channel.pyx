@@ -135,16 +135,16 @@ cdef extern from * nogil:
     namespace {
     coro::task<void> _channel_recv_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
-        rapidsmpf::streaming::Message &msg_output
+        std::shared_ptr<rapidsmpf::streaming::Message> msg_output
     ) {
-        msg_output = co_await channel->receive();
+        *msg_output = co_await channel->receive();
     }
     }  // namespace
 
     void cpp_channel_recv(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
-        rapidsmpf::streaming::Message &msg_output,
+        std::shared_ptr<rapidsmpf::streaming::Message> msg_output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -166,7 +166,7 @@ cdef extern from * nogil:
     void cpp_channel_recv(
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
-        cpp_Message &msg_output,
+        shared_ptr[cpp_Message] msg_output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     )
@@ -283,18 +283,20 @@ cdef class Channel:
         A `Message` if a message is available, otherwise ``None`` if the channel is
         shut down and empty.
         """
-        cdef cpp_Message c_msg
+        cdef shared_ptr[cpp_Message] c_msg_ptr = (
+            shared_ptr[cpp_Message](new cpp_Message())
+        )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
             cpp_channel_recv(
                 ctx._handle,
                 self._handle,
-                c_msg,
+                c_msg_ptr,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_msg.empty():
+        if c_msg_ptr.get().empty():
             return None
-        return Message.from_handle(move(c_msg))
+        return Message.from_handle(move(c_msg_ptr.get()[0]))
