@@ -29,16 +29,16 @@ cdef extern from * nogil:
     coro::task<void> _extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output
+        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
     ) {
-        output = co_await gather->extract_all(ordered);
+        *output = co_await gather->extract_all(ordered);
     }
 
     void cpp_extract_all(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output,
+        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -59,7 +59,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Context] ctx,
         cpp_AllGather *gather,
         cpp_Ordered ordered,
-        vector[cpp_PackedData] &output,
+        shared_ptr[vector[cpp_PackedData]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -126,7 +126,12 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
-        cdef vector[cpp_PackedData] c_ret
+        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
+        # go out of scope and destroy objects in its stack before the C++ coroutine
+        # executes, leading to a segfault.
+        cdef shared_ptr[vector[cpp_PackedData]] c_ret = (
+            shared_ptr[vector[cpp_PackedData]](new vector[cpp_PackedData]())
+        )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
@@ -139,7 +144,7 @@ cdef class AllGather:
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(deref(c_ret)))
 
 
 def allgather(
