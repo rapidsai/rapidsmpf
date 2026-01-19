@@ -26,5 +26,5 @@ async def reserve_memory(
     *,
     net_memory_delta: int,
     mem_type: MemoryType = MemoryType.DEVICE,
-    allow_overbooking: bool = True,
+    allow_overbooking: bool | None = None,
 ) -> MemoryReservation: ...

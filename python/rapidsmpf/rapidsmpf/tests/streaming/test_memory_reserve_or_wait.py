@@ -232,3 +232,58 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
             nodes=[node(context)],
             py_executor=py_executor,
         )
+
+
+def test_reserve_memory_helper_allow_overbooking_by_default(
+    py_executor: ThreadPoolExecutor,
+) -> None:
+    # Option enabled, should overbook and succeed.
+    with make_context(
+        dev_limit=1024,
+        overwrite_options={
+            "memory_reserve_timeout_ms": "1",
+            "allow_overbooking_by_default": "true",
+        },
+    ) as context:
+
+        @define_py_node()
+        async def node(ctx: Context) -> None:
+            res = await reserve_memory(
+                ctx,
+                2048,
+                net_memory_delta=0,
+                mem_type=MemoryType.DEVICE,
+                allow_overbooking=None,
+            )
+            assert res.mem_type == MemoryType.DEVICE
+            assert res.size == 2048
+
+        run_streaming_pipeline(
+            nodes=[node(context)],
+            py_executor=py_executor,
+        )
+
+    # Option disabled, should fail when no progress is possible.
+    with make_context(
+        dev_limit=1024,
+        overwrite_options={
+            "memory_reserve_timeout_ms": "1",
+            "allow_overbooking_by_default": "false",
+        },
+    ) as context:
+
+        @define_py_node()
+        async def node(ctx: Context) -> None:
+            with pytest.raises((OverflowError, RuntimeError)):
+                await reserve_memory(
+                    ctx,
+                    2048,
+                    net_memory_delta=0,
+                    mem_type=MemoryType.DEVICE,
+                    allow_overbooking=None,
+                )
+
+        run_streaming_pipeline(
+            nodes=[node(context)],
+            py_executor=py_executor,
+        )

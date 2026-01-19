@@ -523,7 +523,7 @@ async def reserve_memory(
     *,
     net_memory_delta,
     mem_type = MemoryType.DEVICE,
-    allow_overbooking = True
+    allow_overbooking = None
 ):
     """
     Reserve memory using the context memory reservation mechanism.
@@ -552,6 +552,12 @@ async def reserve_memory(
         Memory type for which to reserve memory.
     allow_overbooking
         Whether to allow overbooking if no progress is possible.
+          - If ``True``, the reservation may overbook memory when no further
+            progress can be made. If ``False``, the call fails when no progress
+            is possible.
+          - If ``None`` (the default), the behavior is determined by the
+            configuration option ``"allow_overbooking_by_default"``, which is
+            read via ``ctx.options()``.
 
     Returns
     -------
@@ -562,8 +568,7 @@ async def reserve_memory(
     RuntimeError
         If shutdown occurs before the request can be processed.
     OverflowError
-        If no progress is possible within the timeout and overbooking is
-        disabled.
+        If no further progress is possible and overbooking is disabled.
 
     Examples
     --------
@@ -572,6 +577,7 @@ async def reserve_memory(
     ...     ctx,
     ...     size=1024,
     ...     net_memory_delta=0,
+    ...     allow_overbooking=True,
     ... )
     >>> res.size
     1024
@@ -584,6 +590,11 @@ async def reserve_memory(
     ...     allow_overbooking=False,
     ... )
     """
+    if allow_overbooking is None:
+        allow_overbooking = ctx.options().get_or_default(
+            "allow_overbooking_by_default", default_value=True
+        )
+
     memory = ctx.memory(mem_type)
     if allow_overbooking:
         ret, _ = await memory.reserve_or_wait_or_overbook(
