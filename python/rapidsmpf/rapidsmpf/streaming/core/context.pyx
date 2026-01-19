@@ -113,8 +113,8 @@ cdef class Context:
         This method is idempotent and only performs shutdown once. Subsequent calls
         have no effect.
 
-        Warning
-        -------
+        Warnings
+        --------
         Shutdown must be initiated from the same thread that constructed the
         executor. Calling this method from a different thread results in program
         termination.
