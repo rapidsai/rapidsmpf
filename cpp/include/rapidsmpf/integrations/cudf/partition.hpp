@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -207,6 +207,86 @@ std::vector<PackedData> unspill_partitions(
     BufferResource* br,
     bool allow_overbooking,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
+);
+
+/// @brief The amount of extra memory to reserve for packing.
+constexpr size_t packing_wiggle_room_per_column = 1024;  ///< 1 KiB per column
+
+/**
+ * @brief The total amount of extra memory to reserve for packing.
+ *
+ * @param table The table to pack.
+ * @return The total amount of extra memory to reserve for packing.
+ */
+inline size_t total_packing_wiggle_room(cudf::table_view const& table) {
+    return packing_wiggle_room_per_column * static_cast<size_t>(table.num_columns());
+}
+
+/**
+ * @brief Pack a table using a @p chunk_size device buffer using `cudf::chunked_pack`.
+ *
+ * All device operations will be performed on @p bounce_buf 's stream.
+ * `cudf::chunked_pack` requires the buffer to be at least 1 MiB in size.
+ *
+ * @param table The table to pack.
+ * @param bounce_buf A device bounce buffer to use for packing.
+ * @param data_res Memory reservation for the data buffer. If the final packed buffer size
+ * is with in a wiggle room, this @p data_res will be padded to the packed buffer size.
+ *
+ * @return A `PackedData` containing the packed table.
+ *
+ * @throws std::runtime_error If the memory allocation fails.
+ * @throws std::invalid_argument If the bounce buffer is not in device memory.
+ */
+PackedData chunked_pack(
+    cudf::table_view const& table, Buffer& bounce_buf, MemoryReservation& data_res
+);
+
+/// @brief The minimum buffer size for `cudf::chunked_pack`.
+constexpr size_t cudf_chunked_pack_min_buffer_size = size_t(1) << 20;  ///< 1 MiB
+
+/**
+ * @brief Pack a table to host memory using  `cudf::pack` or `cudf::chunked_pack`.
+ *
+ * Based on benchmarks (rapidsai/rapidsmpf#745), the order of packing performance is as
+ * follows:
+ * - `cudf::pack`           -> DEVICE
+ * - `cudf::chunked_pack`   -> DEVICE
+ * - `cudf::pack`           -> PINNED_HOST
+ * - `cudf::chunked_pack`   -> PINNED HOST
+ *
+ * This utility using the following strategy:
+ * - data reservation must be big enough to pack the table.
+ * - if the data reservation is from device accessible memory, use cudf::pack, as it
+ * requires O(estimated_table_size) memory, which is already reserved up front.
+ * - if the data reservation is from host memory, for each memory type in @p
+ * bounce_buf_types, do the following:
+ *   - try to reserve estimated_table_size for the memory type.
+ *   - if the reservation is successful without overbooking, use cudf::pack, and move the
+ *     packed data device buffer to the data reservation.
+ *   - else if the leftover memory `>= cudf_chunked_pack_min_buffer_size`, allocate a
+ *     device accessible bounce buffer, and use chunked_pack to pack to the data
+ * reservation.
+ *   - else loop again with the next memory type.
+ *   - if all memory types are tried and no success, fail.
+ *
+ * @param table The table to pack.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param data_res Memory reservation for the host data buffer.
+ * @param bounce_buf_types The memory types to use for the bounce buffer. Default is
+ * `DEVICE_ACCESSIBLE_MEMORY_TYPES`.
+ *
+ * @return A `PackedData` containing the packed table.
+ *
+ * @throws std::invalid_argument If the memory reservation is not big enough to pack the
+ * table.
+ * @throws std::runtime_error If all attempts to pack the table fail.
+ */
+std::unique_ptr<PackedData> pack(
+    cudf::table_view const& table,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& data_res,
+    std::span<MemoryType const> bounce_buf_types = DEVICE_ACCESSIBLE_MEMORY_TYPES
 );
 
 }  // namespace rapidsmpf
