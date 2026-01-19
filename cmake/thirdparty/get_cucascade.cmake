@@ -100,6 +100,23 @@ function(find_and_configure_cucascade)
     # Mark this as not exported
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
   endif()
+
+  # Set up installation of cuCascade library for wheel packaging Since cuCascade is built with
+  # EXCLUDE_FROM_ALL, we need to explicitly install the library files This install CODE runs during
+  # 'cmake --install' when the library files exist
+  if(TARGET cuCascade::cucascade)
+    # Get the install library directory (will be set by rapids_cmake_install_lib_dir in main
+    # CMakeLists) We'll use a relative path that will be resolved at install time
+    set(_cucascade_build_dir "${CMAKE_BINARY_DIR}/_deps/cucascade-build")
+
+    # Install CODE that finds and copies cuCascade library files This must be called from the main
+    # CMakeLists.txt after rapids_cmake_install_lib_dir is called Store the build directory in a
+    # cache variable for use in install CODE
+    set(_CUCASCADE_BUILD_DIR
+        "${_cucascade_build_dir}"
+        CACHE INTERNAL "cuCascade build directory"
+    )
+  endif()
 endfunction()
 
 find_and_configure_cucascade()
