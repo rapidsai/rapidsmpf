@@ -303,4 +303,4 @@ cdef class Channel:
         await ret
         if deref(c_msg).empty():
             return None
-        return Message.from_handle(move(deref(c_msg)[0]))
+        return Message.from_handle(move(deref(c_msg)))
