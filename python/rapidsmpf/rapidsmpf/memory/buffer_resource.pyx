@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -64,6 +64,7 @@ cdef extern from *:
 # do in C++ because MemoryReservation doesn't have a default ctor.
 cdef extern from * nogil:
     """
+    namespace {
     std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
     cpp_br_reserve(
         std::shared_ptr<rapidsmpf::BufferResource> br,
@@ -84,6 +85,7 @@ cdef extern from * nogil:
         return std::make_unique<rapidsmpf::MemoryReservation>(
             br->reserve_device_memory_and_spill(size, allow_overbooking)
         );
+    }
     }
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(

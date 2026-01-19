@@ -23,6 +23,7 @@ import asyncio
 
 cdef extern from * nogil:
     """
+    namespace {
     std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait>
     cpp_mrow_make_shared(
         rapidsmpf::config::Options options,
@@ -33,6 +34,7 @@ cdef extern from * nogil:
             std::move(options), mem_type, ctx.executor(), ctx.br()
         );
     }
+    }
     """
     shared_ptr[cpp_MemoryReserveOrWait] cpp_mrow_make_shared(
         cpp_Options options,
@@ -42,7 +44,8 @@ cdef extern from * nogil:
 
 cdef extern from * nogil:
     """
-    coro::task<void> _mrow_shutdown(
+    namespace {
+    coro::task<void> mrow_shutdown_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow
     ) {
         co_await mrow->shutdown();
@@ -58,11 +61,12 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _mrow_shutdown(std::move(mrow))
+                    mrow_shutdown_task(std::move(mrow))
                 )
             ),
             "could not spawn task on thread pool"
         );
+    }
     }
     """
     void cpp_mrow_shutdown(
@@ -73,7 +77,8 @@ cdef extern from * nogil:
 
 cdef extern from * nogil:
     """
-    coro::task<void> _mrow_reserve_or_wait(
+    namespace {
+    coro::task<void> mrow_reserve_or_wait_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -97,7 +102,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _mrow_reserve_or_wait(
+                    mrow_reserve_or_wait_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -107,6 +112,7 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+    }
     }
     """
     void cpp_mrow_reserve_or_wait(
@@ -120,7 +126,8 @@ cdef extern from * nogil:
 
 cdef extern from * nogil:
     """
-    coro::task<void> _mrow_reserve_or_wait_or_overbook(
+    namespace {
+    coro::task<void> mrow_reserve_or_wait_or_overbook_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -148,7 +155,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _mrow_reserve_or_wait_or_overbook(
+                    mrow_reserve_or_wait_or_overbook_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -158,6 +165,7 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+    }
     }
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] \
@@ -172,7 +180,8 @@ cdef extern from * nogil:
 
 cdef extern from * nogil:
     """
-    coro::task<void> _mrow_reserve_or_wait_or_fail(
+    namespace {
+    coro::task<void> mrow_reserve_or_wait_or_fail_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -196,7 +205,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _mrow_reserve_or_wait_or_fail(
+                    mrow_reserve_or_wait_or_fail_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -206,6 +215,7 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+    }
     }
     """
     void cpp_mrow_reserve_or_wait_or_fail(
