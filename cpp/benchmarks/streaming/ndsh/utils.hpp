@@ -12,12 +12,11 @@
 #include <mpi.h>
 
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-
-#include "rapidsmpf/memory/buffer_resource.hpp"
 
 namespace rapidsmpf::ndsh {
 namespace detail {
