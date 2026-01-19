@@ -6,7 +6,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
-from libcpp.unordered_map cimport unordered_map
+from libcpp.optional cimport optional
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
 
@@ -26,29 +26,19 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    using PackedDataVector = std::vector<rapidsmpf::PackedData>;
-    using PackedDataVectorPtr = std::shared_ptr<PackedDataVector>;
-    using PartitionResult = std::pair<std::uint32_t, PackedDataVector>;
-    using PartitionResultPtr = std::shared_ptr<PartitionResult>;
-
     coro::task<void> _extract_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        PackedDataVectorPtr output
+        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
     ) {
-        auto result = co_await shuffle->extract_async(pid);
-        if (result.has_value()) {
-            *output = std::move(result.value());
-        } else {
-            output.reset();
-        }
+        *output = co_await shuffle->extract_async(pid);
     }
 
     void cpp_extract_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        PackedDataVectorPtr output,
+        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -66,20 +56,23 @@ cdef extern from * nogil:
 
     coro::task<void> _extract_any_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        PartitionResultPtr output
+        std::shared_ptr<
+            std::optional<
+                std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>
+            >
+        > output
     ) {
-        auto result = co_await shuffle->extract_any_async();
-        if (result.has_value()) {
-            *output = std::move(result.value());
-        } else {
-            output.reset();
-        }
+        *output = co_await shuffle->extract_any_async();
     }
 
     void cpp_extract_any_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        PartitionResultPtr output,
+        std::shared_ptr<
+            std::optional<
+                std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>
+            >
+        > output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -126,7 +119,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         uint32_t pid,
-        shared_ptr[vector[cpp_PackedData]] output,
+        shared_ptr[optional[vector[cpp_PackedData]]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -134,7 +127,7 @@ cdef extern from * nogil:
     void cpp_extract_any_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
-        shared_ptr[pair[uint32_t, vector[cpp_PackedData]]] output,
+        shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -285,8 +278,10 @@ cdef class ShufflerAsync:
         # Use a shared_ptr here for safety, if an exception occurs this coroutine may
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
-        cdef shared_ptr[vector[cpp_PackedData]] c_ret = (
-            shared_ptr[vector[cpp_PackedData]](new vector[cpp_PackedData]())
+        cdef shared_ptr[optional[vector[cpp_PackedData]]] c_ret = (
+            shared_ptr[optional[vector[cpp_PackedData]]](
+                new optional[vector[cpp_PackedData]]()
+            )
         )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
@@ -300,8 +295,8 @@ cdef class ShufflerAsync:
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_ret:
-            return packed_data_vector_to_list(move(deref(c_ret)))
+        if deref(c_ret).has_value():
+            return packed_data_vector_to_list(move(deref(deref(c_ret))))
         else:
             return None
 
@@ -325,9 +320,9 @@ cdef class ShufflerAsync:
         # Use a shared_ptr here for safety, if an exception occurs this coroutine may
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
-        cdef shared_ptr[pair[uint32_t, vector[cpp_PackedData]]] c_ret = (
-            shared_ptr[pair[uint32_t, vector[cpp_PackedData]]](
-                new pair[uint32_t, vector[cpp_PackedData]]()
+        cdef shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret = (
+            shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]](
+                new optional[pair[uint32_t, vector[cpp_PackedData]]]()
             )
         )
         ret = asyncio.get_running_loop().create_future()
@@ -341,10 +336,10 @@ cdef class ShufflerAsync:
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_ret:
+        if deref(c_ret).has_value():
             return (
-                deref(c_ret).first,
-                packed_data_vector_to_list(move(deref(c_ret).second))
+                deref(c_ret).value().first,
+                packed_data_vector_to_list(move(deref(c_ret).value().second))
             )
         else:
             return None
