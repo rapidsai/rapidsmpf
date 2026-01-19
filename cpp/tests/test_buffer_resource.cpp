@@ -62,28 +62,32 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Book all available memory.
-    auto [reserve1, overbooking1] = br.reserve(MemoryType::DEVICE, 10_KiB, false);
+    auto [reserve1, overbooking1] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Try to overbook.
-    auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, false);
+    auto [reserve2, overbooking2] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve2.size(), 0);  // Reservation failed.
     EXPECT_EQ(overbooking2, 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Allow overbooking.
-    auto [reserve3, overbooking3] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    auto [reserve3, overbooking3] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve3.size(), 10_KiB);
     EXPECT_EQ(overbooking3, 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // No host limit.
-    auto [reserve4, overbooking4] = br.reserve(MemoryType::HOST, 10_KiB, false);
+    auto [reserve4, overbooking4] =
+        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(overbooking4, 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
@@ -105,7 +109,8 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // We are still overbooking.
-    auto [reserve5, overbooking5] = br.reserve(MemoryType::DEVICE, 5_KiB, true);
+    auto [reserve5, overbooking5] =
+        br.reserve(MemoryType::DEVICE, 5_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve5.size(), 5_KiB);
     EXPECT_EQ(overbooking5, 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
@@ -125,8 +130,10 @@ TEST(BufferResource, ReservationReleasing) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Reserve all available host and device memory.
-    auto [reserve1, overbooking1] = br.reserve(MemoryType::DEVICE, 10_KiB, false);
-    auto [reserve2, overbooking2] = br.reserve(MemoryType::HOST, 10_KiB, false);
+    auto [reserve1, overbooking1] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
+    auto [reserve2, overbooking2] =
+        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(reserve2.size(), 10_KiB);
@@ -151,7 +158,8 @@ TEST(BufferResource, ReservationReleasing) {
 
     // A reservation is released when it goes out of scope.
     {
-        auto [reserve, overbooking] = br.reserve(MemoryType::HOST, 10_KiB, true);
+        auto [reserve, overbooking] =
+            br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
         EXPECT_EQ(reserve.size(), 10_KiB);
         EXPECT_EQ(overbooking, 10_KiB);
         EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 5_KiB);
@@ -176,7 +184,8 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Book all available device memory.
-    auto [reserve1, overbooking1] = br.reserve(MemoryType::DEVICE, 10_KiB, false);
+    auto [reserve1, overbooking1] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
@@ -201,10 +210,12 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
 
     // Moving buffers between memory types requires a reservation.
-    auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    auto [reserve2, overbooking2] =
+        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
     auto dev_buf2 = zeros(br, 10_KiB, stream, reserve2);
     EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
-    auto [reserve3, overbooking3] = br.reserve(MemoryType::HOST, 10_KiB, true);
+    auto [reserve3, overbooking3] =
+        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
     EXPECT_EQ(dev_mem_available(), 0);
@@ -223,7 +234,8 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // The reservation must be of the correct memory type.
-    auto [reserve4, overbooking4] = br.reserve(MemoryType::HOST, 10_KiB, true);
+    auto [reserve4, overbooking4] =
+        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
@@ -315,7 +327,8 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
     std::unique_ptr<Buffer> create_and_initialize_buffer(
         MemoryType const mem_type, std::size_t const size
     ) {
-        auto [alloc_reserve, alloc_overbooking] = br->reserve(mem_type, size, false);
+        auto [alloc_reserve, alloc_overbooking] =
+            br->reserve(mem_type, size, AllowOverbooking::NO);
         auto buf = br->allocate(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
         // copy the host pattern to the Buffer
@@ -473,7 +486,8 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
 TEST_P(BufferResourceCopyToTest, CopyTo) {
     auto [source_type, dest_type, params] = BufferResourceCopyToTest::GetParam();
     auto source = create_and_initialize_buffer(source_type, params.source_size);
-    auto [dest_reserve, dest_overbooking] = br->reserve(dest_type, buffer_size, false);
+    auto [dest_reserve, dest_overbooking] =
+        br->reserve(dest_type, buffer_size, AllowOverbooking::NO);
     auto dest = br->allocate(buffer_size, stream, dest_reserve);
     EXPECT_EQ(dest->mem_type(), dest_type);
 
@@ -534,7 +548,8 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
-        auto [reserv1, ob1] = br1->reserve(MemoryType::DEVICE, buffer_size, false);
+        auto [reserv1, ob1] =
+            br1->reserve(MemoryType::DEVICE, buffer_size, AllowOverbooking::NO);
         auto buf1 = br1->allocate(buffer_size, stream, reserv1);
         EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
         EXPECT_EQ(buf1->size, buffer_size);

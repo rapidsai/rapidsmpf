@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -187,11 +187,12 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         auto const wiggle_room =
                             1024 * static_cast<std::size_t>(table_view().num_columns());
                         if (packed_data->data->size <= reservation.size() + wiggle_room) {
-                            reservation =
-                                br->reserve(
-                                      MemoryType::HOST, packed_data->data->size, true
-                                )
-                                    .first;
+                            reservation = br->reserve(
+                                                MemoryType::HOST,
+                                                packed_data->data->size,
+                                                AllowOverbooking::YES
+                            )
+                                              .first;
                         }
                     }
                     packed_data->data =

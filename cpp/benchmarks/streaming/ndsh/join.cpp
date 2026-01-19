@@ -115,7 +115,10 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result), ctx->br().get(), true, ctx->statistics()
+                            std::move(result),
+                            ctx->br().get(),
+                            AllowOverbooking::YES,
+                            ctx->statistics()
                         ),
                         stream,
                         ctx->br().get(),
@@ -385,7 +388,7 @@ streaming::Node shuffle(
                         unspill_partitions(
                             std::move(*packed_data),
                             ctx->br().get(),
-                            true,
+                            AllowOverbooking::YES,
                             ctx->statistics()
                         ),
                         stream,
