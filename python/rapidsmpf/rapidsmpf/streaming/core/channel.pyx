@@ -3,6 +3,7 @@
 
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
+from cython.operator cimport dereference as deref
 from libcpp.memory cimport shared_ptr
 from libcpp.utility cimport move
 
@@ -283,7 +284,10 @@ cdef class Channel:
         A `Message` if a message is available, otherwise ``None`` if the channel is
         shut down and empty.
         """
-        cdef shared_ptr[cpp_Message] c_msg_ptr = (
+        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
+        # go out of scope and destroy objects in its stack before the C++ coroutine
+        # executes, leading to a segfault.
+        cdef shared_ptr[cpp_Message] c_msg = (
             shared_ptr[cpp_Message](new cpp_Message())
         )
         ret = asyncio.get_running_loop().create_future()
@@ -292,11 +296,11 @@ cdef class Channel:
             cpp_channel_recv(
                 ctx._handle,
                 self._handle,
-                c_msg_ptr,
+                c_msg,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_msg_ptr.get().empty():
+        if deref(c_msg).empty():
             return None
-        return Message.from_handle(move(c_msg_ptr.get()[0]))
+        return Message.from_handle(move(deref(c_msg)[0]))
