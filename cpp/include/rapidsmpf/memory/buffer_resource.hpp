@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,8 @@
 #include <ranges>
 #include <unordered_map>
 #include <utility>
+
+#include <cuda/memory_resource>
 
 #include <rmm/cuda_stream_pool.hpp>
 
@@ -89,7 +91,7 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept {
         return device_mr_;
     }
 
@@ -365,7 +367,7 @@ class BufferResource {
 
   private:
     std::mutex mutex_;
-    rmm::device_async_resource_ref device_mr_;
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
     std::shared_ptr<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
