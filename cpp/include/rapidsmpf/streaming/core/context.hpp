@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include <thread>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
@@ -27,11 +28,11 @@ namespace rapidsmpf::streaming {
  * The context owns shared resources used during execution, including the
  * coroutine executor and memory reservation infrastructure.
  *
- * @warning A `Context` instance must be created and destroyed on the same
- * thread. Destroying the context on a different thread results in program
- * termination. This is important in coroutine-based code, where stack
- * unwinding may occur on a different thread if ownership is not carefully
- * managed.
+ * @warning Shutdown of the context must be initiated from the same thread that
+ * created it. Calling `shutdown()` from a different thread results in program
+ * termination. Since the destructor implicitly calls `shutdown()`, destroying
+ * the context from a different thread also results in termination unless the
+ * executor has already been shut down explicitly.
  *
  * A recommended usage pattern is to create a single `Context` instance up front
  * on the main thread and reuse it throughout the lifetime of the program. This
@@ -76,7 +77,27 @@ class Context {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    // No copy constructor and assignment operator.
+    Context(Context const&) = delete;
+    Context& operator=(Context const&) = delete;
+
+    // No move constructor and assignment operator.
+    Context(Context&&) = delete;
+    Context& operator=(Context&&) = delete;
+
     ~Context() noexcept;
+
+    /**
+     * @brief Shut down the context.
+     *
+     * This method is idempotent and only performs shutdown once. Subsequent calls
+     * have no effect.
+     *
+     * @warning Shutdown must be initiated from the same thread that constructed
+     * the executor. Calling this method from a different thread results in program
+     * termination.
+     */
+    void shutdown() noexcept;
 
     /**
      * @brief Returns the configuration options.
@@ -173,6 +194,8 @@ class Context {
     ) const noexcept;
 
   private:
+    std::atomic<bool> is_shutdown_{false};
+    std::thread::id creator_thread_id_;
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;

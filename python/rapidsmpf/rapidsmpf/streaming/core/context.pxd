@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport shared_ptr
@@ -16,7 +16,7 @@ cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
     cdef cppclass cpp_Context "rapidsmpf::streaming::Context":
         shared_ptr[cpp_Channel] create_channel() except +
         shared_ptr[cpp_SpillableMessages] spillable_messages() noexcept
-
+        void shutdown() noexcept
 
 cdef class Context:
     cdef shared_ptr[cpp_Context] _handle
