@@ -164,8 +164,8 @@ cdef class TableChunk:
         This reference is managed by the underlying C++ object, so it
         persists even when the chunk is transferred through Channels.
 
-        Warning
-        -------
+        Warnings
+        --------
         This object does not keep the provided stream alive. The caller must
         ensure the stream remains valid for the lifetime of the streaming pipeline.
         """
