@@ -20,11 +20,17 @@ This script validates the correctness of NDSH benchmark outputs by:
 3. Comparing the benchmark output against the DuckDB result
 
 Usage:
-    python validate.py \
-        --benchmark-dir /path/to/build/benchmarks/ndsh \
-        --sql-dir /path/to/sql/queries \
-        --input-dir /raid/rapidsmpf/data/tpch/scale-1.0 \
+    # Run benchmarks and generate expected results
+    python validate_ndsh.py run \\
+        --benchmark-dir /path/to/build/benchmarks/ndsh \\
+        --sql-dir /path/to/sql/queries \\
+        --input-dir /raid/rapidsmpf/data/tpch/scale-1.0 \\
         --output-dir /tmp/validation
+
+    # Validate results against expected
+    python validate_ndsh.py validate \\
+        --results-path /tmp/validation/output \\
+        --expected-path /tmp/validation/expected
 """
 
 from __future__ import annotations
@@ -80,6 +86,26 @@ def discover_benchmarks(
             print(f"Warning: No SQL file found for {query_name} at {sql_path}")
 
     return sorted(benchmarks)
+
+
+def discover_parquet_files(directory: Path) -> dict[str, Path]:
+    """
+    Discover parquet files matching the qDD.parquet pattern.
+
+    Returns a dict mapping query_name (e.g., 'q03') to file path.
+    """
+    pattern = re.compile(r"^q(\d+)\.parquet$")
+    files = {}
+
+    for file in directory.iterdir():
+        if not file.is_file():
+            continue
+        match = pattern.match(file.name)
+        if match:
+            query_name = f"q{match.group(1)}"
+            files[query_name] = file
+
+    return files
 
 
 def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> None:
@@ -316,27 +342,27 @@ def compare_parquet(
     return True, None
 
 
-def validate_benchmark(
+def run_single_benchmark(
     query_name: str,
     binary_path: Path,
     sql_path: Path,
     input_dir: Path,
     output_dir: Path,
+    expected_dir: Path,
     extra_args: list[str] | None = None,
-    decimal: int = 2,
     *,
     reuse_expected: bool = False,
     reuse_output: bool = False,
 ) -> bool:
     """
-    Validate a single benchmark.
+    Run a single benchmark and generate expected results.
 
-    Returns True if validation passes, False otherwise.
+    Returns True if both operations succeed, False otherwise.
     """
-    print(f"\nValidating {query_name}...")
+    print(f"\nRunning {query_name}...")
 
-    expected_path = output_dir / f"{query_name}_expected.parquet"
-    benchmark_output = output_dir / f"{query_name}_output.parquet"
+    expected_path = expected_dir / f"{query_name}.parquet"
+    benchmark_output = output_dir / f"{query_name}.parquet"
 
     # Generate expected
     if reuse_expected and expected_path.exists():
@@ -365,115 +391,41 @@ def validate_benchmark(
         print(f"  FAILED: Benchmark did not produce output file: {benchmark_output}")
         return False
 
-    # Compare results
-    print("  Comparing results...")
-    is_equal, message = compare_parquet(
-        benchmark_output, expected_path, decimal=decimal
-    )
-
-    if is_equal:
-        print("  PASSED")
-        return True
-    else:
-        print(f"  FAILED:\n{message}")
-        return False
+    print("  SUCCESS")
+    return True
 
 
-def main():
-    """Run the validator."""
-    parser = argparse.ArgumentParser(
-        description="Validate NDSH benchmarks against DuckDB expected results",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-    parser.add_argument(
-        "--benchmark-dir",
-        type=Path,
-        help="Directory containing benchmark binaries (q04, q09, etc.)",
-        default=Path(__file__).parent.parent.parent.joinpath(
-            "cpp/build/benchmarks/ndsh"
-        ),
-    )
-    parser.add_argument(
-        "--sql-dir",
-        type=Path,
-        help="Directory containing SQL query files (q04.sql, q09.sql, etc.)",
-        default=Path(__file__).parent.parent.parent.joinpath(
-            "cpp/benchmarks/streaming/ndsh/sql"
-        ),
-    )
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        required=True,
-        help="Directory containing TPC-H input parquet files",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help="Directory for output files (default: temp directory)",
-    )
-    parser.add_argument(
-        "--query",
-        type=str,
-        action="append",
-        dest="queries",
-        help="Specific query to validate (can be repeated). If not specified, all discovered queries are validated.",
-    )
-    parser.add_argument(
-        "--benchmark-args",
-        type=str,
-        default="",
-        help="Additional arguments to pass to benchmark binaries (space-separated)",
-    )
-    parser.add_argument(
-        "-d",
-        "--decimal",
-        type=int,
-        default=2,
-        help="Number of decimal places to compare for floating point values (default: 2)",
-    )
-    parser.add_argument(
-        "--reuse-expected",
-        action="store_true",
-        help="Skip generating expected results if the expected file already exists",
-    )
-    parser.add_argument(
-        "--reuse-output",
-        action="store_true",
-        help="Skip running the benchmark if the output file already exists",
-    )
-    parser.add_argument(
-        "--generate-data",
-        action="store_true",
-        help="Generate data for the benchmarks",
-    )
-    args = parser.parse_args()
-
+def cmd_run(args: argparse.Namespace) -> int:
+    """Execute the 'run' subcommand."""
     # Validate paths
     if not args.benchmark_dir.exists():
         print(f"Error: Benchmark directory does not exist: {args.benchmark_dir}")
-        sys.exit(1)
+        return 1
 
     if not args.sql_dir.exists():
         print(f"Error: SQL directory does not exist: {args.sql_dir}")
-        sys.exit(1)
+        return 1
 
     if args.generate_data:
         generate_data(args.input_dir)
 
     if not args.input_dir.exists():
         print(f"Error: Input directory does not exist: {args.input_dir}")
-        sys.exit(1)
+        return 1
 
     # Use temp directory if output dir not specified
     if args.output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="ndsh_validate_"))
+        output_dir = Path(tempfile.mkdtemp(prefix="ndsh_run_"))
         print(f"Using temporary output directory: {output_dir}")
     else:
         output_dir = args.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create subdirectories for output and expected
+    benchmark_output_dir = output_dir / "output"
+    expected_output_dir = output_dir / "expected"
+    benchmark_output_dir.mkdir(parents=True, exist_ok=True)
+    expected_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse extra benchmark args
     extra_args = args.benchmark_args.split() if args.benchmark_args else None
@@ -483,7 +435,7 @@ def main():
 
     if not benchmarks:
         print("No benchmarks found!")
-        sys.exit(1)
+        return 1
 
     # Filter to specific queries if requested
     if args.queries:
@@ -494,27 +446,110 @@ def main():
         ]
         if not benchmarks:
             print(f"No matching benchmarks found for queries: {args.queries}")
-            sys.exit(1)
+            return 1
 
-    print(f"Found {len(benchmarks)} benchmark(s) to validate:")
+    print(f"Found {len(benchmarks)} benchmark(s) to run:")
     for name, binary, sql in benchmarks:
         print(f"  {name}: {binary} + {sql}")
 
-    # Run validations
+    # Run benchmarks
     results = {}
     for query_name, binary_path, sql_path in benchmarks:
-        passed = validate_benchmark(
+        passed = run_single_benchmark(
             query_name,
             binary_path,
             sql_path,
             args.input_dir,
-            output_dir,
+            benchmark_output_dir,
+            expected_output_dir,
             extra_args,
-            args.decimal,
             reuse_expected=args.reuse_expected,
             reuse_output=args.reuse_output,
         )
         results[query_name] = passed
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("RUN SUMMARY")
+    print("=" * 60)
+
+    passed = sum(results.values())
+    failed = len(results) - passed
+
+    for query_name, result in sorted(results.items()):
+        status = "SUCCESS" if result else "FAILED"
+        print(f"  {query_name}: {status}")
+
+    print("-" * 60)
+    print(f"Total: {passed} succeeded, {failed} failed")
+    print(f"\nOutput directory: {output_dir}")
+    print(f"  Results: {benchmark_output_dir}")
+    print(f"  Expected: {expected_output_dir}")
+
+    return int(failed > 0)
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Execute the 'validate' subcommand."""
+    if not args.results_path.exists():
+        print(f"Error: Results directory does not exist: {args.results_path}")
+        return 1
+
+    if not args.expected_path.exists():
+        print(f"Error: Expected directory does not exist: {args.expected_path}")
+        return 1
+
+    # Discover parquet files in both directories
+    results_files = discover_parquet_files(args.results_path)
+    expected_files = discover_parquet_files(args.expected_path)
+
+    if not results_files:
+        print(f"No qDD.parquet files found in results directory: {args.results_path}")
+        return 1
+
+    if not expected_files:
+        print(f"No qDD.parquet files found in expected directory: {args.expected_path}")
+        return 1
+
+    # Find matching queries
+    common_queries = sorted(set(results_files.keys()) & set(expected_files.keys()))
+
+    if not common_queries:
+        print("No matching queries found between results and expected directories.")
+        print(f"  Results queries: {sorted(results_files.keys())}")
+        print(f"  Expected queries: {sorted(expected_files.keys())}")
+        return 1
+
+    # Report any queries only in one directory
+    results_only = set(results_files.keys()) - set(expected_files.keys())
+    expected_only = set(expected_files.keys()) - set(results_files.keys())
+
+    if results_only:
+        print(f"Warning: Queries only in results: {sorted(results_only)}")
+    if expected_only:
+        print(f"Warning: Queries only in expected: {sorted(expected_only)}")
+
+    print(f"\nValidating {len(common_queries)} query(ies):")
+    for query in common_queries:
+        print(f"  {query}")
+
+    # Validate each matching pair
+    results = {}
+    for query_name in common_queries:
+        print(f"\nValidating {query_name}...")
+        result_path = results_files[query_name]
+        expected_path = expected_files[query_name]
+
+        is_equal, message = compare_parquet(
+            result_path, expected_path, decimal=args.decimal
+        )
+
+        if is_equal:
+            print("  PASSED")
+            results[query_name] = True
+        else:
+            print(f"  FAILED:\n{message}")
+            results[query_name] = False
 
     # Summary
     print("\n" + "=" * 60)
@@ -531,7 +566,114 @@ def main():
     print("-" * 60)
     print(f"Total: {passed} passed, {failed} failed")
 
-    sys.exit(int(failed > 0))
+    return int(failed > 0)
+
+
+def main():
+    """Run the NDSH validation tool."""
+    parser = argparse.ArgumentParser(
+        description="NDSH benchmark runner and validator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # 'run' subcommand
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run benchmarks and generate expected results",
+        description="Run C++ benchmark binaries and generate expected results via DuckDB.",
+    )
+    run_parser.add_argument(
+        "--benchmark-dir",
+        type=Path,
+        help="Directory containing benchmark binaries (q04, q09, etc.)",
+        default=Path(__file__).parent.parent.parent.joinpath(
+            "cpp/build/benchmarks/ndsh"
+        ),
+    )
+    run_parser.add_argument(
+        "--sql-dir",
+        type=Path,
+        help="Directory containing SQL query files (q04.sql, q09.sql, etc.)",
+        default=Path(__file__).parent.parent.parent.joinpath(
+            "cpp/benchmarks/streaming/ndsh/sql"
+        ),
+    )
+    run_parser.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="Directory containing TPC-H input parquet files",
+    )
+    run_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for output files (default: temp directory)",
+    )
+    run_parser.add_argument(
+        "--query",
+        type=str,
+        action="append",
+        dest="queries",
+        help="Specific query to run (can be repeated). If not specified, all discovered queries are run.",
+    )
+    run_parser.add_argument(
+        "--benchmark-args",
+        type=str,
+        default="",
+        help="Additional arguments to pass to benchmark binaries (space-separated)",
+    )
+    run_parser.add_argument(
+        "--reuse-expected",
+        action="store_true",
+        help="Skip generating expected results if the expected file already exists",
+    )
+    run_parser.add_argument(
+        "--reuse-output",
+        action="store_true",
+        help="Skip running the benchmark if the output file already exists",
+    )
+    run_parser.add_argument(
+        "--generate-data",
+        action="store_true",
+        help="Generate data for the benchmarks",
+    )
+
+    # 'validate' subcommand
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Compare results against expected",
+        description="Validate benchmark results by comparing parquet files against expected results.",
+    )
+    validate_parser.add_argument(
+        "--results-path",
+        type=Path,
+        required=True,
+        help="Directory containing benchmark result parquet files (qDD.parquet)",
+    )
+    validate_parser.add_argument(
+        "--expected-path",
+        type=Path,
+        required=True,
+        help="Directory containing expected parquet files (qDD.parquet)",
+    )
+    validate_parser.add_argument(
+        "-d",
+        "--decimal",
+        type=int,
+        default=2,
+        help="Number of decimal places to compare for floating point values (default: 2)",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "run":
+        sys.exit(cmd_run(args))
+    elif args.command == "validate":
+        sys.exit(cmd_validate(args))
 
 
 if __name__ == "__main__":
