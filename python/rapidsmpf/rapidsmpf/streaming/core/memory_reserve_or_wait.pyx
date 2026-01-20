@@ -25,7 +25,7 @@ cdef extern from * nogil:
     """
     namespace {
     std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait>
-    cpp_mrow_make_shared(
+    cpp_make_shared(
         rapidsmpf::config::Options options,
         rapidsmpf::MemoryType mem_type,
         rapidsmpf::streaming::Context &ctx
@@ -36,7 +36,7 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    shared_ptr[cpp_MemoryReserveOrWait] cpp_mrow_make_shared(
+    shared_ptr[cpp_MemoryReserveOrWait] cpp_make_shared(
         cpp_Options options,
         MemoryType mem_type,
         cpp_Context &ctx
@@ -45,13 +45,13 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> mrow_shutdown_task(
+    coro::task<void> shutdown_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow
     ) {
         co_await mrow->shutdown();
     }
 
-    void cpp_mrow_shutdown(
+    void cpp_shutdown(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
@@ -61,7 +61,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    mrow_shutdown_task(std::move(mrow))
+                    shutdown_task(std::move(mrow))
                 )
             ),
             "could not spawn task on thread pool"
@@ -69,7 +69,7 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    void cpp_mrow_shutdown(
+    void cpp_shutdown(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
@@ -78,7 +78,7 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> mrow_reserve_or_wait_task(
+    coro::task<void> reserve_or_wait_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -89,7 +89,7 @@ cdef extern from * nogil:
         );
     }
 
-    void cpp_mrow_reserve_or_wait(
+    void cpp_reserve_or_wait(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -102,7 +102,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    mrow_reserve_or_wait_task(
+                    reserve_or_wait_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -115,7 +115,7 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    void cpp_mrow_reserve_or_wait(
+    void cpp_reserve_or_wait(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
@@ -127,7 +127,7 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> mrow_reserve_or_wait_or_overbook_task(
+    coro::task<void> reserve_or_wait_or_overbook_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -142,7 +142,7 @@ cdef extern from * nogil:
         };
     }
 
-    void cpp_mrow_reserve_or_wait_or_overbook(
+    void cpp_reserve_or_wait_or_overbook(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -155,7 +155,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    mrow_reserve_or_wait_or_overbook_task(
+                    reserve_or_wait_or_overbook_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -169,7 +169,7 @@ cdef extern from * nogil:
     }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] \
-        cpp_mrow_reserve_or_wait_or_overbook(
+        cpp_reserve_or_wait_or_overbook(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
@@ -181,7 +181,7 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> mrow_reserve_or_wait_or_fail_task(
+    coro::task<void> reserve_or_wait_or_fail_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -192,7 +192,7 @@ cdef extern from * nogil:
         );
     }
 
-    void cpp_mrow_reserve_or_wait_or_fail(
+    void cpp_reserve_or_wait_or_fail(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
@@ -205,7 +205,7 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    mrow_reserve_or_wait_or_fail_task(
+                    reserve_or_wait_or_fail_task(
                         std::move(mrow),
                         size,
                         net_memory_delta,
@@ -218,7 +218,7 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    void cpp_mrow_reserve_or_wait_or_fail(
+    void cpp_reserve_or_wait_or_fail(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
@@ -268,7 +268,7 @@ cdef class MemoryReserveOrWait:
     ):
         self._br = ctx.br()
         with nogil:
-            self._handle = cpp_mrow_make_shared(
+            self._handle = cpp_make_shared(
                 options._handle,
                 mem_type,
                 deref(ctx._handle),
@@ -318,7 +318,7 @@ cdef class MemoryReserveOrWait:
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
-            cpp_mrow_shutdown(
+            cpp_shutdown(
                 self._handle,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
@@ -385,7 +385,7 @@ cdef class MemoryReserveOrWait:
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
-            cpp_mrow_reserve_or_wait(
+            cpp_reserve_or_wait(
                 self._handle,
                 size,
                 net_memory_delta,
@@ -434,7 +434,7 @@ cdef class MemoryReserveOrWait:
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
-            cpp_mrow_reserve_or_wait_or_overbook(
+            cpp_reserve_or_wait_or_overbook(
                 self._handle,
                 size,
                 net_memory_delta,
@@ -489,7 +489,7 @@ cdef class MemoryReserveOrWait:
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
-            cpp_mrow_reserve_or_wait_or_fail(
+            cpp_reserve_or_wait_or_fail(
                 self._handle,
                 size,
                 net_memory_delta,
