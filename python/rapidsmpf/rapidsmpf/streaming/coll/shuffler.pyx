@@ -5,8 +5,9 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t, uint32_t
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.optional cimport optional
+from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
 
@@ -279,9 +280,7 @@ cdef class ShufflerAsync:
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
         cdef shared_ptr[optional[vector[cpp_PackedData]]] c_ret = (
-            shared_ptr[optional[vector[cpp_PackedData]]](
-                new optional[vector[cpp_PackedData]]()
-            )
+            make_shared[optional[vector[cpp_PackedData]]]()
         )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
@@ -321,9 +320,7 @@ cdef class ShufflerAsync:
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
         cdef shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret = (
-            shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]](
-                new optional[pair[uint32_t, vector[cpp_PackedData]]]()
-            )
+            make_shared[optional[pair[uint32_t, vector[cpp_PackedData]]]]()
         )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)

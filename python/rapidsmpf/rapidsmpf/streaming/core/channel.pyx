@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport shared_ptr
+from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -287,9 +287,7 @@ cdef class Channel:
         # Use a shared_ptr here for safety, if an exception occurs this coroutine may
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
-        cdef shared_ptr[cpp_Message] c_msg = (
-            shared_ptr[cpp_Message](new cpp_Message())
-        )
+        cdef shared_ptr[cpp_Message] c_msg = make_shared[cpp_Message]()
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:

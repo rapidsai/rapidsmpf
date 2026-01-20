@@ -6,7 +6,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t
 from libcpp cimport bool
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -130,7 +130,7 @@ cdef class AllGather:
         # go out of scope and destroy objects in its stack before the C++ coroutine
         # executes, leading to a segfault.
         cdef shared_ptr[vector[cpp_PackedData]] c_ret = (
-            shared_ptr[vector[cpp_PackedData]](new vector[cpp_PackedData]())
+            make_shared[vector[cpp_PackedData]]()
         )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
