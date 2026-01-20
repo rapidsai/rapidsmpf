@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -29,7 +29,7 @@ cdef extern from * nogil:
             rapidsmpf::ContentDescription{}
         };
     }
-    }
+    }  // namespace
     """
     cpp_Message cpp_to_message(
         uint64_t, unique_ptr[cpp_OwningWrapper]

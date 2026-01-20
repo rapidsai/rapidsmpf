@@ -34,7 +34,7 @@ cdef extern from * nogil:
             std::move(options), mem_type, ctx.executor(), ctx.br()
         );
     }
-    }
+    }  // namespace
     """
     shared_ptr[cpp_MemoryReserveOrWait] cpp_mrow_make_shared(
         cpp_Options options,
@@ -67,7 +67,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_mrow_shutdown(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
@@ -113,7 +113,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_mrow_reserve_or_wait(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
@@ -166,7 +166,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] \
         cpp_mrow_reserve_or_wait_or_overbook(
@@ -216,7 +216,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_mrow_reserve_or_wait_or_fail(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,

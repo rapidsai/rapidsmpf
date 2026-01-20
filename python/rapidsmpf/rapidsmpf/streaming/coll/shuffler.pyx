@@ -107,7 +107,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_extract_async(
         shared_ptr[cpp_Context] ctx,
