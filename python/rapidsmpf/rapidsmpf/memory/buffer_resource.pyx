@@ -86,7 +86,7 @@ cdef extern from * nogil:
             br->reserve_device_memory_and_spill(size, allow_overbooking)
         );
     }
-    }
+    }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],
