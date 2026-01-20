@@ -24,8 +24,7 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait>
-    cpp_make_shared(
+    auto cpp_make_shared(
         rapidsmpf::config::Options options,
         rapidsmpf::MemoryType mem_type,
         rapidsmpf::streaming::Context &ctx
@@ -82,21 +81,21 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::unique_ptr<rapidsmpf::MemoryReservation> &output
+        std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
-        output = std::make_unique<rapidsmpf::MemoryReservation>(
+        *output = std::make_unique<rapidsmpf::MemoryReservation>(
             co_await mrow->reserve_or_wait(size, net_memory_delta)
         );
     }
 
-    void cpp_reserve_or_wait(
+    auto cpp_reserve_or_wait(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::unique_ptr<rapidsmpf::MemoryReservation> &output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<std::unique_ptr<rapidsmpf::MemoryReservation>>();
         RAPIDSMPF_EXPECTS(
             mrow->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -112,14 +111,14 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
     }  // namespace
     """
-    void cpp_reserve_or_wait(
+    shared_ptr[unique_ptr[cpp_MemoryReservation]] cpp_reserve_or_wait(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
-        unique_ptr[cpp_MemoryReservation] &output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -131,25 +130,29 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t> &output
+        std::shared_ptr<
+            std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
+        > output
     ) {
         auto [res, overbooking] = co_await mrow->reserve_or_wait_or_overbook(
             size, net_memory_delta
         );
-        output = {
+        *output = {
             std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)),
             overbooking
         };
     }
 
-    void cpp_reserve_or_wait_or_overbook(
+    auto cpp_reserve_or_wait_or_overbook(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t> &output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<
+            std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
+        >();
         RAPIDSMPF_EXPECTS(
             mrow->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -165,15 +168,15 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
     }  // namespace
     """
-    pair[unique_ptr[cpp_MemoryReservation], size_t] \
+    shared_ptr[pair[unique_ptr[cpp_MemoryReservation], size_t]] \
         cpp_reserve_or_wait_or_overbook(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
-        pair[unique_ptr[cpp_MemoryReservation], size_t] &output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -185,21 +188,21 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::unique_ptr<rapidsmpf::MemoryReservation> &output
+        std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
-        output = std::make_unique<rapidsmpf::MemoryReservation>(
+        *output = std::make_unique<rapidsmpf::MemoryReservation>(
             co_await mrow->reserve_or_wait_or_fail(size, net_memory_delta)
         );
     }
 
-    void cpp_reserve_or_wait_or_fail(
+    auto cpp_reserve_or_wait_or_fail(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::size_t net_memory_delta,
-        std::unique_ptr<rapidsmpf::MemoryReservation> &output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<std::unique_ptr<rapidsmpf::MemoryReservation>>();
         RAPIDSMPF_EXPECTS(
             mrow->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -215,14 +218,14 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
     }  // namespace
     """
-    void cpp_reserve_or_wait_or_fail(
+    shared_ptr[unique_ptr[cpp_MemoryReservation]] cpp_reserve_or_wait_or_fail(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         size_t net_memory_delta,
-        unique_ptr[cpp_MemoryReservation] &output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -381,20 +384,21 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
-        cdef unique_ptr[cpp_MemoryReservation] c_ret
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
+        cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
+        future = asyncio.get_running_loop().create_future()
+        Py_INCREF(future)
         with nogil:
-            cpp_reserve_or_wait(
+            c_ret = cpp_reserve_or_wait(
                 self._handle,
                 size,
                 net_memory_delta,
-                c_ret,
                 cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
+                move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await ret
-        return MemoryReservation.from_handle(move(c_ret), self._br)
+        await future
+        if not c_ret:
+            assert False, "something went wrong, task returned a null pointer!"
+        return MemoryReservation.from_handle(move(deref(c_ret)), self._br)
 
     async def reserve_or_wait_or_overbook(
         self, size_t size, *, int64_t net_memory_delta
@@ -430,25 +434,24 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
-        cdef pair[unique_ptr[cpp_MemoryReservation], size_t] c_ret
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
+        cdef shared_ptr[pair[unique_ptr[cpp_MemoryReservation], size_t]] c_ret
+        future = asyncio.get_running_loop().create_future()
+        Py_INCREF(future)
         with nogil:
-            cpp_reserve_or_wait_or_overbook(
+            c_ret = cpp_reserve_or_wait_or_overbook(
                 self._handle,
                 size,
                 net_memory_delta,
-                c_ret,
                 cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
+                move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter)),
             )
-        await ret
-        if not c_ret.first:
-            assert False, (
-                "something went wrong, reserve_or_wait_or_overbook() returned a "
-                "null pointer!"
-            )
-        return MemoryReservation.from_handle(move(c_ret.first), self._br), c_ret.second
+        await future
+        if not c_ret:
+            assert False, "something went wrong, task returned a null pointer!"
+        return (
+            MemoryReservation.from_handle(move(deref(c_ret).first), self._br),
+            deref(c_ret).second
+        )
 
     async def reserve_or_wait_or_fail(self, size_t size, *, int64_t net_memory_delta):
         """
@@ -485,20 +488,21 @@ cdef class MemoryReserveOrWait:
         --------
         reserve_or_wait
         """
-        cdef unique_ptr[cpp_MemoryReservation] c_ret
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
+        cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
+        future = asyncio.get_running_loop().create_future()
+        Py_INCREF(future)
         with nogil:
-            cpp_reserve_or_wait_or_fail(
+            c_ret = cpp_reserve_or_wait_or_fail(
                 self._handle,
                 size,
                 net_memory_delta,
-                c_ret,
                 cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
+                move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await ret
-        return MemoryReservation.from_handle(move(c_ret), self._br)
+        await future
+        if not c_ret:
+            assert False, "something went wrong, task returned a null pointer!"
+        return MemoryReservation.from_handle(move(deref(c_ret)), self._br)
 
     def size(self):
         """
