@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <numeric>
 #include <vector>
 
 #include <cudf/column/column_view.hpp>
@@ -116,7 +115,10 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result), ctx->br().get(), true, ctx->statistics()
+                            std::move(result),
+                            ctx->br().get(),
+                            AllowOverbooking::YES,
+                            ctx->statistics()
                         ),
                         stream,
                         ctx->br().get(),
@@ -261,7 +263,6 @@ streaming::Node inner_join_broadcast(
         );
         build_carrier = build_table.table_view().select(to_keep);
     }
-    std::size_t sequence = 0;
     while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
@@ -270,7 +271,7 @@ streaming::Node inner_join_broadcast(
         co_await ch_out->send(inner_join_chunk(
             ctx,
             right_msg.release<streaming::TableChunk>(),
-            sequence++,
+            right_msg.sequence_number(),
             joiner,
             build_carrier,
             right_on,
@@ -387,7 +388,7 @@ streaming::Node shuffle(
                         unspill_partitions(
                             std::move(*packed_data),
                             ctx->br().get(),
-                            true,
+                            AllowOverbooking::YES,
                             ctx->statistics()
                         ),
                         stream,

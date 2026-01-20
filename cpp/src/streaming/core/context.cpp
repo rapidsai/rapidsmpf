@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -60,7 +60,8 @@ Context::Context(
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
-    : options_{std::move(options)},
+    : creator_thread_id_{std::this_thread::get_id()},
+      options_{std::move(options)},
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
@@ -80,6 +81,11 @@ Context::Context(
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );
+
+    for (auto mem_type : MEMORY_TYPES) {
+        memory_[static_cast<std::size_t>(mem_type)] =
+            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
+    }
 }
 
 Context::Context(
@@ -98,7 +104,24 @@ Context::Context(
       ) {}
 
 Context::~Context() noexcept {
-    br_->spill_manager().remove_spill_function(spill_function_id_);
+    shutdown();
+}
+
+void Context::shutdown() noexcept {
+    // Only allow shutdown to occur once.
+    if (!is_shutdown_.exchange(true, std::memory_order::acq_rel)) {
+        br_->spill_manager().remove_spill_function(spill_function_id_);
+        auto const tid = std::this_thread::get_id();
+        if (tid != creator_thread_id_) {
+            std::cerr << "Context::shutdown() called from "
+                         "a different thread than the one that constructed "
+                         "the executor. Created by thread "
+                      << creator_thread_id_ << ", but current thread is " << tid
+                      << std::endl;
+            std::terminate();
+        }
+        executor_->shutdown();
+    }
 }
 
 config::Options Context::options() const noexcept {
@@ -123,6 +146,10 @@ std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
 
 std::shared_ptr<BufferResource> Context::br() const noexcept {
     return br_;
+}
+
+std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
+    return memory_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

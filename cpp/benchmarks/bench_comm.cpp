@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -210,7 +210,8 @@ Duration run(
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-            auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
+            auto [res, _] =
+                br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
             auto buf = br->allocate(args.msg_size, stream, res);
             random_fill(*buf, br->device_mr());
             send_bufs.push_back(std::move(buf));

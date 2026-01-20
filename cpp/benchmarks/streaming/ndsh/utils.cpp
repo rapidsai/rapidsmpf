@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,6 +15,7 @@
 #include <getopt.h>
 #include <mpi.h>
 
+#include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
@@ -109,7 +110,7 @@ streaming::Node consume_channel(
 streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& chunk,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     auto reservation = ctx->br()->reserve_device_memory_and_spill(
         chunk.make_available_cost(), allow_overbooking
@@ -124,9 +125,12 @@ std::shared_ptr<streaming::Context> create_context(
     rmm::mr::set_current_device_resource_ref(mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
     if (arguments.spill_device_limit.has_value()) {
-        auto limit_size =
-            rmm::available_device_memory().second
-            * static_cast<std::size_t>(arguments.spill_device_limit.value() * 100);
+        auto limit_size = rmm::align_down(
+            (rmm::available_device_memory().second
+             * static_cast<std::size_t>(arguments.spill_device_limit.value() * 100)
+             / 100),
+            rmm::CUDA_ALLOCATION_ALIGNMENT
+        );
 
         memory_available[MemoryType::DEVICE] =
             LimitAvailableMemory{mr, static_cast<std::int64_t>(limit_size)};

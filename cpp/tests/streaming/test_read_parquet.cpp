@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -253,8 +253,9 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     for (auto& msg : messages) {
         auto chunk = msg.release<TableChunk>();
         auto seq = msg.sequence_number();
-        auto [reservation, _] =
-            br->reserve(MemoryType::DEVICE, chunk.make_available_cost(), true);
+        auto [reservation, _] = br->reserve(
+            MemoryType::DEVICE, chunk.make_available_cost(), AllowOverbooking::YES
+        );
         chunk = chunk.make_available(reservation);
         auto packed_columns =
             cudf::pack(chunk.table_view(), chunk.stream(), br->device_mr());

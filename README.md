@@ -281,6 +281,21 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
+- **`memory_reserve_timeout_ms`**
+  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT_MS`
+  - **Default**: `100`
+  - **Description**: Controls the global progress timeout for memory reservation
+    requests, specified in milliseconds.
+
+    The value limits how long the system may go without making progress on any
+    pending memory reservation. When the timeout expires and no reservation has
+    been satisfied, the system forces progress by selecting a pending request and
+    attempting to reserve memory for it. Depending on the context, this may
+    result in an empty reservation, an overbooked reservation, or a failure.
+
+    This option ensures forward progress under memory pressure and prevents the
+    system from stalling indefinitely when memory availability fluctuates.
+
 
 #### Dask Integration
 
@@ -313,7 +328,6 @@ Each configuration option includes:
   - **Default**: `True`
   - **Description**: Print RapidsMPF statistics to stdout on Dask Worker shutdown
   when `dask_statistics` is enabled.
-
 
 - **`dask_staging_spill_buffer`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`
