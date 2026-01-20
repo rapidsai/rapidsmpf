@@ -498,7 +498,6 @@ def cmd_validate(args: argparse.Namespace) -> int:
     # but not an expected we error; if we have an expected but not a result,
     # that's fine.
     results_files = discover_parquet_files(args.results_path)
-    expected_files = discover_parquet_files(args.expected_path)
 
     if not results_files:
         print(f"No qDD.parquet files found in results directory: {args.results_path}")
