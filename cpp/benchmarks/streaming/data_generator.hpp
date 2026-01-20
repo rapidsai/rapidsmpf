@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
