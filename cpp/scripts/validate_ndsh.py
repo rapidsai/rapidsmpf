@@ -515,7 +515,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
         if not expected_path.exists():
             print(f"  FAILED: Expected file does not exist: {expected_path}")
-            return 1
+            results[query_name] = False
 
         is_equal, message = compare_parquet(
             result_path, expected_path, decimal=args.decimal
