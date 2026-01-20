@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from rapidsmpf.integrations.dask.shuffler import (
     gather_shuffle_statistics,
     rapidsmpf_shuffle_graph,
 )
+from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -539,3 +540,23 @@ async def test_bootstrap_multiple_clients(
         p.join()
 
     assert result is True
+
+
+@pytest.mark.parametrize("dask_spill_to_pinned_memory", ["on", "off"])
+def test_option_spill_to_pinned_memory(dask_spill_to_pinned_memory: str) -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        bootstrap_dask_cluster(
+            client,
+            options=Options(
+                {"dask_spill_to_pinned_memory": dask_spill_to_pinned_memory}
+            ),
+        )
+
+        def check_worker(dask_worker: Worker) -> None:
+            ctx = get_worker_context(dask_worker)
+            if dask_spill_to_pinned_memory == "on":
+                assert isinstance(ctx.br.pinned_mr, PinnedMemoryResource)
+            else:
+                assert ctx.br.pinned_mr is None
+
+        client.run(check_worker)
