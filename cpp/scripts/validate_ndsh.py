@@ -39,7 +39,6 @@ import argparse
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import duckdb
@@ -413,13 +412,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"Error: Input directory does not exist: {args.input_dir}")
         return 1
 
-    # Use temp directory if output dir not specified
-    if args.output_dir is None:
-        output_dir = Path(tempfile.mkdtemp(prefix="ndsh_run_"))
-        print(f"Using temporary output directory: {output_dir}")
-    else:
-        output_dir = args.output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create subdirectories for output and expected
     benchmark_output_dir = output_dir / "output"
@@ -610,8 +604,8 @@ def main():
     run_parser.add_argument(
         "--output-dir",
         type=Path,
-        default=None,
-        help="Directory for output files (default: temp directory)",
+        required=True,
+        help="Directory for output files",
     )
     run_parser.add_argument(
         "--query",
