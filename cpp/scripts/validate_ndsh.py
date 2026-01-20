@@ -494,6 +494,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
     # Discover parquet files in both directories
+    # But we treat *results* as the source of truth. If we have a result
+    # but not an expected we error; if we have an expected but not a result,
+    # that's fine.
     results_files = discover_parquet_files(args.results_path)
     expected_files = discover_parquet_files(args.expected_path)
 
@@ -501,38 +504,18 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print(f"No qDD.parquet files found in results directory: {args.results_path}")
         return 1
 
-    if not expected_files:
-        print(f"No qDD.parquet files found in expected directory: {args.expected_path}")
-        return 1
-
-    # Find matching queries
-    common_queries = sorted(set(results_files.keys()) & set(expected_files.keys()))
-
-    if not common_queries:
-        print("No matching queries found between results and expected directories.")
-        print(f"  Results queries: {sorted(results_files.keys())}")
-        print(f"  Expected queries: {sorted(expected_files.keys())}")
-        return 1
-
-    # Report any queries only in one directory
-    results_only = set(results_files.keys()) - set(expected_files.keys())
-    expected_only = set(expected_files.keys()) - set(results_files.keys())
-
-    if results_only:
-        print(f"Warning: Queries only in results: {sorted(results_only)}")
-    if expected_only:
-        print(f"Warning: Queries only in expected: {sorted(expected_only)}")
-
-    print(f"\nValidating {len(common_queries)} query(ies):")
-    for query in common_queries:
-        print(f"  {query}")
+    print(f"\nValidating {len(results_files)} query(ies):")
 
     # Validate each matching pair
     results = {}
-    for query_name in common_queries:
+    for query_name in results_files.keys():
         print(f"\nValidating {query_name}...")
         result_path = results_files[query_name]
-        expected_path = expected_files[query_name]
+        expected_path = args.expected_path / f"{query_name}.parquet"
+
+        if not expected_path.exists():
+            print(f"  FAILED: Expected file does not exist: {expected_path}")
+            return 1
 
         is_equal, message = compare_parquet(
             result_path, expected_path, decimal=args.decimal
