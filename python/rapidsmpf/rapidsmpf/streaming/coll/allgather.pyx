@@ -6,7 +6,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t
 from libcpp cimport bool
-from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -29,19 +29,19 @@ cdef extern from * nogil:
     coro::task<void> _extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::unique_ptr<std::vector<rapidsmpf::PackedData>> &output
+        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
     ) {
         *output = co_await gather->extract_all(ordered);
     }
 
-    std::unique_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
+    std::shared_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
-        auto output = std::make_unique<std::vector<rapidsmpf::PackedData>>();
+        auto output = std::make_shared<std::vector<rapidsmpf::PackedData>>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -56,7 +56,7 @@ cdef extern from * nogil:
     }
     }
     """
-    unique_ptr[vector[cpp_PackedData]] cpp_extract_all(
+    shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,
         cpp_AllGather *gather,
         cpp_Ordered ordered,
@@ -128,7 +128,7 @@ cdef class AllGather:
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
-        cdef unique_ptr[vector[cpp_PackedData]] c_ret
+        cdef shared_ptr[vector[cpp_PackedData]] c_ret
         with nogil:
             c_ret = cpp_extract_all(
                 ctx._handle,

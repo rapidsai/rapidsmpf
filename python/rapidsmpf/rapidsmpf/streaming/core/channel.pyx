@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -136,19 +136,19 @@ cdef extern from * nogil:
     namespace {
     coro::task<void> _channel_recv_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
-        std::unique_ptr<rapidsmpf::streaming::Message> &msg_output
+        std::shared_ptr<rapidsmpf::streaming::Message> msg_output
     ) {
         *msg_output = co_await channel->receive();
     }
     }  // namespace
 
-    std::unique_ptr<rapidsmpf::streaming::Message> cpp_channel_recv(
+    std::shared_ptr<rapidsmpf::streaming::Message> cpp_channel_recv(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
-        auto msg_output = std::make_unique<rapidsmpf::streaming::Message>();
+        auto msg_output = std::make_shared<rapidsmpf::streaming::Message>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -165,7 +165,7 @@ cdef extern from * nogil:
         return msg_output;
     }
     """
-    unique_ptr[cpp_Message] cpp_channel_recv(
+    shared_ptr[cpp_Message] cpp_channel_recv(
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
         void (*cpp_set_py_future)(void*, const char *),
@@ -286,7 +286,7 @@ cdef class Channel:
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
-        cdef unique_ptr[cpp_Message] c_msg
+        cdef shared_ptr[cpp_Message] c_msg
         with nogil:
             c_msg = cpp_channel_recv(
                 ctx._handle,
