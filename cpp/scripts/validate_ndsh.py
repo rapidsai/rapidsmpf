@@ -93,7 +93,7 @@ def discover_parquet_files(directory: Path) -> dict[str, Path]:
 
     Returns a dict mapping query_name (e.g., 'q03') to file path.
     """
-    pattern = re.compile(r"^q(\d+)\.parquet$")
+    pattern = re.compile(r"^q_?(\d+)\.parquet$")
     files = {}
 
     for file in directory.iterdir():
@@ -305,7 +305,7 @@ def compare_parquet(
                 and pa.types.is_timestamp(e_field.type)
             ):
                 continue
-            errors.append(f"\t{o_field.type} != {e_field.type}")
+            errors.append(f"\t{name}: {o_field.type} != {e_field.type}")
     if errors:
         return False, "\n".join(["Field type mismatch (output != expected)", *errors])
 
