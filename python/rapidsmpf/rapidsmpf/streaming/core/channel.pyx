@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport make_shared, shared_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -136,19 +136,19 @@ cdef extern from * nogil:
     namespace {
     coro::task<void> _channel_recv_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
-        std::shared_ptr<rapidsmpf::streaming::Message> msg_output
+        std::unique_ptr<rapidsmpf::streaming::Message> &msg_output
     ) {
         *msg_output = co_await channel->receive();
     }
     }  // namespace
 
-    void cpp_channel_recv(
+    std::unique_ptr<rapidsmpf::streaming::Message> cpp_channel_recv(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
-        std::shared_ptr<rapidsmpf::streaming::Message> msg_output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto msg_output = std::make_unique<rapidsmpf::streaming::Message>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -162,12 +162,12 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return msg_output;
     }
     """
-    void cpp_channel_recv(
+    unique_ptr[cpp_Message] cpp_channel_recv(
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
-        shared_ptr[cpp_Message] msg_output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     )
@@ -284,17 +284,13 @@ cdef class Channel:
         A `Message` if a message is available, otherwise ``None`` if the channel is
         shut down and empty.
         """
-        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
-        # go out of scope and destroy objects in its stack before the C++ coroutine
-        # executes, leading to a segfault.
-        cdef shared_ptr[cpp_Message] c_msg = make_shared[cpp_Message]()
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
+        cdef unique_ptr[cpp_Message] c_msg
         with nogil:
-            cpp_channel_recv(
+            c_msg = cpp_channel_recv(
                 ctx._handle,
                 self._handle,
-                c_msg,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )

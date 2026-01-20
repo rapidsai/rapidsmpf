@@ -5,7 +5,7 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t, uint32_t
-from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
@@ -30,19 +30,22 @@ cdef extern from * nogil:
     coro::task<void> _extract_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
+        std::unique_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> &output
     ) {
         *output = co_await shuffle->extract_async(pid);
     }
 
-    void cpp_extract_async(
+    std::unique_ptr<std::optional<std::vector<rapidsmpf::PackedData>>>
+    cpp_extract_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_unique<
+            std::optional<std::vector<rapidsmpf::PackedData>>
+        >();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -53,30 +56,29 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
 
     coro::task<void> _extract_any_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::shared_ptr<
-            std::optional<
-                std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>
-            >
-        > output
+        std::unique_ptr<
+            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+        > &output
     ) {
         *output = co_await shuffle->extract_any_async();
     }
 
-    void cpp_extract_any_async(
+    std::unique_ptr<
+        std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+    > cpp_extract_any_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::shared_ptr<
-            std::optional<
-                std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>
-            >
-        > output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_unique<
+            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+        >();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -89,6 +91,7 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
 
     coro::task<void> _insert_finished_task(
@@ -116,19 +119,17 @@ cdef extern from * nogil:
     }
     }
     """
-    void cpp_extract_async(
+    unique_ptr[optional[vector[cpp_PackedData]]] cpp_extract_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         uint32_t pid,
-        shared_ptr[optional[vector[cpp_PackedData]]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
 
-    void cpp_extract_any_async(
+    unique_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] cpp_extract_any_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
-        shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -276,20 +277,14 @@ cdef class ShufflerAsync:
         None
             If the partition has already been extracted.
         """
-        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
-        # go out of scope and destroy objects in its stack before the C++ coroutine
-        # executes, leading to a segfault.
-        cdef shared_ptr[optional[vector[cpp_PackedData]]] c_ret = (
-            make_shared[optional[vector[cpp_PackedData]]]()
-        )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
+        cdef unique_ptr[optional[vector[cpp_PackedData]]] c_ret
         with nogil:
-            cpp_extract_async(
+            c_ret = cpp_extract_async(
                 ctx._handle,
                 self._handle.get(),
                 pid,
-                c_ret,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
@@ -316,19 +311,13 @@ cdef class ShufflerAsync:
         None
             If there are no more partitions to extract.
         """
-        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
-        # go out of scope and destroy objects in its stack before the C++ coroutine
-        # executes, leading to a segfault.
-        cdef shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret = (
-            make_shared[optional[pair[uint32_t, vector[cpp_PackedData]]]]()
-        )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
+        cdef unique_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret
         with nogil:
-            cpp_extract_any_async(
+            c_ret = cpp_extract_any_async(
                 ctx._handle,
                 self._handle.get(),
-                c_ret,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )

@@ -6,7 +6,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t
 from libcpp cimport bool
-from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -29,19 +29,19 @@ cdef extern from * nogil:
     coro::task<void> _extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
+        std::unique_ptr<std::vector<rapidsmpf::PackedData>> &output
     ) {
         *output = co_await gather->extract_all(ordered);
     }
 
-    void cpp_extract_all(
+    std::unique_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_unique<std::vector<rapidsmpf::PackedData>>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
@@ -52,14 +52,14 @@ cdef extern from * nogil:
             ),
             "could not spawn task on thread pool"
         );
+        return output;
     }
     }
     """
-    void cpp_extract_all(
+    unique_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,
         cpp_AllGather *gather,
         cpp_Ordered ordered,
-        shared_ptr[vector[cpp_PackedData]] output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -126,20 +126,14 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
-        # Use a shared_ptr here for safety, if an exception occurs this coroutine may
-        # go out of scope and destroy objects in its stack before the C++ coroutine
-        # executes, leading to a segfault.
-        cdef shared_ptr[vector[cpp_PackedData]] c_ret = (
-            make_shared[vector[cpp_PackedData]]()
-        )
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
+        cdef unique_ptr[vector[cpp_PackedData]] c_ret
         with nogil:
-            cpp_extract_all(
+            c_ret = cpp_extract_all(
                 ctx._handle,
                 self._handle.get(),
                 cpp_Ordered.YES if ordered else cpp_Ordered.NO,
-                c_ret,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
