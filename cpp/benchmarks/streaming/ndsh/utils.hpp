@@ -47,6 +47,22 @@ namespace detail {
     std::string const& input_directory, std::string const& table_name
 );
 
+/**
+ * @brief Detect if a date column uses date32 (days) or timestamp type.
+ *
+ * Reads parquet metadata to check if the specified column is DATE type (date32)
+ * or a timestamp type (e.g., TIMESTAMP_MILLIS).
+ *
+ * @param input_directory Directory containing input parquet files
+ * @param table_name Name of the table (e.g., "lineitem")
+ * @param column_name Name of the date column to check
+ * @return true if the column is date32 (ConvertedType::DATE), false otherwise
+ */
+[[nodiscard]] bool is_date32_column(
+    std::string const& input_directory,
+    std::string const& table_name,
+    std::string const& column_name
+);
 
 }  // namespace detail
 

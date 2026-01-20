@@ -103,12 +103,62 @@ rapidsmpf::streaming::Node read_customer(
     );
 }
 
+/**
+ * @brief Create a filter expression for l_shipdate > DATE '1995-03-15'
+ *
+ * @tparam timestamp_type The timestamp type to use for the filter scalar
+ * @param stream CUDA stream to use
+ * @return Filter expression with proper lifetime management
+ */
+template <typename timestamp_type>
+std::unique_ptr<rapidsmpf::streaming::Filter> make_lineitem_shipdate_filter(
+    rmm::cuda_stream_view stream
+) {
+    auto owner = new std::vector<std::any>;
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1995),
+        cuda::std::chrono::month(3),
+        cuda::std::chrono::day(15)
+    );
+    auto sys_days = cuda::std::chrono::sys_days(date);
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            sys_days.time_since_epoch(), true, stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(0)
+            )
+        )
+    );
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>("l_shipdate"));
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::GREATER,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(2)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+        )
+    );
+    return std::make_unique<rapidsmpf::streaming::Filter>(
+        stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+}
+
 rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    std::string const& input_directory
+    std::string const& input_directory,
+    bool use_date32
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
@@ -120,51 +170,61 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_discount",  // 2
                        })
                        .build();
-    // TODO: utility to get logical types from parquet.
-    using timestamp_type = cudf::timestamp_ms;
-    auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
-        auto stream = ctx->br()->stream_pool().get_stream();
-        auto owner = new std::vector<std::any>;
-        constexpr auto date = cuda::std::chrono::year_month_day(
-            cuda::std::chrono::year(1995),
-            cuda::std::chrono::month(3),
-            cuda::std::chrono::day(15)
-        );
-        auto sys_days = cuda::std::chrono::sys_days(date);
-        owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
-                sys_days.time_since_epoch(), true, stream
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::literal>(
-                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
-                    owner->at(0)
-                )
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::column_name_reference>("l_shipdate")
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::operation>(
-                cudf::ast::ast_operator::GREATER,
-                *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
-                    owner->at(2)
-                ),
-                *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
-            )
-        );
-        return std::make_unique<rapidsmpf::streaming::Filter>(
-            stream,
-            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
-            rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
-                delete static_cast<std::vector<std::any>*>(p);
-            })
-        );
-    }();
+    auto stream = ctx->br()->stream_pool().get_stream();
+    auto filter_expr = use_date32
+                           ? make_lineitem_shipdate_filter<cudf::timestamp_D>(stream)
+                           : make_lineitem_shipdate_filter<cudf::timestamp_ms>(stream);
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
+    );
+}
+
+/**
+ * @brief Create a filter expression for o_orderdate < DATE '1995-03-15'
+ *
+ * @tparam timestamp_type The timestamp type to use for the filter scalar
+ * @param stream CUDA stream to use
+ * @return Filter expression with proper lifetime management
+ */
+template <typename timestamp_type>
+std::unique_ptr<rapidsmpf::streaming::Filter> make_orders_orderdate_filter(
+    rmm::cuda_stream_view stream
+) {
+    auto owner = new std::vector<std::any>;
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1995),
+        cuda::std::chrono::month(3),
+        cuda::std::chrono::day(15)
+    );
+    auto sys_days = cuda::std::chrono::sys_days(date);
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            sys_days.time_since_epoch(), true, stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(0)
+            )
+        )
+    );
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>("o_orderdate"));
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LESS,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(2)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+        )
+    );
+    return std::make_unique<rapidsmpf::streaming::Filter>(
+        stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
     );
 }
 
@@ -173,7 +233,8 @@ rapidsmpf::streaming::Node read_orders(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    std::string const& input_directory
+    std::string const& input_directory,
+    bool use_date32
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
@@ -186,49 +247,10 @@ rapidsmpf::streaming::Node read_orders(
                            "o_custkey"  // 3
                        })
                        .build();
-    // TODO: utility to get logical types from parquet.
-    using timestamp_type = cudf::timestamp_ms;
-    auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
-        auto stream = ctx->br()->stream_pool().get_stream();
-        auto owner = new std::vector<std::any>;
-        constexpr auto date = cuda::std::chrono::year_month_day(
-            cuda::std::chrono::year(1995),
-            cuda::std::chrono::month(3),
-            cuda::std::chrono::day(15)
-        );
-        auto sys_days = cuda::std::chrono::sys_days(date);
-        owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
-                sys_days.time_since_epoch(), true, stream
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::literal>(
-                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
-                    owner->at(0)
-                )
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::column_name_reference>("o_orderdate")
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::operation>(
-                cudf::ast::ast_operator::LESS,
-                *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
-                    owner->at(2)
-                ),
-                *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
-            )
-        );
-        return std::make_unique<rapidsmpf::streaming::Filter>(
-            stream,
-            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
-            rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
-                delete static_cast<std::vector<std::any>*>(p);
-            })
-        );
-    }();
+    auto stream = ctx->br()->stream_pool().get_stream();
+    auto filter_expr = use_date32
+                           ? make_orders_orderdate_filter<cudf::timestamp_D>(stream)
+                           : make_orders_orderdate_filter<cudf::timestamp_ms>(stream);
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
@@ -494,6 +516,15 @@ int main(int argc, char** argv) {
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
     auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
+
+    // Detect date column types from parquet metadata before timed section
+    bool const lineitem_use_date32 = rapidsmpf::ndsh::detail::is_date32_column(
+        arguments.input_directory, "lineitem", "l_shipdate"
+    );
+    bool const orders_use_date32 = rapidsmpf::ndsh::detail::is_date32_column(
+        arguments.input_directory, "orders", "o_orderdate"
+    );
+
     std::vector<double> timings;
     int l2size;
     int device;
@@ -525,7 +556,12 @@ int main(int argc, char** argv) {
             ));
             // Out: o_orderkey, o_orderdate, o_shippriority, o_custkey
             nodes.push_back(read_orders(
-                ctx, orders, 6, arguments.num_rows_per_chunk, arguments.input_directory
+                ctx,
+                orders,
+                6,
+                arguments.num_rows_per_chunk,
+                arguments.input_directory,
+                orders_use_date32
             ));
             // join c_custkey = o_custkey
             // Out: o_orderkey, o_orderdate, o_shippriority
@@ -563,7 +599,8 @@ int main(int argc, char** argv) {
                 lineitem,
                 /* num_tickets */ 4,
                 arguments.num_rows_per_chunk,
-                arguments.input_directory
+                arguments.input_directory,
+                lineitem_use_date32
             ));
             auto lineitem_output = ctx->create_channel();
             nodes.push_back(
