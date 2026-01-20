@@ -42,7 +42,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_channel_drain(
         shared_ptr[cpp_Context] ctx,
@@ -78,7 +78,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_channel_shutdown(
         shared_ptr[cpp_Context] ctx,
@@ -119,7 +119,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_channel_send(
         shared_ptr[cpp_Context] ctx,
@@ -161,7 +161,7 @@ cdef extern from * nogil:
             "could not spawn task on thread pool"
         );
     }
-    }
+    }  // namespace
     """
     void cpp_channel_recv(
         shared_ptr[cpp_Context] ctx,
