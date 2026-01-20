@@ -744,7 +744,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         seed,
         stream,
         &br,
-        nullptr,
+        rapidsmpf::Statistics::disabled(),
         rapidsmpf::AllowOverbooking::YES
     );  // with overbooking
 
