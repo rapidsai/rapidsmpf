@@ -36,6 +36,7 @@ BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Custom
 BreakStringLiterals: true
 ColumnLimit: 90
+CommentPragmas: 'SPDX-(FileCopyrightText|License-Identifier): '
 DerivePointerAlignment: false
 IndentCaseBlocks: true
 IndentCaseLabels: false
