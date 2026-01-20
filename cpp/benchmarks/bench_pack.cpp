@@ -66,6 +66,7 @@ void run_pack(
     );
     state.counters["table_size_mb"] = static_cast<double>(table_size_mb);
     state.counters["num_rows"] = nrows;
+    state.counters["bounce_buffer_mb"] = 0;
 }
 
 /**
@@ -82,7 +83,7 @@ static void BM_Pack_device(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::pack with device memory
+ * @brief Benchmark for cudf::pack with pinned host memory as the pack destination.
  */
 static void BM_Pack_pinned_host(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -156,10 +157,11 @@ void run_pack_and_copy(
     );
     state.counters["table_size_mb"] = static_cast<double>(table_size_mb);
     state.counters["num_rows"] = nrows;
+    state.counters["bounce_buffer_mb"] = 0;
 }
 
 /**
- * @brief Benchmark for cudf::pack with device memory
+ * @brief Benchmark for cudf::pack with device memory and copy to host memory.
  */
 static void BM_Pack_device_copy_to_host(benchmark::State& state) {
     auto const table_size_mb = static_cast<std::size_t>(state.range(0));
@@ -173,7 +175,7 @@ static void BM_Pack_device_copy_to_host(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::pack with device memory
+ * @brief Benchmark for cudf::pack with device memory and copy to pinned host memory.
  */
 static void BM_Pack_device_copy_to_pinned_host(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -191,7 +193,7 @@ static void BM_Pack_device_copy_to_pinned_host(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::pack with pinned memory
+ * @brief Benchmark for cudf::pack with pinned memory and copy to host memory.
  */
 static void BM_Pack_pinned_copy_to_host(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -362,7 +364,7 @@ static void BM_ChunkedPack_device_copy_to_host(benchmark::State& state) {
 
 /**
  * @brief Benchmark for cudf::chunked_pack with pinned bounce buffer and pinned host
- * destination buffer. memory.
+ * destination buffer.
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
@@ -492,8 +494,7 @@ void run_chunked_pack_without_bounce_buffer(
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
- * buffer.
+ * @brief Benchmark for cudf::chunked_pack directly into device memory (no bounce buffer).
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
@@ -513,8 +514,8 @@ static void BM_ChunkedPack_device(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
- * buffer.
+ * @brief Benchmark for cudf::chunked_pack directly into pinned host memory with device
+ * pack memory resource (no bounce buffer).
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
@@ -540,8 +541,8 @@ static void BM_ChunkedPack_pinned_device_mr(benchmark::State& state) {
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
- * buffer.
+ * @brief Benchmark for cudf::chunked_pack directly into pinned host memory with pinned
+ * pack memory resource (no bounce buffer).
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
@@ -645,8 +646,8 @@ void run_chunked_pack_with_fixed_sized_host_buffers(
 }
 
 /**
- * @brief Benchmark for cudf::chunked_pack with device bounce buffer and destination
- * buffer.
+ * @brief Benchmark for cudf::chunked_pack directly into fixed-sized pinned host buffers
+ * with pinned pack memory resource (no bounce buffer).
  * @param state The benchmark state containing the table size in MB as the first range
  * argument.
  */
@@ -745,6 +746,12 @@ void run_chunked_pack_with_fixed_sized_host_buffers_and_bounce_buffer(
         static_cast<double>(bounce_buffer.size()) / static_cast<double>(MB);
 }
 
+/**
+ * @brief Benchmark for cudf::chunked_pack with device bounce buffer copying to
+ * fixed-sized pinned host buffers.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
 static void BM_ChunkedPack_device_to_fixed_sized_pinned(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
@@ -766,6 +773,12 @@ static void BM_ChunkedPack_device_to_fixed_sized_pinned(benchmark::State& state)
     );
 }
 
+/**
+ * @brief Benchmark for cudf::chunked_pack with device bounce buffer copying to
+ * fixed-sized host buffers.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
 static void BM_ChunkedPack_device_to_fixed_sized_host(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
@@ -787,6 +800,12 @@ static void BM_ChunkedPack_device_to_fixed_sized_host(benchmark::State& state) {
     );
 }
 
+/**
+ * @brief Benchmark for cudf::chunked_pack with pinned bounce buffer copying to
+ * fixed-sized host buffers.
+ * @param state The benchmark state containing the table size in MB as the first range
+ * argument.
+ */
 static void BM_ChunkedPack_pinned_to_fixed_sized_host(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("Pinned memory resources are not supported");
@@ -955,6 +974,44 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
 }
 
 /**
+ * @brief Benchmark for cudf::chunked_pack in device memory varying the bounce buffer size
+ * and keeping table size fixed at 1GB
+ */
+static void BM_ChunkedPack_fixed_table_device_no_bounce_buffer(benchmark::State& state) {
+    auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
+    constexpr std::size_t table_size_bytes = 1024 * MB;
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+
+    run_chunked_pack_without_bounce_buffer<rmm::device_buffer>(
+        state, bounce_buffer_size, table_size_bytes, cuda_mr, cuda_mr, cuda_mr, stream
+    );
+}
+
+/**
+ * @brief Benchmark for cudf::chunked_pack in pinned memory varying the bounce buffer size
+ * and keeping table size fixed at 1GB
+ */
+static void BM_ChunkedPack_fixed_table_pinned_no_bounce_buffer(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
+    constexpr std::size_t table_size_bytes = 1024 * MB;
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+
+    run_chunked_pack_without_bounce_buffer<rmm::device_buffer>(
+        state, bounce_buffer_size, table_size_bytes, cuda_mr, pinned_mr, pinned_mr, stream
+    );
+}
+
+/**
  * @brief Custom argument generator for chunked pack benchmarks with fixed table size.
  *
  * Configures benchmarks to run with various bounce buffer sizes ranging from 1MB to 1GB.
@@ -974,6 +1031,16 @@ BENCHMARK(BM_ChunkedPack_fixed_table_device)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_ChunkedPack_fixed_table_pinned)
+    ->Apply(ChunkedPackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_fixed_table_device_no_bounce_buffer)
+    ->Apply(ChunkedPackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_fixed_table_pinned_no_bounce_buffer)
     ->Apply(ChunkedPackArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
