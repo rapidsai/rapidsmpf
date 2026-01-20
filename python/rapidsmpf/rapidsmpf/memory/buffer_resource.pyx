@@ -68,8 +68,8 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
-        auto ab = allow_overbooking?rapidsmpf::AllowOverbooking::YES
-                                   :rapidsmpf::AllowOverbooking::NO;
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
         auto [res, ob] = br->reserve(mem_type, size, ab);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
@@ -80,8 +80,8 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
-        auto ab = allow_overbooking?rapidsmpf::AllowOverbooking::YES
-                                   :rapidsmpf::AllowOverbooking::NO;
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
         return std::make_unique<rapidsmpf::MemoryReservation>(
             br->reserve_device_memory_and_spill(size, ab)
         );
