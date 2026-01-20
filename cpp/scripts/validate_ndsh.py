@@ -252,12 +252,62 @@ def run_benchmark(
     )
 
 
+def _types_compatible(
+    o_type: pa.DataType,
+    e_type: pa.DataType,
+    *,
+    ignore_timezone: bool = False,
+    ignore_string_type: bool = False,
+    ignore_integer_sign: bool = False,
+    ignore_integer_size: bool = False,
+) -> bool:
+    """
+    Check if two Arrow types are compatible given the ignore flags.
+
+    Returns True if the types should be considered equal.
+    """
+    if o_type.equals(e_type):
+        return True
+
+    # Ignore differences in timezone and precision for timestamps
+    if (
+        ignore_timezone
+        and pa.types.is_timestamp(o_type)
+        and pa.types.is_timestamp(e_type)
+    ):
+        return True
+
+    # Ignore large_string vs string differences
+    if ignore_string_type:
+        string_types = {pa.string(), pa.large_string()}
+        if o_type in string_types and e_type in string_types:
+            return True
+
+    # Check integer compatibility
+    if pa.types.is_integer(o_type) and pa.types.is_integer(e_type):
+        o_signed = pa.types.is_signed_integer(o_type)
+        e_signed = pa.types.is_signed_integer(e_type)
+        o_width = o_type.bit_width
+        e_width = e_type.bit_width
+
+        sign_matches = o_signed == e_signed or ignore_integer_sign
+        size_matches = o_width == e_width or ignore_integer_size
+
+        if sign_matches and size_matches:
+            return True
+
+    return False
+
+
 def compare_parquet(
     output_path: Path,
     expected_path: Path,
     decimal: int = 2,
     *,
-    check_timezone: bool = False,
+    ignore_timezone: bool = False,
+    ignore_string_type: bool = False,
+    ignore_integer_sign: bool = False,
+    ignore_integer_size: bool = False,
 ) -> tuple[bool, str | None]:
     """
     Compare two parquet files for exact equality.
@@ -270,8 +320,14 @@ def compare_parquet(
         Path to the expected parquet
     decimal
         Number of decimal places to compare for floating point values
-    check_timezone
-        Whether to check for timezone differences
+    ignore_timezone
+        Ignore differences in timezone and precision for timestamp types
+    ignore_string_type
+        Ignore differences between string and large_string types
+    ignore_integer_sign
+        Ignore differences between signed and unsigned integer types
+    ignore_integer_size
+        Ignore differences in integer bit width (e.g., int32 vs int64)
 
     Returns
     -------
@@ -297,14 +353,14 @@ def compare_parquet(
         o_field = output.schema.field(name)
         e_field = expected.schema.field(name)
         # We only care about the type, not the metadata or nullability
-        if not o_field.type.equals(e_field.type):
-            # Ignore differences in timezone and precision
-            if (
-                not check_timezone
-                and pa.types.is_timestamp(o_field.type)
-                and pa.types.is_timestamp(e_field.type)
-            ):
-                continue
+        if not _types_compatible(
+            o_field.type,
+            e_field.type,
+            ignore_timezone=ignore_timezone,
+            ignore_string_type=ignore_string_type,
+            ignore_integer_sign=ignore_integer_sign,
+            ignore_integer_size=ignore_integer_size,
+        ):
             errors.append(f"\t{name}: {o_field.type} != {e_field.type}")
     if errors:
         return False, "\n".join(["Field type mismatch (output != expected)", *errors])
@@ -517,7 +573,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
             results[query_name] = False
 
         is_equal, message = compare_parquet(
-            result_path, expected_path, decimal=args.decimal
+            result_path,
+            expected_path,
+            decimal=args.decimal,
+            ignore_timezone=args.ignore_timezone,
+            ignore_string_type=args.ignore_string_type,
+            ignore_integer_sign=args.ignore_integer_sign,
+            ignore_integer_size=args.ignore_integer_size,
         )
 
         if is_equal:
@@ -642,6 +704,26 @@ def main():
         type=int,
         default=2,
         help="Number of decimal places to compare for floating point values (default: 2)",
+    )
+    validate_parser.add_argument(
+        "--ignore-timezone",
+        action="store_true",
+        help="Ignore differences in timezone and precision for timestamp types",
+    )
+    validate_parser.add_argument(
+        "--ignore-string-type",
+        action="store_true",
+        help="Ignore differences between string and large_string types",
+    )
+    validate_parser.add_argument(
+        "--ignore-integer-sign",
+        action="store_true",
+        help="Ignore differences between signed and unsigned integer types",
+    )
+    validate_parser.add_argument(
+        "--ignore-integer-size",
+        action="store_true",
+        help="Ignore differences in integer bit width (e.g., int32 vs int64)",
     )
 
     args = parser.parse_args()

@@ -80,7 +80,8 @@ python ../cpp/scripts/validate_ndsh.py run \
 rapids-logger "Validate NDSH benchmarks"
 python ../cpp/scripts/validate_ndsh.py validate \
   --results-path validation/output \
-  --expected-path validation/expected
+  --expected-path validation/expected \
+  --ignore-timezone
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}
