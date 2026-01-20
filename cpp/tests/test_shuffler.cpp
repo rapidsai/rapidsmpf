@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -117,8 +117,8 @@ void test_shuffler(
         seed,
         stream,
         br,
-        nullptr,  // statistics
-        true  // allow_overbooking because this is an input table
+        rapidsmpf::Statistics::disabled(),
+        rapidsmpf::AllowOverbooking::YES
     );
 
     cudf::size_type row_offset = 0;
@@ -148,8 +148,8 @@ void test_shuffler(
                 seed,
                 stream,
                 br,
-                nullptr,  // statistics
-                true  // allow_overbooking because this is an input table
+                rapidsmpf::Statistics::disabled(),
+                rapidsmpf::AllowOverbooking::YES
             );
             // Add the chunks to the shuffle
             insert_fn(std::move(packed_chunks));
@@ -163,11 +163,13 @@ void test_shuffler(
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(packed_chunks), br, true),
+            rapidsmpf::unspill_partitions(
+                std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
+            ),
             stream,
             br,
-            nullptr,  // statistics
-            true  // allow_overbooking because this is an output table
+            rapidsmpf::Statistics::disabled(),
+            rapidsmpf::AllowOverbooking::YES
         );
 
         // We should only receive the partitions assigned to this rank.
@@ -735,7 +737,15 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
     auto input_chunks = rapidsmpf::partition_and_pack(
-        input_table, {1}, total_num_partitions, hash_fn, seed, stream, &br, nullptr, true
+        input_table,
+        {1},
+        total_num_partitions,
+        hash_fn,
+        seed,
+        stream,
+        &br,
+        rapidsmpf::Statistics::disabled(),
+        rapidsmpf::AllowOverbooking::YES
     );  // with overbooking
 
     // Insert spills does nothing when device memory is available, we start
@@ -750,8 +760,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<rapidsmpf::PackedData> output_chunks =
-            rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
+        std::vector<rapidsmpf::PackedData> output_chunks = rapidsmpf::unspill_partitions(
+            shuffler.extract(0), &br, rapidsmpf::AllowOverbooking::YES
+        );
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -762,11 +773,13 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     }
 
     // Extract and unspill both partitions.
-    std::vector<rapidsmpf::PackedData> out0 =
-        rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
+    std::vector<rapidsmpf::PackedData> out0 = rapidsmpf::unspill_partitions(
+        shuffler.extract(0), &br, rapidsmpf::AllowOverbooking::YES
+    );
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    std::vector<rapidsmpf::PackedData> out1 =
-        rapidsmpf::unspill_partitions(shuffler.extract(1), &br, true);
+    std::vector<rapidsmpf::PackedData> out1 = rapidsmpf::unspill_partitions(
+        shuffler.extract(1), &br, rapidsmpf::AllowOverbooking::YES
+    );
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.

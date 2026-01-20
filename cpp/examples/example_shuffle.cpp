@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -117,7 +117,9 @@ int main(int argc, char** argv) {
         // convenience function.
         local_outputs.push_back(
             rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(std::move(packed_chunks), &br, true),
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), &br, rapidsmpf::AllowOverbooking::YES
+                ),
                 stream,
                 &br
             )

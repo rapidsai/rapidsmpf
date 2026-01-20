@@ -33,7 +33,7 @@ Node partition_and_pack(
         }
         auto table = msg.release<TableChunk>();
         auto reservation = ctx->br()->reserve_device_memory_and_spill(
-            table.make_available_cost(), false
+            table.make_available_cost(), AllowOverbooking::NO
         );
         auto tbl = table.make_available(reservation);
 
@@ -86,7 +86,9 @@ Node unpack_and_concat(
         auto stream = ctx->br()->stream_pool().get_stream();
 
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(data), ctx->br().get(), false),
+            rapidsmpf::unspill_partitions(
+                std::move(data), ctx->br().get(), AllowOverbooking::NO
+            ),
             stream,
             ctx->br().get(),
             ctx->statistics()
