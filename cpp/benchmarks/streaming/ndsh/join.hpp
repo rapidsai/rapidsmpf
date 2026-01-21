@@ -150,6 +150,8 @@ enum class KeepKeys : bool {
  * @param ctx Streaming context.
  * @param left Channel of `TableChunk`s from the left table.
  * @param right Channel of `TableChunk`s from the right table.
+ * @param left_meta Channel carrying metadata for the left input (optional).
+ * @param right_meta Channel carrying metadata for the right input (optional).
  * @param ch_out Output channel of `TableChunk`s.
  * @param left_keys Column indices of the keys in the left table.
  * @param right_keys Column indices of the keys in the right table.
@@ -163,6 +165,8 @@ streaming::Node adaptive_inner_join(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> left_meta,
+    std::shared_ptr<streaming::Channel> right_meta,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_keys,
     std::vector<cudf::size_type> right_keys,

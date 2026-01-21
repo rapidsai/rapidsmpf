@@ -32,6 +32,7 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 
+#include "join.hpp"
 #include "utils.hpp"
 
 #include <coro/when_all.hpp>
@@ -60,7 +61,7 @@ rapidsmpf::streaming::Node read_parquet(
     );
 }
 
-std::size_t estimate_read_parquet_messages(
+[[maybe_unused]] std::size_t estimate_read_parquet_messages(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::string const& input_directory,
     std::string const& input_file,
@@ -100,7 +101,7 @@ std::size_t estimate_read_parquet_messages(
     return (total_rows + chunk_rows - 1) / chunk_rows;
 }
 
-rapidsmpf::streaming::Node advertise_message_count(
+[[maybe_unused]] rapidsmpf::streaming::Node advertise_message_count(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_meta,
     std::size_t estimate
@@ -110,64 +111,40 @@ rapidsmpf::streaming::Node advertise_message_count(
     auto payload = std::make_unique<std::size_t>(estimate);
     co_await ch_meta->send(rapidsmpf::streaming::Message{0, std::move(payload), {}, {}});
     co_await ch_meta->drain(ctx->executor());
+    ctx->comm()->logger().print("Exiting message count");
 }
 
-rapidsmpf::streaming::Node consume_message_count(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_meta
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_meta};
-    co_await ctx->executor()->schedule();
-    auto msg = co_await ch_meta->receive();
-    if (!msg.empty()) {
-        RAPIDSMPF_EXPECTS(
-            msg.holds<std::size_t>(), "Expected size_t message count estimate"
-        );
-        ctx->comm()->logger().print("Estimated message count: ", msg.get<std::size_t>());
-    }
-    co_await ch_meta->drain(ctx->executor());
-}
-
-rapidsmpf::streaming::Node consume_channel_parallel(
+[[maybe_unused]] rapidsmpf::streaming::Node consume_channel_parallel(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::size_t num_consumers
+    std::size_t
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in};
-    std::atomic<std::size_t> estimated_total_bytes{0};
-    auto task = [&]() -> rapidsmpf::streaming::Node {
-        co_await ctx->executor()->schedule();
-        while (true) {
-            auto msg = co_await ch_in->receive();
-            if (msg.empty()) {
-                break;
-            }
-            if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
-                auto chunk = rapidsmpf::ndsh::to_device(
-                    ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-                );
-                ctx->comm()->logger().print(
-                    "Consumed chunk ",
-                    msg.sequence_number(),
-                    " with ",
-                    chunk.table_view().num_rows(),
-                    " rows and ",
-                    chunk.table_view().num_columns(),
-                    " columns"
-                );
-                estimated_total_bytes.fetch_add(
-                    chunk.data_alloc_size(rapidsmpf::MemoryType::DEVICE)
-                );
-            }
+    std::size_t estimated_total_bytes{0};
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
         }
-    };
-    std::vector<rapidsmpf::streaming::Node> tasks;
-    for (std::size_t i = 0; i < num_consumers; i++) {
-        tasks.push_back(task());
+        if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
+            auto chunk = rapidsmpf::ndsh::to_device(
+                ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+            );
+            ctx->comm()->logger().print(
+                "Consumed chunk ",
+                msg.sequence_number(),
+                " with ",
+                chunk.table_view().num_rows(),
+                " rows and ",
+                chunk.table_view().num_columns(),
+                " columns"
+            );
+            estimated_total_bytes += chunk.data_alloc_size(rapidsmpf::MemoryType::DEVICE);
+        }
     }
-    rapidsmpf::streaming::coro_results(co_await coro::when_all(std::move(tasks)));
     ctx->comm()->logger().print(
-        "Table was around ", rmm::detail::format_bytes(estimated_total_bytes.load())
+        "Table was around ", rmm::detail::format_bytes(estimated_total_bytes)
     );
 }
 
@@ -187,8 +164,14 @@ struct ProgramOptions {
     };  ///< Number of simultaneous read_parquet chunk producers.
     std::size_t num_consumers{1};  ///< Number of simultaneous chunk consumers.
     std::string input_directory;  ///< Directory containing input files.
-    std::string input_file;  ///< Basename of input file to read.
-    std::optional<std::vector<std::string>> columns{std::nullopt};  ///< Columns to read.
+    std::string left_input_file;  ///< Basename of left input file to read.
+    std::string right_input_file;  ///< Basename of right input file to read.
+    std::optional<std::vector<std::string>> left_columns{
+        std::nullopt
+    };  ///< Columns to read (left input).
+    std::optional<std::vector<std::string>> right_columns{
+        std::nullopt
+    };  ///< Columns to read (right input).
 };
 
 ProgramOptions parse_arguments(int argc, char** argv) {
@@ -220,9 +203,14 @@ ProgramOptions parse_arguments(int argc, char** argv) {
                "(default: "
             << comm_names[static_cast<std::size_t>(options.comm_type)] << ")\n"
             << "  --input-directory <path>     Input directory path (required)\n"
-            << "  --input-file <file>          Input file basename relative to input "
+            << "  --left-input-file <file>     Left input file basename relative to "
+               "input "
                "directory (required)\n"
-            << "  --columns <a,b,c>            Comma-separated column names to read "
+            << "  --right-input-file <file>    Right input file basename relative to "
+               "input directory (required)\n"
+            << "  --left-columns <a,b,c>       Comma-separated column names to read "
+               "(optional, default all columns)\n"
+            << "  --right-columns <a,b,c>      Comma-separated column names to read "
                "(optional, default all columns)\n"
             << "  --help                       Show this help message\n";
     };
@@ -234,12 +222,14 @@ ProgramOptions parse_arguments(int argc, char** argv) {
         {"num-producers", required_argument, nullptr, 3},
         {"num-consumers", required_argument, nullptr, 4},
         {"input-directory", required_argument, nullptr, 5},
-        {"input-file", required_argument, nullptr, 6},
+        {"left-input-file", required_argument, nullptr, 6},
+        {"right-input-file", required_argument, nullptr, 12},
         {"help", no_argument, nullptr, 7},
         {"num-iterations", required_argument, nullptr, 8},
         {"num-streams", required_argument, nullptr, 9},
         {"comm-type", required_argument, nullptr, 10},
-        {"columns", required_argument, nullptr, 11},
+        {"left-columns", required_argument, nullptr, 11},
+        {"right-columns", required_argument, nullptr, 13},
         {nullptr, 0, nullptr, 0}
     };
     // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-avoid-c-arrays,modernize-use-designated-initializers)
@@ -248,7 +238,8 @@ ProgramOptions parse_arguments(int argc, char** argv) {
     int option_index = 0;
 
     bool saw_input_directory = false;
-    bool saw_input_file = false;
+    bool saw_left_input_file = false;
+    bool saw_right_input_file = false;
 
     auto parse_i64 = [](char const* s, char const* opt_name) -> long long {
         if (s == nullptr || *s == '\0') {
@@ -354,13 +345,21 @@ ProgramOptions parse_arguments(int argc, char** argv) {
             options.input_directory = optarg;
             saw_input_directory = true;
             break;
-        case 6:  // --input-file
+        case 6:  // --left-input-file
             if (optarg == nullptr || *optarg == '\0') {
-                std::cerr << "Error: --input-file requires a non-empty value\n";
+                std::cerr << "Error: --left-input-file requires a non-empty value\n";
                 std::exit(1);
             }
-            options.input_file = optarg;
-            saw_input_file = true;
+            options.left_input_file = optarg;
+            saw_left_input_file = true;
+            break;
+        case 12:  // --right-input-file
+            if (optarg == nullptr || *optarg == '\0') {
+                std::cerr << "Error: --right-input-file requires a non-empty value\n";
+                std::exit(1);
+            }
+            options.right_input_file = optarg;
+            saw_right_input_file = true;
             break;
         case 7:  // --help
             print_usage();
@@ -393,8 +392,11 @@ ProgramOptions parse_arguments(int argc, char** argv) {
                 options.comm_type = *parsed;
                 break;
             }
-        case 11:  // --columns
-            options.columns = parse_columns(optarg);
+        case 11:  // --left-columns
+            options.left_columns = parse_columns(optarg);
+            break;
+        case 13:  // --right-columns
+            options.right_columns = parse_columns(optarg);
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -409,12 +411,15 @@ ProgramOptions parse_arguments(int argc, char** argv) {
     }
 
     // Check if required options were provided
-    if (!saw_input_directory || !saw_input_file) {
+    if (!saw_input_directory || !saw_left_input_file || !saw_right_input_file) {
         if (!saw_input_directory) {
             std::cerr << "Error: --input-directory is required\n";
         }
-        if (!saw_input_file) {
-            std::cerr << "Error: --input-file is required\n";
+        if (!saw_left_input_file) {
+            std::cerr << "Error: --left-input-file is required\n";
+        }
+        if (!saw_right_input_file) {
+            std::cerr << "Error: --right-input-file is required\n";
         }
         std::cerr << std::endl;
         print_usage();
@@ -451,32 +456,69 @@ int main(int argc, char** argv) {
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         std::vector<rapidsmpf::streaming::Node> nodes;
+        int op_id = 0;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing read_parquet pipeline");
 
             // Input data channels
-            auto ch_out = ctx->create_channel();
-            auto ch_meta = ctx->create_channel();
-            auto estimate = estimate_read_parquet_messages(
+            auto left_out = ctx->create_channel();
+            auto right_out = ctx->create_channel();
+            auto left_meta = ctx->create_channel();
+            auto right_meta = ctx->create_channel();
+            auto left_estimate = estimate_read_parquet_messages(
                 ctx,
                 arguments.input_directory,
-                arguments.input_file,
+                arguments.left_input_file,
+                arguments.num_rows_per_chunk
+            );
+            auto right_estimate = estimate_read_parquet_messages(
+                ctx,
+                arguments.input_directory,
+                arguments.right_input_file,
                 arguments.num_rows_per_chunk
             );
             nodes.push_back(read_parquet(
                 ctx,
-                ch_out,
+                left_out,
                 arguments.num_producers,
                 arguments.num_rows_per_chunk,
-                arguments.columns,
+                arguments.left_columns,
                 arguments.input_directory,
-                arguments.input_file
+                arguments.left_input_file
             ));
-            nodes.push_back(advertise_message_count(ctx, ch_meta, estimate));
-            nodes.push_back(consume_message_count(ctx, ch_meta));
+            nodes.push_back(read_parquet(
+                ctx,
+                right_out,
+                arguments.num_producers,
+                arguments.num_rows_per_chunk,
+                arguments.right_columns,
+                arguments.input_directory,
+                arguments.right_input_file
+            ));
+            nodes.push_back(advertise_message_count(ctx, left_meta, left_estimate));
+            nodes.push_back(advertise_message_count(ctx, right_meta, right_estimate));
+            auto joined = ctx->create_channel();
+            auto const size_tag = static_cast<rapidsmpf::OpID>(10 * i) + op_id++;
+            auto const left_shuffle_tag = static_cast<rapidsmpf::OpID>(10 * i) + op_id++;
+            auto const right_shuffle_tag = static_cast<rapidsmpf::OpID>(10 * i) + op_id++;
             nodes.push_back(
-                consume_channel_parallel(ctx, ch_out, arguments.num_consumers)
+                rapidsmpf::ndsh::adaptive_inner_join(
+                    ctx,
+                    left_out,
+                    right_out,
+                    left_meta,
+                    right_meta,
+                    joined,
+                    {0},
+                    {0},
+                    size_tag,
+                    left_shuffle_tag,
+                    right_shuffle_tag
+                )
+            );
+            nodes.push_back(
+                consume_channel_parallel(ctx, joined, arguments.num_consumers)
             );
         }
         auto end = std::chrono::steady_clock::now();

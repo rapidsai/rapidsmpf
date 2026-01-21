@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -411,41 +413,37 @@ namespace {
 coro::task<std::pair<std::size_t, std::size_t>> allgather_join_sizes(
     std::shared_ptr<streaming::Context> ctx,
     OpID tag,
-    std::size_t left_sample_bytes,
-    std::size_t right_sample_bytes
+    std::size_t left_local_bytes,
+    std::size_t right_local_bytes
 ) {
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(2 * sizeof(std::size_t));
-    std::memcpy(metadata->data(), &left_sample_bytes, sizeof(left_sample_bytes));
+    std::memcpy(metadata->data(), &left_local_bytes, sizeof(left_local_bytes));
     std::memcpy(
-        metadata->data() + sizeof(left_sample_bytes),
-        &right_sample_bytes,
-        sizeof(right_sample_bytes)
+        metadata->data() + sizeof(left_local_bytes),
+        &right_local_bytes,
+        sizeof(right_local_bytes)
     );
 
     auto stream = ctx->br()->stream_pool().get_stream();
     auto [res, _] = ctx->br()->reserve(MemoryType::HOST, 0, true);
     auto buf = ctx->br()->allocate(stream, std::move(res));
     auto allgather = streaming::AllGather(ctx, tag);
-    allgather.insert(0, {PackedData(std::move(metadata), std::move(buf))});
+    allgather.insert(0, {std::move(metadata), std::move(buf)});
     allgather.insert_finished();
     auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
 
     std::size_t left_total_bytes = 0;
     std::size_t right_total_bytes = 0;
     for (auto const& data : per_rank) {
-        // Assumption: each rank packs two size_t values into metadata.
         RAPIDSMPF_EXPECTS(
             data.metadata->size() >= 2 * sizeof(std::size_t),
             "Invalid metadata size for adaptive join size estimation"
         );
-        std::size_t rank_left = 0;
-        std::size_t rank_right = 0;
-        std::memcpy(&rank_left, data.metadata->data(), sizeof(rank_left));
-        std::memcpy(
-            &rank_right, data.metadata->data() + sizeof(rank_left), sizeof(rank_right)
-        );
-        left_total_bytes += rank_left;
-        right_total_bytes += rank_right;
+        std::size_t bytes = 0;
+        std::memcpy(&bytes, data.metadata->data(), sizeof(bytes));
+        left_total_bytes += bytes;
+        std::memcpy(&bytes, data.metadata->data() + sizeof(bytes), sizeof(bytes));
+        right_total_bytes += bytes;
     }
     co_return {left_total_bytes, right_total_bytes};
 }
@@ -455,6 +453,8 @@ streaming::Node adaptive_inner_join(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> left_meta,
+    std::shared_ptr<streaming::Channel> right_meta,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_keys,
     std::vector<cudf::size_type> right_keys,
@@ -462,65 +462,71 @@ streaming::Node adaptive_inner_join(
     OpID left_shuffle_tag,
     OpID right_shuffle_tag
 ) {
-    streaming::ShutdownAtExit c{left, right, ch_out};
+    streaming::ShutdownAtExit c{left, right, left_meta, right_meta, ch_out};
     co_await ctx->executor()->schedule();
     (void)left_keys;
     (void)right_keys;
-    (void)allreduce_tag;
     (void)left_shuffle_tag;
     (void)right_shuffle_tag;
+
+    auto consume_meta = [&](
+                            std::shared_ptr<streaming::Channel> ch
+                        ) -> coro::task<std::optional<std::size_t>> {
+        auto msg = co_await ch->receive();
+        if (msg.empty()) {
+            co_return std::nullopt;
+        }
+        co_return msg.release<std::size_t>();
+    };
+    auto [num_left_messages, num_right_messages] = streaming::coro_results(
+        co_await coro::when_all(consume_meta(left_meta), consume_meta(right_meta))
+    );
     // Assumption: the input channels carry only TableChunk messages.
     // Assumption: summing data_alloc_size across memory types is a good proxy for the
     // amount of data that will need to be materialized on device for compute.
     // Assumption: a small sample of chunks is representative of the whole table size.
+    // Assumption: metadata estimates reflect the total number of chunks per input.
     constexpr std::size_t inspect_messages = 2;
     std::vector<streaming::Message> left_buffer;
     std::vector<streaming::Message> right_buffer;
-    left_buffer.reserve(inspect_messages + 1);
-    right_buffer.reserve(inspect_messages + 1);
+    left_buffer.reserve(inspect_messages);
+    right_buffer.reserve(inspect_messages);
 
     auto inspect_channel =
         [&](std::shared_ptr<streaming::Channel> ch,
-            std::vector<streaming::Message>& buffer) -> coro::task<std::size_t> {
+            std::vector<streaming::Message>& buffer,
+            std::size_t estimated_num_messages) -> coro::task<std::size_t> {
         std::size_t bytes = 0;
         for (std::size_t i = 0; i < inspect_messages; ++i) {
             auto msg = co_await ch->receive();
             if (msg.empty()) {
-                // Preserve the termination marker for downstream processing.
                 buffer.push_back(std::move(msg));
                 co_return bytes;
             }
-            RAPIDSMPF_EXPECTS(
-                msg.holds<streaming::TableChunk>(),
-                "adaptive_inner_join expects TableChunk messages"
-            );
             auto const& chunk = msg.get<streaming::TableChunk>();
             for (auto mem_type : MEMORY_TYPES) {
                 bytes += chunk.data_alloc_size(mem_type);
             }
             buffer.push_back(std::move(msg));
         }
-        co_return bytes;
+        co_return (bytes * estimated_num_messages) / inspect_messages;
     };
 
-    auto left_sample_bytes = co_await inspect_channel(left, left_buffer);
-    auto right_sample_bytes = co_await inspect_channel(right, right_buffer);
+    auto left_local_bytes = co_await inspect_channel(
+        left, left_buffer, num_left_messages.value_or(inspect_messages)
+    );
+    auto right_local_bytes = co_await inspect_channel(
+        right, right_buffer, num_right_messages.value_or(inspect_messages)
+    );
 
-    std::size_t left_total_bytes = left_sample_bytes;
-    std::size_t right_total_bytes = right_sample_bytes;
+    std::size_t left_total_bytes = left_local_bytes;
+    std::size_t right_total_bytes = right_local_bytes;
     if (ctx->comm()->nranks() > 1) {
         std::tie(left_total_bytes, right_total_bytes) = co_await allgather_join_sizes(
-            ctx, allreduce_tag, left_sample_bytes, right_sample_bytes
+            ctx, allreduce_tag, left_local_bytes, right_local_bytes
         );
     }
 
-    ctx->comm()->logger().print(
-        "Adaptive join sample sizes: left ",
-        left_sample_bytes,
-        " bytes, right ",
-        right_sample_bytes,
-        " bytes"
-    );
     ctx->comm()->logger().print(
         "Adaptive join total sizes: left ",
         left_total_bytes,
