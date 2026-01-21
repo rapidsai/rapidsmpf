@@ -89,7 +89,7 @@ target_sources(
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
-          test_system_utils.cpp
+          test_system_info.cpp
           test_utils_string.cpp
 )
 
