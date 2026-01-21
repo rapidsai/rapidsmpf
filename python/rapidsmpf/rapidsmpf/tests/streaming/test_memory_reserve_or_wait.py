@@ -114,7 +114,7 @@ def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
         async def node2(ctx: Context) -> None:
             # Wait until `node1()` has submitted its reservation request.
             while mrow.size() == 0:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0)
             await mrow.shutdown()
 
         run_streaming_pipeline(
