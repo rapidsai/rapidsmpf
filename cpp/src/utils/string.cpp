@@ -164,9 +164,10 @@ std::int64_t parse_nbytes(std::string_view text) {
         R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-z]+)?\s*$)",
         std::regex::ECMAScript
     );
+
     std::cmatch m;
     if (!std::regex_match(text.begin(), text.end(), m, k_re)) {
-        throw std::invalid_argument("parse_nbytes: invalid format");
+        throw std::invalid_argument("invalid format: '" + std::string(text) + "'");
     }
 
     // Parse numeric part
@@ -174,9 +175,9 @@ std::int64_t parse_nbytes(std::string_view text) {
     try {
         value = std::stod(m[1].str());
     } catch (const std::invalid_argument&) {
-        throw std::invalid_argument("parse_nbytes: invalid number");
+        throw std::invalid_argument("invalid number: '" + std::string(text) + "'");
     } catch (const std::out_of_range&) {
-        throw std::out_of_range("parse_nbytes: number out of range");
+        throw std::out_of_range("number out of range: '" + std::string(text) + "'");
     }
 
     // Parse and normalize the unit suffix.
@@ -209,7 +210,9 @@ std::int64_t parse_nbytes(std::string_view text) {
 
             std::cmatch um;
             if (!std::regex_match(unit.c_str(), um, unit_re)) {
-                throw std::invalid_argument("parse_nbytes: unknown unit");
+                throw std::invalid_argument(
+                    "unknown unit '" + unit + "' in '" + std::string(text) + "'"
+                );
             }
 
             const char prefix = um[1].str()[0];
@@ -219,7 +222,9 @@ std::int64_t parse_nbytes(std::string_view text) {
             constexpr std::string_view prefixes = "KMGTPEZY";
             const auto pos = prefixes.find(prefix);
             if (pos == std::string_view::npos) {
-                throw std::invalid_argument("parse_nbytes: unknown unit");
+                throw std::invalid_argument(
+                    "unknown unit '" + unit + "' in '" + std::string(text) + "'"
+                );
             }
 
             const double base = is_iec ? 1024.0 : 1000.0;
@@ -229,16 +234,38 @@ std::int64_t parse_nbytes(std::string_view text) {
 
     const double nbytes = value * multiplier;
     if (!std::isfinite(nbytes)) {
-        throw std::out_of_range("parse_nbytes: non-finite result");
+        throw std::out_of_range("non-finite result from '" + std::string(text) + "'");
     }
 
     const double rounded = std::llround(nbytes);
     if (rounded < static_cast<double>(std::numeric_limits<std::int64_t>::min())
         || rounded > static_cast<double>(std::numeric_limits<std::int64_t>::max()))
     {
-        throw std::out_of_range("parse_nbytes: result out of range");
+        throw std::out_of_range("result out of range: '" + std::string(text) + "'");
     }
+
     return static_cast<std::int64_t>(rounded);
+}
+
+std::size_t parse_nbytes_unsigned(std::string_view text) {
+    const std::int64_t value = parse_nbytes(text);
+
+    if (value < 0) {
+        throw std::invalid_argument(
+            "negative value not allowed: '" + std::string(text) + "'"
+        );
+    }
+
+    // Check against size_t range explicitly (important on 32-bit platforms).
+    if (static_cast<std::uint64_t>(value)
+        > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+    {
+        throw std::out_of_range(
+            "value out of range for size_t: '" + std::string(text) + "'"
+        );
+    }
+
+    return static_cast<std::size_t>(value);
 }
 
 double parse_duration(std::string_view text) {
@@ -310,7 +337,6 @@ double parse_duration(std::string_view text) {
     if (!std::isfinite(seconds)) {
         throw std::out_of_range("parse_duration: non-finite result");
     }
-
     return seconds;
 }
 

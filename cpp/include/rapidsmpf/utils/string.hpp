@@ -132,6 +132,36 @@ std::string format_duration(
 std::int64_t parse_nbytes(std::string_view text);
 
 /**
+ * @brief Parse a human-readable byte count into a non-negative number of bytes.
+ *
+ * Parses a numeric value followed by an optional unit suffix and converts it
+ * to a byte count. Both IEC (base-1024) and SI (base-1000) units are supported.
+ *
+ * Supported units:
+ *   - Bytes: B
+ *   - IEC (base-1024): KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB
+ *   - SI  (base-1000): KB,  MB,  GB,  TB,  PB,  EB,  ZB,  YB
+ *
+ * Units are case-insensitive. If no unit is provided, the value is interpreted
+ * as bytes.
+ *
+ * The numeric portion may be specified using integer, decimal, or scientific
+ * notation (e.g. "1e6", "2.5E-3"). The final byte count is rounded to the
+ * nearest integer, with ties rounded away from zero.
+ *
+ * Negative values are not permitted.
+ *
+ * @param text Byte count string to parse.
+ * @return Parsed byte count in bytes.
+ *
+ * @throws std::invalid_argument If the string format is invalid, the unit is
+ *         not recognized, or the parsed value is negative.
+ * @throws std::out_of_range If the parsed value is not finite or overflows
+ *         std::size_t.
+ */
+std::size_t parse_nbytes_unsigned(std::string_view text);
+
+/**
  * @brief Parse a human-readable time duration into seconds.
  *
  * Parses a numeric value followed by an optional time unit suffix and converts

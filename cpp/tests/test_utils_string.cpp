@@ -118,6 +118,24 @@ TEST(UtilsTest, ParseNBytes) {
     EXPECT_THROW(parse_nbytes("inf B"), std::invalid_argument);
 }
 
+TEST(UtilsTest, ParseNBytesUnsigned) {
+    EXPECT_EQ(parse_nbytes_unsigned("0"), 0u);
+    EXPECT_EQ(parse_nbytes_unsigned("1024"), std::size_t{1_KiB});
+    EXPECT_EQ(parse_nbytes_unsigned("1 KiB"), std::size_t{1_KiB});
+    EXPECT_EQ(parse_nbytes_unsigned("1 KB"), std::size_t{1000});
+    EXPECT_EQ(parse_nbytes_unsigned("1.50 KiB"), std::size_t{1536});
+    EXPECT_EQ(
+        parse_nbytes_unsigned("1e-3 KiB"), std::size_t{1}
+    );  // 1.024 bytes rounds to 1
+
+    EXPECT_THROW(parse_nbytes_unsigned("-1"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_unsigned("-1 KiB"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_unsigned("-0.5 B"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_unsigned("1 KBps"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_unsigned("abc"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_unsigned("1e309 B"), std::out_of_range);
+}
+
 TEST(UtilsTest, ParseDuration) {
     EXPECT_DOUBLE_EQ(parse_duration("0"), 0.0);
     EXPECT_DOUBLE_EQ(parse_duration("1"), 1.0);
