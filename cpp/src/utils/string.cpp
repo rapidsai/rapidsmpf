@@ -62,7 +62,7 @@ std::string do_trim_zero_fraction(std::string const& value) {
 std::string format_nbytes(
     double nbytes, int num_decimals, TrimZeroFraction trim_zero_fraction
 ) {
-    constexpr std::array<char const *, 9> units{
+    constexpr std::array<char const*, 9> units{
         "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"
     };
 
@@ -152,79 +152,92 @@ std::string format_duration(
     return ret;
 }
 
-namespace {
-
-double unit_multiplier(std::string_view unit)
-{
-    if (unit.empty()) {
-        return 1.0;  // default: bytes
-    }
-
-    constexpr std::array<std::pair<std::string_view, int>, 9> k_units{{
-        {"B", 0},   {"KiB", 1}, {"MiB", 2}, {"GiB", 3}, {"TiB", 4},
-        {"PiB", 5}, {"EiB", 6}, {"ZiB", 7}, {"YiB", 8},
-    }};
-
-    for (const auto& [name, pow] : k_units) {
-        if (unit.size() == name.size()) {
-            bool match = true;
-            for (std::size_t i = 0; i < unit.size(); ++i) {
-                auto a = static_cast<unsigned char>(unit[i]);
-                auto b = static_cast<unsigned char>(name[i]);
-                if (std::tolower(a) != std::tolower(b)) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return std::ldexp(1.0, 10 * pow);  // 1024^pow
-            }
-        }
-    }
-
-    throw std::invalid_argument("parse_nbytes: unknown unit");
-}
-
-}  // namespace
-
-std::int64_t parse_nbytes(std::string_view text)
-{
-    // 1: number, 2: unit (optional)
+std::int64_t parse_nbytes(std::string_view text) {
+    // Regex for parsing a human-readable byte count.
+    //  - Group 1: signed floating-point number
+    //      * integer or decimal form (e.g. "10", "1.5", ".5")
+    //      * optional scientific notation (e.g. "1e6", "2.5E-3")
+    //  - Group 2 (optional): unit suffix (e.g. "B", "KiB", "MiB", ...)
+    //  - Leading and trailing whitespace is ignored
+    //  - If no unit is present, the value is interpreted as bytes
     static const std::regex k_re(
-        R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*([A-Za-z]+)?\s*$)",
-        std::regex::ECMAScript);
-
+        R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-z]+)?\s*$)",
+        std::regex::ECMAScript
+    );
     std::cmatch m;
     if (!std::regex_match(text.begin(), text.end(), m, k_re)) {
         throw std::invalid_argument("parse_nbytes: invalid format");
     }
 
-    const std::string number_str = m[1].str();
-    const std::string unit_str = m[2].matched ? m[2].str() : std::string{};
-
+    // Parse numeric part
     double value = 0.0;
     try {
-        value = std::stod(number_str);
+        value = std::stod(m[1].str());
     } catch (const std::invalid_argument&) {
         throw std::invalid_argument("parse_nbytes: invalid number");
     } catch (const std::out_of_range&) {
         throw std::out_of_range("parse_nbytes: number out of range");
     }
 
-    const double mult = unit_multiplier(unit_str);
-    const double bytes_d = value * mult;
+    // Parse and normalize the unit suffix.
+    //
+    // Supported formats:
+    //   - IEC (base-1024): KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB
+    //   - SI  (base-1000): KB,  MB,  GB,  TB,  PB,  EB,  ZB,  YB
+    //   - Bytes: B
+    //
+    // Rules:
+    //   - Units are case-insensitive.
+    //   - Presence of 'I' selects IEC (base-1024); absence selects SI (base-1000).
+    //   - If no unit is provided, the value is interpreted as bytes.
+    //   - Any unrecognized unit results in std::invalid_argument.
+    double multiplier = 1.0;  // default: bytes
+    if (m[2].matched) {
+        std::string unit = m[2].str();
 
-    if (!std::isfinite(bytes_d)) {
+        // Normalize case for simpler matching
+        for (char& c : unit) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+
+        // Special case: bytes
+        if (unit == "B") {
+            multiplier = 1.0;
+        } else {
+            // Match: K/M/G/T/P/E/Z/Y + optional 'I' + 'B'
+            static const std::regex unit_re(R"(^([KMGTPEZY])(I)?B$)");
+
+            std::cmatch um;
+            if (!std::regex_match(unit.c_str(), um, unit_re)) {
+                throw std::invalid_argument("parse_nbytes: unknown unit");
+            }
+
+            const char prefix = um[1].str()[0];
+            const bool is_iec = um[2].matched;
+
+            // Exponent by prefix position
+            constexpr std::string_view prefixes = "KMGTPEZY";
+            const auto pos = prefixes.find(prefix);
+            if (pos == std::string_view::npos) {
+                throw std::invalid_argument("parse_nbytes: unknown unit");
+            }
+
+            const double base = is_iec ? 1024.0 : 1000.0;
+            multiplier = std::pow(base, static_cast<int>(pos) + 1);
+        }
+    }
+
+    const double nbytes = value * multiplier;
+    if (!std::isfinite(nbytes)) {
         throw std::out_of_range("parse_nbytes: non-finite result");
     }
 
-    const double rounded = std::llround(bytes_d);
-
-    if (rounded < static_cast<double>(std::numeric_limits<std::int64_t>::min()) ||
-        rounded > static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
-        throw std::out_of_range("parse_nbytes: result out of int64 range");
+    const double rounded = std::llround(nbytes);
+    if (rounded < static_cast<double>(std::numeric_limits<std::int64_t>::min())
+        || rounded > static_cast<double>(std::numeric_limits<std::int64_t>::max()))
+    {
+        throw std::out_of_range("parse_nbytes: result out of range");
     }
-
     return static_cast<std::int64_t>(rounded);
 }
 

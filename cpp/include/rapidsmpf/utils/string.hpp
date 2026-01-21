@@ -106,17 +106,28 @@ std::string format_duration(
 /**
  * @brief Parse a human-readable byte count into an integer number of bytes.
  *
- * Accepts IEC units: B, KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB. If no unit is
- * present, the value is interpreted as bytes.
+ * Parses a numeric value followed by an optional unit suffix and converts it
+ * to a byte count. Both IEC (base-1024) and SI (base-1000) units are supported.
  *
- * The numeric portion may include a fractional part. The result is rounded to
- * the nearest integer (ties away from zero).
+ * Supported units:
+ *   - Bytes: B
+ *   - IEC (base-1024): KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB
+ *   - SI  (base-1000): KB,  MB,  GB,  TB,  PB,  EB,  ZB,  YB
+ *
+ * Units are case-insensitive. If no unit is provided, the value is interpreted
+ * as bytes.
+ *
+ * The numeric portion may be specified using integer, decimal, or scientific
+ * notation (e.g. "1e6", "2.5E-3"). The final byte count is rounded to the
+ * nearest integer, with ties rounded away from zero.
  *
  * @param text Byte count string to parse.
  * @return Parsed byte count in bytes.
  *
- * @throws std::invalid_argument If the string cannot be parsed or the unit is unknown.
- * @throws std::out_of_range If the resulting value is not finite or overflows int64.
+ * @throws std::invalid_argument If the string format is invalid or the unit is
+ * not recognized.
+ * @throws std::out_of_range If the parsed value is not finite or the resulting
+ * byte count overflows a 64-bit signed integer.
  */
 std::int64_t parse_nbytes(std::string_view text);
 

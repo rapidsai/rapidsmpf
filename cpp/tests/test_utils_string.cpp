@@ -72,6 +72,52 @@ TEST(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(-60.0, 2, TrimZeroFraction::YES), "-1 min");
 }
 
+TEST(UtilsTest, ParseNBytes) {
+    EXPECT_EQ(parse_nbytes("0"), 0);
+    EXPECT_EQ(parse_nbytes("1024"), 1_KiB);
+    EXPECT_EQ(parse_nbytes("  42  "), 42);
+    EXPECT_EQ(parse_nbytes("-7"), -7);
+    EXPECT_EQ(parse_nbytes("1 B"), 1);
+    EXPECT_EQ(parse_nbytes("1B"), 1);
+    EXPECT_EQ(parse_nbytes("-1 B"), -1);
+    EXPECT_EQ(parse_nbytes("  -1B  "), -1);
+    EXPECT_EQ(parse_nbytes("1 KiB"), 1_KiB);
+    EXPECT_EQ(parse_nbytes("1KiB"), 1_KiB);
+    EXPECT_EQ(parse_nbytes("2 MiB"), 2_MiB);
+    EXPECT_EQ(parse_nbytes("3GiB"), 3_GiB);
+    EXPECT_EQ(parse_nbytes("1 kib"), 1024);
+    EXPECT_EQ(parse_nbytes("1 mib"), 1_MiB);
+    EXPECT_EQ(parse_nbytes("1 gib"), 1_GiB);
+    EXPECT_EQ(parse_nbytes("1 KB"), 1e3);
+    EXPECT_EQ(parse_nbytes("1MB"), 1e6);
+    EXPECT_EQ(parse_nbytes("2 GB"), 2e9);
+    EXPECT_EQ(parse_nbytes("1 kb"), 1e3);
+    EXPECT_EQ(parse_nbytes("1 mb"), 1e6);
+    EXPECT_EQ(parse_nbytes("1 gb"), 1e9);
+    EXPECT_EQ(parse_nbytes("1.50 KiB"), 1536);
+    EXPECT_EQ(parse_nbytes("-1.50 KiB"), -1536);
+    EXPECT_EQ(parse_nbytes("0.5 B"), 1);
+    EXPECT_EQ(parse_nbytes("-0.5 B"), -1);
+    EXPECT_EQ(parse_nbytes("1e3 B"), 1e3);
+    EXPECT_EQ(parse_nbytes("1e-3 KB"), 1);
+    EXPECT_EQ(parse_nbytes("1e-3 KiB"), 1);  // 1.024 bytes rounds to 1
+    EXPECT_EQ(parse_nbytes("-1e3 B"), -1e3);
+    EXPECT_THROW(parse_nbytes("1 K"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1 Ki"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1 KiBB"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1 KBps"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1 BB"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes(""), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("   "), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("abc"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1.2.3 KiB"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1 KiB extra"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("--1 KiB"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("1e309 B"), std::out_of_range);
+    EXPECT_THROW(parse_nbytes("nan B"), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes("inf B"), std::invalid_argument);
+}
+
 TEST(UtilsTest, ParseStringTest) {
     // Integers
     EXPECT_EQ(parse_string<int>("42"), 42);
