@@ -8,7 +8,38 @@
 
 #include <rapidsmpf/utils/string.hpp>
 
+#include "utils.hpp"
+
 using namespace rapidsmpf;
+
+TEST(UtilsTest, FormatsByteCount) {
+    EXPECT_EQ(format_nbytes(0, 2, TrimZeroFraction::NO), "0.00 B");
+    EXPECT_EQ(format_nbytes(0, 2, TrimZeroFraction::YES), "0 B");
+    EXPECT_EQ(format_nbytes(1, 2, TrimZeroFraction::NO), "1.00 B");
+    EXPECT_EQ(format_nbytes(1, 2, TrimZeroFraction::YES), "1 B");
+    EXPECT_EQ(format_nbytes(512, 1, TrimZeroFraction::NO), "512.0 B");
+    EXPECT_EQ(format_nbytes(512, 1, TrimZeroFraction::YES), "512 B");
+    EXPECT_EQ(format_nbytes(1023, 1, TrimZeroFraction::NO), "1023.0 B");
+    EXPECT_EQ(format_nbytes(1023, 1, TrimZeroFraction::YES), "1023 B");
+    EXPECT_EQ(format_nbytes(1_KiB, 2, TrimZeroFraction::NO), "1.00 KiB");
+    EXPECT_EQ(format_nbytes(1_KiB, 2, TrimZeroFraction::YES), "1 KiB");
+    EXPECT_EQ(format_nbytes(1_MiB, 2, TrimZeroFraction::NO), "1.00 MiB");
+    EXPECT_EQ(format_nbytes(1_MiB, 2, TrimZeroFraction::YES), "1 MiB");
+    EXPECT_EQ(format_nbytes(10_MiB, 1, TrimZeroFraction::NO), "10.0 MiB");
+    EXPECT_EQ(format_nbytes(10_MiB, 1, TrimZeroFraction::YES), "10 MiB");
+    EXPECT_EQ(format_nbytes(10_MiB + 1_KiB, 2, TrimZeroFraction::YES), "10 MiB");
+    EXPECT_EQ(format_nbytes(10_MiB + 1_KiB, 3, TrimZeroFraction::NO), "10.001 MiB");
+    EXPECT_EQ(format_nbytes(1_GiB, 2, TrimZeroFraction::NO), "1.00 GiB");
+    EXPECT_EQ(format_nbytes(1_GiB, 2, TrimZeroFraction::YES), "1 GiB");
+    EXPECT_EQ(format_nbytes(1536, 2, TrimZeroFraction::NO), "1.50 KiB");
+    EXPECT_EQ(format_nbytes(1536, 2, TrimZeroFraction::YES), "1.50 KiB");
+    EXPECT_EQ(format_nbytes(-1, 2, TrimZeroFraction::NO), "-1.00 B");
+    EXPECT_EQ(format_nbytes(-1, 2, TrimZeroFraction::YES), "-1 B");
+    EXPECT_EQ(format_nbytes(-1024, 2, TrimZeroFraction::NO), "-1.00 KiB");
+    EXPECT_EQ(format_nbytes(-1024, 2, TrimZeroFraction::YES), "-1 KiB");
+    EXPECT_EQ(format_nbytes(-10 * (1 << 20), 1, TrimZeroFraction::NO), "-10.0 MiB");
+    EXPECT_EQ(format_nbytes(-10 * (1 << 20), 1, TrimZeroFraction::YES), "-10 MiB");
+}
 
 TEST(UtilsTest, ParseStringTest) {
     // Integers

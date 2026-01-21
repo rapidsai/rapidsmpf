@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <sstream>
 #include <string>
@@ -27,25 +28,6 @@ std::string to_precision(T value, int precision = 2) {
     ss << std::fixed;
     ss << value;
     return ss.str();
-}
-
-/**
- * @brief Format number of bytes to a human readable string representation.
- *
- * @param nbytes The number of bytes to convert.
- * @param precision The number of decimal places to include.
- * @return A string representation of the byte size with the specified precision.
- */
-std::string inline format_nbytes(double nbytes, int precision = 2) {
-    constexpr std::array<const char*, 6> units = {" B", " KiB", " MiB", " GiB", " TiB"};
-    double n = nbytes;
-    for (auto const& unit : units) {
-        if (std::abs(n) < 1024.0) {
-            return to_precision(n, precision) + unit;
-        }
-        n /= 1024.0;
-    }
-    return to_precision(n, precision) + " PiB";
 }
 
 /**
@@ -91,6 +73,43 @@ std::string to_lower(std::string str);
  * @return The trimmed string.
  */
 std::string to_upper(std::string str);
+
+/// @brief Control whether a zero fractional part is omitted when formatting values.
+enum class TrimZeroFraction {
+    NO,  ///< Always keep the fractional part.
+    YES,  ///< Omit the fractional part when it consists only of zeros.
+};
+
+/**
+ * @brief Format a byte count as a human-readable string using IEC units.
+ *
+ * Converts an integer byte count into a scaled string representation using
+ * binary (base-1024) units such as KiB, MiB, and GiB.
+ *
+ * Negative values are supported and are formatted with a leading minus sign,
+ * which is useful when representing signed byte deltas or accounting values.
+ *
+ * Decimal formatting is controlled by @p num_decimals. When
+ * @p trim_zero_fraction is set to `TrimZeroFraction::YES`, the fractional part
+ * is omitted entirely if all decimal digits are zero. Otherwise, the specified
+ * number of decimal places is preserved.
+ *
+ * Examples:
+ *   - 1024 bytes with 2 decimals → "1.00 KiB" or "1 KiB" (trimmed)
+ *   - 1536 bytes with 2 decimals → "1.50 KiB"
+ *
+ * @param nbytes Signed number of bytes to format, provided as a double to support
+ * any integer magnitude.
+ * @param num_decimals Number of decimal places to include in the formatted value.
+ * @param trim_zero_fraction Whether to omit the fractional part when it consists
+ * only of zeros.
+ * @return Human-readable string representation of the byte count.
+ */
+std::string format_nbytes(
+    double nbytes,
+    int num_decimals = 2,
+    TrimZeroFraction trim_zero_fraction = TrimZeroFraction::YES
+);
 
 /**
  * @brief Parses a string into a value of type T.
