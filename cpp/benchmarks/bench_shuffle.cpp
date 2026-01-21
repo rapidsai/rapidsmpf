@@ -23,7 +23,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>

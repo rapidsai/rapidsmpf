@@ -13,7 +13,7 @@
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include <coro/task.hpp>
 

@@ -7,7 +7,7 @@
 #include <ranges>
 
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
