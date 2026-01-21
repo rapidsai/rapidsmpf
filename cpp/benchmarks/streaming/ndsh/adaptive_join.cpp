@@ -147,7 +147,9 @@ rapidsmpf::streaming::Node consume_channel_parallel(
                     ctx, msg.release<rapidsmpf::streaming::TableChunk>()
                 );
                 ctx->comm()->logger().print(
-                    "Consumed chunk with ",
+                    "Consumed chunk ",
+                    msg.sequence_number(),
+                    " with ",
                     chunk.table_view().num_rows(),
                     " rows and ",
                     chunk.table_view().num_columns(),

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -139,6 +139,36 @@ enum class KeepKeys : bool {
     std::vector<cudf::size_type> keys,
     std::uint32_t num_partitions,
     OpID tag
+);
+
+/**
+ * @brief Perform a streaming inner join between two tables using an adaptive strategy.
+ *
+ * @note This inspects a small prefix of each input channel to estimate input sizes and
+ * uses that estimate to choose between broadcast and shuffle join implementations.
+ *
+ * @param ctx Streaming context.
+ * @param left Channel of `TableChunk`s from the left table.
+ * @param right Channel of `TableChunk`s from the right table.
+ * @param ch_out Output channel of `TableChunk`s.
+ * @param left_keys Column indices of the keys in the left table.
+ * @param right_keys Column indices of the keys in the right table.
+ * @param allreduce_tag Disambiguating tag for the size estimation allgather.
+ * @param left_shuffle_tag Disambiguating tag for the left shuffle (if used).
+ * @param right_shuffle_tag Disambiguating tag for the right shuffle (if used).
+ *
+ * @return Coroutine representing the completion of the join.
+ */
+streaming::Node adaptive_inner_join(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> left,
+    std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> ch_out,
+    std::vector<cudf::size_type> left_keys,
+    std::vector<cudf::size_type> right_keys,
+    OpID allreduce_tag,
+    OpID left_shuffle_tag,
+    OpID right_shuffle_tag
 );
 
 }  // namespace rapidsmpf::ndsh
