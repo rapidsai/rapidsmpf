@@ -16,6 +16,7 @@
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>

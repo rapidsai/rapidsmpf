@@ -16,7 +16,6 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
-#include <rapidsmpf/utils/misc.hpp>
 
 /**
  * @namespace rapidsmpf

@@ -28,7 +28,7 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
 #include "../utils/rmm_stack.hpp"

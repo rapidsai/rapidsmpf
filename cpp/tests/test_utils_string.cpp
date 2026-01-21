@@ -6,7 +6,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 using namespace rapidsmpf;
 

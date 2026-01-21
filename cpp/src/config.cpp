@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 #include <rapidsmpf/config.hpp>
-#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace {
 // Serialization limits and format configuration (implementation details)
