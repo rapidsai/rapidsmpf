@@ -241,6 +241,79 @@ std::int64_t parse_nbytes(std::string_view text) {
     return static_cast<std::int64_t>(rounded);
 }
 
+double parse_duration(std::string_view text) {
+    // Regex for parsing a human-readable duration.
+    //  - Group 1: signed floating-point number
+    //      * integer or decimal form (e.g. "10", "1.5", ".5")
+    //      * optional scientific notation (e.g. "1e6", "2.5E-3")
+    //  - Group 2 (optional): unit suffix (e.g. "ms", "s", "min", "h", "d")
+    //  - Leading and trailing whitespace is ignored
+    //  - If no unit is present, the value is interpreted as seconds
+    static const std::regex k_re(
+        R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-zµ]+)?\s*$)",
+        std::regex::ECMAScript
+    );
+
+    std::cmatch m;
+    if (!std::regex_match(text.begin(), text.end(), m, k_re)) {
+        throw std::invalid_argument("parse_duration: invalid format");
+    }
+
+    // Parse numeric part
+    double value = 0.0;
+    try {
+        value = std::stod(m[1].str());
+    } catch (const std::invalid_argument&) {
+        throw std::invalid_argument("parse_duration: invalid number");
+    } catch (const std::out_of_range&) {
+        throw std::out_of_range("parse_duration: number out of range");
+    }
+
+    // Default unit: seconds
+    double multiplier = 1.0;
+
+    if (m[2].matched) {
+        std::string unit = m[2].str();
+
+        // Normalize to lowercase ASCII where applicable
+        for (char& c : unit) {
+            if (static_cast<unsigned char>(c) < 128) {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+        }
+
+        // Normalize microseconds aliases
+        if (unit == "us") {
+            unit = "µs";
+        }
+
+        if (unit == "ns")
+            multiplier = 1e-9;
+        else if (unit == "µs")
+            multiplier = 1e-6;
+        else if (unit == "ms")
+            multiplier = 1e-3;
+        else if (unit == "s")
+            multiplier = 1.0;
+        else if (unit == "min")
+            multiplier = 60.0;
+        else if (unit == "h")
+            multiplier = 3600.0;
+        else if (unit == "d")
+            multiplier = 86400.0;
+        else {
+            throw std::invalid_argument("parse_duration: unknown unit");
+        }
+    }
+
+    const double seconds = value * multiplier;
+    if (!std::isfinite(seconds)) {
+        throw std::out_of_range("parse_duration: non-finite result");
+    }
+
+    return seconds;
+}
+
 template <>
 bool parse_string(std::string const& value) {
     try {

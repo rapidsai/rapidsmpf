@@ -132,6 +132,36 @@ std::string format_duration(
 std::int64_t parse_nbytes(std::string_view text);
 
 /**
+ * @brief Parse a human-readable time duration into seconds.
+ *
+ * Parses a numeric value followed by an optional time unit suffix and converts
+ * it to a duration expressed in seconds.
+ *
+ * Supported units:
+ *   - Nanoseconds: ns
+ *   - Microseconds: µs
+ *   - Milliseconds: ms
+ *   - Seconds: s
+ *   - Minutes: min
+ *   - Hours: h
+ *   - Days: d
+ *
+ * Units are case-insensitive. If no unit is provided, the value is interpreted
+ * as seconds.
+ *
+ * The numeric portion may be specified using integer, decimal, or scientific
+ * notation (e.g. "1e3", "2.5E-2"). Negative values are supported.
+ *
+ * @param text Time duration string to parse.
+ * @return Parsed duration in seconds.
+ *
+ * @throws std::invalid_argument If the string format is invalid or the unit is
+ *         not recognized.
+ * @throws std::out_of_range If the parsed value is not finite.
+ */
+double parse_duration(std::string_view text);
+
+/**
  * @brief Parses a string into a value of type T.
  *
  * This function attempts to parse the given string into a value of the specified

@@ -118,6 +118,52 @@ TEST(UtilsTest, ParseNBytes) {
     EXPECT_THROW(parse_nbytes("inf B"), std::invalid_argument);
 }
 
+TEST(UtilsTest, ParseDuration) {
+    EXPECT_DOUBLE_EQ(parse_duration("0"), 0.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1"), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("  1.5  "), 1.5);
+    EXPECT_DOUBLE_EQ(parse_duration("-2"), -2.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 s"), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1s"), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("-1 S"), -1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 ms"), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("1ms"), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("2.5 ms"), 2.5e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("1 us"), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 µs"), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("3 US"), 3e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 ns"), 1e-9);
+    EXPECT_DOUBLE_EQ(parse_duration("10 NS"), 10e-9);
+    EXPECT_DOUBLE_EQ(parse_duration("1 min"), 60.0);
+    EXPECT_DOUBLE_EQ(parse_duration("2 MIN"), 120.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 h"), 3600.0);
+    EXPECT_DOUBLE_EQ(parse_duration("0.5 H"), 1800.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 d"), 86400.0);
+    EXPECT_DOUBLE_EQ(parse_duration("-2 D"), -172800.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1e3 s"), 1000.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1e-3 s"), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("2.5E-3 min"), 0.15);
+
+    // Invalid inputs
+    EXPECT_THROW(parse_duration(""), std::invalid_argument);
+    EXPECT_THROW(parse_duration("   "), std::invalid_argument);
+    EXPECT_THROW(parse_duration("abc"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1.2.3 s"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 s extra"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("--1 s"), std::invalid_argument);
+
+    // Unknown units
+    EXPECT_THROW(parse_duration("1 m"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 sec"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 mins"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 hr"), std::invalid_argument);
+
+    // Range / non-finite
+    EXPECT_THROW(parse_duration("1e309 s"), std::out_of_range);
+    EXPECT_THROW(parse_duration("nan s"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("inf s"), std::invalid_argument);
+}
+
 TEST(UtilsTest, ParseStringTest) {
     // Integers
     EXPECT_EQ(parse_string<int>("42"), 42);
