@@ -260,6 +260,7 @@ def _types_compatible(
     ignore_string_type: bool = False,
     ignore_integer_sign: bool = False,
     ignore_integer_size: bool = False,
+    ignore_decimal_int: bool = False,
 ) -> bool:
     """
     Check if two Arrow types are compatible given the ignore flags.
@@ -296,6 +297,13 @@ def _types_compatible(
         if sign_matches and size_matches:
             return True
 
+    # Ignore decimal vs integer differences
+    if ignore_decimal_int:
+        o_is_numeric = pa.types.is_integer(o_type) or pa.types.is_decimal(o_type)
+        e_is_numeric = pa.types.is_integer(e_type) or pa.types.is_decimal(e_type)
+        if o_is_numeric and e_is_numeric:
+            return True
+
     return False
 
 
@@ -308,6 +316,7 @@ def compare_parquet(
     ignore_string_type: bool = False,
     ignore_integer_sign: bool = False,
     ignore_integer_size: bool = False,
+    ignore_decimal_int: bool = False,
 ) -> tuple[bool, str | None]:
     """
     Compare two parquet files for exact equality.
@@ -323,11 +332,17 @@ def compare_parquet(
     ignore_timezone
         Ignore differences in timezone and precision for timestamp types
     ignore_string_type
-        Ignore differences between string and large_string types
+        Ignore differences between string and large_string types.
+        Note that the values will still be compared.
     ignore_integer_sign
         Ignore differences between signed and unsigned integer types
+        Note that the values will still be compared.
     ignore_integer_size
         Ignore differences in integer bit width (e.g., int32 vs int64)
+        Note that the values will still be compared.
+    ignore_decimal_int
+        Ignore differences between decimal and integer types
+        Note that the values will still be compared.
 
     Returns
     -------
@@ -360,6 +375,7 @@ def compare_parquet(
             ignore_string_type=ignore_string_type,
             ignore_integer_sign=ignore_integer_sign,
             ignore_integer_size=ignore_integer_size,
+            ignore_decimal_int=ignore_decimal_int,
         ):
             errors.append(f"\t{name}: {o_field.type} != {e_field.type}")
     if errors:
@@ -526,11 +542,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     passed = sum(results.values())
     failed = len(results) - passed
 
-    for query_name, result in sorted(results.items()):
-        status = "SUCCESS" if result else "FAILED"
-        print(f"  {query_name}: {status}")
-
-    print("-" * 60)
     print(f"Total: {passed} succeeded, {failed} failed")
     print(f"\nOutput directory: {output_dir}")
     print(f"  Results: {benchmark_output_dir}")
@@ -580,6 +591,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
             ignore_string_type=args.ignore_string_type,
             ignore_integer_sign=args.ignore_integer_sign,
             ignore_integer_size=args.ignore_integer_size,
+            ignore_decimal_int=args.ignore_decimal_int,
         )
 
         if is_equal:
@@ -724,6 +736,11 @@ def main():
         "--ignore-integer-size",
         action="store_true",
         help="Ignore differences in integer bit width (e.g., int32 vs int64)",
+    )
+    validate_parser.add_argument(
+        "--ignore-decimal-int",
+        action="store_true",
+        help="Ignore differences between decimal and integer types",
     )
 
     args = parser.parse_args()
