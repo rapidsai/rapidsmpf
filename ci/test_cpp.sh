@@ -70,7 +70,7 @@ rapids-logger "Run rrun gtests"
 BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
 
 rapids-logger "Run NDSH benchmarks"
-python ../cpp/scripts/validate_ndsh.py run \
+python ../cpp/scripts/ndsh.py run \
   --input-dir scale-1/ \
   --output-dir validation/ \
   --generate-data \
@@ -78,7 +78,7 @@ python ../cpp/scripts/validate_ndsh.py run \
   --benchmark-args='--no-pinned-host-memory'
 
 rapids-logger "Validate NDSH benchmarks"
-python ../cpp/scripts/validate_ndsh.py validate \
+python ../cpp/scripts/ndsh.py validate \
   --results-path validation/output \
   --expected-path validation/expected \
   --ignore-timezone
