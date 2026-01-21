@@ -152,6 +152,10 @@ TEST(UtilsTest, ParseDuration) {
     EXPECT_DOUBLE_EQ(parse_duration("3 US").count(), 3e-6);
     EXPECT_DOUBLE_EQ(parse_duration("1 ns").count(), 1e-9);
     EXPECT_DOUBLE_EQ(parse_duration("10 NS").count(), 10e-9);
+    EXPECT_DOUBLE_EQ(parse_duration("1 m").count(), 60.0);
+    EXPECT_DOUBLE_EQ(parse_duration("2 M").count(), 120.0);
+    EXPECT_DOUBLE_EQ(parse_duration("0.5 m").count(), 30.0);
+    EXPECT_DOUBLE_EQ(parse_duration("-1 m").count(), -60.0);
     EXPECT_DOUBLE_EQ(parse_duration("1 min").count(), 60.0);
     EXPECT_DOUBLE_EQ(parse_duration("2 MIN").count(), 120.0);
     EXPECT_DOUBLE_EQ(parse_duration("1 h").count(), 3600.0);
@@ -169,12 +173,20 @@ TEST(UtilsTest, ParseDuration) {
     EXPECT_THROW(parse_duration("1.2.3 s"), std::invalid_argument);
     EXPECT_THROW(parse_duration("1 s extra"), std::invalid_argument);
     EXPECT_THROW(parse_duration("--1 s"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1..0 s"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("e3 s"), std::invalid_argument);
 
     // Unknown units
-    EXPECT_THROW(parse_duration("1 m"), std::invalid_argument);
     EXPECT_THROW(parse_duration("1 sec"), std::invalid_argument);
     EXPECT_THROW(parse_duration("1 mins"), std::invalid_argument);
     EXPECT_THROW(parse_duration("1 hr"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 month"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1 y"), std::invalid_argument);
+
+    // Ambiguous or malformed unit combinations
+    EXPECT_THROW(parse_duration("1m s"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1mm"), std::invalid_argument);
+    EXPECT_THROW(parse_duration("1mms"), std::invalid_argument);
 
     // Range / non-finite
     EXPECT_THROW(parse_duration("1e309 s"), std::out_of_range);

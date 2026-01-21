@@ -268,7 +268,8 @@ Duration parse_duration(std::string_view text) {
     //  - Group 1: signed floating-point number
     //      * integer or decimal form (e.g. "10", "1.5", ".5")
     //      * optional scientific notation (e.g. "1e6", "2.5E-3")
-    //  - Group 2 (optional): unit suffix (e.g. "ms", "s", "min", "h", "d")
+    //  - Group 2 (optional): unit suffix
+    //      * supported units: "ms", "s", "m" (minutes), "min", "h", "d"
     //  - Leading and trailing whitespace is ignored
     //  - If no unit is present, the value is interpreted as seconds
     static const std::regex k_re(
@@ -303,7 +304,7 @@ Duration parse_duration(std::string_view text) {
             multiplier = 1e-3;
         else if (unit == "s")
             multiplier = 1.0;
-        else if (unit == "min")
+        else if (unit == "m" || unit == "min")
             multiplier = 60.0;
         else if (unit == "h")
             multiplier = 3600.0;

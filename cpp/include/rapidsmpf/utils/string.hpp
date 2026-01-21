@@ -174,7 +174,7 @@ std::size_t parse_nbytes_unsigned(std::string_view text);
  *   - Microseconds: µs or us
  *   - Milliseconds: ms
  *   - Seconds: s
- *   - Minutes: min
+ *   - Minutes: m or min
  *   - Hours: h
  *   - Days: d
  *
