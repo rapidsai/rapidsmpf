@@ -22,6 +22,12 @@ enum class KeepKeys : bool {
     YES,  ///< Key columns do appear in the output
 };
 
+///< @brief Which input is the build side for a join.
+enum class BroadcastSide : bool {
+    LEFT,  ///< Broadcast the left input
+    RIGHT,  ///< Broadcast the right input
+};
+
 /**
  * @brief Broadcast the concatenation of all input messages to all ranks.
  *
@@ -67,31 +73,33 @@ enum class KeepKeys : bool {
 /**
  * @brief Perform a streaming inner join between two tables.
  *
- * @note This performs a broadcast join, broadcasting the table represented by the `left`
- * channel to all ranks, and then streaming through the chunks of the `right` channel.
+ * @note This performs a broadcast join, broadcasting the chosen broadcast side to all
+ * ranks and then streaming through the chunks of the non-broadcasted side. Output
+ * ordering follows the logical left input: left keys (if kept), left non-keys, then right
+ * non-keys.
  *
  * @param ctx Streaming context.
- * @param left Channel of `TableChunk`s used as the broadcasted build side.
- * @param right Channel of `TableChunk`s joined in turn against the build side.
+ * @param left Channel of `TableChunk`s for the left input.
+ * @param right Channel of `TableChunk`s for the right input.
  * @param ch_out Output channel of `TableChunk`s.
  * @param left_on Column indices of the keys in the left table.
  * @param right_on Column indices of the keys in the right table.
- * @param tag Disambiguating tag for the broadcast of the left table.
- * @param keep_keys Does the result contain the key columns, or only "carrier" value
- * columns
+ * @param tag Disambiguating tag for the broadcast.
+ * @param keep_keys Does the result contain the left key columns.
+ * @param broadcast_side Which input should be broadcast.
  *
  * @return Coroutine representing the completion of the join.
  */
 [[nodiscard]] streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
-    // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     OpID tag,
-    KeepKeys keep_keys = KeepKeys::YES
+    KeepKeys keep_keys = KeepKeys::YES,
+    BroadcastSide broadcast_side = BroadcastSide::LEFT
 );
 /**
  * @brief Perform a streaming inner join between two tables.

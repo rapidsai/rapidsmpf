@@ -227,23 +227,103 @@ streaming::Message inner_join_chunk(
     );
 }
 
+streaming::Message inner_join_chunk_probe_first(
+    std::shared_ptr<streaming::Context> ctx,
+    streaming::TableChunk&& probe_chunk,
+    std::uint64_t sequence,
+    cudf::hash_join& joiner,
+    cudf::table_view build_table,
+    std::vector<cudf::size_type> build_keys,
+    std::vector<cudf::size_type> probe_keys,
+    KeepKeys keep_keys,
+    rmm::cuda_stream_view build_stream,
+    CudaEvent* build_event
+) {
+    CudaEvent event;
+    probe_chunk = to_device(ctx, std::move(probe_chunk));
+    auto chunk_stream = probe_chunk.stream();
+    build_event->stream_wait(chunk_stream);
+    auto probe_table = probe_chunk.table_view();
+    auto probe_table_keys = probe_table.select(probe_keys);
+    auto [probe_match, build_match] = joiner.inner_join(
+        probe_table_keys, std::nullopt, chunk_stream, ctx->br()->device_mr()
+    );
+
+    cudf::column_view build_indices =
+        cudf::device_span<cudf::size_type const>(*build_match);
+    cudf::column_view probe_indices =
+        cudf::device_span<cudf::size_type const>(*probe_match);
+
+    cudf::table_view probe_carrier;
+    if (keep_keys == KeepKeys::YES) {
+        probe_carrier = probe_table;
+    } else {
+        std::vector<cudf::size_type> probe_to_keep;
+        std::ranges::copy_if(
+            std::ranges::iota_view(0, probe_table.num_columns()),
+            std::back_inserter(probe_to_keep),
+            [&](auto i) { return std::ranges::find(probe_keys, i) == probe_keys.end(); }
+        );
+        probe_carrier = probe_table.select(probe_to_keep);
+    }
+    auto result_columns = cudf::gather(
+                              probe_carrier,
+                              probe_indices,
+                              cudf::out_of_bounds_policy::DONT_CHECK,
+                              chunk_stream,
+                              ctx->br()->device_mr()
+    )
+                              ->release();
+
+    std::vector<cudf::size_type> build_to_keep;
+    std::ranges::copy_if(
+        std::ranges::iota_view(0, build_table.num_columns()),
+        std::back_inserter(build_to_keep),
+        [&](auto i) { return std::ranges::find(build_keys, i) == build_keys.end(); }
+    );
+    if (!build_to_keep.empty()) {
+        std::ranges::move(
+            cudf::gather(
+                build_table.select(build_to_keep),
+                build_indices,
+                cudf::out_of_bounds_policy::DONT_CHECK,
+                chunk_stream,
+                ctx->br()->device_mr()
+            )
+                ->release(),
+            std::back_inserter(result_columns)
+        );
+    }
+    cuda_stream_join(build_stream, chunk_stream, &event);
+    return streaming::to_message(
+        sequence,
+        std::make_unique<streaming::TableChunk>(
+            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
+        )
+    );
+}
+
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
-    // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     OpID tag,
-    KeepKeys keep_keys
+    KeepKeys keep_keys,
+    BroadcastSide broadcast_side
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
+    auto build = broadcast_side == BroadcastSide::LEFT ? left : right;
+    auto probe = broadcast_side == BroadcastSide::LEFT ? right : left;
+    auto build_keys = broadcast_side == BroadcastSide::LEFT ? left_on : right_on;
+    auto probe_keys = broadcast_side == BroadcastSide::LEFT ? right_on : left_on;
     auto build_table = to_device(
         ctx,
-        (co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
+        (co_await broadcast(ctx, build, tag, streaming::AllGather::Ordered::NO))
             .release<streaming::TableChunk>()
     );
     ctx->comm()->logger().print(
@@ -251,12 +331,34 @@ streaming::Node inner_join_broadcast(
     );
 
     auto joiner = cudf::hash_join(
-        build_table.table_view().select(left_on),
+        build_table.table_view().select(build_keys),
         cudf::null_equality::UNEQUAL,
         build_table.stream()
     );
     CudaEvent build_event;
     build_event.record(build_table.stream());
+    if (broadcast_side == BroadcastSide::RIGHT) {
+        while (!ch_out->is_shutdown()) {
+            auto probe_msg = co_await probe->receive();
+            if (probe_msg.empty()) {
+                break;
+            }
+            co_await ch_out->send(inner_join_chunk_probe_first(
+                ctx,
+                probe_msg.release<streaming::TableChunk>(),
+                probe_msg.sequence_number(),
+                joiner,
+                build_table.table_view(),
+                build_keys,
+                probe_keys,
+                keep_keys,
+                build_table.stream(),
+                &build_event
+            ));
+        }
+        co_await ch_out->drain(ctx->executor());
+        co_return;
+    }
     cudf::table_view build_carrier;
     if (keep_keys == KeepKeys::YES) {
         build_carrier = build_table.table_view();
@@ -265,22 +367,22 @@ streaming::Node inner_join_broadcast(
         std::ranges::copy_if(
             std::ranges::iota_view(0, build_table.table_view().num_columns()),
             std::back_inserter(to_keep),
-            [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
+            [&](auto i) { return std::ranges::find(build_keys, i) == build_keys.end(); }
         );
         build_carrier = build_table.table_view().select(to_keep);
     }
     while (!ch_out->is_shutdown()) {
-        auto right_msg = co_await right->receive();
-        if (right_msg.empty()) {
+        auto probe_msg = co_await probe->receive();
+        if (probe_msg.empty()) {
             break;
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
-            right_msg.release<streaming::TableChunk>(),
-            right_msg.sequence_number(),
+            probe_msg.release<streaming::TableChunk>(),
+            probe_msg.sequence_number(),
             joiner,
             build_carrier,
-            right_on,
+            probe_keys,
             build_table.stream(),
             &build_event
         ));
@@ -585,7 +687,9 @@ streaming::Node adaptive_inner_join(
             ch_out,
             std::move(build_keys),
             std::move(probe_keys),
-            broadcast_tag
+            broadcast_tag,
+            KeepKeys::YES,
+            broadcast_left ? BroadcastSide::LEFT : BroadcastSide::RIGHT
         ));
     } else {
         ctx->comm()->logger().print("Adaptive join strategy: shuffle");
