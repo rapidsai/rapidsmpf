@@ -93,8 +93,8 @@ std::string format_nbytes(
  *
  * @param seconds Time duration to format, in seconds.
  * @param precision Number of decimal places to include in the formatted value.
- * @param trim_zero_fraction Whether to omit the fractional part when it consists only of
- * zeros.
+ * @param trim_zero_fraction Whether to omit the fractional part when it consists
+ * only of zeros.
  * @return Human-readable string representation of the time duration.
  */
 std::string format_duration(
@@ -155,9 +155,9 @@ std::int64_t parse_nbytes(std::string_view text);
  * @return Parsed byte count in bytes.
  *
  * @throws std::invalid_argument If the string format is invalid, the unit is
- *         not recognized, or the parsed value is negative.
+ * not recognized, or the parsed value is negative.
  * @throws std::out_of_range If the parsed value is not finite or overflows
- *         std::size_t.
+ * std::size_t.
  */
 std::size_t parse_nbytes_unsigned(std::string_view text);
 
@@ -186,7 +186,7 @@ std::size_t parse_nbytes_unsigned(std::string_view text);
  * @return Parsed duration in seconds.
  *
  * @throws std::invalid_argument If the string format is invalid or the unit is
- *         not recognized.
+ * not recognized.
  * @throws std::out_of_range If the parsed value is not finite.
  */
 double parse_duration(std::string_view text);

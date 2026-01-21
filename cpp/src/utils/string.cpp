@@ -96,7 +96,7 @@ std::string format_duration(
     double seconds, int precision, TrimZeroFraction trim_zero_fraction
 ) {
     struct Unit {
-        const char* name;
+        char const* name;
         double scale;
     };
 
@@ -114,7 +114,7 @@ std::string format_duration(
     }};
 
     double value = std::abs(seconds);
-    const char* unit = "s";
+    char const* unit = "s";
 
     if (std::isfinite(value)) {
         for (const auto& u : large_units) {
@@ -194,12 +194,7 @@ std::int64_t parse_nbytes(std::string_view text) {
     //   - Any unrecognized unit results in std::invalid_argument.
     double multiplier = 1.0;  // default: bytes
     if (m[2].matched) {
-        std::string unit = m[2].str();
-
-        // Normalize case for simpler matching
-        for (char& c : unit) {
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        }
+        std::string unit = to_upper(m[2].str());
 
         // Special case: bytes
         if (unit == "B") {
@@ -215,8 +210,8 @@ std::int64_t parse_nbytes(std::string_view text) {
                 );
             }
 
-            const char prefix = um[1].str()[0];
-            const bool is_iec = um[2].matched;
+            char const prefix = um[1].str()[0];
+            bool const is_iec = um[2].matched;
 
             // Exponent by prefix position
             constexpr std::string_view prefixes = "KMGTPEZY";
@@ -227,17 +222,17 @@ std::int64_t parse_nbytes(std::string_view text) {
                 );
             }
 
-            const double base = is_iec ? 1024.0 : 1000.0;
+            double const base = is_iec ? 1024.0 : 1000.0;
             multiplier = std::pow(base, static_cast<int>(pos) + 1);
         }
     }
 
-    const double nbytes = value * multiplier;
+    double const nbytes = value * multiplier;
     if (!std::isfinite(nbytes)) {
         throw std::out_of_range("non-finite result from '" + std::string(text) + "'");
     }
 
-    const double rounded = std::llround(nbytes);
+    double const rounded = std::llround(nbytes);
     if (rounded < static_cast<double>(std::numeric_limits<std::int64_t>::min())
         || rounded > static_cast<double>(std::numeric_limits<std::int64_t>::max()))
     {
@@ -248,7 +243,7 @@ std::int64_t parse_nbytes(std::string_view text) {
 }
 
 std::size_t parse_nbytes_unsigned(std::string_view text) {
-    const std::int64_t value = parse_nbytes(text);
+    std::int64_t const value = parse_nbytes(text);
 
     if (value < 0) {
         throw std::invalid_argument(
@@ -300,14 +295,7 @@ double parse_duration(std::string_view text) {
     double multiplier = 1.0;
 
     if (m[2].matched) {
-        std::string unit = m[2].str();
-
-        // Normalize to lowercase ASCII where applicable
-        for (char& c : unit) {
-            if (static_cast<unsigned char>(c) < 128) {
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            }
-        }
+        std::string unit = to_lower(m[2].str());
 
         // Normalize microseconds aliases
         if (unit == "us") {
@@ -333,7 +321,7 @@ double parse_duration(std::string_view text) {
         }
     }
 
-    const double seconds = value * multiplier;
+    double const seconds = value * multiplier;
     if (!std::isfinite(seconds)) {
         throw std::out_of_range("parse_duration: non-finite result");
     }
