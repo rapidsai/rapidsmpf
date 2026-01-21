@@ -491,10 +491,6 @@ streaming::Node adaptive_inner_join(
 ) {
     streaming::ShutdownAtExit c{left, right, left_meta, right_meta, ch_out};
     co_await ctx->executor()->schedule();
-    (void)left_keys;
-    (void)right_keys;
-    (void)left_shuffle_tag;
-    (void)right_shuffle_tag;
 
     auto consume_meta = [&](
                             std::shared_ptr<streaming::Channel> ch
@@ -513,6 +509,8 @@ streaming::Node adaptive_inner_join(
     // amount of data that will need to be materialized on device for compute.
     // Assumption: a small sample of chunks is representative of the whole table size.
     // Assumption: metadata estimates reflect the total number of chunks per input.
+    constexpr std::size_t broadcast_cap_bytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+    constexpr double broadcast_ratio_threshold = 0.10;
     constexpr std::size_t inspect_messages = 2;
     std::vector<streaming::Message> left_buffer;
     std::vector<streaming::Message> right_buffer;
@@ -561,6 +559,55 @@ streaming::Node adaptive_inner_join(
         right_total_bytes,
         " bytes"
     );
+    auto const min_bytes = std::min(left_total_bytes, right_total_bytes);
+    auto const max_bytes = std::max(left_total_bytes, right_total_bytes);
+    auto const broadcast_ratio =
+        (max_bytes == 0) ? 0.0 : static_cast<double>(min_bytes) / max_bytes;
+    auto const use_broadcast =
+        min_bytes <= broadcast_cap_bytes && broadcast_ratio <= broadcast_ratio_threshold;
+    auto left_replay = ctx->create_channel();
+    auto right_replay = ctx->create_channel();
+    std::vector<streaming::Node> tasks;
+    tasks.push_back(replay_channel(ctx, left, left_replay, std::move(left_buffer)));
+    tasks.push_back(replay_channel(ctx, right, right_replay, std::move(right_buffer)));
+    if (use_broadcast) {
+        ctx->comm()->logger().print("Adaptive join strategy: broadcast");
+        auto const broadcast_left = left_total_bytes <= right_total_bytes;
+        auto build = broadcast_left ? left_replay : right_replay;
+        auto probe = broadcast_left ? right_replay : left_replay;
+        auto build_keys = broadcast_left ? left_keys : right_keys;
+        auto probe_keys = broadcast_left ? right_keys : left_keys;
+        auto const broadcast_tag = broadcast_left ? left_shuffle_tag : right_shuffle_tag;
+        tasks.push_back(inner_join_broadcast(
+            ctx,
+            build,
+            probe,
+            ch_out,
+            std::move(build_keys),
+            std::move(probe_keys),
+            broadcast_tag
+        ));
+    } else {
+        ctx->comm()->logger().print("Adaptive join strategy: shuffle");
+        auto const num_partitions = static_cast<std::uint32_t>(ctx->comm()->nranks());
+        auto left_shuffled = ctx->create_channel();
+        auto right_shuffled = ctx->create_channel();
+        tasks.push_back(shuffle(
+            ctx, left_replay, left_shuffled, left_keys, num_partitions, left_shuffle_tag
+        ));
+        tasks.push_back(shuffle(
+            ctx,
+            right_replay,
+            right_shuffled,
+            right_keys,
+            num_partitions,
+            right_shuffle_tag
+        ));
+        tasks.push_back(inner_join_shuffle(
+            ctx, left_shuffled, right_shuffled, ch_out, left_keys, right_keys
+        ));
+    }
+    streaming::coro_results(co_await coro::when_all(std::move(tasks)));
     co_await ch_out->drain(ctx->executor());
 }
 }  // namespace rapidsmpf::ndsh
