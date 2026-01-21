@@ -480,9 +480,8 @@ cdef class MemoryReserveOrWait:
         Raises
         ------
         RuntimeError
-            If no progress is possible within the timeout.
-        RuntimeError
-            If shutdown occurs before the request can be processed.
+            If no progress is possible within the timeout, or shutdown
+            occurs before the request can be processed.
 
         See Also
         --------
@@ -570,9 +569,8 @@ async def reserve_memory(
     Raises
     ------
     RuntimeError
-        If shutdown occurs before the request can be processed.
-    RuntimeError
-        If no further progress is possible and overbooking is disabled.
+        If shutdown occurs before the request can be processed, or no
+        further progress is possible and overbooking is disabled.
 
     Examples
     --------
