@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -202,7 +202,7 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     auto gpu_data_on_device = br->move(std::move(packed_columns.gpu_data), stream);
 
     // Copy the GPU data to the current spill target memory type.
-    auto [res, _] = br->reserve(spill_mem_type, size, true);
+    auto [res, _] = br->reserve(spill_mem_type, size, AllowOverbooking::YES);
     auto gpu_data_in_spill_memory = br->move(std::move(gpu_data_on_device), res);
 
     auto packed_data = std::make_unique<PackedData>(

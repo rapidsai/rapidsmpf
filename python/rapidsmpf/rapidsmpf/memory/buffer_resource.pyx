@@ -22,7 +22,6 @@ from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
 from rapidsmpf.statistics cimport Statistics
 
 
-# Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
 cdef extern from *:
     """
     std::function<std::int64_t()> to_MemoryAvailable(
@@ -60,8 +59,6 @@ cdef extern from *:
     ) except +
 
 
-# Bindings to MemoryReservation creating methods, which we need to
-# do in C++ because MemoryReservation doesn't have a default ctor.
 cdef extern from * nogil:
     """
     namespace {
@@ -72,7 +69,9 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
-        auto [res, ob] = br->reserve(mem_type, size, allow_overbooking);
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
+        auto [res, ob] = br->reserve(mem_type, size, ab);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
 
@@ -82,8 +81,10 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_device_memory_and_spill(size, allow_overbooking)
+            br->reserve_device_memory_and_spill(size, ab)
         );
     }
     }  // namespace
