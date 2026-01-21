@@ -14,23 +14,6 @@
 namespace rapidsmpf {
 
 /**
- * @brief Formats value to a string with a specified number of decimal places.
- *
- * @tparam T The type of the value to format.
- * @param value The value to format.
- * @param precision The number of decimal places to include.
- * @return A string representation of the value with the specified precision.
- */
-template <typename T>
-std::string to_precision(T value, int precision = 2) {
-    std::stringstream ss;
-    ss.precision(precision);
-    ss << std::fixed;
-    ss << value;
-    return ss.str();
-}
-
-/**
  * @brief Trims whitespace from both ends of the specified string.
  *
  * @param str The input string to be processed.

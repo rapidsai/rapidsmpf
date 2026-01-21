@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << to_precision(elapsed) << " sec"
+        ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
            << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
            << "/s | global throughput: "
