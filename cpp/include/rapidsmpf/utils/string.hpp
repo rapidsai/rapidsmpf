@@ -104,6 +104,23 @@ std::string format_duration(
 );
 
 /**
+ * @brief Parse a human-readable byte count into an integer number of bytes.
+ *
+ * Accepts IEC units: B, KiB, MiB, GiB, TiB, PiB, EiB, ZiB, YiB. If no unit is
+ * present, the value is interpreted as bytes.
+ *
+ * The numeric portion may include a fractional part. The result is rounded to
+ * the nearest integer (ties away from zero).
+ *
+ * @param text Byte count string to parse.
+ * @return Parsed byte count in bytes.
+ *
+ * @throws std::invalid_argument If the string cannot be parsed or the unit is unknown.
+ * @throws std::out_of_range If the resulting value is not finite or overflows int64.
+ */
+std::int64_t parse_nbytes(std::string_view text);
+
+/**
  * @brief Parses a string into a value of type T.
  *
  * This function attempts to parse the given string into a value of the specified

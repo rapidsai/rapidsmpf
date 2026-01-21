@@ -152,6 +152,82 @@ std::string format_duration(
     return ret;
 }
 
+namespace {
+
+double unit_multiplier(std::string_view unit)
+{
+    if (unit.empty()) {
+        return 1.0;  // default: bytes
+    }
+
+    constexpr std::array<std::pair<std::string_view, int>, 9> k_units{{
+        {"B", 0},   {"KiB", 1}, {"MiB", 2}, {"GiB", 3}, {"TiB", 4},
+        {"PiB", 5}, {"EiB", 6}, {"ZiB", 7}, {"YiB", 8},
+    }};
+
+    for (const auto& [name, pow] : k_units) {
+        if (unit.size() == name.size()) {
+            bool match = true;
+            for (std::size_t i = 0; i < unit.size(); ++i) {
+                auto a = static_cast<unsigned char>(unit[i]);
+                auto b = static_cast<unsigned char>(name[i]);
+                if (std::tolower(a) != std::tolower(b)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return std::ldexp(1.0, 10 * pow);  // 1024^pow
+            }
+        }
+    }
+
+    throw std::invalid_argument("parse_nbytes: unknown unit");
+}
+
+}  // namespace
+
+std::int64_t parse_nbytes(std::string_view text)
+{
+    // 1: number, 2: unit (optional)
+    static const std::regex k_re(
+        R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*([A-Za-z]+)?\s*$)",
+        std::regex::ECMAScript);
+
+    std::cmatch m;
+    if (!std::regex_match(text.begin(), text.end(), m, k_re)) {
+        throw std::invalid_argument("parse_nbytes: invalid format");
+    }
+
+    const std::string number_str = m[1].str();
+    const std::string unit_str = m[2].matched ? m[2].str() : std::string{};
+
+    double value = 0.0;
+    try {
+        value = std::stod(number_str);
+    } catch (const std::invalid_argument&) {
+        throw std::invalid_argument("parse_nbytes: invalid number");
+    } catch (const std::out_of_range&) {
+        throw std::out_of_range("parse_nbytes: number out of range");
+    }
+
+    const double mult = unit_multiplier(unit_str);
+    const double bytes_d = value * mult;
+
+    if (!std::isfinite(bytes_d)) {
+        throw std::out_of_range("parse_nbytes: non-finite result");
+    }
+
+    const double rounded = std::llround(bytes_d);
+
+    if (rounded < static_cast<double>(std::numeric_limits<std::int64_t>::min()) ||
+        rounded > static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+        throw std::out_of_range("parse_nbytes: result out of int64 range");
+    }
+
+    return static_cast<std::int64_t>(rounded);
+}
+
 template <>
 bool parse_string(std::string const& value) {
     try {
