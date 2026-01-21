@@ -263,6 +263,45 @@ std::size_t parse_nbytes_unsigned(std::string_view text) {
     return static_cast<std::size_t>(value);
 }
 
+double parse_nbytes_fraction(std::string_view text, double total_bytes) {
+    // Regex:
+    //  - Group 1: signed floating-point number (same grammar as parse_nbytes)
+    //  - Group 2 (optional): unit suffix (letters) or '%'
+    //  - Leading and trailing whitespace is ignored
+    static const std::regex k_re(
+        R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-z]+|%)?\s*$)",
+        std::regex::ECMAScript
+    );
+
+    std::cmatch m;
+    if (!std::regex_match(text.begin(), text.end(), m, k_re)) {
+        throw std::invalid_argument("invalid format: '" + std::string(text) + "'");
+    }
+
+    std::string number = m[1].str();
+    std::string suffix;
+    if (m[2].matched) {
+        suffix = m[2].str();
+    }
+
+    // Percentage case
+    if (suffix == "%") {
+        if (total_bytes == 0.0) {
+            throw std::invalid_argument(
+                "total_bytes must be non-zero for percentage input"
+            );
+        }
+        std::size_t const value = parse_nbytes_unsigned(number);
+        return static_cast<double>(value) / total_bytes;
+    }
+
+    // Absolute byte quantity
+    if (!suffix.empty()) {
+        number += suffix;
+    }
+    return static_cast<double>(parse_nbytes_unsigned(number));
+}
+
 Duration parse_duration(std::string_view text) {
     // Regex for parsing a human-readable duration.
     //  - Group 1: signed floating-point number

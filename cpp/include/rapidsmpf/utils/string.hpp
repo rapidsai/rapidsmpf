@@ -164,6 +164,31 @@ std::int64_t parse_nbytes(std::string_view text);
 std::size_t parse_nbytes_unsigned(std::string_view text);
 
 /**
+ * @brief Parse a byte quantity or percentage into a fraction of total bytes.
+ *
+ * The input may be a human-readable byte string (e.g. "1GiB", "512MB") or a
+ * percentage (e.g. "25%"). See `parse_nbytes_unsigned` for the exact parsing
+ * semantics.
+ *
+ * If @p text ends with '%', the numeric part is parsed as a byte quantity and
+ * the result is normalized by dividing by @p total_bytes.
+ *
+ * Otherwise, @p text is parsed as an absolute byte value and returned as-is,
+ * it is not divided by @p total_bytes.
+ *
+ * @param text Input string representing a byte quantity or percentage.
+ * @param total_bytes Reference number of bytes used to normalize the result
+ * when @p text is a percentage. Otherwise, this parameter is ignored.
+ * @return If @p text ends with '%', returns the fraction of @p total_bytes.
+ * Otherwise, returns the parsed absolute byte value as a double.
+ *
+ * @throws std::invalid_argument If the input format is invalid, negative, or
+ * if @p total_bytes is zero when parsing a percentage.
+ * @throws std::out_of_range If the parsed value exceeds the representable range.
+ */
+double parse_nbytes_fraction(std::string_view text, double total_bytes);
+
+/**
  * @brief Parse a human-readable time duration into seconds.
  *
  * Parses a numeric value followed by an optional time unit suffix and converts
