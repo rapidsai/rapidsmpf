@@ -42,6 +42,23 @@ std::string to_upper(std::string str) {
     return str;
 }
 
+namespace {
+
+/**
+ * @brief Remove the fractional part of a formatted number if it consists only of zeros.
+ *
+ * Examples:
+ *   "10.00"  -> "10"
+ *   "-1.000" -> "-1"
+ *   "1.50"   -> unchanged
+ */
+std::string do_trim_zero_fraction(std::string const& value) {
+    static const std::regex k_zero_fraction_regex(R"(^(-?\d+)\.0+$)");
+    return std::regex_replace(value, k_zero_fraction_regex, "$1");
+}
+
+}  // namespace
+
 std::string format_nbytes(
     double nbytes, int num_decimals, TrimZeroFraction trim_zero_fraction
 ) {
@@ -66,14 +83,72 @@ std::string format_nbytes(
     oss << std::fixed << std::setprecision(num_decimals) << size;
 
     std::string ret = oss.str();
-
     if (trim_zero_fraction == TrimZeroFraction::YES && num_decimals > 0) {
-        static const std::regex k_zero_fraction_regex(R"(^(-?\d+)\.0+$)");
-        ret = std::regex_replace(ret, k_zero_fraction_regex, "$1");
+        ret = do_trim_zero_fraction(ret);
     }
 
     ret += ' ';
     ret += units[unit_idx];
+    return ret;
+}
+
+std::string format_duration(
+    double seconds, int precision, TrimZeroFraction trim_zero_fraction
+) {
+    struct Unit {
+        const char* name;
+        double scale;
+    };
+
+    constexpr std::array<Unit, 3> large_units{{
+        {.name = "d", .scale = 86400.0},
+        {.name = "h", .scale = 3600.0},
+        {.name = "min", .scale = 60.0},
+    }};
+
+    constexpr std::array<Unit, 4> subsecond_units{{
+        {.name = "s", .scale = 1.0},
+        {.name = "ms", .scale = 1e-3},
+        {.name = "µs", .scale = 1e-6},
+        {.name = "ns", .scale = 1e-9},
+    }};
+
+    double value = std::abs(seconds);
+    const char* unit = "s";
+
+    if (std::isfinite(value)) {
+        for (const auto& u : large_units) {
+            if (value >= u.scale) {
+                value /= u.scale;
+                unit = u.name;
+                break;
+            }
+        }
+
+        if (value < 1.0) {
+            for (const auto& u : subsecond_units) {
+                if (value >= u.scale) {
+                    value /= u.scale;
+                    unit = u.name;
+                    break;
+                }
+            }
+        }
+    }
+
+    std::ostringstream oss;
+    if (seconds < 0) {
+        oss << '-';
+    }
+    oss << std::fixed << std::setprecision(precision) << value;
+
+    std::string ret = oss.str();
+    if (trim_zero_fraction == TrimZeroFraction::YES && precision > 0) {
+        ret = do_trim_zero_fraction(ret);
+    }
+
+    ret += ' ';
+    ret += unit;
     return ret;
 }
 

@@ -41,6 +41,37 @@ TEST(UtilsTest, FormatsByteCount) {
     EXPECT_EQ(format_nbytes(-10 * (1 << 20), 1, TrimZeroFraction::YES), "-10 MiB");
 }
 
+TEST(UtilsTest, FormatsDuration) {
+    EXPECT_EQ(format_duration(0.0, 2, TrimZeroFraction::NO), "0.00 s");
+    EXPECT_EQ(format_duration(0.0, 2, TrimZeroFraction::YES), "0 s");
+    EXPECT_EQ(format_duration(1.0, 2, TrimZeroFraction::NO), "1.00 s");
+    EXPECT_EQ(format_duration(1.0, 2, TrimZeroFraction::YES), "1 s");
+    EXPECT_EQ(format_duration(1.234, 2, TrimZeroFraction::NO), "1.23 s");
+    EXPECT_EQ(format_duration(1.234, 2, TrimZeroFraction::YES), "1.23 s");
+    EXPECT_EQ(format_duration(0.5, 2, TrimZeroFraction::NO), "500.00 ms");
+    EXPECT_EQ(format_duration(0.5, 2, TrimZeroFraction::YES), "500 ms");
+    EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::NO), "1.00 ms");
+    EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::YES), "1 ms");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 µs");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 µs");
+    EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::NO), "1.00 ns");
+    EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::YES), "1 ns");
+    EXPECT_EQ(format_duration(60.0, 2, TrimZeroFraction::NO), "1.00 min");
+    EXPECT_EQ(format_duration(60.0, 2, TrimZeroFraction::YES), "1 min");
+    EXPECT_EQ(format_duration(65.0, 2, TrimZeroFraction::NO), "1.08 min");
+    EXPECT_EQ(format_duration(65.0, 2, TrimZeroFraction::YES), "1.08 min");
+    EXPECT_EQ(format_duration(3600.0, 2, TrimZeroFraction::NO), "1.00 h");
+    EXPECT_EQ(format_duration(3600.0, 2, TrimZeroFraction::YES), "1 h");
+    EXPECT_EQ(format_duration(86400.0, 2, TrimZeroFraction::NO), "1.00 d");
+    EXPECT_EQ(format_duration(86400.0, 2, TrimZeroFraction::YES), "1 d");
+    EXPECT_EQ(format_duration(-1.0, 2, TrimZeroFraction::NO), "-1.00 s");
+    EXPECT_EQ(format_duration(-1.0, 2, TrimZeroFraction::YES), "-1 s");
+    EXPECT_EQ(format_duration(-0.5, 2, TrimZeroFraction::NO), "-500.00 ms");
+    EXPECT_EQ(format_duration(-0.5, 2, TrimZeroFraction::YES), "-500 ms");
+    EXPECT_EQ(format_duration(-60.0, 2, TrimZeroFraction::NO), "-1.00 min");
+    EXPECT_EQ(format_duration(-60.0, 2, TrimZeroFraction::YES), "-1 min");
+}
+
 TEST(UtilsTest, ParseStringTest) {
     // Integers
     EXPECT_EQ(parse_string<int>("42"), 42);
