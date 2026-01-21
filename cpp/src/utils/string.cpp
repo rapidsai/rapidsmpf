@@ -293,18 +293,11 @@ Duration parse_duration(std::string_view text) {
 
     // Default unit: seconds
     double multiplier = 1.0;
-
     if (m[2].matched) {
         std::string unit = to_lower(m[2].str());
-
-        // Normalize microseconds aliases
-        if (unit == "us") {
-            unit = "µs";
-        }
-
         if (unit == "ns")
             multiplier = 1e-9;
-        else if (unit == "µs")
+        else if (unit == "µs" || unit == "us")
             multiplier = 1e-6;
         else if (unit == "ms")
             multiplier = 1e-3;
