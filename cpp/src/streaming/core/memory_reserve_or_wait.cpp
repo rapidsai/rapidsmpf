@@ -28,12 +28,9 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{
-          options.get<Duration>("memory_reserve_timeout_ms", [](std::string const& s) {
-              return s.empty() ? std::chrono::milliseconds{100}
-                               : std::chrono::milliseconds{std::stoi(s)};
-          })
-      } {
+      timeout_{options.get<Duration>("memory_reserve_timeout", [](std::string const& s) {
+          return s.empty() ? parse_duration("100 ms") : parse_duration(s);
+      })} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }

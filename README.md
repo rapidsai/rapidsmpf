@@ -281,11 +281,11 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
-- **`memory_reserve_timeout_ms`**
-  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT_MS`
-  - **Default**: `100`
+- **`memory_reserve_timeout`**
+  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
+  - **Default**: `100 ms`
   - **Description**: Controls the global progress timeout for memory reservation
-    requests, specified in milliseconds.
+    requests. If the value does not include a unit, it is interpreted as seconds.
 
     The value limits how long the system may go without making progress on any
     pending memory reservation. When the timeout expires and no reservation has

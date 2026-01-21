@@ -34,7 +34,7 @@ class MemoryReserveOrWait {
      * @brief Constructs a `MemoryReserveOrWait` instance.
      *
      * If no reservation request can be satisfied within the timeout specified by
-     * the `"memory_reserve_timeout_ms"` key in @p options, the coroutine forces
+     * the `"memory_reserve_timeout"` key in @p options, the coroutine forces
      * progress by selecting the smallest pending request and attempting to reserve
      * memory for it. This attempt may result in an empty reservation if the request
      * still cannot be satisfied.
