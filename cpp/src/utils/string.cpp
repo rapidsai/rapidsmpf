@@ -62,7 +62,7 @@ std::string do_trim_zero_fraction(std::string const& value) {
 std::string format_nbytes(
     double nbytes, int num_decimals, TrimZeroFraction trim_zero_fraction
 ) {
-    constexpr std::array<const char*, 9> units{
+    constexpr std::array<char const *, 9> units{
         "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"
     };
 
