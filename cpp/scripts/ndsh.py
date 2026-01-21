@@ -664,6 +664,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return int(failed > 0)
 
 
+def query_type(query: str) -> list[int]:
+    if query == "all":
+        return list(range(1, 23))
+    else:
+        return [int(q) for q in query.split(",")]
+
+
 def main():
     """Run the NDSH validation tool."""
     parser = argparse.ArgumentParser(
@@ -708,12 +715,12 @@ def main():
         required=True,
         help="Directory for output files",
     )
-    run_parser.add_argument(
-        "--query",
-        type=str,
-        action="append",
-        dest="queries",
-        help="Specific query to run (can be repeated). If not specified, all discovered queries are run.",
+    parser.add_argument(
+        "-q",
+        "--queries",
+        help="Comma-separated list of SQL query numbers to run or the string 'all'",
+        type=query_type,
+        default="all",
     )
     run_parser.add_argument(
         "--benchmark-args",
