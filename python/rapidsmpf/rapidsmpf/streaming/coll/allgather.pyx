@@ -50,7 +50,7 @@ cdef extern from * nogil:
                     extract_all_task(gather, ordered, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }

@@ -54,7 +54,7 @@ cdef extern from * nogil:
                     extract_async_task(shuffle, pid, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
@@ -89,7 +89,7 @@ cdef extern from * nogil:
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
@@ -114,7 +114,7 @@ cdef extern from * nogil:
                     insert_finished_task(shuffle)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
     }  // namespace

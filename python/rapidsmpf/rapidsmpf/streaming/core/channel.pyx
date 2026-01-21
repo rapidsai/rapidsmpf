@@ -40,7 +40,7 @@ cdef extern from * nogil:
                     channel_drain_task(std::move(channel), ctx)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
     }  // namespace
@@ -76,7 +76,7 @@ cdef extern from * nogil:
                     channel_shutdown_task(std::move(channel))
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
     }  // namespace
@@ -117,7 +117,7 @@ cdef extern from * nogil:
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
     }  // namespace
@@ -159,7 +159,7 @@ cdef extern from * nogil:
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return msg_output;
     }
