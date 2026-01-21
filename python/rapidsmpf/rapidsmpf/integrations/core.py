@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Shuffler integration with external libraries."""
 
@@ -21,6 +21,7 @@ from rapidsmpf.config import (
 )
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.spill_collection import SpillCollection
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -742,8 +743,16 @@ def rmpf_worker_setup(
             mr, limit=int(total_memory * spill_device)
         )
     }
+    pinned_mr = (
+        PinnedMemoryResource.make_if_available()
+        if options.get_or_default(
+            f"{option_prefix}spill_to_pinned_memory", default_value=False
+        )
+        else None
+    )
     br = BufferResource(
         mr,
+        pinned_mr=pinned_mr,
         memory_available=memory_available,
         periodic_spill_check=options.get_or_default(
             f"{option_prefix}periodic_spill_check", default_value=Optional(1e-3)
