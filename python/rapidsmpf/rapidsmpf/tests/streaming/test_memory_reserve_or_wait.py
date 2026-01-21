@@ -180,7 +180,7 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
         @define_py_node()
         async def node(ctx: Context) -> None:
             # Request cannot be satisfied and overbooking is not allowed.
-            with pytest.raises((OverflowError, RuntimeError)):
+            with pytest.raises(RuntimeError):
                 await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
 
         run_streaming_pipeline(
@@ -219,7 +219,7 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
             assert res.size == 2048
 
             # Exceeds limit, overbooking disabled, should fail.
-            with pytest.raises((OverflowError, RuntimeError)):
+            with pytest.raises(RuntimeError):
                 await reserve_memory(
                     ctx,
                     2048,
@@ -274,7 +274,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
 
         @define_py_node()
         async def node(ctx: Context) -> None:
-            with pytest.raises((OverflowError, RuntimeError)):
+            with pytest.raises(RuntimeError):
                 await reserve_memory(
                     ctx,
                     2048,
