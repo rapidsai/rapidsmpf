@@ -64,7 +64,22 @@ def discover_benchmarks(
     """
     Discover benchmark binaries and their corresponding SQL files.
 
-    Returns a list of tuples: (query_name, binary_path, sql_path)
+    Parameters
+    ----------
+    benchmark_dir
+        Directory containing benchmark binaries (q04, q09, etc.)
+    sql_dir
+        Directory containing SQL query files (q04.sql, q09.sql, etc.)
+
+    Returns
+    -------
+    List of tuples with the following elements:
+
+    - query_name
+    - binary_path
+    - sql_path
+
+    These are sorted by query_name.
     """
     benchmarks = []
     pattern = re.compile(r"^q(\d+)$")
@@ -91,7 +106,14 @@ def discover_parquet_files(directory: Path) -> dict[str, Path]:
     """
     Discover parquet files matching the qDD.parquet pattern.
 
-    Returns a dict mapping query_name (e.g., 'q03') to file path.
+    Parameters
+    ----------
+    directory
+        Directory containing parquet files (q03.parquet, q09.parquet, etc.)
+
+    Returns
+    -------
+    Dictionary mapping query_name (e.g., 'q03') to file path.
     """
     pattern = re.compile(r"^q_?(\d+)\.parquet$")
     files = {}
@@ -428,7 +450,30 @@ def run_single_benchmark(
     """
     Run a single benchmark and generate expected results.
 
-    Returns True if both operations succeed, False otherwise.
+    Parameters
+    ----------
+    query_name
+        Name of the query to run (e.g., 'q03')
+    binary_path
+        Path to the benchmark binary
+    sql_path
+        Path to the SQL query file
+    input_dir
+        Directory containing TPC-H parquet files
+    output_dir
+        Directory for benchmark output
+    expected_dir
+        Directory for expected results
+    extra_args
+        Additional arguments to pass to the benchmark
+    reuse_expected
+        Skip generating expected results if the expected file already exists
+    reuse_output
+        Skip running the benchmark if the output file already exists
+
+    Returns
+    -------
+    True if both operations succeed, False otherwise.
     """
     print(f"\nRunning {query_name}...")
 
