@@ -137,30 +137,30 @@ TEST(UtilsTest, ParseNBytesUnsigned) {
 }
 
 TEST(UtilsTest, ParseDuration) {
-    EXPECT_DOUBLE_EQ(parse_duration("0"), 0.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1"), 1.0);
-    EXPECT_DOUBLE_EQ(parse_duration("  1.5  "), 1.5);
-    EXPECT_DOUBLE_EQ(parse_duration("-2"), -2.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1 s"), 1.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1s"), 1.0);
-    EXPECT_DOUBLE_EQ(parse_duration("-1 S"), -1.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1 ms"), 1e-3);
-    EXPECT_DOUBLE_EQ(parse_duration("1ms"), 1e-3);
-    EXPECT_DOUBLE_EQ(parse_duration("2.5 ms"), 2.5e-3);
-    EXPECT_DOUBLE_EQ(parse_duration("1 us"), 1e-6);
-    EXPECT_DOUBLE_EQ(parse_duration("1 µs"), 1e-6);
-    EXPECT_DOUBLE_EQ(parse_duration("3 US"), 3e-6);
-    EXPECT_DOUBLE_EQ(parse_duration("1 ns"), 1e-9);
-    EXPECT_DOUBLE_EQ(parse_duration("10 NS"), 10e-9);
-    EXPECT_DOUBLE_EQ(parse_duration("1 min"), 60.0);
-    EXPECT_DOUBLE_EQ(parse_duration("2 MIN"), 120.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1 h"), 3600.0);
-    EXPECT_DOUBLE_EQ(parse_duration("0.5 H"), 1800.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1 d"), 86400.0);
-    EXPECT_DOUBLE_EQ(parse_duration("-2 D"), -172800.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1e3 s"), 1000.0);
-    EXPECT_DOUBLE_EQ(parse_duration("1e-3 s"), 1e-3);
-    EXPECT_DOUBLE_EQ(parse_duration("2.5E-3 min"), 0.15);
+    EXPECT_DOUBLE_EQ(parse_duration("0").count(), 0.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1").count(), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("  1.5  ").count(), 1.5);
+    EXPECT_DOUBLE_EQ(parse_duration("-2").count(), -2.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 s").count(), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1s").count(), 1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("-1 S").count(), -1.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 ms").count(), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("1ms").count(), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("2.5 ms").count(), 2.5e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("1 us").count(), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 µs").count(), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("3 US").count(), 3e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 ns").count(), 1e-9);
+    EXPECT_DOUBLE_EQ(parse_duration("10 NS").count(), 10e-9);
+    EXPECT_DOUBLE_EQ(parse_duration("1 min").count(), 60.0);
+    EXPECT_DOUBLE_EQ(parse_duration("2 MIN").count(), 120.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 h").count(), 3600.0);
+    EXPECT_DOUBLE_EQ(parse_duration("0.5 H").count(), 1800.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1 d").count(), 86400.0);
+    EXPECT_DOUBLE_EQ(parse_duration("-2 D").count(), -172800.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1e3 s").count(), 1000.0);
+    EXPECT_DOUBLE_EQ(parse_duration("1e-3 s").count(), 1e-3);
+    EXPECT_DOUBLE_EQ(parse_duration("2.5E-3 min").count(), 0.15);
 
     // Invalid inputs
     EXPECT_THROW(parse_duration(""), std::invalid_argument);

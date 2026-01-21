@@ -11,6 +11,8 @@
 #include <sstream>
 #include <string>
 
+#include <rapidsmpf/utils/misc.hpp>
+
 namespace rapidsmpf {
 
 /**
@@ -165,11 +167,11 @@ std::size_t parse_nbytes_unsigned(std::string_view text);
  * @brief Parse a human-readable time duration into seconds.
  *
  * Parses a numeric value followed by an optional time unit suffix and converts
- * it to a duration expressed in seconds.
+ * it to a `Duration`, which represents a time interval in seconds as a double.
  *
  * Supported units:
  *   - Nanoseconds: ns
- *   - Microseconds: µs
+ *   - Microseconds: µs or us
  *   - Milliseconds: ms
  *   - Seconds: s
  *   - Minutes: min
@@ -189,7 +191,7 @@ std::size_t parse_nbytes_unsigned(std::string_view text);
  * not recognized.
  * @throws std::out_of_range If the parsed value is not finite.
  */
-double parse_duration(std::string_view text);
+Duration parse_duration(std::string_view text);
 
 /**
  * @brief Parses a string into a value of type T.

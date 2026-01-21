@@ -263,7 +263,7 @@ std::size_t parse_nbytes_unsigned(std::string_view text) {
     return static_cast<std::size_t>(value);
 }
 
-double parse_duration(std::string_view text) {
+Duration parse_duration(std::string_view text) {
     // Regex for parsing a human-readable duration.
     //  - Group 1: signed floating-point number
     //      * integer or decimal form (e.g. "10", "1.5", ".5")
@@ -325,7 +325,7 @@ double parse_duration(std::string_view text) {
     if (!std::isfinite(seconds)) {
         throw std::out_of_range("parse_duration: non-finite result");
     }
-    return seconds;
+    return Duration{seconds};
 }
 
 template <>
