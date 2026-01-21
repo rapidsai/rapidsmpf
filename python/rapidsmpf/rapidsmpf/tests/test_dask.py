@@ -23,7 +23,10 @@ from rapidsmpf.integrations.dask.shuffler import (
     gather_shuffle_statistics,
     rapidsmpf_shuffle_graph,
 )
-from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    is_pinned_memory_resources_supported,
+)
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -554,7 +557,10 @@ def test_option_spill_to_pinned_memory(dask_spill_to_pinned_memory: str) -> None
 
         def check_worker(dask_worker: Worker) -> None:
             ctx = get_worker_context(dask_worker)
-            if dask_spill_to_pinned_memory == "on":
+            if (
+                dask_spill_to_pinned_memory == "on"
+                and is_pinned_memory_resources_supported()
+            ):
                 assert isinstance(ctx.br.pinned_mr, PinnedMemoryResource)
             else:
                 assert ctx.br.pinned_mr is None
