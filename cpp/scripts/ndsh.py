@@ -553,7 +553,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         benchmarks = [
             (name, binary, sql)
             for name, binary, sql in benchmarks
-            if name in args.queries
+            if int(name.lstrip("q")) in args.queries
         ]
         if not benchmarks:
             print(f"No matching benchmarks found for queries: {args.queries}")
