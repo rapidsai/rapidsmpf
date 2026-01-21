@@ -447,6 +447,33 @@ coro::task<std::pair<std::size_t, std::size_t>> allgather_join_sizes(
     }
     co_return {left_total_bytes, right_total_bytes};
 }
+
+streaming::Node replay_channel(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> input,
+    std::shared_ptr<streaming::Channel> output,
+    std::vector<streaming::Message> buffer
+) {
+    streaming::ShutdownAtExit c{input, output};
+    co_await ctx->executor()->schedule();
+    for (auto&& msg : buffer) {
+        if (msg.empty()) {
+            co_await output->drain(ctx->executor());
+            co_return;
+        }
+        if (!co_await output->send(std::move(msg))) {
+            co_return;
+        }
+    }
+    while (!output->is_shutdown()) {
+        auto msg = co_await input->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await output->send(std::move(msg));
+    }
+    co_await output->drain(ctx->executor());
+}
 }  // namespace
 
 streaming::Node adaptive_inner_join(
