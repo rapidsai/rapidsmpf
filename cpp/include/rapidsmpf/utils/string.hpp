@@ -69,10 +69,10 @@ enum class TrimZeroFraction {
  * Negative values are supported and are formatted with a leading minus sign,
  * which is useful when representing signed byte deltas or accounting values.
  *
- * Decimal formatting is controlled by @p num_decimals. When
- * @p trim_zero_fraction is set to `TrimZeroFraction::YES`, the fractional part
- * is omitted entirely if all decimal digits are zero. Otherwise, the specified
- * number of decimal places is preserved.
+ * Decimal formatting is controlled by @p precision. When @p trim_zero_fraction
+ * is set to @c TrimZeroFraction::YES, the fractional part is omitted entirely
+ * if all decimal digits are zero. Otherwise, the specified number of decimal
+ * places is preserved.
  *
  * Examples:
  *   - 1024 bytes with 2 decimals → "1.00 KiB" or "1 KiB" (trimmed)
@@ -91,7 +91,29 @@ std::string format_nbytes(
     TrimZeroFraction trim_zero_fraction = TrimZeroFraction::YES
 );
 
-
+/**
+ * @brief Format a time duration as a human-readable string.
+ *
+ * Converts a duration given in seconds into a scaled string representation
+ * using common time units such as ns, µs, ms, s, min, h, and d.
+ *
+ * The duration is accepted as a @c double to support both fractional seconds
+ * and very large values without overflow.
+ *
+ * Negative values are supported and are formatted with a leading minus sign,
+ * which is useful when representing signed time deltas.
+ *
+ * Decimal formatting is controlled by @p precision. When @p trim_zero_fraction
+ * is set to @c TrimZeroFraction::YES, the fractional part is omitted entirely
+ * if all decimal digits are zero. Otherwise, the specified number of decimal
+ * places is preserved.
+ *
+ * @param seconds Time duration to format, in seconds.
+ * @param precision Number of decimal places to include in the formatted value.
+ * @param trim_zero_fraction Whether to omit the fractional part when it consists only of
+ * zeros.
+ * @return Human-readable string representation of the time duration.
+ */
 std::string format_duration(
     double seconds,
     int precision = 2,
