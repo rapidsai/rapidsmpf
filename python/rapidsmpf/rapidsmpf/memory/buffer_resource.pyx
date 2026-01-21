@@ -239,6 +239,29 @@ cdef class BufferResource:
     cdef const cuda_stream_pool* stream_pool(self):
         return &deref(self._handle).stream_pool()
 
+    @property
+    def device_mr(self):
+        """
+        The memory resource used for device memory allocations.
+
+        Returns
+        -------
+        The device memory resource.
+        """
+        return self._device_mr
+
+    @property
+    def pinned_mr(self):
+        """
+        The memory resource used for pinned host memory allocations.
+
+        Returns
+        -------
+        The pinned host memory resource, or None if pinned host allocations
+        are disabled.
+        """
+        return self._pinned_mr
+
     def memory_reserved(self, MemoryType mem_type):
         """
         Get the current reserved memory of the specified memory type.

@@ -322,6 +322,14 @@ Each configuration option includes:
   - **Default**: `0.50`
   - **Description**: GPU memory limit for shuffling as a fraction of total device memory.
 
+- **`dask_spill_to_pinned_memory`**
+  - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_TO_PINNED_MEMORY`
+  - **Default**: `False`
+  - **Description**: Control whether RapidsMPF spills to pinned host memory when
+    available, or falls back to regular pageable host memory. Pinned host memory
+    provides higher bandwidth and lower latency for device-to-host transfers
+    compared to pageable host memory.
+
 - **`dask_oom_protection`**
   - **Environment Variable**: `RAPIDSMPF_DASK_OOM_PROTECTION`
   - **Default**: `False`
