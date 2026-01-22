@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,13 +13,11 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include <coro/sync_wait.hpp>
 
 namespace rapidsmpf::streaming {
-namespace {
-constexpr bool no_overbooking = false;
-}
 
 MemoryReserveOrWait::MemoryReserveOrWait(
     config::Options options,
@@ -30,12 +28,9 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{
-          options.get<Duration>("memory_reserve_timeout_ms", [](std::string const& s) {
-              return s.empty() ? std::chrono::milliseconds{100}
-                               : std::chrono::milliseconds{std::stoi(s)};
-          })
-      } {
+      timeout_{options.get<Duration>("memory_reserve_timeout", [](std::string const& s) {
+          return s.empty() ? parse_duration("100 ms") : parse_duration(s);
+      })} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }
@@ -72,7 +67,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::int64_t net_memory_delta
 ) {
     // First, check whether the requested memory is immediately available.
-    auto [res, _] = br_->reserve(mem_type_, size, no_overbooking);
+    auto [res, _] = br_->reserve(mem_type_, size, AllowOverbooking::NO);
     if (res.size() == size) {
         co_return std::move(res);
     }
@@ -128,7 +123,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 ) {
     auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
-        co_return br_->reserve(mem_type_, size, /* allow_overbooking = */ true);
+        co_return br_->reserve(mem_type_, size, AllowOverbooking::YES);
     }
     co_return {std::move(ret), 0};
 }
@@ -234,7 +229,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             );
 
             // Try to reserve memory for the selected request.
-            auto [res, _] = br_->reserve(mem_type_, it->size, no_overbooking);
+            auto [res, _] = br_->reserve(mem_type_, it->size, AllowOverbooking::NO);
             if (res.size() == 0) {
                 continue;  // Memory is no longer available.
             }
@@ -277,7 +272,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
-        auto [res, _] = br_->reserve(mem_type_, request.size, no_overbooking);
+        auto [res, _] = br_->reserve(mem_type_, request.size, AllowOverbooking::NO);
         push_into_queue(request.queue, std::move(res));
     }
 }

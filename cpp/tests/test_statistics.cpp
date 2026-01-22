@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ TEST(Statistics, Communication) {
 
     EXPECT_EQ(stats.add_bytes_stat("byte-statistics", 20), 20);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
 }
 
 TEST(Statistics, MemoryProfiler) {

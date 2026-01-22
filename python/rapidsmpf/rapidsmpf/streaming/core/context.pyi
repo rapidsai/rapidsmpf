@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.communicator.communicator import Communicator
@@ -21,6 +23,14 @@ class Context:
         options: Options | None = None,
         statistics: Statistics | None = None,
     ) -> None: ...
+    def __enter__(self) -> Context: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any | None,
+    ) -> bool: ...
+    def shutdown(self) -> None: ...
     def options(self) -> Options: ...
     def comm(self) -> Communicator: ...
     def br(self) -> BufferResource: ...

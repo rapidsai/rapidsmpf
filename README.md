@@ -281,11 +281,11 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
-- **`memory_reserve_timeout_ms`**
-  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT_MS`
-  - **Default**: `100`
+- **`memory_reserve_timeout`**
+  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
+  - **Default**: `100 ms`
   - **Description**: Controls the global progress timeout for memory reservation
-    requests, specified in milliseconds.
+    requests. If the value does not include a unit, it is interpreted as seconds.
 
     The value limits how long the system may go without making progress on any
     pending memory reservation. When the timeout expires and no reservation has
@@ -303,6 +303,14 @@ Each configuration option includes:
   - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_DEVICE`
   - **Default**: `0.50`
   - **Description**: GPU memory limit for shuffling as a fraction of total device memory.
+
+- **`dask_spill_to_pinned_memory`**
+  - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_TO_PINNED_MEMORY`
+  - **Default**: `False`
+  - **Description**: Control whether RapidsMPF spills to pinned host memory when
+    available, or falls back to regular pageable host memory. Pinned host memory
+    provides higher bandwidth and lower latency for device-to-host transfers
+    compared to pageable host memory.
 
 - **`dask_oom_protection`**
   - **Environment Variable**: `RAPIDSMPF_DASK_OOM_PROTECTION`

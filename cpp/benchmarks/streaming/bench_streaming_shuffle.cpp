@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,7 +28,7 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
 #include "../utils/rmm_stack.hpp"
@@ -409,8 +409,8 @@ int main(int argc, char** argv) {
         }
         double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -432,8 +432,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"

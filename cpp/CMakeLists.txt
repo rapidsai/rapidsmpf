@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -212,7 +212,8 @@ add_library(
   src/statistics.cpp
   src/system_info.cpp
   src/topology_discovery.cpp
-  src/utils.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
 
 if(RAPIDSMPF_HAVE_STREAMING)

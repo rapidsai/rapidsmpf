@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -110,7 +110,7 @@ streaming::Node consume_channel(
 streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& chunk,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     auto reservation = ctx->br()->reserve_device_memory_and_spill(
         chunk.make_available_cost(), allow_overbooking
