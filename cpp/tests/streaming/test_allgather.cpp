@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -76,7 +76,7 @@ TEST_P(StreamingAllGather, basic) {
             br->stream_pool().get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
-        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
+        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view& stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 buf_data,
                 data.data(),
@@ -154,7 +154,7 @@ TEST_P(StreamingAllGather, streaming_node) {
             br->stream_pool().get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
-        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
+        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view& stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 buf_data,
                 data.data(),

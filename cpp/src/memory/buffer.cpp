@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdexcept>
@@ -112,6 +112,14 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
+void Buffer::set_stream(rmm::cuda_stream_view stream) {
+    RAPIDSMPF_EXPECTS(
+        is_latest_write_done(),
+        "the latest write must be done before setting a new stream"
+    );
+    stream_ = stream;
+}
+
 void buffer_copy(
     Buffer& dst,
     Buffer const& src,
@@ -141,7 +149,7 @@ void buffer_copy(
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     cuda_stream_join(dst.stream(), src.stream());
-    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
+    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view& stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
             src.data() + src_offset,

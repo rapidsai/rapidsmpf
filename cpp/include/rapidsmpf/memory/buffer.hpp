@@ -86,11 +86,11 @@ class Buffer {
     /**
      * @brief Provides stream-ordered write access to the buffer.
      *
-     * Calls @p f with a pointer to the buffer's memory and the buffer's stream
-     * (i.e., `this->stream()`).
+     * Calls @p f with a pointer to the buffer's memory and a reference to the
+     * buffer's stream (i.e., `this->stream_`).
      *
      * The callable must be invocable as:
-     *   - `R(std::byte*, rmm::cuda_stream_view)`.
+     *   - `R(std::byte*, rmm::cuda_stream_view&)`.
      *
      * All work performed by @p f must be stream-ordered on the buffer's stream.
      * Enqueuing work on any other stream without synchronizing with the buffer's
@@ -99,6 +99,8 @@ class Buffer {
      * `cudaMemcpyAsync` on the buffer's stream. For non-stream-aware integrations,
      * use `exclusive_data_access()`.
      *
+     * The callable may update the buffer's stream by assigning to the reference.
+     *
      * After @p f returns, an event is recorded on the buffer's stream, establishing
      * the new "latest write" for this buffer.
      *
@@ -106,14 +108,14 @@ class Buffer {
      * outside of @p f is undefined behavior.
      *
      * @tparam F Callable type.
-     * @param f Callable that accepts `(std::byte*, rmm::cuda_stream_view)`.
+     * @param f Callable that accepts `(std::byte*, rmm::cuda_stream_view&)`.
      * @return Whatever @p f returns (`void` if none).
      *
      * @throws std::logic_error If the buffer is locked.
      *
      * @code{.cpp}
      * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
-     * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
+     * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view& stream) {
      *   assert(buffer.stream().value() == stream.value());
      *   RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
      *       buffer_ptr,
@@ -127,13 +129,13 @@ class Buffer {
      */
     template <typename F>
     auto write_access(F&& f)
-        -> std::invoke_result_t<F, std::byte*, rmm::cuda_stream_view> {
+        -> std::invoke_result_t<F, std::byte*, rmm::cuda_stream_view&> {
         using Fn = std::remove_reference_t<F>;
         static_assert(
-            std::is_invocable_v<Fn, std::byte*, rmm::cuda_stream_view>,
-            "write_access() expects callable R(std::byte*, rmm::cuda_stream_view)"
+            std::is_invocable_v<Fn, std::byte*, rmm::cuda_stream_view&>,
+            "write_access() expects callable R(std::byte*, rmm::cuda_stream_view&)"
         );
-        using R = std::invoke_result_t<Fn, std::byte*, rmm::cuda_stream_view>;
+        using R = std::invoke_result_t<Fn, std::byte*, rmm::cuda_stream_view&>;
 
         auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
@@ -200,6 +202,15 @@ class Buffer {
     [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
         return stream_;
     }
+
+    /**
+     * @brief Set the associated CUDA stream.
+     *
+     * @param stream The new CUDA stream.
+     *
+     * @throws std::logic_error If the latest write is not done.
+     */
+    void set_stream(rmm::cuda_stream_view stream);
 
     /**
      * @brief Check whether the buffer's most recent write has completed.
