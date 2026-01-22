@@ -23,12 +23,31 @@ coro::task<Message> Channel::receive() {
     }
 }
 
+coro::task<bool> Channel::send_metadata(Message msg) {
+    RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
+    auto result = co_await metadata_.push(std::move(msg));
+    co_return result == coro::queue_produce_result::produced;
+}
+
+coro::task<Message> Channel::receive_metadata() {
+    auto msg = co_await metadata_.pop();
+    if (msg.has_value()) {
+        co_return std::move(*msg);
+    } else {
+        co_return Message{};
+    }
+}
+
 Node Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
-    return rb_.shutdown_drain(executor->get());
+    coro_results(
+        co_await coro::when_all(
+            rb_.shutdown_drain(executor->get()), metadata_.shutdown_drain(executor->get())
+        )
+    );
 }
 
 Node Channel::shutdown() {
-    return rb_.shutdown();
+    coro_results(co_await coro::when_all(metadata_.shutdown(), rb_.shutdown()));
 }
 
 bool Channel::empty() const noexcept {

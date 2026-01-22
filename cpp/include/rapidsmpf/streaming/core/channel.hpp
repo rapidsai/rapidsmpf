@@ -18,6 +18,7 @@
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
+#include <coro/queue.hpp>
 #include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
@@ -65,6 +66,29 @@ class Channel {
     coro::task<Message> receive();
 
     /**
+     * @brief Asynchronously send a metadata message into the channel.
+     *
+     * Suspends if the metadata queue is locked by another producer.
+     *
+     * @param msg The metadata message to send.
+     * @return A coroutine that evaluates to true if the msg was successfully sent or
+     * false if the channel was shut down.
+     *
+     * @throws std::logic_error If the message is empty.
+     */
+    coro::task<bool> send_metadata(Message msg);
+
+    /**
+     * @brief Asynchronously receive a metadata message from the channel.
+     *
+     * Suspends if the metadata queue is empty.
+     *
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * metadata queue is shut down.
+     */
+    coro::task<Message> receive_metadata();
+
+    /**
      * @brief Drains all pending messages from the channel and shuts it down.
      *
      * This is intended to ensure all remaining messages are processed.
@@ -103,6 +127,7 @@ class Channel {
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
     std::shared_ptr<SpillableMessages> sm_;
+    coro::queue<Message> metadata_;
 };
 
 /**
