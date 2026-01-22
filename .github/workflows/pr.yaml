@@ -71,7 +71,7 @@ jobs:
       package-name: librapidsmpf
       package-type: cpp
       # build for every combination of arch and CUDA version, but only for the latest Python version
-      matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+      # matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-build-rapidsmpf:
     needs: [checks, wheel-build-librapidsmpf]
