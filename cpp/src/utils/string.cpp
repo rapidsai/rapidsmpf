@@ -363,20 +363,20 @@ Duration parse_duration(std::string_view text) {
 }
 
 template <>
-bool parse_string(std::string const& value) {
+bool parse_string(std::string const& text) {
     try {
-        // Try parsing `value` as a integer.
-        return static_cast<bool>(std::stoi(value));
+        // Try parsing `text` as a integer.
+        return static_cast<bool>(std::stoi(text));
     } catch (std::invalid_argument const&) {
     }
-    std::string str = to_lower(trim(value));
+    std::string str = to_lower(trim(text));
     if (str == "true" || str == "on" || str == "yes") {
         return true;
     }
     if (str == "false" || str == "off" || str == "no") {
         return false;
     }
-    throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+    throw std::invalid_argument("cannot parse \"" + std::string{text} + "\"");
 }
 
 }  // namespace rapidsmpf

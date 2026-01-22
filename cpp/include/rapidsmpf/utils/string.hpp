@@ -226,7 +226,7 @@ Duration parse_duration(std::string_view text);
  *
  * @tparam T The type to parse the string into. Must support extraction from
  * `std::istream` via `operator>>`.
- * @param value The input string to parse.
+ * @param text The input string to parse.
  * @return T The parsed value of type `T`.
  *
  * @throws std::invalid_argument If the string cannot be parsed into the requested type.
@@ -239,12 +239,12 @@ Duration parse_duration(std::string_view text);
  * double d = parse_string<double>("3.14");    // d == 3.14
  */
 template <typename T>
-T parse_string(std::string const& value) {
-    std::stringstream sstream(value);
+T parse_string(std::string const& text) {
+    std::stringstream sstream(text);
     T ret;
     sstream >> ret;
     if (sstream.fail()) {
-        throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+        throw std::invalid_argument("cannot parse \"" + std::string{text} + "\"");
     }
     return ret;
 }
@@ -258,12 +258,13 @@ T parse_string(std::string const& value) {
  * value using `std::stoi`; if that fails, it is lowercased and trimmed before matching
  * against known textual representations.
  *
- * @param value String to convert to a boolean.
+ * @param text String to convert to a boolean.
  * @return The corresponding boolean value.
  *
  * @throws std::invalid_argument If the string cannot be interpreted as a boolean.
  */
 template <>
-bool parse_string(std::string const& value);
+bool parse_string(std::string const& text);
+
 
 }  // namespace rapidsmpf
