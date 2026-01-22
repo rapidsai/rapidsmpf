@@ -935,6 +935,17 @@ int execute_slurm_hybrid_mode(Config& cfg) {
                   << std::endl;
     }
 
+    // Set up coordination directory FIRST (needed by rank 0 when it's launched early)
+    char const* job_id = std::getenv("SLURM_JOB_ID");
+    if (cfg.coord_dir.empty()) {
+        if (job_id) {
+            cfg.coord_dir = "/tmp/rrun_slurm_" + std::string{job_id};
+        } else {
+            cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
+        }
+    }
+    std::filesystem::create_directories(cfg.coord_dir);
+
     // Root parent needs to launch rank 0 first to get address
     bool is_root_parent = (cfg.slurm_global_rank == 0);
 
@@ -943,7 +954,6 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     int total_ranks = slurm_ntasks * cfg.nranks;
     std::string coordinated_root_address;
 
-    char const* job_id = std::getenv("SLURM_JOB_ID");
     if (is_root_parent) {
         // Root parent: Launch rank 0, get address, coordinate via PMIx
         std::string address_file =
