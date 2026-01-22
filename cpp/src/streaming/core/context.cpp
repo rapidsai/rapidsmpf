@@ -60,7 +60,8 @@ Context::Context(
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
-    : options_{std::move(options)},
+    : creator_thread_id_{std::this_thread::get_id()},
+      options_{std::move(options)},
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
@@ -103,13 +104,24 @@ Context::Context(
       ) {}
 
 Context::~Context() noexcept {
-    br_->spill_manager().remove_spill_function(spill_function_id_);
+    shutdown();
+}
 
-    // By shutting down the executor explicitly, we guarantee that any dangling
-    // references to the executor will fail if they attempt to use it, and that
-    // the executor's destructor does not trigger shutdown on a different thread
-    // than the one that created the executor.
-    executor_->shutdown();
+void Context::shutdown() noexcept {
+    // Only allow shutdown to occur once.
+    if (!is_shutdown_.exchange(true, std::memory_order::acq_rel)) {
+        br_->spill_manager().remove_spill_function(spill_function_id_);
+        auto const tid = std::this_thread::get_id();
+        if (tid != creator_thread_id_) {
+            std::cerr << "Context::shutdown() called from "
+                         "a different thread than the one that constructed "
+                         "the executor. Created by thread "
+                      << creator_thread_id_ << ", but current thread is " << tid
+                      << std::endl;
+            std::terminate();
+        }
+        executor_->shutdown();
+    }
 }
 
 config::Options Context::options() const noexcept {

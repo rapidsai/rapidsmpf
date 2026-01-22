@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -314,3 +314,4 @@ cdef class MemoryRecorder:
         if self._mr is not None:
             with nogil:
                 self._handle.reset()
+        return False  # do not suppress exceptions
