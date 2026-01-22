@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -28,6 +28,8 @@ rapids-mamba-retry env create --yes -f env.yaml -n test
 set +u
 conda activate test
 set -u
+
+rapids-mamba-retry install -y cudf=26.04.00a15 rmm=26.04.00a5
 
 RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${PWD}/test-results"}/
 mkdir -p "${RAPIDS_TESTS_DIR}"
