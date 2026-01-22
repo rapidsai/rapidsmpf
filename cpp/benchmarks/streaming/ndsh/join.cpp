@@ -150,96 +150,40 @@ streaming::Node broadcast(
     co_await ch_out->drain(ctx->executor());
 }
 
+namespace {
+
 /**
  * @brief Join a table chunk against a build hash table returning a message of the result.
  *
  * @param ctx Streaming context
- * @param right_chunk Chunk to join
+ * @param probe_chunk Chunk to join
  * @param sequence Sequence number of the output
  * @param joiner hash_join object, representing the build table.
  * @param build_carrier Columns from the build-side table to be included in the output.
- * @param right_on Key column indiecs in `right_chunk`.
+ * The caller is responsible for selecting whether build-side key columns are present.
+ * @param probe_on Key column indices in `probe_chunk`.
+ * @param keep_keys Should the join keys be included in the output.
+ * @param broadcast_side Which table in the join was broadcasted (affects returned column
+ * ordering)
  * @param build_stream Stream the `joiner` will be deallocated on.
  * @param build_event Event recording the creation of the `joiner`.
+ * @param dealloc_event Event to use to stream-order deallocations.
  *
  * @return Message of `TableChunk` containing the result of the inner join.
  */
 streaming::Message inner_join_chunk(
     std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& right_chunk,
-    std::uint64_t sequence,
-    cudf::hash_join& joiner,
-    cudf::table_view build_carrier,
-    std::vector<cudf::size_type> right_on,
-    rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
-) {
-    CudaEvent event;
-    right_chunk = to_device(ctx, std::move(right_chunk));
-    auto chunk_stream = right_chunk.stream();
-    build_event->stream_wait(chunk_stream);
-    auto probe_table = right_chunk.table_view();
-    auto probe_keys = probe_table.select(right_on);
-    auto [probe_match, build_match] =
-        joiner.inner_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
-
-    cudf::column_view build_indices =
-        cudf::device_span<cudf::size_type const>(*build_match);
-    cudf::column_view probe_indices =
-        cudf::device_span<cudf::size_type const>(*probe_match);
-    // build_carrier is valid on build_stream, but chunk_stream is
-    // waiting for build_stream work to be done, so running this on
-    // chunk_stream is fine.
-    auto result_columns = cudf::gather(
-                              build_carrier,
-                              build_indices,
-                              cudf::out_of_bounds_policy::DONT_CHECK,
-                              chunk_stream,
-                              ctx->br()->device_mr()
-    )
-                              ->release();
-    // drop key columns from probe table.
-    std::vector<cudf::size_type> to_keep;
-    std::ranges::copy_if(
-        std::ranges::iota_view(0, probe_table.num_columns()),
-        std::back_inserter(to_keep),
-        [&](auto i) { return std::ranges::find(right_on, i) == right_on.end(); }
-    );
-    std::ranges::move(
-        cudf::gather(
-            probe_table.select(to_keep),
-            probe_indices,
-            cudf::out_of_bounds_policy::DONT_CHECK,
-            chunk_stream,
-            ctx->br()->device_mr()
-        )
-            ->release(),
-        std::back_inserter(result_columns)
-    );
-    // Deallocation of the join indices will happen on build_stream, so add stream dep
-    // This also ensure deallocation of the hash_join object waits for completion.
-    cuda_stream_join(build_stream, chunk_stream, &event);
-    return streaming::to_message(
-        sequence,
-        std::make_unique<streaming::TableChunk>(
-            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
-        )
-    );
-}
-
-streaming::Message inner_join_chunk_probe_first(
-    std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& probe_chunk,
     std::uint64_t sequence,
     cudf::hash_join& joiner,
-    cudf::table_view build_table,
-    std::vector<cudf::size_type> build_keys,
+    cudf::table_view build_carrier,
     std::vector<cudf::size_type> probe_keys,
     KeepKeys keep_keys,
+    BroadcastSide broadcast_side,
     rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
+    CudaEvent* build_event,
+    CudaEvent* dealloc_event
 ) {
-    CudaEvent event;
     probe_chunk = to_device(ctx, std::move(probe_chunk));
     auto chunk_stream = probe_chunk.stream();
     build_event->stream_wait(chunk_stream);
@@ -249,52 +193,44 @@ streaming::Message inner_join_chunk_probe_first(
         probe_table_keys, std::nullopt, chunk_stream, ctx->br()->device_mr()
     );
 
-    cudf::column_view build_indices =
+    cudf::column_view build_match_indices =
         cudf::device_span<cudf::size_type const>(*build_match);
-    cudf::column_view probe_indices =
+    cudf::column_view probe_match_indices =
         cudf::device_span<cudf::size_type const>(*probe_match);
 
-    cudf::table_view probe_carrier;
-    if (keep_keys == KeepKeys::YES) {
-        probe_carrier = probe_table;
-    } else {
-        std::vector<cudf::size_type> probe_to_keep;
-        std::ranges::copy_if(
-            std::ranges::iota_view(0, probe_table.num_columns()),
-            std::back_inserter(probe_to_keep),
-            [&](auto i) { return std::ranges::find(probe_keys, i) == probe_keys.end(); }
-        );
-        probe_carrier = probe_table.select(probe_to_keep);
-    }
-    auto result_columns = cudf::gather(
-                              probe_carrier,
-                              probe_indices,
-                              cudf::out_of_bounds_policy::DONT_CHECK,
-                              chunk_stream,
-                              ctx->br()->device_mr()
-    )
-                              ->release();
+    std::vector<std::unique_ptr<cudf::column>> result_columns;
+    auto gather_columns = [&](cudf::table_view table, cudf::column_view indices) {
+        auto gathered = cudf::gather(
+                            table,
+                            indices,
+                            cudf::out_of_bounds_policy::DONT_CHECK,
+                            chunk_stream,
+                            ctx->br()->device_mr()
+        )
+                            ->release();
+        std::ranges::move(gathered, std::back_inserter(result_columns));
+    };
 
-    std::vector<cudf::size_type> build_to_keep;
-    std::ranges::copy_if(
-        std::ranges::iota_view(0, build_table.num_columns()),
-        std::back_inserter(build_to_keep),
-        [&](auto i) { return std::ranges::find(build_keys, i) == build_keys.end(); }
-    );
-    if (!build_to_keep.empty()) {
-        std::ranges::move(
-            cudf::gather(
-                build_table.select(build_to_keep),
-                build_indices,
-                cudf::out_of_bounds_policy::DONT_CHECK,
-                chunk_stream,
-                ctx->br()->device_mr()
-            )
-                ->release(),
-            std::back_inserter(result_columns)
-        );
+    auto const broadcast_left = broadcast_side == BroadcastSide::LEFT;
+    auto probe_carrier = probe_table;
+    if (keep_keys == KeepKeys::NO || broadcast_left) {
+        auto probe_indices =
+            std::views::iota(cudf::size_type{0}, probe_table.num_columns())
+            | std::views::filter([&](auto i) {
+                  return std::ranges::find(probe_keys, i) == probe_keys.end();
+              });
+        probe_carrier = probe_carrier.select(probe_indices.begin(), probe_indices.end());
     }
-    cuda_stream_join(build_stream, chunk_stream, &event);
+
+    if (broadcast_left) {
+        gather_columns(build_carrier, build_match_indices);
+        gather_columns(probe_carrier, probe_match_indices);
+    } else {
+        gather_columns(probe_carrier, probe_match_indices);
+        gather_columns(build_carrier, build_match_indices);
+    }
+
+    cuda_stream_join(build_stream, chunk_stream, dealloc_event);
     return streaming::to_message(
         sequence,
         std::make_unique<streaming::TableChunk>(
@@ -302,6 +238,7 @@ streaming::Message inner_join_chunk_probe_first(
         )
     );
 }
+}  // namespace
 
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
@@ -317,10 +254,11 @@ streaming::Node inner_join_broadcast(
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto build = broadcast_side == BroadcastSide::LEFT ? left : right;
-    auto probe = broadcast_side == BroadcastSide::LEFT ? right : left;
-    auto build_keys = broadcast_side == BroadcastSide::LEFT ? left_on : right_on;
-    auto probe_keys = broadcast_side == BroadcastSide::LEFT ? right_on : left_on;
+    auto const broadcast_left = broadcast_side == BroadcastSide::LEFT;
+    auto build = broadcast_left ? left : right;
+    auto probe = broadcast_left ? right : left;
+    auto build_keys = broadcast_left ? left_on : right_on;
+    auto probe_keys = broadcast_left ? right_on : left_on;
     auto build_table = to_device(
         ctx,
         (co_await broadcast(ctx, build, tag, streaming::AllGather::Ordered::NO))
@@ -336,40 +274,16 @@ streaming::Node inner_join_broadcast(
         build_table.stream()
     );
     CudaEvent build_event;
+    CudaEvent dealloc_event;
     build_event.record(build_table.stream());
-    if (broadcast_side == BroadcastSide::RIGHT) {
-        while (!ch_out->is_shutdown()) {
-            auto probe_msg = co_await probe->receive();
-            if (probe_msg.empty()) {
-                break;
-            }
-            co_await ch_out->send(inner_join_chunk_probe_first(
-                ctx,
-                probe_msg.release<streaming::TableChunk>(),
-                probe_msg.sequence_number(),
-                joiner,
-                build_table.table_view(),
-                build_keys,
-                probe_keys,
-                keep_keys,
-                build_table.stream(),
-                &build_event
-            ));
-        }
-        co_await ch_out->drain(ctx->executor());
-        co_return;
-    }
-    cudf::table_view build_carrier;
-    if (keep_keys == KeepKeys::YES) {
-        build_carrier = build_table.table_view();
-    } else {
-        std::vector<cudf::size_type> to_keep;
-        std::ranges::copy_if(
-            std::ranges::iota_view(0, build_table.table_view().num_columns()),
-            std::back_inserter(to_keep),
-            [&](auto i) { return std::ranges::find(build_keys, i) == build_keys.end(); }
-        );
-        build_carrier = build_table.table_view().select(to_keep);
+    auto build_carrier = build_table.table_view();
+    if (keep_keys == KeepKeys::NO || !broadcast_left) {
+        auto build_indices =
+            std::views::iota(cudf::size_type{0}, build_carrier.num_columns())
+            | std::views::filter([&](auto i) {
+                  return std::ranges::find(build_keys, i) == build_keys.end();
+              });
+        build_carrier = build_carrier.select(build_indices.begin(), build_indices.end());
     }
     while (!ch_out->is_shutdown()) {
         auto probe_msg = co_await probe->receive();
@@ -383,8 +297,11 @@ streaming::Node inner_join_broadcast(
             joiner,
             build_carrier,
             probe_keys,
+            keep_keys,
+            broadcast_side,
             build_table.stream(),
-            &build_event
+            &build_event,
+            &dealloc_event
         ));
     }
 
@@ -404,6 +321,7 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
+    CudaEvent dealloc_event;
     while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
@@ -427,17 +345,15 @@ streaming::Node inner_join_shuffle(
             build_stream
         );
         build_event.record(build_stream);
-        cudf::table_view build_carrier;
-        if (keep_keys == KeepKeys::YES) {
-            build_carrier = build_chunk.table_view();
-        } else {
-            std::vector<cudf::size_type> to_keep;
-            std::ranges::copy_if(
-                std::ranges::iota_view(0, build_chunk.table_view().num_columns()),
-                std::back_inserter(to_keep),
-                [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
-            );
-            build_carrier = build_chunk.table_view().select(to_keep);
+        auto build_carrier = build_chunk.table_view();
+        if (keep_keys == KeepKeys::NO) {
+            auto build_indices =
+                std::views::iota(cudf::size_type{0}, build_carrier.num_columns())
+                | std::views::filter([&](auto i) {
+                      return std::ranges::find(left_on, i) == left_on.end();
+                  });
+            build_carrier =
+                build_carrier.select(build_indices.begin(), build_indices.end());
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
@@ -446,8 +362,11 @@ streaming::Node inner_join_shuffle(
             joiner,
             build_carrier,
             right_on,
+            keep_keys,
+            BroadcastSide::LEFT,
             build_stream,
-            &build_event
+            &build_event,
+            &dealloc_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
