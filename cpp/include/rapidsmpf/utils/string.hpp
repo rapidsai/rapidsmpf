@@ -180,13 +180,13 @@ std::size_t parse_nbytes_unsigned(std::string_view text);
  * @param total_bytes Reference number of bytes used to normalize the result
  * when @p text is a percentage. Otherwise, this parameter is ignored.
  * @return If @p text ends with '%', returns the fraction of @p total_bytes.
- * Otherwise, returns the parsed absolute byte value as a double.
+ * Otherwise, returns the parsed absolute byte value.
  *
  * @throws std::invalid_argument If the input format is invalid, negative, or
  * if @p total_bytes is zero when parsing a percentage.
  * @throws std::out_of_range If the parsed value exceeds the representable range.
  */
-double parse_nbytes_fraction(std::string_view text, double total_bytes);
+std::size_t parse_nbytes_fraction(std::string_view text, double total_bytes);
 
 /**
  * @brief Parse a human-readable time duration into seconds.

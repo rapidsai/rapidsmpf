@@ -263,11 +263,11 @@ std::size_t parse_nbytes_unsigned(std::string_view text) {
     return static_cast<std::size_t>(value);
 }
 
-double parse_nbytes_fraction(std::string_view text, double total_bytes) {
+std::size_t parse_nbytes_fraction(std::string_view text, double total_bytes) {
     // Regex:
-    //  - Group 1: signed floating-point number (same grammar as parse_nbytes)
-    //  - Group 2 (optional): unit suffix (letters) or '%'
-    //  - Leading and trailing whitespace is ignored
+    //  - Group 1: signed floating-point number (same grammar as parse_nbytes).
+    //  - Group 2 (optional): unit suffix (letters) or '%'.
+    //  - Leading and trailing whitespace is ignored.
     static const std::regex k_re(
         R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-z]+|%)?\s*$)",
         std::regex::ECMAScript
@@ -284,7 +284,7 @@ double parse_nbytes_fraction(std::string_view text, double total_bytes) {
         suffix = m[2].str();
     }
 
-    // Percentage case
+    // Percentage case.
     if (suffix == "%") {
         if (total_bytes == 0.0) {
             throw std::invalid_argument(
@@ -292,14 +292,14 @@ double parse_nbytes_fraction(std::string_view text, double total_bytes) {
             );
         }
         std::size_t const value = parse_nbytes_unsigned(number);
-        return static_cast<double>(value) / total_bytes;
+        return value / total_bytes;
     }
 
-    // Absolute byte quantity
+    // Absolute byte quantity.
     if (!suffix.empty()) {
         number += suffix;
     }
-    return static_cast<double>(parse_nbytes_unsigned(number));
+    return parse_nbytes_unsigned(number);
 }
 
 Duration parse_duration(std::string_view text) {
@@ -321,7 +321,7 @@ Duration parse_duration(std::string_view text) {
         throw std::invalid_argument("parse_duration: invalid format");
     }
 
-    // Parse numeric part
+    // Parse numeric part.
     double value = 0.0;
     try {
         value = std::stod(m[1].str());
@@ -331,7 +331,7 @@ Duration parse_duration(std::string_view text) {
         throw std::out_of_range("parse_duration: number out of range");
     }
 
-    // Default unit: seconds
+    // Default unit: seconds.
     double multiplier = 1.0;
     if (m[2].matched) {
         std::string unit = to_lower(m[2].str());

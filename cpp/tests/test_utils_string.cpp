@@ -138,30 +138,31 @@ TEST(UtilsTest, ParseNBytesUnsigned) {
 
 TEST(UtilsTest, ParseNBytesFraction) {
     // Absolute byte quantity: total_bytes is ignored
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("0", 1.0), 0.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1024", 1.0), 1024.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1 KiB", 1.0), 1024.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1 KB", 1.0), 1000.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("  1.50 KiB  ", 1.0), 1536.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1e-3 KiB", 1.0), 1.0);  // rounds to 1
+    EXPECT_EQ(parse_nbytes_fraction("0", 1), std::size_t{0});
+    EXPECT_EQ(parse_nbytes_fraction("1024", 1), std::size_t{1024});
+    EXPECT_EQ(parse_nbytes_fraction("1 KiB", 1), std::size_t{1_KiB});
+    EXPECT_EQ(parse_nbytes_fraction("1 KB", 1), std::size_t{1000});
+    EXPECT_EQ(parse_nbytes_fraction("  1.50 KiB  ", 1), std::size_t{1536});
+    EXPECT_EQ(parse_nbytes_fraction("1e-3 KiB", 1), std::size_t{1});  // rounds to 1
 
-    // Percentage: parsed as a byte quantity, then divided by total_bytes
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("0%", 2048.0), 0.0);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1024%", 2048.0), 0.5);
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("  1000 %  ", 2000.0), 0.5);
+    // Percentage: parsed as bytes, divided by total_bytes, result truncated to size_t
+    EXPECT_EQ(parse_nbytes_fraction("0%", 2_KiB), std::size_t{0});
+    EXPECT_EQ(parse_nbytes_fraction("1024%", 2_KiB), std::size_t{0});
+    EXPECT_EQ(parse_nbytes_fraction("  1000 %  ", 2000), std::size_t{0});
 
     // Note: "1.5%" -> parse_nbytes_unsigned("1.5") rounds to 2 bytes
-    EXPECT_DOUBLE_EQ(parse_nbytes_fraction("1.5%", 4.0), 0.5);
+    // 2 / 4 = 0.5 -> truncated to 0
+    EXPECT_EQ(parse_nbytes_fraction("1.5%", 4), std::size_t{0});
 
     // Errors
-    EXPECT_THROW(parse_nbytes_fraction("-1", 1.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("-1%", 1.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1 KBps", 1.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("abc", 1.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1 GiB%", 1.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1%", 0.0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1e309 B", 1.0), std::out_of_range);
-    EXPECT_THROW(parse_nbytes_fraction("1e309%", 1.0), std::out_of_range);
+    EXPECT_THROW(parse_nbytes_fraction("-1", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("-1%", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("1 KBps", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("abc", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("1 GiB%", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("1%", 0), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_fraction("1e309 B", 1), std::out_of_range);
+    EXPECT_THROW(parse_nbytes_fraction("1e309%", 1), std::out_of_range);
 }
 
 TEST(UtilsTest, ParseDuration) {
