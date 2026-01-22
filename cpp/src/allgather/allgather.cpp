@@ -17,7 +17,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::allgather {
 namespace detail {

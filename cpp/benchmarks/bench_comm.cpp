@@ -16,6 +16,7 @@
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -352,7 +353,7 @@ int main(int argc, char** argv) {
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << to_precision(elapsed) << " sec"
+        ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
            << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
            << "/s | global throughput: "

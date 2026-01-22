@@ -10,7 +10,8 @@
 
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "base_streaming_fixture.hpp"
 
@@ -62,9 +63,8 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
-    constexpr std::int64_t timeout_ms = 12345;
     config::Options options{
-        {{"memory_reserve_timeout_ms", config::OptionValue(std::to_string(timeout_ms))}}
+        {{"memory_reserve_timeout", config::OptionValue("12345 ms")}}
     };
 
     MemoryReserveOrWait mrow{options, MemoryType::DEVICE, ctx->executor(), ctx->br()};
@@ -74,10 +74,7 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
     EXPECT_EQ(mrow.br(), ctx->br());
 
     // Timeout should match the configured value.
-    EXPECT_EQ(
-        std::chrono::duration_cast<std::chrono::milliseconds>(mrow.timeout()).count(),
-        timeout_ms
-    );
+    EXPECT_EQ(mrow.timeout(), parse_duration("12345 ms"));
 }
 
 TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
@@ -86,7 +83,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     };
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -131,7 +128,7 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     ReserveLog log;
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -189,7 +186,7 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
 
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -240,7 +237,7 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
 
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -272,7 +269,7 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
-            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            config::Options({{"memory_reserve_timeout", config::OptionValue("1")}}),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
@@ -290,7 +287,7 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
-            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
