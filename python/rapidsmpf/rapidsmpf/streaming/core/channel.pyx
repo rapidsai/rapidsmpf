@@ -272,6 +272,7 @@ cdef class Channel:
 
     async def recv(self, Context ctx not None):
         """
+        CI-testing
         Receive the next message from the channel.
 
         Parameters
