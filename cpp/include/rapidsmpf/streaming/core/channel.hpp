@@ -89,6 +89,17 @@ class Channel {
     coro::task<Message> receive_metadata();
 
     /**
+     * @brief Drains all pending metadata messages from the channel and shuts down the
+     * metadata channel.
+     *
+     * This is intended to ensure all remaining metadata messages are processed.
+     *
+     * @param executor The thread pool used to process remaining messages.
+     * @return A coroutine representing the completion of the metadata shutdown drain.
+     */
+    [[nodiscard]] Node drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor);
+
+    /**
      * @brief Drains all pending messages from the channel and shuts it down.
      *
      * This is intended to ensure all remaining messages are processed.
@@ -106,6 +117,15 @@ class Channel {
      * @return A coroutine representing the completion of the shutdown.
      */
     Node shutdown();
+
+    /**
+     * @brief Immediately shuts down the metadata queue.
+     *
+     * Any pending or future metadata send/receive operations will complete with failure.
+     *
+     * @return A coroutine representing the completion of the shutdown.
+     */
+    Node shutdown_metadata();
 
     /**
      * @brief Check whether the channel is empty.
