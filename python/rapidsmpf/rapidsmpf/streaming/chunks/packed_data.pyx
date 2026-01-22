@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint64_t
@@ -22,7 +22,7 @@ cdef extern from * nogil:
             msg.release<rapidsmpf::PackedData>()
         );
     }
-    }
+    }  // namespace
     """
     unique_ptr[cpp_PackedData] cpp_from_message(cpp_Message) except +
 

@@ -19,13 +19,12 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _channel_drain_task(
+    coro::task<void> channel_drain_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         std::shared_ptr<rapidsmpf::streaming::Context> ctx
     ) {
         co_await channel->drain(ctx->executor());
     }
-    }  // namespace
 
     void cpp_channel_drain(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -38,12 +37,13 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _channel_drain_task(std::move(channel), ctx)
+                    channel_drain_task(std::move(channel), ctx)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
+    }  // namespace
     """
     void cpp_channel_drain(
         shared_ptr[cpp_Context] ctx,
@@ -56,12 +56,11 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _channel_shutdown_task(
+    coro::task<void> channel_shutdown_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel
     ) {
         co_await channel->shutdown();
     }
-    }  // namespace
 
     void cpp_channel_shutdown(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -74,12 +73,13 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _channel_shutdown_task(std::move(channel))
+                    channel_shutdown_task(std::move(channel))
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
+    }  // namespace
     """
     void cpp_channel_shutdown(
         shared_ptr[cpp_Context] ctx,
@@ -92,13 +92,12 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _channel_send_task(
+    coro::task<void> channel_send_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message msg
     ) {
         co_await channel->send(std::move(msg));
     }
-    }  // namespace
 
     void cpp_channel_send(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -112,15 +111,16 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _channel_send_task(
+                    channel_send_task(
                         std::move(channel),
                         std::move(msg)
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
+    }  // namespace
     """
     void cpp_channel_send(
         shared_ptr[cpp_Context] ctx,
@@ -134,13 +134,12 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _channel_recv_task(
+    coro::task<void> channel_recv_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         std::shared_ptr<rapidsmpf::streaming::Message> msg_output
     ) {
         *msg_output = co_await channel->receive();
     }
-    }  // namespace
 
     std::shared_ptr<rapidsmpf::streaming::Message> cpp_channel_recv(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -154,16 +153,17 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _channel_recv_task(
+                    channel_recv_task(
                         std::move(channel),
                         msg_output
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return msg_output;
     }
+    }  // namespace
     """
     shared_ptr[cpp_Message] cpp_channel_recv(
         shared_ptr[cpp_Context] ctx,

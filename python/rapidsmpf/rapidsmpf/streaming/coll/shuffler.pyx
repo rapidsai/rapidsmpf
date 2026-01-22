@@ -27,7 +27,7 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_async_task(
+    coro::task<void> extract_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
         std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
@@ -51,15 +51,15 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_async_task(shuffle, pid, output)
+                    extract_async_task(shuffle, pid, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
 
-    coro::task<void> _extract_any_async_task(
+    coro::task<void> extract_any_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::shared_ptr<
             std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
@@ -84,17 +84,17 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_any_async_task(
+                    extract_any_async_task(
                         shuffle, output
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
 
-    coro::task<void> _insert_finished_task(
+    coro::task<void> insert_finished_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle
     ) {
         co_await shuffle->insert_finished();
@@ -111,13 +111,13 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _insert_finished_task(shuffle)
+                    insert_finished_task(shuffle)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
-    }
+    }  // namespace
     """
     shared_ptr[optional[vector[cpp_PackedData]]] cpp_extract_async(
         shared_ptr[cpp_Context] ctx,

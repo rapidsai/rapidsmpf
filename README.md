@@ -296,6 +296,24 @@ Each configuration option includes:
     This option ensures forward progress under memory pressure and prevents the
     system from stalling indefinitely when memory availability fluctuates.
 
+- **`allow_overbooking_by_default`**
+  - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
+  - **Default**: `true`
+  - **Description**: Controls the default overbooking behavior for *high-level*
+    memory reservation APIs, such as `reserve_memory()`.
+
+    When enabled, high-level memory reservation requests may overbook memory
+    after the global `memory_reserve_timeout_ms` expires, allowing forward
+    progress under memory pressure.
+
+    When disabled, high-level memory reservation requests fail with an error if
+    no progress is possible within the timeout.
+
+    This option is only used when a high-level API does not explicitly specify
+    an overbooking policy. It does **not** change the behavior of lower-level
+    memory reservation primitives or imply that overbooking is enabled or
+    disabled globally across the system.
+
 
 #### Dask Integration
 
