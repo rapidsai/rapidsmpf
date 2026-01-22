@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,8 @@
 #include <ostream>
 #include <ranges>
 #include <span>
+
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
@@ -64,6 +66,53 @@ static_assert(std::ranges::equal(
 static_assert(std::ranges::equal(
     leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
 ));
+
+
+/**
+ * @brief Memory types that are device accessible.
+ *
+ * @return A array of memory types that are device accessible.
+ */
+constexpr std::array DEVICE_ACCESSIBLE_MEMORY_TYPES{
+    MemoryType::DEVICE, MemoryType::PINNED_HOST
+};
+
+/**
+ * @brief Memory types that are host accessible.
+ *
+ * @return A array of memory types that are host accessible.
+ */
+constexpr std::array HOST_ACCESSIBLE_MEMORY_TYPES{
+    MemoryType::PINNED_HOST, MemoryType::HOST
+};
+
+/**
+ * @brief Check if a memory type is device accessible.
+ *
+ * @param mem_type The memory type to check.
+ * @return true if the memory type is device accessible, false otherwise.
+ */
+constexpr bool is_device_accessible(MemoryType const& mem_type) {
+    return contains(DEVICE_ACCESSIBLE_MEMORY_TYPES, mem_type);
+}
+
+static_assert(is_device_accessible(MemoryType::DEVICE));
+static_assert(is_device_accessible(MemoryType::PINNED_HOST));
+static_assert(!is_device_accessible(MemoryType::HOST));
+
+/**
+ * @brief Check if a memory type is host accessible.
+ *
+ * @param mem_type The memory type to check.
+ * @return true if the memory type is host accessible, false otherwise.
+ */
+constexpr bool is_host_accessible(MemoryType const& mem_type) {
+    return contains(HOST_ACCESSIBLE_MEMORY_TYPES, mem_type);
+}
+
+static_assert(is_host_accessible(MemoryType::PINNED_HOST));
+static_assert(is_host_accessible(MemoryType::HOST));
+static_assert(!is_host_accessible(MemoryType::DEVICE));
 
 /**
  * @brief Get the name of a MemoryType.
