@@ -33,7 +33,7 @@ constexpr std::size_t kBounceBufferSize = 1_MiB;
 
 }  // namespace
 
-class BaseTablePackerTest : public ::testing::Test {
+class BasePackBufferTest : public ::testing::Test {
   protected:
     void SetUp(MemoryType dest_mem_type) {
         stream_ = cudf::get_default_stream();
@@ -48,7 +48,7 @@ class BaseTablePackerTest : public ::testing::Test {
             br_ =
                 std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
         }
-        packer_ = std::make_unique<TablePacker>(kBounceBufferSize, stream_, *br_);
+        packer_ = std::make_unique<PackBuffer>(kBounceBufferSize, stream_, *br_);
     }
 
     void SetUp() override {
@@ -62,22 +62,22 @@ class BaseTablePackerTest : public ::testing::Test {
 
     rmm::cuda_stream_view stream_;
     std::unique_ptr<BufferResource> br_;
-    std::unique_ptr<TablePacker> packer_;
+    std::unique_ptr<PackBuffer> packer_;
 };
 
 /// @brief Test parameters: destination memory type and table size.
-using TablePackerParams = std::tuple<MemoryType, std::size_t>;
+using PackBufferParams = std::tuple<MemoryType, std::size_t>;
 
 /**
- * @brief Parameterized test fixture for TablePacker tests.
+ * @brief Parameterized test fixture for PackBuffer tests.
  *
  * Parameters are table size in bytes and destination buffer memory type.
  */
-class TablePackerTest : public BaseTablePackerTest,
-                        public ::testing::WithParamInterface<TablePackerParams> {
+class PackBufferTest : public BasePackBufferTest,
+                       public ::testing::WithParamInterface<PackBufferParams> {
   protected:
     void SetUp() override {
-        BaseTablePackerTest::SetUp(std::get<0>(GetParam()));
+        BasePackBufferTest::SetUp(std::get<0>(GetParam()));
     }
 };
 
@@ -85,25 +85,25 @@ class TablePackerTest : public BaseTablePackerTest,
 // 1MB, 10MB)
 INSTANTIATE_TEST_SUITE_P(
     TableSizesAndMemTypes,
-    TablePackerTest,
+    PackBufferTest,
     ::testing::Combine(
         ::testing::Values(MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST),
         ::testing::Values(0, 1_KiB, 1_MiB, 10_MiB)
     ),
-    [](::testing::TestParamInfo<TablePackerParams> const& info) {
+    [](::testing::TestParamInfo<PackBufferParams> const& info) {
         return std::string(to_string(std::get<0>(info.param))) + "_"
                + std::to_string(std::get<1>(info.param));
     }
 );
 
-TEST_P(TablePackerTest, PackToDeviceAndUnpack) {
+TEST_P(PackBufferTest, Pack) {
     auto [dest_mem_type, table_size] = GetParam();
     cudf::size_type const num_rows = rows_for_size(table_size);
     std::int64_t const seed = 42;
 
     cudf::table input_table = random_table_with_index(seed, num_rows, 0, 1000);
 
-    auto pack_op = packer_->aquire(input_table.view(), stream_, br_->device_mr());
+    auto pack_op = packer_->acquire(input_table.view(), stream_, br_->device_mr());
 
     std::size_t const packed_size = pack_op.get_packed_size();
     // if table is empty, packed size should be 0

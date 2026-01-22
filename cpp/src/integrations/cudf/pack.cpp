@@ -11,48 +11,52 @@
 
 namespace rapidsmpf {
 
-TablePacker::TablePacker(
+PackBuffer::PackBuffer(
     std::size_t bounce_buffer_size, rmm::cuda_stream_view alloc_stream, BufferResource& br
 )
-    : bounce_buf_(std::make_unique<rmm::device_buffer>(
-          bounce_buffer_size, alloc_stream, br.device_mr()
-      )) {}
+    : bounce_buf_(
+          std::make_unique<rmm::device_buffer>(
+              bounce_buffer_size, alloc_stream, br.device_mr()
+          )
+      ) {}
 
-TablePacker::PackOp TablePacker::aquire(
+CudfPackOp PackBuffer::acquire(
     cudf::table_view const& input,
     rmm::cuda_stream_view pack_stream,
     rmm::device_async_resource_ref pack_temp_mr
 ) {
-    return TablePacker::PackOp(input, pack_stream, pack_temp_mr, *this);
+    return CudfPackOp(input, pack_stream, pack_temp_mr, *this);
 }
 
-TablePacker::PackOp::PackOp(
+CudfPackOp::CudfPackOp(
     cudf::table_view const& input,
     rmm::cuda_stream_view pack_stream,
     rmm::device_async_resource_ref pack_temp_mr,
-    TablePacker& table_packer
+    PackBuffer& pack_buffer
 )
-    : lock_(table_packer.mutex_),
-      bounce_buffer_size_(table_packer.bounce_buf_->size()),
+    : lock_(pack_buffer.mutex_),
+      bounce_buffer_size_(pack_buffer.bounce_buf_->size()),
       pack_stream_(pack_stream),
-      cpack_(cudf::chunked_pack::create(
-          input, bounce_buffer_size_, pack_stream, pack_temp_mr
-      )),
-      table_packer_(table_packer) {}
+      cpack_(
+          cudf::chunked_pack::create(
+              input, bounce_buffer_size_, pack_stream, pack_temp_mr
+          )
+      ),
+      pack_buffer_(pack_buffer) {}
 
-TablePacker::PackOp::~PackOp() {
+CudfPackOp::~CudfPackOp() {
     clear();
 }
 
-std::size_t TablePacker::PackOp::get_packed_size() const {
+std::size_t CudfPackOp::get_packed_size() const {
     return cpack_->get_total_contiguous_size();
 }
 
-std::unique_ptr<std::vector<uint8_t>> TablePacker::PackOp::build_metadata() const {
+std::unique_ptr<std::vector<uint8_t>> CudfPackOp::build_metadata() const {
     return cpack_->build_metadata();
 }
 
-std::size_t TablePacker::PackOp::pack(Buffer& dest_buf) {
+std::size_t CudfPackOp::pack(Buffer& dest_buf) {
     RAPIDSMPF_EXPECTS(
         dest_buf.size >= get_packed_size(),
         "Destination buffer is too small",
@@ -66,7 +70,7 @@ std::size_t TablePacker::PackOp::pack(Buffer& dest_buf) {
     }
 }
 
-std::size_t TablePacker::PackOp::pack_by_dest_buf_offset(Buffer& dest_buf) {
+std::size_t CudfPackOp::pack_by_dest_buf_offset(Buffer& dest_buf) {
     // directly pack into the destination buffer. This requires dest_buf memory type to be
     // device accessible.
     lock_.unlock();  // release the lock on the bounce buffer.
@@ -86,9 +90,11 @@ std::size_t TablePacker::PackOp::pack_by_dest_buf_offset(Buffer& dest_buf) {
             // compute-sanitizer error?
             // Possible solution is to create a new chunked_pack with dest_buf size and
             // pack in one go.
-            off += cpack_->next(cudf::device_span<uint8_t>(
-                reinterpret_cast<uint8_t*>(dest_ptr) + off, bounce_buffer_size_
-            ));
+            off += cpack_->next(
+                cudf::device_span<uint8_t>(
+                    reinterpret_cast<uint8_t*>(dest_ptr) + off, bounce_buffer_size_
+                )
+            );
         }
         RAPIDSMPF_EXPECTS(off == packed_size, "Packed size mismatch");
 
@@ -99,7 +105,7 @@ std::size_t TablePacker::PackOp::pack_by_dest_buf_offset(Buffer& dest_buf) {
     return packed_size;
 }
 
-std::size_t TablePacker::PackOp::pack_by_copying(Buffer& dest_buf) {
+std::size_t CudfPackOp::pack_by_copying(Buffer& dest_buf) {
     std::size_t offset =
         dest_buf.write_access([&](std::byte* dest_ptr,
                                   rmm::cuda_stream_view dest_buf_stream) {
@@ -107,8 +113,8 @@ std::size_t TablePacker::PackOp::pack_by_copying(Buffer& dest_buf) {
 
             std::size_t off = 0;
             cudf::device_span<uint8_t> bounce_buf_span(
-                static_cast<std::uint8_t*>(table_packer_.bounce_buf_->data()),
-                table_packer_.bounce_buf_->size()
+                static_cast<std::uint8_t*>(pack_buffer_.bounce_buf_->data()),
+                pack_buffer_.bounce_buf_->size()
             );
             while (cpack_->has_next()) {
                 auto const bytes_copied = cpack_->next(bounce_buf_span);
@@ -127,12 +133,12 @@ std::size_t TablePacker::PackOp::pack_by_copying(Buffer& dest_buf) {
         });
 
     // Update bounce buffer's stream so the next pack operation can safely reuse it.
-    table_packer_.bounce_buf_->set_stream(pack_stream_);
+    pack_buffer_.bounce_buf_->set_stream(pack_stream_);
 
     return offset;
 }
 
-void TablePacker::PackOp::clear() {
+void CudfPackOp::clear() {
     cpack_.reset();
     if (lock_.owns_lock()) {
         lock_.unlock();
