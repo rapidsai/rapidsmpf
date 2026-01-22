@@ -155,6 +155,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@release/26.02
     with:
       build_type: pull-request
+      matrix_type: nightly
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
       script: ci/test_python.sh
