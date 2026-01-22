@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <optional>
 #include <ranges>
 #include <regex>
 
@@ -377,6 +378,17 @@ bool parse_string(std::string const& text) {
         return false;
     }
     throw std::invalid_argument("cannot parse \"" + std::string{text} + "\"");
+}
+
+std::optional<std::string> parse_optional(std::string text) {
+    static const std::regex disabled_re(
+        R"(^\s*(false|no|off|disable|disabled|none|n/a|na)\s*$)",
+        std::regex::ECMAScript | std::regex::icase
+    );
+    if (std::regex_match(text, disabled_re)) {
+        return std::nullopt;
+    }
+    return text;
 }
 
 }  // namespace rapidsmpf

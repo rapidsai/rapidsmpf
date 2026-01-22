@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -266,5 +265,19 @@ T parse_string(std::string const& text) {
 template <>
 bool parse_string(std::string const& text);
 
+/**
+ * @brief Parse an optional string value.
+ *
+ * Returns `std::nullopt` if the input string represents a disabled value.
+ * Otherwise, the input string is returned unchanged.
+ *
+ * Disabled values are matched case-insensitively and may include surrounding
+ * whitespace. Recognized values include: `false`, `no`, `off`, `disable`,
+ * `disabled`, `none`, `n/a`, and `na`.
+ *
+ * @param text Input string to parse.
+ * @return std::optional<std::string> Parsed optional string.
+ */
+std::optional<std::string> parse_optional(std::string text);
 
 }  // namespace rapidsmpf

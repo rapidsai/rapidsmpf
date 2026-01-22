@@ -258,3 +258,32 @@ TEST(UtilsTest, ParseStringTest) {
     // Invalid boolean
     EXPECT_THROW(parse_string<bool>("not_a_bool"), std::invalid_argument);
 }
+
+TEST(UtilsTest, ParseOptional) {
+    // Pass-through
+    EXPECT_EQ(parse_optional(""), std::optional<std::string>{""});
+    EXPECT_EQ(parse_optional("foo"), std::optional<std::string>{"foo"});
+    EXPECT_EQ(parse_optional("  foo  "), std::optional<std::string>{"  foo  "});
+    EXPECT_EQ(parse_optional("0"), std::optional<std::string>{"0"});
+    EXPECT_EQ(parse_optional("1"), std::optional<std::string>{"1"});
+    EXPECT_EQ(parse_optional("true"), std::optional<std::string>{"true"});
+
+    // Disabled keywords (case-insensitive, ignores surrounding whitespace)
+    EXPECT_EQ(parse_optional("false"), std::nullopt);
+    EXPECT_EQ(parse_optional(" FALSE "), std::nullopt);
+    EXPECT_EQ(parse_optional("no"), std::nullopt);
+    EXPECT_EQ(parse_optional("\tNO\n"), std::nullopt);
+    EXPECT_EQ(parse_optional("off"), std::nullopt);
+    EXPECT_EQ(parse_optional("  oFf  "), std::nullopt);
+    EXPECT_EQ(parse_optional("disable"), std::nullopt);
+    EXPECT_EQ(parse_optional("DISABLED"), std::nullopt);
+    EXPECT_EQ(parse_optional("none"), std::nullopt);
+    EXPECT_EQ(parse_optional(" n/a "), std::nullopt);
+    EXPECT_EQ(parse_optional("NA"), std::nullopt);
+
+    // Must be a full match (no partial matches)
+    EXPECT_EQ(parse_optional("falsehood"), std::optional<std::string>{"falsehood"});
+    EXPECT_EQ(parse_optional("disabled_now"), std::optional<std::string>{"disabled_now"});
+    EXPECT_EQ(parse_optional("n/a2"), std::optional<std::string>{"n/a2"});
+    EXPECT_EQ(parse_optional("naive"), std::optional<std::string>{"naive"});
+}
