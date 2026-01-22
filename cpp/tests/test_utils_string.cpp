@@ -136,33 +136,37 @@ TEST(UtilsTest, ParseNBytesUnsigned) {
     EXPECT_THROW(parse_nbytes_unsigned("1e309 B"), std::out_of_range);
 }
 
-TEST(UtilsTest, ParseNBytesFraction) {
-    // Absolute byte quantity: total_bytes is ignored
-    EXPECT_EQ(parse_nbytes_fraction("0", 1), std::size_t{0});
-    EXPECT_EQ(parse_nbytes_fraction("1024", 1), std::size_t{1024});
-    EXPECT_EQ(parse_nbytes_fraction("1 KiB", 1), std::size_t{1_KiB});
-    EXPECT_EQ(parse_nbytes_fraction("1 KB", 1), std::size_t{1000});
-    EXPECT_EQ(parse_nbytes_fraction("  1.50 KiB  ", 1), std::size_t{1536});
-    EXPECT_EQ(parse_nbytes_fraction("1e-3 KiB", 1), std::size_t{1});  // rounds to 1
+TEST(UtilsTest, ParseNBytesOrPercent) {
+    // Absolute byte quantity: total_bytes is ignored (but must be > 0)
+    EXPECT_EQ(parse_nbytes_or_percent("0", 1), std::size_t{0});
+    EXPECT_EQ(parse_nbytes_or_percent("1024", 1), std::size_t{1024});
+    EXPECT_EQ(parse_nbytes_or_percent("1 KiB", 1), std::size_t{1_KiB});
+    EXPECT_EQ(parse_nbytes_or_percent("1 KB", 1), std::size_t{1000});
+    EXPECT_EQ(parse_nbytes_or_percent("  1.50 KiB  ", 1), std::size_t{1536});
+    EXPECT_EQ(parse_nbytes_or_percent("1e-3 KiB", 1), std::size_t{1});  // rounds to 1
 
-    // Percentage: parsed as bytes, divided by total_bytes, result truncated to size_t
-    EXPECT_EQ(parse_nbytes_fraction("0%", 2_KiB), std::size_t{0});
-    EXPECT_EQ(parse_nbytes_fraction("1024%", 2_KiB), std::size_t{0});
-    EXPECT_EQ(parse_nbytes_fraction("  1000 %  ", 2000), std::size_t{0});
+    // Percentage: percent of total_bytes, floored to bytes
+    EXPECT_EQ(parse_nbytes_or_percent("0%", 2_KiB), std::size_t{0});
+    EXPECT_EQ(parse_nbytes_or_percent("50%", 2_KiB), std::size_t{1_KiB});
+    EXPECT_EQ(parse_nbytes_or_percent("  50 %  ", 2000), std::size_t{1000});
 
-    // Note: "1.5%" -> parse_nbytes_unsigned("1.5") rounds to 2 bytes
-    // 2 / 4 = 0.5 -> truncated to 0
-    EXPECT_EQ(parse_nbytes_fraction("1.5%", 4), std::size_t{0});
+    // Note: "1.5%" -> parse_nbytes_unsigned("1.5") rounds to 2
+    // floor((2 / 100) * 200) = 4
+    EXPECT_EQ(parse_nbytes_or_percent("1.5%", 200), std::size_t{4});
 
     // Errors
-    EXPECT_THROW(parse_nbytes_fraction("-1", 1), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("-1%", 1), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1 KBps", 1), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("abc", 1), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1 GiB%", 1), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1%", 0), std::invalid_argument);
-    EXPECT_THROW(parse_nbytes_fraction("1e309 B", 1), std::out_of_range);
-    EXPECT_THROW(parse_nbytes_fraction("1e309%", 1), std::out_of_range);
+    EXPECT_THROW(parse_nbytes_or_percent("-1", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_or_percent("-1%", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_or_percent("1 KBps", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_or_percent("abc", 1), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_or_percent("1 GiB%", 1), std::invalid_argument);
+
+    // total_bytes validation runs for all inputs
+    EXPECT_THROW(parse_nbytes_or_percent("1%", 0), std::invalid_argument);
+    EXPECT_THROW(parse_nbytes_or_percent("1", 0), std::invalid_argument);
+
+    EXPECT_THROW(parse_nbytes_or_percent("1e309 B", 1), std::out_of_range);
+    EXPECT_THROW(parse_nbytes_or_percent("1e309%", 1), std::out_of_range);
 }
 
 TEST(UtilsTest, ParseDuration) {

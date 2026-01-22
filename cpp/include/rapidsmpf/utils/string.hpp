@@ -164,29 +164,29 @@ std::int64_t parse_nbytes(std::string_view text);
 std::size_t parse_nbytes_unsigned(std::string_view text);
 
 /**
- * @brief Parse a byte quantity or percentage into a fraction of total bytes.
+ * @brief Parse a byte quantity or percentage into an absolute byte count.
  *
  * The input may be a human-readable byte string (e.g. "1GiB", "512MB") or a
  * percentage (e.g. "25%"). See `parse_nbytes_unsigned` for the exact parsing
- * semantics.
+ * semantics of the numeric part.
  *
- * If @p text ends with '%', the numeric part is parsed as a byte quantity and
- * the result is normalized by dividing by @p total_bytes.
+ * If @p text ends with '%', the numeric part is first parsed using
+ * `parse_nbytes_unsigned`, then interpreted as a percentage of
+ * @p total_bytes.
  *
- * Otherwise, @p text is parsed as an absolute byte value and returned as-is,
- * it is not divided by @p total_bytes.
+ * Otherwise, @p text is parsed as an absolute byte value and returned as-is.
  *
  * @param text Input string representing a byte quantity or percentage.
- * @param total_bytes Reference number of bytes used to normalize the result
- * when @p text is a percentage. Otherwise, this parameter is ignored.
- * @return If @p text ends with '%', returns the fraction of @p total_bytes.
- * Otherwise, returns the parsed absolute byte value.
+ * @param total_bytes Total number of bytes used when @p text is a percentage.
+ * Must be positive.
+ * @return Absolute number of bytes computed from @p text.
  *
- * @throws std::invalid_argument If the input format is invalid, negative, or
- * if @p total_bytes is zero when parsing a percentage.
- * @throws std::out_of_range If the parsed value exceeds the representable range.
+ * @throws std::invalid_argument If the input format is invalid, the value is
+ * negative, or if @p total_bytes is not positive.
+ * @throws std::out_of_range If the parsed or computed value exceeds the
+ * representable range.
  */
-std::size_t parse_nbytes_fraction(std::string_view text, double total_bytes);
+std::size_t parse_nbytes_or_percent(std::string_view text, double total_bytes);
 
 /**
  * @brief Parse a human-readable time duration into seconds.

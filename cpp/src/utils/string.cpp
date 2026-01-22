@@ -263,11 +263,11 @@ std::size_t parse_nbytes_unsigned(std::string_view text) {
     return static_cast<std::size_t>(value);
 }
 
-std::size_t parse_nbytes_fraction(std::string_view text, double total_bytes) {
-    // Regex:
-    //  - Group 1: signed floating-point number (same grammar as parse_nbytes).
-    //  - Group 2 (optional): unit suffix (letters) or '%'.
-    //  - Leading and trailing whitespace is ignored.
+std::size_t parse_nbytes_or_percent(std::string_view text, double total_bytes) {
+    if (total_bytes <= 0.0) {
+        throw std::invalid_argument("total_bytes must be positive");
+    }
+
     static const std::regex k_re(
         R"(^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*([A-Za-z]+|%)?\s*$)",
         std::regex::ECMAScript
@@ -284,18 +284,19 @@ std::size_t parse_nbytes_fraction(std::string_view text, double total_bytes) {
         suffix = m[2].str();
     }
 
-    // Percentage case.
+    // Percentage case: interpret as percent of total_bytes.
     if (suffix == "%") {
-        if (total_bytes == 0.0) {
-            throw std::invalid_argument(
-                "total_bytes must be non-zero for percentage input"
-            );
+        // parse_nbytes_unsigned validates and rounds the numeric token
+        std::size_t const percent = parse_nbytes_unsigned(number);
+
+        auto const scaled = (static_cast<double>(percent) * total_bytes) / 100.0;
+        if (scaled > static_cast<double>(std::numeric_limits<std::size_t>::max())) {
+            throw std::out_of_range("percent conversion exceeds std::size_t");
         }
-        std::size_t const value = parse_nbytes_unsigned(number);
-        return value / total_bytes;
+        return static_cast<std::size_t>(scaled);
     }
 
-    // Absolute byte quantity.
+    // Absolute byte case: interpret like parse_nbytes_unsigned
     if (!suffix.empty()) {
         number += suffix;
     }
