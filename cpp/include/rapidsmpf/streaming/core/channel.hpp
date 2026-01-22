@@ -51,7 +51,7 @@ class Channel {
      *
      * @throws std::logic_error If the message is empty.
      */
-    coro::task<bool> send(Message msg);
+    [[nodiscard]] coro::task<bool> send(Message msg);
 
     /**
      * @brief Asynchronously receive a message from the channel.
@@ -63,7 +63,7 @@ class Channel {
      *
      * @throws std::logic_error If the received message is empty.
      */
-    coro::task<Message> receive();
+    [[nodiscard]] coro::task<Message> receive();
 
     /**
      * @brief Asynchronously send a metadata message into the channel.
@@ -76,7 +76,7 @@ class Channel {
      *
      * @throws std::logic_error If the message is empty.
      */
-    coro::task<bool> send_metadata(Message msg);
+    [[nodiscard]] coro::task<bool> send_metadata(Message msg);
 
     /**
      * @brief Asynchronously receive a metadata message from the channel.
@@ -86,7 +86,7 @@ class Channel {
      * @return A coroutine that evaluates to the message, which will be empty if the
      * metadata queue is shut down.
      */
-    coro::task<Message> receive_metadata();
+    [[nodiscard]] coro::task<Message> receive_metadata();
 
     /**
      * @brief Drains all pending metadata messages from the channel and shuts down the
@@ -107,7 +107,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
+    [[nodiscard]] Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Immediately shuts down the channel.
@@ -116,7 +116,7 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown();
+    [[nodiscard]] Node shutdown();
 
     /**
      * @brief Immediately shuts down the metadata queue.
@@ -125,7 +125,7 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown_metadata();
+    [[nodiscard]] Node shutdown_metadata();
 
     /**
      * @brief Check whether the channel is empty.
