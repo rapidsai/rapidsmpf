@@ -169,6 +169,80 @@ TEST(OptionsTest, InsertIfAbsentMapInsertsNewKeysOnly) {
     EXPECT_EQ(value, 444);
 }
 
+TEST(OptionsTest, InsertIfAbsentTypedInsertsAndGetReturnsValue) {
+    Options opts;
+
+    bool inserted = opts.insert_if_absent<int>("  SomeKey  ", 42);
+    EXPECT_TRUE(inserted);
+
+    // Factory should not be used because the value is already set.
+    auto value = opts.get<int>("somekey", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 42);
+
+    // Typed values have no string representation.
+    auto strings = opts.get_strings();
+    EXPECT_TRUE(strings.at("somekey").empty());
+
+    // Typed insertion makes the instance unserializable.
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedDoesNotOverwriteExistingKey) {
+    Options opts;
+    EXPECT_TRUE(opts.insert_if_absent<int>("k", 1));
+
+    // Should not overwrite.
+    EXPECT_FALSE(opts.insert_if_absent<int>("K", 2));
+
+    auto value = opts.get<int>("k", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 1);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedThrowsOnTypeMismatch) {
+    Options opts;
+
+    // Insert as int
+    EXPECT_TRUE(opts.insert_if_absent<int>("value", 42));
+
+    // Attempting to retrieve as a different type should throw std::bad_any_cast
+    EXPECT_THROW(
+        std::ignore = opts.get<double>(
+            "value",
+            make_factory<double>(
+                0,
+                [](auto) {
+                    ADD_FAILURE() << "factory should not be called";
+                    return 0.0;
+                }
+            )
+        );
+        , std::invalid_argument
+    );
+}
+
+TEST(OptionsTest, InsertIfAbsentStringViewUsesStringOverloadAndRemainsSerializable) {
+    Options opts;
+
+    std::string_view sv = "5";
+    bool inserted = opts.insert_if_absent("level", sv);
+    EXPECT_TRUE(inserted);
+
+    // Should store the string representation.
+    auto strings = opts.get_strings();
+    ASSERT_TRUE(strings.find("level") != strings.end());
+    EXPECT_EQ(strings["level"], "5");
+
+    // Should remain serializable, since no typed value was inserted and we have not
+    // accessed options via get().
+    EXPECT_NO_THROW(static_cast<void>(opts.serialize()));
+}
+
 TEST(OptionsTest, GetStringsReturnsAllStoredOptions) {
     std::unordered_map<std::string, std::string> strings = {
         {"option1", "value1"}, {"option2", "value2"}, {"Option3", "value3"}
@@ -199,12 +273,16 @@ TEST(OptionValueTest, TypedCtorStoresValue) {
 }
 
 TEST(OptionValueTest, TypedCtorMovesValue) {
-    std::string s = "hello";
-    OptionValue ov(std::move(s));
+    std::vector<int> v{1, 2, 3};
+    auto* data_before = v.data();
 
+    OptionValue ov(std::move(v));
     EXPECT_TRUE(ov.get_value().has_value());
     EXPECT_TRUE(ov.get_value_as_string().empty());
-    EXPECT_EQ(std::any_cast<std::string>(ov.get_value()), "hello");
+
+    auto const& stored = std::any_cast<std::vector<int> const&>(ov.get_value());
+    EXPECT_EQ(stored, (std::vector<int>{1, 2, 3}));
+    EXPECT_TRUE(v.empty() || v.data() != data_before);
 }
 
 TEST(OptionValueTest, TypedCtorDoesNotAllowSetValueAgain) {
