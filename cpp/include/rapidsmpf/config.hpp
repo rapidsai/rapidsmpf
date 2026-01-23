@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,6 +53,19 @@ class OptionValue {
      */
     OptionValue(std::string value_as_string)
         : value_as_string_{std::move(value_as_string)} {}
+
+    /**
+     * @brief Constructs OptionValue from a typed value.
+     *
+     * The value is stored directly and no string representation is provided.
+     * Options constructed this way are considered initialized and make the
+     * Options instance unserializable.
+     *
+     * @tparam T Type of the value to store.
+     * @param value The value to store.
+     */
+    template <typename T>
+    explicit OptionValue(T value) : value_{std::make_any<T>(std::move(value))} {}
 
     /**
      * @brief Retrieves the stored value.

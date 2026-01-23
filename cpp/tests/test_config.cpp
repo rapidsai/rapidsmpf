@@ -190,6 +190,28 @@ TEST(OptionsTest, GetStringsReturnsEmptyMapIfNoOptions) {
     EXPECT_TRUE(result.empty());
 }
 
+TEST(OptionValueTest, TypedCtorStoresValue) {
+    OptionValue ov(123);
+
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+    EXPECT_EQ(std::any_cast<int>(ov.get_value()), 123);
+}
+
+TEST(OptionValueTest, TypedCtorMovesValue) {
+    std::string s = "hello";
+    OptionValue ov(std::move(s));
+
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+    EXPECT_EQ(std::any_cast<std::string>(ov.get_value()), "hello");
+}
+
+TEST(OptionValueTest, TypedCtorDoesNotAllowSetValueAgain) {
+    OptionValue ov(1);
+    EXPECT_THROW(ov.set_value(std::make_any<int>(2)), std::invalid_argument);
+}
+
 TEST(OptionsTest, SerializeDeserializeRoundTripPreservesData) {
     std::unordered_map<std::string, std::string> strings = {
         {"alpha", "1"}, {"beta", "two"}, {"gamma", "3.14"}, {"empty", ""}
