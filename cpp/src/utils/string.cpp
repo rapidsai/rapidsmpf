@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <optional>
 #include <ranges>
 #include <regex>
 
@@ -363,20 +364,31 @@ Duration parse_duration(std::string_view text) {
 }
 
 template <>
-bool parse_string(std::string const& value) {
+bool parse_string(std::string const& text) {
     try {
-        // Try parsing `value` as a integer.
-        return static_cast<bool>(std::stoi(value));
+        // Try parsing `text` as a integer.
+        return static_cast<bool>(std::stoi(text));
     } catch (std::invalid_argument const&) {
     }
-    std::string str = to_lower(trim(value));
+    std::string str = to_lower(trim(text));
     if (str == "true" || str == "on" || str == "yes") {
         return true;
     }
     if (str == "false" || str == "off" || str == "no") {
         return false;
     }
-    throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+    throw std::invalid_argument("cannot parse \"" + std::string{text} + "\"");
+}
+
+std::optional<std::string> parse_optional(std::string text) {
+    static const std::regex disabled_re(
+        R"(^\s*(false|no|off|disable|disabled|none|n/a|na)\s*$)",
+        std::regex::ECMAScript | std::regex::icase
+    );
+    if (std::regex_match(text, disabled_re)) {
+        return std::nullopt;
+    }
+    return text;
 }
 
 }  // namespace rapidsmpf
