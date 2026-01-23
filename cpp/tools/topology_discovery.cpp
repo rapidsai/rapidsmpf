@@ -7,7 +7,7 @@
 #include <sstream>
 #include <string>
 
-#include <memory/topology_discovery.hpp>
+#include <cucascade/memory/topology_discovery.hpp>
 
 /**
  * @brief Simple JSON builder to avoid external dependencies.
