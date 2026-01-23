@@ -72,7 +72,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
 
         // Children skip bootstrap coordination and use the provided address directly
         if (ctx.rank == 0) {
-            throw std::runtime_error("The root rank was already created.")
+            throw std::runtime_error("The root rank was already created.");
         } else {
             // Worker children connect using provided address
             auto root_worker_address =
