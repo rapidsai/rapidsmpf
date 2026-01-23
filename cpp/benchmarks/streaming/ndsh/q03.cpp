@@ -518,12 +518,14 @@ int main(int argc, char** argv) {
     std::string output_path = arguments.output_file;
 
     // Detect date column types from parquet metadata before timed section
-    bool const lineitem_use_date32 = rapidsmpf::ndsh::detail::is_date32_column(
-        arguments.input_directory, "lineitem", "l_shipdate"
-    );
-    bool const orders_use_date32 = rapidsmpf::ndsh::detail::is_date32_column(
-        arguments.input_directory, "orders", "o_orderdate"
-    );
+    auto const lineitem_types =
+        rapidsmpf::ndsh::detail::get_column_types(arguments.input_directory, "lineitem");
+    bool const lineitem_use_date32 =
+        lineitem_types.at("l_shipdate").id() == cudf::type_id::TIMESTAMP_DAYS;
+    auto const orders_types =
+        rapidsmpf::ndsh::detail::get_column_types(arguments.input_directory, "orders");
+    bool const orders_use_date32 =
+        orders_types.at("o_orderdate").id() == cudf::type_id::TIMESTAMP_DAYS;
 
     std::vector<double> timings;
     int l2size;

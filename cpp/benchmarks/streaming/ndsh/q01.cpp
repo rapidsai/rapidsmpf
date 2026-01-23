@@ -339,9 +339,10 @@ int main(int argc, char** argv) {
     std::string output_path = arguments.output_file;
 
     // Detect date column type from parquet metadata before timed section
-    bool const use_date32 = rapidsmpf::ndsh::detail::is_date32_column(
-        arguments.input_directory, "lineitem", "l_shipdate"
-    );
+    auto const column_types =
+        rapidsmpf::ndsh::detail::get_column_types(arguments.input_directory, "lineitem");
+    bool const use_date32 =
+        column_types.at("l_shipdate").id() == cudf::type_id::TIMESTAMP_DAYS;
 
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {

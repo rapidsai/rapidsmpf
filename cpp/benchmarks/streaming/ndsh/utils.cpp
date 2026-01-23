@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -15,8 +16,7 @@
 #include <getopt.h>
 #include <mpi.h>
 
-#include <cudf/io/datasource.hpp>
-#include <cudf/io/parquet_metadata.hpp>
+#include <cudf/io/parquet.hpp>
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -77,40 +77,32 @@ std::string get_table_path(
     return dir + "/" + table_name + "/";
 }
 
-bool is_date32_column(
-    std::string const& input_directory,
-    std::string const& table_name,
-    std::string const& column_name
+std::map<std::string, cudf::data_type> get_column_types(
+    std::string const& input_directory, std::string const& table_name
 ) {
     auto files = list_parquet_files(get_table_path(input_directory, table_name));
     RAPIDSMPF_EXPECTS(!files.empty(), "No parquet files found for table " + table_name);
 
-    // Read parquet footers to get full schema including logical types
-    std::vector<std::unique_ptr<cudf::io::datasource>> sources;
-    sources.reserve(1);
-    sources.push_back(cudf::io::datasource::create(files[0]));
-    auto footers = cudf::io::read_parquet_footers(sources);
-    RAPIDSMPF_EXPECTS(!footers.empty(), "Failed to read parquet footer");
+    // Read parquet with 0 rows to get just the schema with proper cudf types
+    auto options =
+        cudf::io::parquet_reader_options::builder(cudf::io::source_info(files[0]))
+            .num_rows(0)
+            .build();
+    auto result_with_metadata = cudf::io::read_parquet(options);
 
-    // Search the schema for the column
-    for (auto const& elem : footers[0].schema) {
-        if (elem.name == column_name) {
-            // Check if it's a DATE type (date32)
-            if (elem.converted_type.has_value()
-                && elem.converted_type.value() == cudf::io::parquet::ConvertedType::DATE)
-            {
-                return true;
-            }
-            // Also check logical_type for newer parquet files
-            if (elem.logical_type.has_value()
-                && elem.logical_type->type == cudf::io::parquet::LogicalType::DATE)
-            {
-                return true;
-            }
-            return false;
-        }
+    std::map<std::string, cudf::data_type> result;
+    auto const& schema_info = result_with_metadata.metadata.schema_info;
+    auto const table_view = result_with_metadata.tbl->view();
+
+    RAPIDSMPF_EXPECTS(
+        schema_info.size() == static_cast<std::size_t>(table_view.num_columns()),
+        "Schema info size mismatch"
+    );
+
+    for (std::size_t i = 0; i < schema_info.size(); ++i) {
+        result.emplace(schema_info[i].name, table_view.column(i).type());
     }
-    RAPIDSMPF_FAIL("Column " + column_name + " not found in schema");
+    return result;
 }
 
 }  // namespace detail

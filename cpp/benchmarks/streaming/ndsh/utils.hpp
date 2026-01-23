@@ -5,11 +5,14 @@
 
 #pragma once
 #include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <mpi.h>
+
+#include <cudf/types.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -48,20 +51,16 @@ namespace detail {
 );
 
 /**
- * @brief Detect if a date column uses date32 (days) or timestamp type.
+ * @brief Get cudf data types for all columns from parquet metadata.
  *
- * Reads parquet metadata to check if the specified column is DATE type (date32)
- * or a timestamp type (e.g., TIMESTAMP_MILLIS).
+ * Reads parquet metadata to determine the cudf data type for each column.
  *
  * @param input_directory Directory containing input parquet files
  * @param table_name Name of the table (e.g., "lineitem")
- * @param column_name Name of the date column to check
- * @return true if the column is date32 (ConvertedType::DATE), false otherwise
+ * @return Map from column name to cudf data type
  */
-[[nodiscard]] bool is_date32_column(
-    std::string const& input_directory,
-    std::string const& table_name,
-    std::string const& column_name
+[[nodiscard]] std::map<std::string, cudf::data_type> get_column_types(
+    std::string const& input_directory, std::string const& table_name
 );
 
 }  // namespace detail
