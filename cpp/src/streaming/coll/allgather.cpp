@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,13 +16,13 @@ AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
           ctx_->comm(),
           ctx_->progress_thread(),
           op_id,
-          ctx_->br(),
+          ctx_->br().get(),
           ctx_->statistics(),
           [this]() {
               // Schedule waiters to resume on the executor.
               // This doesn't resume the frame immediately so we don't have to track
               // completion of this callback with a task_group.
-              event_.set(ctx_->executor());
+              event_.set(ctx_->executor()->get());
           }
       )} {}
 

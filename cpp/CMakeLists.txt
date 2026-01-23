@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -197,7 +197,8 @@ add_library(
   src/shuffler/shuffler.cpp
   src/statistics.cpp
   src/system_info.cpp
-  src/utils.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
 
 if(RAPIDSMPF_HAVE_STREAMING)
@@ -208,6 +209,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/coro_executor.cpp
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
@@ -418,47 +420,45 @@ if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
   # Use install-time code to find and copy the library files. This runs during 'cmake --install'
   # when the library definitely exists. Variables like ${CUCASCADE_BUILD_DIR} and ${lib_dir} are
   # embedded at configure time. ${CMAKE_INSTALL_PREFIX} is evaluated at install time. Note: During
-  # wheel builds, CMAKE_BINARY_DIR might be different, so we search multiple locations
-  install(
-    CODE "
-      # Find cuCascade library files at install time
-      # Try multiple possible locations where CPM might build the library
-      set(_search_dirs
-        \"${_CUCASCADE_BUILD_DIR}\"
-        \"${_CUCASCADE_BUILD_DIR}/lib\"
-        \"${CMAKE_BINARY_DIR}/_deps/cucascade-build\"
-        \"${CMAKE_BINARY_DIR}/_deps/cucascade-build/lib\"
-      )
-      set(_found_libs FALSE)
-      message(STATUS \"Searching for cuCascade library files...\")
-      message(STATUS \"CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}\")
-      message(STATUS \"CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}\")
-      message(STATUS \"lib_dir: ${lib_dir}\")
-      foreach(_search_dir IN LISTS _search_dirs)
-        message(STATUS \"Checking directory: ${_search_dir}\")
-        if(EXISTS \"${_search_dir}\")
-          file(GLOB _cucascade_libs \"${_search_dir}/libcucascade.so*\")
-          if(_cucascade_libs)
-            message(STATUS \"Found cuCascade libraries in: ${_search_dir}\")
-            foreach(_lib IN LISTS _cucascade_libs)
-              get_filename_component(_lib_name \"${_lib}\" NAME)
-              get_filename_component(_lib_abs \"${_lib}\" ABSOLUTE)
-              message(STATUS \"Installing: ${_lib_name} from ${_lib_abs} to ${CMAKE_INSTALL_PREFIX}/${lib_dir}\")
-              file(INSTALL \"${_lib_abs}\" DESTINATION \"${CMAKE_INSTALL_PREFIX}/${lib_dir}\" FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
-            endforeach()
-            set(_found_libs TRUE)
-            break()
-          endif()
-        endif()
-      endforeach()
-      if(NOT _found_libs)
-        message(FATAL_ERROR \"cuCascade library files not found! Searched in: ${_search_dirs}\")
-      else()
-        message(STATUS \"Successfully installed cuCascade library files\")
-      endif()
+  # wheel builds, CMAKE_BINARY_DIR might be different, so we search multiple locations Build the
+  # install code with proper variable substitution
+  set(_install_code
       "
-    COMPONENT rapidsmpf
+    set(_search_dirs
+      \"${_CUCASCADE_BUILD_DIR}\"
+      \"${_CUCASCADE_BUILD_DIR}/lib\"
+      \"${CMAKE_BINARY_DIR}/_deps/cucascade-build\"
+      \"${CMAKE_BINARY_DIR}/_deps/cucascade-build/lib\"
+    )
+    set(_found_libs FALSE)
+    message(STATUS \"Searching for cuCascade library files...\")
+    message(STATUS \"CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}\")
+    message(STATUS \"lib_dir: ${lib_dir}\")
+    foreach(_search_dir IN LISTS _search_dirs)
+      message(STATUS \"Checking directory: \$\{_search_dir\}\")
+      if(EXISTS \"\$\{_search_dir\}\")
+        file(GLOB _cucascade_libs \"\$\{_search_dir\}/libcucascade.so*\")
+        if(_cucascade_libs)
+          message(STATUS \"Found cuCascade libraries in: \$\{_search_dir\}\")
+          foreach(_lib IN LISTS _cucascade_libs)
+            get_filename_component(_lib_name \"\$\{_lib\}\" NAME)
+            get_filename_component(_lib_abs \"\$\{_lib\}\" ABSOLUTE)
+            message(STATUS \"Installing: \$\{_lib_name\} to \$\{CMAKE_INSTALL_PREFIX\}/${lib_dir}\")
+            file(INSTALL \"\$\{_lib_abs\}\" DESTINATION \"\$\{CMAKE_INSTALL_PREFIX\}/${lib_dir}\" FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+          endforeach()
+          set(_found_libs TRUE)
+          break()
+        endif()
+      endif()
+    endforeach()
+    if(NOT _found_libs)
+      message(FATAL_ERROR \"cuCascade library files not found! Searched in: \$\{_search_dirs\}\")
+    else()
+      message(STATUS \"Successfully installed cuCascade library files\")
+    endif()
+  "
   )
+  install(CODE "${_install_code}" COMPONENT rapidsmpf)
 endif()
 
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)

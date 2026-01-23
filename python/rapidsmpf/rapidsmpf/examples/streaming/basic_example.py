@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Basic streaming example."""
 
@@ -130,6 +130,12 @@ def main() -> int:
         table = TableChunk.from_message(msg).table_view()
         expect += table.num_rows()
     assert total_num_rows[0] == expect
+
+    # Shut down the context explicitly to ensure it happens on the same thread that
+    # created it. Alternatively, use `with Context(...) as ctx:` to shut it down
+    # automatically.
+    ctx.shutdown()
+
     return total_num_rows[0]
 
 

@@ -281,6 +281,39 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
+- **`memory_reserve_timeout`**
+  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
+  - **Default**: `100 ms`
+  - **Description**: Controls the global progress timeout for memory reservation
+    requests. If the value does not include a unit, it is interpreted as seconds.
+
+    The value limits how long the system may go without making progress on any
+    pending memory reservation. When the timeout expires and no reservation has
+    been satisfied, the system forces progress by selecting a pending request and
+    attempting to reserve memory for it. Depending on the context, this may
+    result in an empty reservation, an overbooked reservation, or a failure.
+
+    This option ensures forward progress under memory pressure and prevents the
+    system from stalling indefinitely when memory availability fluctuates.
+
+- **`allow_overbooking_by_default`**
+  - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
+  - **Default**: `true`
+  - **Description**: Controls the default overbooking behavior for *high-level*
+    memory reservation APIs, such as `reserve_memory()`.
+
+    When enabled, high-level memory reservation requests may overbook memory
+    after the global `memory_reserve_timeout_ms` expires, allowing forward
+    progress under memory pressure.
+
+    When disabled, high-level memory reservation requests fail with an error if
+    no progress is possible within the timeout.
+
+    This option is only used when a high-level API does not explicitly specify
+    an overbooking policy. It does **not** change the behavior of lower-level
+    memory reservation primitives or imply that overbooking is enabled or
+    disabled globally across the system.
+
 
 #### Dask Integration
 
@@ -288,6 +321,14 @@ Each configuration option includes:
   - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_DEVICE`
   - **Default**: `0.50`
   - **Description**: GPU memory limit for shuffling as a fraction of total device memory.
+
+- **`dask_spill_to_pinned_memory`**
+  - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_TO_PINNED_MEMORY`
+  - **Default**: `False`
+  - **Description**: Control whether RapidsMPF spills to pinned host memory when
+    available, or falls back to regular pageable host memory. Pinned host memory
+    provides higher bandwidth and lower latency for device-to-host transfers
+    compared to pageable host memory.
 
 - **`dask_oom_protection`**
   - **Environment Variable**: `RAPIDSMPF_DASK_OOM_PROTECTION`
@@ -313,7 +354,6 @@ Each configuration option includes:
   - **Default**: `True`
   - **Description**: Print RapidsMPF statistics to stdout on Dask Worker shutdown
   when `dask_statistics` is enabled.
-
 
 - **`dask_staging_spill_buffer`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,8 +23,8 @@ coro::task<Message> Channel::receive() {
     }
 }
 
-Node Channel::drain(std::unique_ptr<coro::thread_pool>& executor) {
-    return rb_.shutdown_drain(executor);
+Node Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
+    return rb_.shutdown_drain(executor->get());
 }
 
 Node Channel::shutdown() {

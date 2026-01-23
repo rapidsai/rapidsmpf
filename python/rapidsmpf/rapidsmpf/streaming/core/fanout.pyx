@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_unique
@@ -49,16 +49,17 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     Since messages are shallow-copied, releasing a payload (``release<T>()``)
     is only valid on messages that hold exclusive ownership of the payload.
 
-    Examples
-    --------
     >>> import rapidsmpf.streaming.core as streaming
-    >>> ctx = streaming.Context(...)
-    >>> ch_in = ctx.create_channel()
-    >>> ch_out1 = ctx.create_channel()
-    >>> ch_out2 = ctx.create_channel()
-    >>> node = streaming.fanout(
-    ...     ctx, ch_in, [ch_out1, ch_out2], streaming.FanoutPolicy.BOUNDED
-    ... )
+    >>> with streaming.Context(...) as ctx:
+    ...     ch_in = ctx.create_channel()
+    ...     ch_out1 = ctx.create_channel()
+    ...     ch_out2 = ctx.create_channel()
+    ...     node = streaming.fanout(
+    ...         ctx,
+    ...         ch_in,
+    ...         [ch_out1, ch_out2],
+    ...         streaming.FanoutPolicy.BOUNDED,
+    ...     )
     """
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
     if len(chs_out) == 0:

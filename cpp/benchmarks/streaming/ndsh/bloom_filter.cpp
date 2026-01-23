@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,7 +54,8 @@ streaming::Node build_bloom_filter(
 
     if (ctx->comm()->nranks() > 1) {
         auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
-        auto [res, _] = ctx->br()->reserve(MemoryType::DEVICE, filter->size(), true);
+        auto [res, _] =
+            ctx->br()->reserve(MemoryType::DEVICE, filter->size(), AllowOverbooking::YES);
         auto buf = ctx->br()->allocate(stream, std::move(res));
         buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(

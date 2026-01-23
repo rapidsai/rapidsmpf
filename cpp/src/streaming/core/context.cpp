@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,7 +8,7 @@
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -56,11 +56,12 @@ Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
-    std::unique_ptr<coro::thread_pool> executor,
+    std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
-    : options_{std::move(options)},
+    : creator_thread_id_{std::this_thread::get_id()},
+      options_{std::move(options)},
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
@@ -80,6 +81,11 @@ Context::Context(
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );
+
+    for (auto mem_type : MEMORY_TYPES) {
+        memory_[static_cast<std::size_t>(mem_type)] =
+            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
+    }
 }
 
 Context::Context(
@@ -92,30 +98,30 @@ Context::Context(
           options,
           comm,
           std::make_shared<ProgressThread>(comm->logger(), statistics),
-          coro::thread_pool::make_unique(
-              coro::thread_pool::options{
-                  .thread_count = options.get<std::uint32_t>(
-                      "num_streaming_threads",
-                      [](std::string const& s) {
-                          if (s.empty()) {
-                              return 1;  // Default number of threads.
-                          }
-                          if (int v = std::stoi(s); v > 0) {
-                              return v;
-                          }
-                          throw std::invalid_argument(
-                              "num_streaming_threads must be positive"
-                          );
-                      }
-                  )
-              }
-          ),
+          std::make_shared<CoroThreadPoolExecutor>(options),
           br,
           statistics
       ) {}
 
 Context::~Context() noexcept {
-    br_->spill_manager().remove_spill_function(spill_function_id_);
+    shutdown();
+}
+
+void Context::shutdown() noexcept {
+    // Only allow shutdown to occur once.
+    if (!is_shutdown_.exchange(true, std::memory_order::acq_rel)) {
+        br_->spill_manager().remove_spill_function(spill_function_id_);
+        auto const tid = std::this_thread::get_id();
+        if (tid != creator_thread_id_) {
+            std::cerr << "Context::shutdown() called from "
+                         "a different thread than the one that constructed "
+                         "the executor. Created by thread "
+                      << creator_thread_id_ << ", but current thread is " << tid
+                      << std::endl;
+            std::terminate();
+        }
+        executor_->shutdown();
+    }
 }
 
 config::Options Context::options() const noexcept {
@@ -134,12 +140,16 @@ std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
 
-std::unique_ptr<coro::thread_pool>& Context::executor() noexcept {
+std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
     return executor_;
 }
 
-BufferResource* Context::br() const noexcept {
-    return br_.get();
+std::shared_ptr<BufferResource> Context::br() const noexcept {
+    return br_;
+}
+
+std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
+    return memory_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

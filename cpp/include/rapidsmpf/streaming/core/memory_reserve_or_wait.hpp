@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,9 +9,11 @@
 #include <set>
 
 #include <rapidsmpf/config.hpp>
-#include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/streaming/core/coro_executor.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include <coro/task.hpp>
 
@@ -31,20 +33,22 @@ class MemoryReserveOrWait {
     /**
      * @brief Constructs a `MemoryReserveOrWait` instance.
      *
-     * If no reservation request can be satisfied within @p timeout, the coroutine
-     * forces progress by selecting the smallest pending request and attempting to
-     * reserve memory for it. This attempt may result in an empty reservation if the
-     * request still cannot be satisfied.
+     * If no reservation request can be satisfied within the timeout specified by
+     * the `"memory_reserve_timeout"` key in @p options, the coroutine forces
+     * progress by selecting the smallest pending request and attempting to reserve
+     * memory for it. This attempt may result in an empty reservation if the request
+     * still cannot be satisfied.
      *
+     * @param options Configuration options.
      * @param mem_type The memory type for which reservations are requested.
-     * @param ctx Streaming context.
-     * @param timeout Timeout duration. If not explicitly provided, the timeout is read
-     * from the option key `"memory_reserve_timeout_ms"`, which defaults to 100 ms.
+     * @param executor Shared pointer to a coroutine executor.
+     * @param br Buffer resource for memory allocation.*
      */
     MemoryReserveOrWait(
+        config::Options options,
         MemoryType mem_type,
-        std::shared_ptr<Context> ctx,
-        std::optional<Duration> timeout = std::nullopt
+        std::shared_ptr<CoroThreadPoolExecutor> executor,
+        std::shared_ptr<BufferResource> br
     );
 
     ~MemoryReserveOrWait() noexcept;
@@ -61,34 +65,47 @@ class MemoryReserveOrWait {
      * @brief Attempts to reserve memory or waits until progress can be made.
      *
      * This coroutine submits a memory reservation request and then suspends until
-     * either sufficient memory becomes available or no reservation request (including
-     * other pending requests) makes progress within the configured timeout.
+     * either sufficient memory becomes available or no reservation request
+     * (including other pending requests) makes progress within the configured
+     * timeout.
      *
-     * The timeout does not apply specifically to this request. Instead, it is used as
-     * a global progress guarantee: if no pending reservation request can be satisfied
-     * within timeout, `MemoryReserveOrWait` forces progress by selecting the smallest
-     * pending request and attempting to reserve memory for it. The forced reservation
-     * attempt may result in an empty `MemoryReservation` if the selected request still
-     * cannot be satisfied.
+     * The timeout does not apply specifically to this request. Instead, it is used
+     * as a global progress guarantee: if no pending reservation request can be
+     * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
+     * selecting the smallest pending request and attempting to reserve memory for
+     * it. The forced reservation attempt may result in an empty `MemoryReservation`
+     * if the selected request still cannot be satisfied.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
-     * @p future_release_potential as a heuristic to prefer requests that are expected
-     * to free memory sooner. Operations that do not free memory, for example reading
-     * data from disk into memory, should use a value of zero. Operations that are
-     * expected to reduce memory usage, for example a reduction such as a sum, should
-     * use a value corresponding to the amount of input data that will be released
-     * once the operation completes.
+     * @p net_memory_delta as a heuristic to prefer requests that are expected to
+     * reduce memory pressure sooner. The value represents the estimated net change
+     * in memory usage after the reservation has been allocated and the dependent
+     * operation completes (that is, the memory impact after both allocating @p size
+     * and finishing the work that consumes the reservation):
+     *   - > 0: expected net increase in memory usage
+     *   - = 0: memory-neutral
+     *   - < 0: expected net decrease in memory usage
+     *
+     * Smaller values have higher priority. Examples:
+     *   - Reading data from disk into memory typically has a positive
+     *     @p net_memory_delta (memory usage increases).
+     *   - A row-wise transformation that retains input and output typically has a
+     *     net delta near zero (memory-neutral).
+     *   - Writing data to disk or a reduction that frees inputs typically has a
+     *     negative @p net_memory_delta (memory usage decreases).
      *
      * @param size Number of bytes to reserve.
-     * @param future_release_potential Estimated number of bytes the requester may
-     * release in the future.
+     * @param net_memory_delta Estimated net change in memory usage after the
+     * reservation is allocated and the dependent operation completes. Smaller
+     * values have higher priority.
      * @return A `MemoryReservation` representing the allocated memory, or an empty
      * reservation if progress could not be made.
      *
-     * @throws std::runtime_error If shutdown occurs before the request can be processed.
+     * @throws std::runtime_error If shutdown occurs before the request can be
+     * processed.
      */
     coro::task<MemoryReservation> reserve_or_wait(
-        std::size_t size, std::size_t future_release_potential
+        std::size_t size, std::int64_t net_memory_delta
     );
 
     /**
@@ -103,19 +120,46 @@ class MemoryReserveOrWait {
      * guarantees forward progress, but may exceed the configured memory limits.
      *
      * @param size Number of bytes to reserve.
-     * @param future_release_potential Estimated number of bytes the requester may
-     * release in the future.
+     * @param net_memory_delta Heuristic used to prioritize eligible requests. See
+     * `reserve_or_wait()` for details and semantics.
      * @return A pair consisting of:
      *   - A `MemoryReservation` representing the allocated memory.
      *   - The number of bytes by which the reservation overbooked the available
      *     memory. This value is zero if no overbooking occurred.
      *
-     * @throws std::runtime_error If shutdown occurs before the request can be processed.
+     * @throws std::runtime_error If shutdown occurs before the request can be
+     * processed.
      *
      * @see reserve_or_wait()
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
-        std::size_t size, std::size_t future_release_potential
+        std::size_t size, std::int64_t net_memory_delta
+    );
+
+    /**
+     * @brief Variant of `reserve_or_wait()` that fails if no progress is possible.
+     *
+     * This coroutine behaves identically to `reserve_or_wait()` with respect to
+     * request submission, waiting, and progress guarantees until the progress
+     * timeout expires.
+     *
+     * If no reservation request can be satisfied before the timeout, this method
+     * fails instead of forcing progress. Overbooking is not allowed, and no memory
+     * reservation is made.
+     *
+     * @param size Number of bytes to reserve.
+     * @param net_memory_delta Heuristic used to prioritize eligible requests. See
+     * `reserve_or_wait()` for details and semantics.
+     * @return A `MemoryReservation` representing the allocated memory.
+     *
+     * @throws std::overflow_error If no progress is possible within the timeout.
+     * @throws std::runtime_error If shutdown occurs before the request can be
+     * processed.
+     *
+     * @see reserve_or_wait()
+     */
+    coro::task<MemoryReservation> reserve_or_wait_or_fail(
+        std::size_t size, std::int64_t net_memory_delta
     );
 
     /**
@@ -137,6 +181,27 @@ class MemoryReserveOrWait {
      */
     [[nodiscard]] std::size_t periodic_memory_check_counter() const noexcept;
 
+    /**
+     * @brief Get the coroutine executor used by this instance.
+     *
+     * @return Shared pointer to the coroutine executor.
+     */
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
+
+    /**
+     * @brief Get the buffer resource used for memory reservations.
+     *
+     * @return Shared pointer to the buffer resource.
+     */
+    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+
+    /**
+     * @brief Get the configured progress timeout.
+     *
+     * @return The progress timeout duration.
+     */
+    [[nodiscard]] Duration timeout() const noexcept;
+
   private:
     /**
      * @brief Represents a single memory reservation request.
@@ -148,8 +213,9 @@ class MemoryReserveOrWait {
         /// @brief The number of bytes requested.
         std::size_t size;
 
-        /// @brief Estimated number of bytes expected to be released in the future.
-        std::size_t future_release_potential;
+        /// @brief Estimated net change in memory usage after the reservation is allocated
+        /// and the dependent operation completes. Smaller values have higher priority.
+        std::int64_t net_memory_delta;
 
         /// @brief Monotonically increasing identifier used to preserve submission order.
         std::uint64_t sequence_number;
@@ -172,7 +238,7 @@ class MemoryReserveOrWait {
      *  - Queries the currently available memory for the configured memory type.
      *  - Identifies all pending reservation requests whose `size` fits within the
      *    available memory.
-     *  - Among those, selects the request with the largest `future_release_potential`.
+     *  - Among those, selects the request with the smallest `net_memory_delta`.
      *  - Fulfills the request by creating a `MemoryReservation` and pushing it into
      *    the requester's queue.
      *
@@ -199,7 +265,8 @@ class MemoryReserveOrWait {
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
-    std::shared_ptr<Context> ctx_;
+    std::shared_ptr<CoroThreadPoolExecutor> executor_;
+    std::shared_ptr<BufferResource> br_;
     Duration const timeout_;
     std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};

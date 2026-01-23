@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -22,7 +22,6 @@ from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
 from rapidsmpf.statistics cimport Statistics
 
 
-# Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
 cdef extern from *:
     """
     std::function<std::int64_t()> to_MemoryAvailable(
@@ -60,10 +59,9 @@ cdef extern from *:
     ) except +
 
 
-# Bindings to MemoryReservation creating methods, which we need to
-# do in C++ because MemoryReservation doesn't have a default ctor.
 cdef extern from * nogil:
     """
+    namespace {
     std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
     cpp_br_reserve(
         std::shared_ptr<rapidsmpf::BufferResource> br,
@@ -71,7 +69,9 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
-        auto [res, ob] = br->reserve(mem_type, size, allow_overbooking);
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
+        auto [res, ob] = br->reserve(mem_type, size, ab);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
 
@@ -81,10 +81,13 @@ cdef extern from * nogil:
         size_t size,
         bool allow_overbooking
     ) {
+        auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
+                                    :rapidsmpf::AllowOverbooking::NO;
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_device_memory_and_spill(size, allow_overbooking)
+            br->reserve_device_memory_and_spill(size, ab)
         );
     }
+    }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],
@@ -235,6 +238,29 @@ cdef class BufferResource:
 
     cdef const cuda_stream_pool* stream_pool(self):
         return &deref(self._handle).stream_pool()
+
+    @property
+    def device_mr(self):
+        """
+        The memory resource used for device memory allocations.
+
+        Returns
+        -------
+        The device memory resource.
+        """
+        return self._device_mr
+
+    @property
+    def pinned_mr(self):
+        """
+        The memory resource used for pinned host memory allocations.
+
+        Returns
+        -------
+        The pinned host memory resource, or None if pinned host allocations
+        are disabled.
+        """
+        return self._pinned_mr
 
     def memory_reserved(self, MemoryType mem_type):
         """
