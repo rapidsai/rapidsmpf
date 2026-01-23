@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 
 using namespace rapidsmpf::config;
 
-TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
+TEST(OptionsTest, EnvReturnsMatchingVariables) {
     // Set environment variables for testing
     setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
     setenv("RAPIDSMPF_TEST_VAR2", "value2", 1);
@@ -30,7 +30,7 @@ TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
     ASSERT_TRUE(env_vars.find("OTHER_VAR") == env_vars.end());
 }
 
-TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
+TEST(OptionsTest, EnvOutputMapIsPopulated) {
     setenv("RAPIDSMPF_ANOTHER_VAR", "another_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -40,7 +40,7 @@ TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
     EXPECT_EQ(output["ANOTHER_VAR"], "another_value");
 }
 
-TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
+TEST(OptionsTest, EnvDoesNotOverwriteExistingKey) {
     setenv("RAPIDSMPF_EXISTING_VAR", "env_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -52,7 +52,7 @@ TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
     EXPECT_EQ(output["EXISTING_VAR"], "original_value");
 }
 
-TEST(ConfigEnvironmentVariables, ThrowsIfNoCaptureGroup) {
+TEST(OptionsTest, EnvThrowsIfNoCaptureGroup) {
     setenv("RAPIDSMPF_NOCAPTURE", "should_fail", 1);
 
     // Should throw because there is no capture group in the regex
