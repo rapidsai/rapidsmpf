@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.bytes cimport PyBytes_FromStringAndSize
@@ -14,7 +14,6 @@ from rapidsmpf._detail cimport config_options_get
 
 import os
 import re
-import typing
 
 from rapidsmpf.utils.string import parse_boolean, parse_bytes
 
