@@ -85,11 +85,11 @@ cdef cpp_PartitioningSpec _to_spec(obj) except *:
 
 cdef object _from_spec(cpp_PartitioningSpec spec):
     """Convert PartitioningSpec to Python object."""
-    if spec.is_none():
+    if spec.type == cpp_SpecType.NONE:
         return None
-    elif spec.is_aligned():
+    elif spec.type == cpp_SpecType.ALIGNED:
         return "aligned"
-    elif spec.is_hash():
+    elif spec.type == cpp_SpecType.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     else:
         raise ValueError("Unknown SpecType")

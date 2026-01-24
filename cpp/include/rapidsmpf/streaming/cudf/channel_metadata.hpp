@@ -39,7 +39,6 @@ enum class SpecType : std::uint8_t {
     NONE,  ///< No partitioning at this level.
     ALIGNED,  ///< Aligned with parent level.
     HASH,  ///< Hash partitioning.
-    // RANGE,  // Future: sorted/range partitioning.
 };
 
 /**
@@ -55,8 +54,6 @@ enum class SpecType : std::uint8_t {
 struct PartitioningSpec {
     SpecType type = SpecType::NONE;  ///< The type of partitioning.
     std::optional<HashScheme> hash;  ///< Valid only when type == HASH.
-
-    // std::optional<RangeScheme> range;  // Future.
 
     /**
      * @brief Create a spec indicating no partitioning.
@@ -84,30 +81,6 @@ struct PartitioningSpec {
     }
 
     /**
-     * @brief Check if this spec represents no partitioning.
-     * @return True if type is NONE.
-     */
-    [[nodiscard]] bool is_none() const noexcept {
-        return type == SpecType::NONE;
-    }
-
-    /**
-     * @brief Check if this spec represents alignment with the parent level.
-     * @return True if type is ALIGNED.
-     */
-    [[nodiscard]] bool is_aligned() const noexcept {
-        return type == SpecType::ALIGNED;
-    }
-
-    /**
-     * @brief Check if this spec represents hash partitioning.
-     * @return True if type is HASH.
-     */
-    [[nodiscard]] bool is_hash() const noexcept {
-        return type == SpecType::HASH;
-    }
-
-    /**
      * @brief Equality comparison.
      * @return True if both specs are equal.
      */
@@ -122,32 +95,6 @@ struct PartitioningSpec {
  *
  * - `inter_rank`: Distribution across ranks (global partitioning).
  * - `local`: Distribution within a rank (local chunk assignment).
- *
- * Examples
- * --------
- * Direct global shuffle to N_g partitions:
- * @code{.cpp}
- * Partitioning{
- *     PartitioningSpec::from_hash(HashScheme{{"key"}, N_g}),
- *     PartitioningSpec::aligned()
- * };
- * @endcode
- *
- * Two-stage shuffle (global by nranks, then local to N_l):
- * @code{.cpp}
- * Partitioning{
- *     PartitioningSpec::from_hash(HashScheme{{"key"}, nranks}),
- *     PartitioningSpec::from_hash(HashScheme{{"key"}, N_l})
- * };
- * @endcode
- *
- * After local repartition (lose local alignment):
- * @code{.cpp}
- * Partitioning{
- *     PartitioningSpec::from_hash(HashScheme{{"key"}, N_g}),
- *     PartitioningSpec::none()
- * };
- * @endcode
  */
 struct Partitioning {
     PartitioningSpec inter_rank;  ///< Distribution across ranks.

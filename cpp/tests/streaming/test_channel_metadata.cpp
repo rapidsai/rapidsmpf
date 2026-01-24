@@ -26,18 +26,15 @@ TEST_F(StreamingChannelMetadata, HashScheme) {
 TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     // None
     auto spec_none = PartitioningSpec::none();
-    EXPECT_TRUE(spec_none.is_none());
-    EXPECT_FALSE(spec_none.is_aligned());
-    EXPECT_FALSE(spec_none.is_hash());
+    EXPECT_EQ(spec_none.type, SpecType::NONE);
 
     // Aligned
     auto spec_aligned = PartitioningSpec::aligned();
-    EXPECT_TRUE(spec_aligned.is_aligned());
-    EXPECT_FALSE(spec_aligned.is_none());
+    EXPECT_EQ(spec_aligned.type, SpecType::ALIGNED);
 
     // Hash
     auto spec_hash = PartitioningSpec::from_hash(HashScheme{{"key"}, 16});
-    EXPECT_TRUE(spec_hash.is_hash());
+    EXPECT_EQ(spec_hash.type, SpecType::HASH);
     EXPECT_EQ(spec_hash.hash->columns[0], "key");
     EXPECT_EQ(spec_hash.hash->modulus, 16);
 
@@ -52,15 +49,15 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
 TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     // Default construction
     Partitioning p_default{};
-    EXPECT_TRUE(p_default.inter_rank.is_none());
-    EXPECT_TRUE(p_default.local.is_none());
+    EXPECT_EQ(p_default.inter_rank.type, SpecType::NONE);
+    EXPECT_EQ(p_default.local.type, SpecType::NONE);
 
     // Direct global shuffle: inter_rank=Hash, local=Aligned
     Partitioning p_global{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    EXPECT_TRUE(p_global.inter_rank.is_hash());
-    EXPECT_TRUE(p_global.local.is_aligned());
+    EXPECT_EQ(p_global.inter_rank.type, SpecType::HASH);
+    EXPECT_EQ(p_global.local.type, SpecType::ALIGNED);
     EXPECT_EQ(p_global.inter_rank.hash->modulus, 16);
 
     // Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)

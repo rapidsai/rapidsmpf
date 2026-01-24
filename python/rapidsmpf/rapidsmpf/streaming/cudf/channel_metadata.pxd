@@ -22,9 +22,9 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         bool_t operator==(const cpp_HashScheme&)
 
     cdef enum cpp_SpecType "rapidsmpf::streaming::SpecType":
-        NONE
-        ALIGNED
-        HASH
+        NONE "rapidsmpf::streaming::SpecType::NONE"
+        ALIGNED "rapidsmpf::streaming::SpecType::ALIGNED"
+        HASH "rapidsmpf::streaming::SpecType::HASH"
 
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         cpp_SpecType type
@@ -39,9 +39,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         @staticmethod
         cpp_PartitioningSpec from_hash(cpp_HashScheme)
 
-        bool_t is_none()
-        bool_t is_aligned()
-        bool_t is_hash()
         bool_t operator==(const cpp_PartitioningSpec&)
 
     cdef cppclass cpp_Partitioning "rapidsmpf::streaming::Partitioning":
