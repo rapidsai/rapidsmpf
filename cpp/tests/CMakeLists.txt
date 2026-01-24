@@ -105,6 +105,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
+            streaming/test_channel_metadata.cpp
             streaming/test_read_parquet.cpp
             streaming/test_shuffler.cpp
             streaming/test_spillable_messages.cpp
