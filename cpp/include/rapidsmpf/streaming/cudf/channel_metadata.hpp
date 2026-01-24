@@ -71,7 +71,7 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type ALIGNED.
      */
     static PartitioningSpec aligned() {
-        return {SpecType::ALIGNED, std::nullopt};
+        return {.type = SpecType::ALIGNED, .hash = std::nullopt};
     }
 
     /**
@@ -80,7 +80,7 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type HASH.
      */
     static PartitioningSpec from_hash(HashScheme h) {
-        return {SpecType::HASH, std::move(h)};
+        return {.type = SpecType::HASH, .hash = std::move(h)};
     }
 
     /**
@@ -167,14 +167,17 @@ struct Partitioning {
  * status for the data flowing through a channel.
  */
 struct ChannelMetadata {
-    std::int64_t local_count;  ///< Local chunk-count estimate for this rank.
+    std::int64_t local_count{};  ///< Local chunk-count estimate for this rank.
     std::optional<std::int64_t>
         global_count;  ///< Global chunk-count estimate (all ranks).
     Partitioning partitioning;  ///< How the data is partitioned.
-    bool duplicated;  ///< Whether data is duplicated on all workers.
+    bool duplicated{};  ///< Whether data is duplicated on all workers.
+
+    /// @brief Default constructor.
+    ChannelMetadata() = default;
 
     /**
-     * @brief Construct metadata with default values.
+     * @brief Construct metadata with specified values.
      *
      * @param local_count Local chunk count (must be >= 0).
      * @param global_count Optional global chunk count.
