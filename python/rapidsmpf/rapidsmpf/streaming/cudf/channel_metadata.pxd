@@ -84,7 +84,6 @@ cdef class Partitioning:
     @staticmethod
     cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)
 
-    cdef const cpp_Partitioning* handle_ptr(self)
     cdef unique_ptr[cpp_Partitioning] release_handle(self)
 
 
@@ -94,5 +93,4 @@ cdef class ChannelMetadata:
     @staticmethod
     cdef ChannelMetadata from_handle(unique_ptr[cpp_ChannelMetadata] handle)
 
-    cdef const cpp_ChannelMetadata* handle_ptr(self)
     cdef unique_ptr[cpp_ChannelMetadata] release_handle(self)

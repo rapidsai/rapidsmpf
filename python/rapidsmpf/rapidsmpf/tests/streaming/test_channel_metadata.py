@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.metadata import ChannelMetadata, HashScheme, Partitioning
+from rapidsmpf.streaming.cudf import ChannelMetadata, HashScheme, Partitioning
 
 # ============================================================================
 # HashScheme Tests
@@ -171,10 +171,13 @@ def test_partitioning_roundtrip_message() -> None:
     """Test that Partitioning can be wrapped in a Message and extracted."""
     p = Partitioning(HashScheme(("key",), 16), "aligned")
     msg = Message(42, p)
+    # Note: p is now in a moved-from state after being passed to Message
     assert msg.sequence_number == 42
 
     got = Partitioning.from_message(msg)
-    assert got == p
+    # Compare against expected values, not the moved-from object
+    assert got.inter_rank == HashScheme(("key",), 16)
+    assert got.local == "aligned"
     assert msg.empty()
 
 
@@ -185,11 +188,14 @@ def test_channel_metadata_roundtrip_message() -> None:
         local_count=4, global_count=16, partitioning=p, duplicated=False
     )
     msg = Message(42, m)
+    # Note: m is now in a moved-from state after being passed to Message
     assert msg.sequence_number == 42
 
     got = ChannelMetadata.from_message(msg)
     assert got.local_count == 4
     assert got.global_count == 16
-    assert got.partitioning == p
+    # Compare partitioning fields directly
+    assert got.partitioning.inter_rank == HashScheme(("key",), 16)
+    assert got.partitioning.local == "aligned"
     assert got.duplicated is False
     assert msg.empty()
