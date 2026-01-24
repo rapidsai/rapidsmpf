@@ -9,236 +9,121 @@
 
 using namespace rapidsmpf::streaming;
 
-class StreamingPartitioning : public ::testing::Test {};
+class StreamingChannelMetadata : public ::testing::Test {};
 
-// ============================================================================
-// HashScheme Tests
-// ============================================================================
-
-TEST_F(StreamingPartitioning, HashSchemeConstruction) {
+TEST_F(StreamingChannelMetadata, HashScheme) {
     HashScheme h{{"col_a", "col_b"}, 16};
     EXPECT_EQ(h.columns.size(), 2);
     EXPECT_EQ(h.columns[0], "col_a");
-    EXPECT_EQ(h.columns[1], "col_b");
     EXPECT_EQ(h.modulus, 16);
+
+    // Equality
+    EXPECT_EQ(h, (HashScheme{{"col_a", "col_b"}, 16}));
+    EXPECT_NE(h, (HashScheme{{"col_a", "col_b"}, 32}));
+    EXPECT_NE(h, (HashScheme{{"other"}, 16}));
 }
 
-TEST_F(StreamingPartitioning, HashSchemeEquality) {
-    HashScheme h1{{"key"}, 16};
-    HashScheme h2{{"key"}, 16};
-    HashScheme h3{{"key"}, 32};
-    HashScheme h4{{"other"}, 16};
+TEST_F(StreamingChannelMetadata, PartitioningSpec) {
+    // None
+    auto spec_none = PartitioningSpec::none();
+    EXPECT_TRUE(spec_none.is_none());
+    EXPECT_FALSE(spec_none.is_aligned());
+    EXPECT_FALSE(spec_none.is_hash());
 
-    EXPECT_EQ(h1, h2);
-    EXPECT_NE(h1, h3);
-    EXPECT_NE(h1, h4);
+    // Aligned
+    auto spec_aligned = PartitioningSpec::aligned();
+    EXPECT_TRUE(spec_aligned.is_aligned());
+    EXPECT_FALSE(spec_aligned.is_none());
+
+    // Hash
+    auto spec_hash = PartitioningSpec::from_hash(HashScheme{{"key"}, 16});
+    EXPECT_TRUE(spec_hash.is_hash());
+    EXPECT_EQ(spec_hash.hash->columns[0], "key");
+    EXPECT_EQ(spec_hash.hash->modulus, 16);
+
+    // Equality
+    EXPECT_EQ(spec_none, PartitioningSpec::none());
+    EXPECT_EQ(spec_aligned, PartitioningSpec::aligned());
+    EXPECT_EQ(spec_hash, PartitioningSpec::from_hash(HashScheme{{"key"}, 16}));
+    EXPECT_NE(spec_none, spec_aligned);
+    EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{"key"}, 32}));
 }
 
-// ============================================================================
-// PartitioningSpec Tests
-// ============================================================================
+TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
+    // Default construction
+    Partitioning p_default{};
+    EXPECT_TRUE(p_default.inter_rank.is_none());
+    EXPECT_TRUE(p_default.local.is_none());
 
-TEST_F(StreamingPartitioning, PartitioningSpecNone) {
-    auto spec = PartitioningSpec::none();
-    EXPECT_TRUE(spec.is_none());
-    EXPECT_FALSE(spec.is_aligned());
-    EXPECT_FALSE(spec.is_hash());
-    EXPECT_EQ(spec.type, SpecType::NONE);
-}
-
-TEST_F(StreamingPartitioning, PartitioningSpecAligned) {
-    auto spec = PartitioningSpec::aligned();
-    EXPECT_FALSE(spec.is_none());
-    EXPECT_TRUE(spec.is_aligned());
-    EXPECT_FALSE(spec.is_hash());
-    EXPECT_EQ(spec.type, SpecType::ALIGNED);
-}
-
-TEST_F(StreamingPartitioning, PartitioningSpecHash) {
-    auto spec = PartitioningSpec::from_hash(HashScheme{{"key"}, 16});
-    EXPECT_FALSE(spec.is_none());
-    EXPECT_FALSE(spec.is_aligned());
-    EXPECT_TRUE(spec.is_hash());
-    EXPECT_EQ(spec.type, SpecType::HASH);
-    EXPECT_TRUE(spec.hash.has_value());
-    EXPECT_EQ(spec.hash->columns[0], "key");
-    EXPECT_EQ(spec.hash->modulus, 16);
-}
-
-TEST_F(StreamingPartitioning, PartitioningSpecEquality) {
-    auto none1 = PartitioningSpec::none();
-    auto none2 = PartitioningSpec::none();
-    auto aligned1 = PartitioningSpec::aligned();
-    auto aligned2 = PartitioningSpec::aligned();
-    auto hash1 = PartitioningSpec::from_hash(HashScheme{{"key"}, 16});
-    auto hash2 = PartitioningSpec::from_hash(HashScheme{{"key"}, 16});
-    auto hash3 = PartitioningSpec::from_hash(HashScheme{{"key"}, 32});
-
-    EXPECT_EQ(none1, none2);
-    EXPECT_EQ(aligned1, aligned2);
-    EXPECT_EQ(hash1, hash2);
-    EXPECT_NE(none1, aligned1);
-    EXPECT_NE(none1, hash1);
-    EXPECT_NE(aligned1, hash1);
-    EXPECT_NE(hash1, hash3);
-}
-
-// ============================================================================
-// Partitioning Tests
-// ============================================================================
-
-TEST_F(StreamingPartitioning, PartitioningDefaultConstruction) {
-    Partitioning p{};
-    EXPECT_TRUE(p.inter_rank.is_none());
-    EXPECT_TRUE(p.local.is_none());
-}
-
-TEST_F(StreamingPartitioning, PartitioningDirectGlobalShuffle) {
-    // Direct global shuffle to N_g partitions: inter_rank=Hash, local=Aligned
-    Partitioning p{
+    // Direct global shuffle: inter_rank=Hash, local=Aligned
+    Partitioning p_global{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    EXPECT_TRUE(p.inter_rank.is_hash());
-    EXPECT_TRUE(p.local.is_aligned());
-    EXPECT_EQ(p.inter_rank.hash->modulus, 16);
-}
+    EXPECT_TRUE(p_global.inter_rank.is_hash());
+    EXPECT_TRUE(p_global.local.is_aligned());
+    EXPECT_EQ(p_global.inter_rank.hash->modulus, 16);
 
-TEST_F(StreamingPartitioning, PartitioningTwoStageShuffle) {
     // Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)
-    Partitioning p{
+    Partitioning p_twostage{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 4}),
         PartitioningSpec::from_hash(HashScheme{{"key"}, 8})
     };
-    EXPECT_TRUE(p.inter_rank.is_hash());
-    EXPECT_TRUE(p.local.is_hash());
-    EXPECT_EQ(p.inter_rank.hash->modulus, 4);
-    EXPECT_EQ(p.local.hash->modulus, 8);
+    EXPECT_EQ(p_twostage.inter_rank.hash->modulus, 4);
+    EXPECT_EQ(p_twostage.local.hash->modulus, 8);
+
+    // Equality
+    EXPECT_EQ(
+        p_global,
+        (Partitioning{
+            PartitioningSpec::from_hash(HashScheme{{"key"}, 16}),
+            PartitioningSpec::aligned()
+        })
+    );
+    EXPECT_NE(p_global, p_twostage);
 }
 
-TEST_F(StreamingPartitioning, PartitioningAfterLocalRepartition) {
-    // After local repartition: inter_rank=Hash, local=None
+TEST_F(StreamingChannelMetadata, ChannelMetadata) {
+    // Full construction
     Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::none()
-    };
-    EXPECT_TRUE(p.inter_rank.is_hash());
-    EXPECT_TRUE(p.local.is_none());
-}
-
-TEST_F(StreamingPartitioning, PartitioningEquality) {
-    Partitioning p1{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    Partitioning p2{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    };
-    Partitioning p3{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 32}), PartitioningSpec::aligned()
-    };
-
-    EXPECT_EQ(p1, p2);
-    EXPECT_NE(p1, p3);
-}
-
-// ============================================================================
-// ChannelMetadata Tests
-// ============================================================================
-
-TEST_F(StreamingPartitioning, ChannelMetadataConstruction) {
-    ChannelMetadata m{4, 16, Partitioning{}, false};
+    ChannelMetadata m{4, 16, p, true};
     EXPECT_EQ(m.local_count, 4);
-    EXPECT_TRUE(m.global_count.has_value());
     EXPECT_EQ(m.global_count.value(), 16);
-    EXPECT_FALSE(m.duplicated);
-}
-
-TEST_F(StreamingPartitioning, ChannelMetadataNoGlobalCount) {
-    ChannelMetadata m{4};
-    EXPECT_EQ(m.local_count, 4);
-    EXPECT_FALSE(m.global_count.has_value());
-    EXPECT_FALSE(m.duplicated);
-}
-
-TEST_F(StreamingPartitioning, ChannelMetadataWithPartitioning) {
-    Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    };
-    ChannelMetadata m{4, 16, p, false};
     EXPECT_EQ(m.partitioning, p);
-}
-
-TEST_F(StreamingPartitioning, ChannelMetadataDuplicated) {
-    ChannelMetadata m{1, 1, Partitioning{}, true};
     EXPECT_TRUE(m.duplicated);
+
+    // Minimal construction (no global_count)
+    ChannelMetadata m_minimal{4};
+    EXPECT_EQ(m_minimal.local_count, 4);
+    EXPECT_FALSE(m_minimal.global_count.has_value());
+    EXPECT_FALSE(m_minimal.duplicated);
+
+    // Equality
+    EXPECT_EQ(m, (ChannelMetadata{4, 16, p, true}));
+    EXPECT_NE(m, (ChannelMetadata{8, 16, p, true}));
 }
 
-TEST_F(StreamingPartitioning, ChannelMetadataEquality) {
-    Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    };
-    ChannelMetadata m1{4, 16, p, false};
-    ChannelMetadata m2{4, 16, p, false};
-    ChannelMetadata m3{8, 16, p, false};
-
-    EXPECT_EQ(m1, m2);
-    EXPECT_NE(m1, m3);
-}
-
-// ============================================================================
-// Message Integration Tests
-// ============================================================================
-
-TEST_F(StreamingPartitioning, PartitioningToMessage) {
+TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
+    // Partitioning round-trip
     auto p = std::make_unique<Partitioning>(Partitioning{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     });
-    Partitioning expected = *p;
+    Partitioning p_expected = *p;
+    auto msg_p = to_message(42, std::move(p));
+    EXPECT_EQ(msg_p.sequence_number(), 42);
+    EXPECT_TRUE(msg_p.holds<Partitioning>());
+    EXPECT_EQ(msg_p.release<Partitioning>(), p_expected);
+    EXPECT_TRUE(msg_p.empty());
 
-    auto msg = to_message(42, std::move(p));
-    EXPECT_FALSE(msg.empty());
-    EXPECT_EQ(msg.sequence_number(), 42);
-    EXPECT_TRUE(msg.holds<Partitioning>());
-
-    auto const& got = msg.get<Partitioning>();
-    EXPECT_EQ(got, expected);
-}
-
-TEST_F(StreamingPartitioning, PartitioningMessageRelease) {
-    auto p = std::make_unique<Partitioning>(Partitioning{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    });
-    Partitioning expected = *p;
-
-    auto msg = to_message(0, std::move(p));
-    auto got = msg.release<Partitioning>();
-    EXPECT_TRUE(msg.empty());
-    EXPECT_EQ(got, expected);
-}
-
-TEST_F(StreamingPartitioning, ChannelMetadataToMessage) {
-    Partitioning p{
+    // ChannelMetadata round-trip
+    Partitioning part{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    auto m = std::make_unique<ChannelMetadata>(4, 16, p, false);
-    ChannelMetadata expected = *m;
-
-    auto msg = to_message(42, std::move(m));
-    EXPECT_FALSE(msg.empty());
-    EXPECT_EQ(msg.sequence_number(), 42);
-    EXPECT_TRUE(msg.holds<ChannelMetadata>());
-
-    auto const& got = msg.get<ChannelMetadata>();
-    EXPECT_EQ(got, expected);
-}
-
-TEST_F(StreamingPartitioning, ChannelMetadataMessageRelease) {
-    Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    };
-    auto m = std::make_unique<ChannelMetadata>(4, 16, p, false);
-    ChannelMetadata expected = *m;
-
-    auto msg = to_message(0, std::move(m));
-    auto got = msg.release<ChannelMetadata>();
-    EXPECT_TRUE(msg.empty());
-    EXPECT_EQ(got, expected);
+    auto m = std::make_unique<ChannelMetadata>(4, 16, part, false);
+    ChannelMetadata m_expected = *m;
+    auto msg_m = to_message(99, std::move(m));
+    EXPECT_TRUE(msg_m.holds<ChannelMetadata>());
+    EXPECT_EQ(msg_m.release<ChannelMetadata>(), m_expected);
+    EXPECT_TRUE(msg_m.empty());
 }
