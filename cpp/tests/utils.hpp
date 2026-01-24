@@ -19,6 +19,7 @@
 #include <cudf_test/column_wrapper.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 /// @brief User-defined literal for specifying memory sizes in KiB.
@@ -29,6 +30,11 @@ constexpr std::size_t operator"" _KiB(unsigned long long val) {
 /// @brief User-defined literal for specifying memory sizes in MiB.
 constexpr std::size_t operator"" _MiB(unsigned long long val) {
     return val * (1ull << 20);
+}
+
+/// @brief User-defined literal for specifying memory sizes in GiB.
+constexpr std::size_t operator"" _GiB(unsigned long long val) {
+    return val * (1 << 30);
 }
 
 template <typename T>
@@ -108,7 +114,9 @@ template <std::integral T = std::int64_t>
     auto metadata_ptr =
         std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
 
-    auto reservation = br->reserve(rapidsmpf::MemoryType::DEVICE, data.size(), true);
+    auto reservation = br->reserve(
+        rapidsmpf::MemoryType::DEVICE, data.size(), rapidsmpf::AllowOverbooking::YES
+    );
     auto data_ptr =
         std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
     return rapidsmpf::PackedData{

@@ -1,10 +1,9 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
-
 
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -56,7 +55,8 @@ inline Node random_table_generator(
     co_await ctx->executor()->schedule();
     auto nbytes = static_cast<std::size_t>(ncolumns * nrows) * sizeof(std::int32_t);
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
-        auto res = ctx->br()->reserve_device_memory_and_spill(nbytes, false);
+        auto res =
+            ctx->br()->reserve_device_memory_and_spill(nbytes, AllowOverbooking::NO);
         co_await ch_out->send(to_message(
             seq,
             std::make_unique<TableChunk>(

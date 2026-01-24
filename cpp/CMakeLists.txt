@@ -197,7 +197,8 @@ add_library(
   src/statistics.cpp
   src/system_info.cpp
   src/topology_discovery.cpp
-  src/utils.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
 
 if(RAPIDSMPF_HAVE_STREAMING)
