@@ -31,8 +31,6 @@ struct HashScheme {
 
 /**
  * @brief Type tag for PartitioningSpec.
- *
- * Extensible: add RANGE, ROUND_ROBIN, etc. as needed in the future.
  */
 enum class SpecType : std::uint8_t {
     NONE,  ///< No partitioning at this level.
@@ -99,9 +97,6 @@ struct PartitioningSpec {
  * - `local`: Distribution within a rank, corresponding to a single-rank
  *   communicator. Operations at this level repartition data locally without
  *   network communication.
- *
- * @note Future extensions may add additional levels (e.g., `inter_group` for
- * rank groups) with corresponding communicators.
  */
 struct Partitioning {
     /// Distribution across ranks (corresponds to primary communicator).
