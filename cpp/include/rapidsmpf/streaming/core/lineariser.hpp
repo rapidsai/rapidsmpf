@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -94,7 +94,8 @@ class Lineariser {
     Node drain() {
         ShutdownAtExit c{ch_out_};
         co_await ctx_->executor()->schedule();
-        while (!queues_.empty()) {
+        bool should_continue = true;
+        while (should_continue && !queues_.empty()) {
             for (auto& q : queues_) {
                 auto [receipt, msg] = co_await q->receive();
                 if (msg.empty()) {
@@ -103,6 +104,7 @@ class Lineariser {
                 }
                 if (!co_await ch_out_->send(std::move(msg))) {
                     // Output channel is shut down, tell the producers to shutdown.
+                    should_continue = false;
                     break;
                 }
                 co_await receipt;

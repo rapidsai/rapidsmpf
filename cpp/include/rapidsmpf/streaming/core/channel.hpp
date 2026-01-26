@@ -18,6 +18,7 @@
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
+#include <coro/queue.hpp>
 #include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
@@ -50,7 +51,7 @@ class Channel {
      *
      * @throws std::logic_error If the message is empty.
      */
-    coro::task<bool> send(Message msg);
+    [[nodiscard]] coro::task<bool> send(Message msg);
 
     /**
      * @brief Asynchronously receive a message from the channel.
@@ -62,7 +63,41 @@ class Channel {
      *
      * @throws std::logic_error If the received message is empty.
      */
-    coro::task<Message> receive();
+    [[nodiscard]] coro::task<Message> receive();
+
+    /**
+     * @brief Asynchronously send a metadata message into the channel.
+     *
+     * Suspends if the metadata queue is locked by another producer.
+     *
+     * @param msg The metadata message to send.
+     * @return A coroutine that evaluates to true if the msg was successfully sent or
+     * false if the channel was shut down.
+     *
+     * @throws std::logic_error If the message is empty.
+     */
+    [[nodiscard]] coro::task<bool> send_metadata(Message msg);
+
+    /**
+     * @brief Asynchronously receive a metadata message from the channel.
+     *
+     * Suspends if the metadata queue is empty.
+     *
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * metadata queue is shut down.
+     */
+    [[nodiscard]] coro::task<Message> receive_metadata();
+
+    /**
+     * @brief Drains all pending metadata messages from the channel and shuts down the
+     * metadata channel.
+     *
+     * This is intended to ensure all remaining metadata messages are processed.
+     *
+     * @param executor The thread pool used to process remaining messages.
+     * @return A coroutine representing the completion of the metadata shutdown drain.
+     */
+    [[nodiscard]] Node drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
@@ -72,7 +107,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
+    [[nodiscard]] Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Immediately shuts down the channel.
@@ -81,7 +116,16 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown();
+    [[nodiscard]] Node shutdown();
+
+    /**
+     * @brief Immediately shuts down the metadata queue.
+     *
+     * Any pending or future metadata send/receive operations will complete with failure.
+     *
+     * @return A coroutine representing the completion of the shutdown.
+     */
+    [[nodiscard]] Node shutdown_metadata();
 
     /**
      * @brief Check whether the channel is empty.
@@ -103,6 +147,7 @@ class Channel {
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
     std::shared_ptr<SpillableMessages> sm_;
+    coro::queue<Message> metadata_;
 };
 
 /**

@@ -6,7 +6,11 @@
 #include "join.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <cudf/column/column_view.hpp>
@@ -25,12 +29,14 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -144,75 +150,87 @@ streaming::Node broadcast(
     co_await ch_out->drain(ctx->executor());
 }
 
+namespace {
+
 /**
  * @brief Join a table chunk against a build hash table returning a message of the result.
  *
  * @param ctx Streaming context
- * @param right_chunk Chunk to join
+ * @param probe_chunk Chunk to join
  * @param sequence Sequence number of the output
  * @param joiner hash_join object, representing the build table.
  * @param build_carrier Columns from the build-side table to be included in the output.
- * @param right_on Key column indiecs in `right_chunk`.
+ * The caller is responsible for selecting whether build-side key columns are present.
+ * @param probe_on Key column indices in `probe_chunk`.
+ * @param keep_keys Should the join keys be included in the output.
+ * @param broadcast_side Which table in the join was broadcasted (affects returned column
+ * ordering)
  * @param build_stream Stream the `joiner` will be deallocated on.
  * @param build_event Event recording the creation of the `joiner`.
+ * @param dealloc_event Event to use to stream-order deallocations.
  *
  * @return Message of `TableChunk` containing the result of the inner join.
  */
 streaming::Message inner_join_chunk(
     std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& right_chunk,
+    streaming::TableChunk&& probe_chunk,
     std::uint64_t sequence,
     cudf::hash_join& joiner,
     cudf::table_view build_carrier,
-    std::vector<cudf::size_type> right_on,
+    std::vector<cudf::size_type> probe_keys,
+    KeepKeys keep_keys,
+    BroadcastSide broadcast_side,
     rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
+    CudaEvent* build_event,
+    CudaEvent* dealloc_event
 ) {
-    CudaEvent event;
-    right_chunk = to_device(ctx, std::move(right_chunk));
-    auto chunk_stream = right_chunk.stream();
+    probe_chunk = to_device(ctx, std::move(probe_chunk));
+    auto chunk_stream = probe_chunk.stream();
     build_event->stream_wait(chunk_stream);
-    auto probe_table = right_chunk.table_view();
-    auto probe_keys = probe_table.select(right_on);
-    auto [probe_match, build_match] =
-        joiner.inner_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
+    auto probe_table = probe_chunk.table_view();
+    auto probe_table_keys = probe_table.select(probe_keys);
+    auto [probe_match, build_match] = joiner.inner_join(
+        probe_table_keys, std::nullopt, chunk_stream, ctx->br()->device_mr()
+    );
 
-    cudf::column_view build_indices =
+    cudf::column_view build_match_indices =
         cudf::device_span<cudf::size_type const>(*build_match);
-    cudf::column_view probe_indices =
+    cudf::column_view probe_match_indices =
         cudf::device_span<cudf::size_type const>(*probe_match);
-    // build_carrier is valid on build_stream, but chunk_stream is
-    // waiting for build_stream work to be done, so running this on
-    // chunk_stream is fine.
-    auto result_columns = cudf::gather(
-                              build_carrier,
-                              build_indices,
-                              cudf::out_of_bounds_policy::DONT_CHECK,
-                              chunk_stream,
-                              ctx->br()->device_mr()
-    )
-                              ->release();
-    // drop key columns from probe table.
-    std::vector<cudf::size_type> to_keep;
-    std::ranges::copy_if(
-        std::ranges::iota_view(0, probe_table.num_columns()),
-        std::back_inserter(to_keep),
-        [&](auto i) { return std::ranges::find(right_on, i) == right_on.end(); }
-    );
-    std::ranges::move(
-        cudf::gather(
-            probe_table.select(to_keep),
-            probe_indices,
-            cudf::out_of_bounds_policy::DONT_CHECK,
-            chunk_stream,
-            ctx->br()->device_mr()
+
+    std::vector<std::unique_ptr<cudf::column>> result_columns;
+    auto gather_columns = [&](cudf::table_view table, cudf::column_view indices) {
+        auto gathered = cudf::gather(
+                            table,
+                            indices,
+                            cudf::out_of_bounds_policy::DONT_CHECK,
+                            chunk_stream,
+                            ctx->br()->device_mr()
         )
-            ->release(),
-        std::back_inserter(result_columns)
-    );
-    // Deallocation of the join indices will happen on build_stream, so add stream dep
-    // This also ensure deallocation of the hash_join object waits for completion.
-    cuda_stream_join(build_stream, chunk_stream, &event);
+                            ->release();
+        std::ranges::move(gathered, std::back_inserter(result_columns));
+    };
+
+    auto const broadcast_left = broadcast_side == BroadcastSide::LEFT;
+    auto probe_carrier = probe_table;
+    if (keep_keys == KeepKeys::NO || broadcast_left) {
+        auto probe_indices =
+            std::views::iota(cudf::size_type{0}, probe_table.num_columns())
+            | std::views::filter([&](auto i) {
+                  return std::ranges::find(probe_keys, i) == probe_keys.end();
+              });
+        probe_carrier = probe_carrier.select(probe_indices.begin(), probe_indices.end());
+    }
+
+    if (broadcast_left) {
+        gather_columns(build_carrier, build_match_indices);
+        gather_columns(probe_carrier, probe_match_indices);
+    } else {
+        gather_columns(probe_carrier, probe_match_indices);
+        gather_columns(build_carrier, build_match_indices);
+    }
+
+    cuda_stream_join(build_stream, chunk_stream, dealloc_event);
     return streaming::to_message(
         sequence,
         std::make_unique<streaming::TableChunk>(
@@ -220,24 +238,30 @@ streaming::Message inner_join_chunk(
         )
     );
 }
+}  // namespace
 
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
-    // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     OpID tag,
-    KeepKeys keep_keys
+    KeepKeys keep_keys,
+    BroadcastSide broadcast_side
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
+    auto const broadcast_left = broadcast_side == BroadcastSide::LEFT;
+    auto build = broadcast_left ? left : right;
+    auto probe = broadcast_left ? right : left;
+    auto build_keys = broadcast_left ? left_on : right_on;
+    auto probe_keys = broadcast_left ? right_on : left_on;
     auto build_table = to_device(
         ctx,
-        (co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
+        (co_await broadcast(ctx, build, tag, streaming::AllGather::Ordered::NO))
             .release<streaming::TableChunk>()
     );
     ctx->comm()->logger().print(
@@ -245,38 +269,39 @@ streaming::Node inner_join_broadcast(
     );
 
     auto joiner = cudf::hash_join(
-        build_table.table_view().select(left_on),
+        build_table.table_view().select(build_keys),
         cudf::null_equality::UNEQUAL,
         build_table.stream()
     );
     CudaEvent build_event;
+    CudaEvent dealloc_event;
     build_event.record(build_table.stream());
-    cudf::table_view build_carrier;
-    if (keep_keys == KeepKeys::YES) {
-        build_carrier = build_table.table_view();
-    } else {
-        std::vector<cudf::size_type> to_keep;
-        std::ranges::copy_if(
-            std::ranges::iota_view(0, build_table.table_view().num_columns()),
-            std::back_inserter(to_keep),
-            [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
-        );
-        build_carrier = build_table.table_view().select(to_keep);
+    auto build_carrier = build_table.table_view();
+    if (keep_keys == KeepKeys::NO || !broadcast_left) {
+        auto build_indices =
+            std::views::iota(cudf::size_type{0}, build_carrier.num_columns())
+            | std::views::filter([&](auto i) {
+                  return std::ranges::find(build_keys, i) == build_keys.end();
+              });
+        build_carrier = build_carrier.select(build_indices.begin(), build_indices.end());
     }
     while (!ch_out->is_shutdown()) {
-        auto right_msg = co_await right->receive();
-        if (right_msg.empty()) {
+        auto probe_msg = co_await probe->receive();
+        if (probe_msg.empty()) {
             break;
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
-            right_msg.release<streaming::TableChunk>(),
-            right_msg.sequence_number(),
+            probe_msg.release<streaming::TableChunk>(),
+            probe_msg.sequence_number(),
             joiner,
             build_carrier,
-            right_on,
+            probe_keys,
+            keep_keys,
+            broadcast_side,
             build_table.stream(),
-            &build_event
+            &build_event,
+            &dealloc_event
         ));
     }
 
@@ -296,6 +321,7 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
+    CudaEvent dealloc_event;
     while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
@@ -319,17 +345,15 @@ streaming::Node inner_join_shuffle(
             build_stream
         );
         build_event.record(build_stream);
-        cudf::table_view build_carrier;
-        if (keep_keys == KeepKeys::YES) {
-            build_carrier = build_chunk.table_view();
-        } else {
-            std::vector<cudf::size_type> to_keep;
-            std::ranges::copy_if(
-                std::ranges::iota_view(0, build_chunk.table_view().num_columns()),
-                std::back_inserter(to_keep),
-                [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
-            );
-            build_carrier = build_chunk.table_view().select(to_keep);
+        auto build_carrier = build_chunk.table_view();
+        if (keep_keys == KeepKeys::NO) {
+            auto build_indices =
+                std::views::iota(cudf::size_type{0}, build_carrier.num_columns())
+                | std::views::filter([&](auto i) {
+                      return std::ranges::find(left_on, i) == left_on.end();
+                  });
+            build_carrier =
+                build_carrier.select(build_indices.begin(), build_indices.end());
         }
         co_await ch_out->send(inner_join_chunk(
             ctx,
@@ -338,8 +362,11 @@ streaming::Node inner_join_shuffle(
             joiner,
             build_carrier,
             right_on,
+            keep_keys,
+            BroadcastSide::LEFT,
             build_stream,
-            &build_event
+            &build_event,
+            &dealloc_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
@@ -403,4 +430,207 @@ streaming::Node shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
+namespace {
+coro::task<std::pair<std::size_t, std::size_t>> allgather_join_sizes(
+    std::shared_ptr<streaming::Context> ctx,
+    OpID tag,
+    std::size_t left_local_bytes,
+    std::size_t right_local_bytes
+) {
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(2 * sizeof(std::size_t));
+    std::memcpy(metadata->data(), &left_local_bytes, sizeof(left_local_bytes));
+    std::memcpy(
+        metadata->data() + sizeof(left_local_bytes),
+        &right_local_bytes,
+        sizeof(right_local_bytes)
+    );
+
+    auto stream = ctx->br()->stream_pool().get_stream();
+    auto [res, _] = ctx->br()->reserve(MemoryType::HOST, 0, true);
+    auto buf = ctx->br()->allocate(stream, std::move(res));
+    auto allgather = streaming::AllGather(ctx, tag);
+    allgather.insert(0, {std::move(metadata), std::move(buf)});
+    allgather.insert_finished();
+    auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
+
+    std::size_t left_total_bytes = 0;
+    std::size_t right_total_bytes = 0;
+    for (auto const& data : per_rank) {
+        RAPIDSMPF_EXPECTS(
+            data.metadata->size() >= 2 * sizeof(std::size_t),
+            "Invalid metadata size for adaptive join size estimation"
+        );
+        std::size_t bytes = 0;
+        std::memcpy(&bytes, data.metadata->data(), sizeof(bytes));
+        left_total_bytes += bytes;
+        std::memcpy(&bytes, data.metadata->data() + sizeof(bytes), sizeof(bytes));
+        right_total_bytes += bytes;
+    }
+    co_return {left_total_bytes, right_total_bytes};
+}
+
+streaming::Node replay_channel(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> input,
+    std::shared_ptr<streaming::Channel> output,
+    std::vector<streaming::Message> buffer
+) {
+    streaming::ShutdownAtExit c{input, output};
+    co_await ctx->executor()->schedule();
+    for (auto&& msg : buffer) {
+        if (msg.empty()) {
+            co_await output->drain(ctx->executor());
+            co_return;
+        }
+        if (!co_await output->send(std::move(msg))) {
+            co_return;
+        }
+    }
+    while (!output->is_shutdown()) {
+        auto msg = co_await input->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await output->send(std::move(msg));
+    }
+    co_await output->drain(ctx->executor());
+}
+}  // namespace
+
+streaming::Node adaptive_inner_join(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> left,
+    std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> left_meta,
+    std::shared_ptr<streaming::Channel> right_meta,
+    std::shared_ptr<streaming::Channel> ch_out,
+    std::vector<cudf::size_type> left_keys,
+    std::vector<cudf::size_type> right_keys,
+    OpID allreduce_tag,
+    OpID left_shuffle_tag,
+    OpID right_shuffle_tag
+) {
+    streaming::ShutdownAtExit c{left, right, left_meta, right_meta, ch_out};
+    co_await ctx->executor()->schedule();
+
+    auto consume_meta = [&](
+                            std::shared_ptr<streaming::Channel> ch
+                        ) -> coro::task<std::optional<std::size_t>> {
+        auto msg = co_await ch->receive();
+        if (msg.empty()) {
+            co_return std::nullopt;
+        }
+        co_return msg.release<std::size_t>();
+    };
+    auto [num_left_messages, num_right_messages] = streaming::coro_results(
+        co_await coro::when_all(consume_meta(left_meta), consume_meta(right_meta))
+    );
+    // Assumption: the input channels carry only TableChunk messages.
+    // Assumption: summing data_alloc_size across memory types is a good proxy for the
+    // amount of data that will need to be materialized on device for compute.
+    // Assumption: a small sample of chunks is representative of the whole table size.
+    // Assumption: metadata estimates reflect the total number of chunks per input.
+    constexpr std::size_t broadcast_cap_bytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+    constexpr double broadcast_ratio_threshold = 0.10;
+    constexpr std::size_t inspect_messages = 2;
+    std::vector<streaming::Message> left_buffer;
+    std::vector<streaming::Message> right_buffer;
+    left_buffer.reserve(inspect_messages);
+    right_buffer.reserve(inspect_messages);
+
+    auto inspect_channel =
+        [&](std::shared_ptr<streaming::Channel> ch,
+            std::vector<streaming::Message>& buffer,
+            std::size_t estimated_num_messages) -> coro::task<std::size_t> {
+        std::size_t bytes = 0;
+        for (std::size_t i = 0; i < inspect_messages; ++i) {
+            auto msg = co_await ch->receive();
+            if (msg.empty()) {
+                buffer.push_back(std::move(msg));
+                co_return bytes;
+            }
+            auto const& chunk = msg.get<streaming::TableChunk>();
+            for (auto mem_type : MEMORY_TYPES) {
+                bytes += chunk.data_alloc_size(mem_type);
+            }
+            buffer.push_back(std::move(msg));
+        }
+        co_return (bytes * estimated_num_messages) / inspect_messages;
+    };
+
+    auto left_local_bytes = co_await inspect_channel(
+        left, left_buffer, num_left_messages.value_or(inspect_messages)
+    );
+    auto right_local_bytes = co_await inspect_channel(
+        right, right_buffer, num_right_messages.value_or(inspect_messages)
+    );
+
+    std::size_t left_total_bytes = left_local_bytes;
+    std::size_t right_total_bytes = right_local_bytes;
+    if (ctx->comm()->nranks() > 1) {
+        std::tie(left_total_bytes, right_total_bytes) = co_await allgather_join_sizes(
+            ctx, allreduce_tag, left_local_bytes, right_local_bytes
+        );
+    }
+
+    ctx->comm()->logger().print(
+        "Adaptive join total sizes: left ",
+        left_total_bytes,
+        " bytes, right ",
+        right_total_bytes,
+        " bytes"
+    );
+    auto const min_bytes = std::min(left_total_bytes, right_total_bytes);
+    auto const max_bytes = std::max(left_total_bytes, right_total_bytes);
+    auto const broadcast_ratio =
+        (max_bytes == 0) ? 0.0 : static_cast<double>(min_bytes) / max_bytes;
+    auto const use_broadcast =
+        min_bytes <= broadcast_cap_bytes && broadcast_ratio <= broadcast_ratio_threshold;
+    auto left_replay = ctx->create_channel();
+    auto right_replay = ctx->create_channel();
+    std::vector<streaming::Node> tasks;
+    tasks.push_back(replay_channel(ctx, left, left_replay, std::move(left_buffer)));
+    tasks.push_back(replay_channel(ctx, right, right_replay, std::move(right_buffer)));
+    if (use_broadcast) {
+        ctx->comm()->logger().print("Adaptive join strategy: broadcast");
+        auto const broadcast_left = left_total_bytes <= right_total_bytes;
+        auto build = broadcast_left ? left_replay : right_replay;
+        auto probe = broadcast_left ? right_replay : left_replay;
+        auto build_keys = broadcast_left ? left_keys : right_keys;
+        auto probe_keys = broadcast_left ? right_keys : left_keys;
+        auto const broadcast_tag = broadcast_left ? left_shuffle_tag : right_shuffle_tag;
+        tasks.push_back(inner_join_broadcast(
+            ctx,
+            build,
+            probe,
+            ch_out,
+            std::move(build_keys),
+            std::move(probe_keys),
+            broadcast_tag,
+            KeepKeys::YES,
+            broadcast_left ? BroadcastSide::LEFT : BroadcastSide::RIGHT
+        ));
+    } else {
+        ctx->comm()->logger().print("Adaptive join strategy: shuffle");
+        auto const num_partitions = static_cast<std::uint32_t>(ctx->comm()->nranks());
+        auto left_shuffled = ctx->create_channel();
+        auto right_shuffled = ctx->create_channel();
+        tasks.push_back(shuffle(
+            ctx, left_replay, left_shuffled, left_keys, num_partitions, left_shuffle_tag
+        ));
+        tasks.push_back(shuffle(
+            ctx,
+            right_replay,
+            right_shuffled,
+            right_keys,
+            num_partitions,
+            right_shuffle_tag
+        ));
+        tasks.push_back(inner_join_shuffle(
+            ctx, left_shuffled, right_shuffled, ch_out, left_keys, right_keys
+        ));
+    }
+    streaming::coro_results(co_await coro::when_all(std::move(tasks)));
+    co_await ch_out->drain(ctx->executor());
+}
 }  // namespace rapidsmpf::ndsh
