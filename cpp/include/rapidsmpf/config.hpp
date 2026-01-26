@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::config {
 
@@ -53,6 +54,21 @@ class OptionValue {
      */
     OptionValue(std::string value_as_string)
         : value_as_string_{std::move(value_as_string)} {}
+
+    /**
+     * @brief Constructs OptionValue from a typed value.
+     *
+     * The value is stored directly and no string representation is provided.
+     * Options constructed this way are considered initialized and make the
+     * Options instance unserializable.
+     *
+     * @tparam T Type of the value to store.
+     * @param value The value to store.
+     */
+    template <typename T>
+    explicit OptionValue(T value)
+        requires(!std::is_convertible_v<T, std::string_view>)
+        : value_{std::make_any<T>(std::move(value))} {}
 
     /**
      * @brief Retrieves the stored value.
@@ -155,7 +171,7 @@ class Options {
      *
      * @return `true` if the option was inserted; `false` if it was already present.
      */
-    bool insert_if_absent(std::string const& key, std::string option_as_string);
+    bool insert_if_absent(std::string const& key, std::string_view option_as_string);
 
     /**
      * @brief Inserts multiple options if they are not already present.
@@ -170,6 +186,41 @@ class Options {
     std::size_t insert_if_absent(
         std::unordered_map<std::string, std::string> options_as_strings
     );
+
+    /**
+     * @brief Inserts an option only if it is not already present.
+     *
+     * This method stores a typed value directly, bypassing the string-based
+     * representation used for lazy parsing. Once inserted, the option is
+     * initialized, and subsequent calls to `get<T>()` for the same key must
+     * use the same `T`.
+     *
+     * This method is only enabled for non string-like types. Values convertible
+     * to `std::string_view` (for example `std::string`, `std::string_view`, or
+     * string literals) are handled by the string-based overloads instead.
+     *
+     * Because no string representation is stored, inserting an option using
+     * this method makes the Options instance unserializable. This is consistent
+     * with the behavior of `get()`, as serialization relies exclusively on the
+     * original string representations of options.
+     *
+     * @tparam T Type of the value to store.
+     * @param key The option key to insert. The key is trimmed and converted to
+     * lower case before insertion.
+     * @param value The value to store.
+     *
+     * @return `true` if the option was inserted; `false` if it was already present.
+     */
+    template <typename T>
+    bool insert_if_absent(std::string const& key, T value)
+        requires(!std::is_convertible_v<T, std::string_view>)
+    {
+        std::lock_guard<std::mutex> lock(shared_->mutex);
+        auto [_, inserted] = shared_->options.try_emplace(
+            to_lower(trim(key)), OptionValue{std::move(value)}
+        );
+        return inserted;
+    }
 
     /**
      * @brief Retrieves a configuration option by key.
@@ -213,18 +264,26 @@ class Options {
      * This method returns a map of all currently stored options where both the keys
      * and values are represented as strings.
      *
+     * Options that do not have a string representation, such as those inserted
+     * using `insert_if_absent<T>()`, are included with an empty string value.
+     *
      * @return A map where each key is the option name and each value is the string
      * representation of the corresponding option's value.
      */
     [[nodiscard]] std::unordered_map<std::string, std::string> get_strings() const;
 
+
     /**
      * @brief Serializes the options into a binary buffer.
      *
-     * An Options instance can only be serialized if no options have been accessed. This
-     * is because serialization is based on the original string representations of the
-     * options. Once an option has been accessed and parsed, its string value may no
-     * longer accurately reflect its state, making serialization potentially inconsistent.
+     * An Options instance can only be serialized if all options are still
+     * represented exclusively by their original string values. Serialization
+     * is based on these string representations and cannot reflect options that
+     * have been accessed, parsed, or initialized with typed values.
+     *
+     * As a result, serialization is disallowed if any option has been accessed
+     * via `get()` or inserted using the typed `insert_if_absent<T>()` method,
+     * since their string values may no longer accurately reflect their state.
      *
      * The format (v1) is:
      * - [4 bytes MAGIC "RMPF"][1 byte version][1 byte flags][2 bytes reserved]
@@ -242,7 +301,8 @@ class Options {
      *
      * @return A byte vector representing the serialized options.
      *
-     * @throws std::invalid_argument If any option has already been accessed.
+     * @throws std::invalid_argument If any option has already been accessed or inserted
+     * as a typed value.
      *
      * @note To ease Python/Cython compatibility, a std::vector<std::uint8_t> is returned
      * instead of std::vector<std::byte>.

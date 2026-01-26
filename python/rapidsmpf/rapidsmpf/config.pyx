@@ -178,6 +178,9 @@ cdef class Options:
         """
         Get all option key-value pairs as strings.
 
+        Options that do not have a string representation, such as options inserted
+        as typed values in C++ are included with an empty string value.
+
         Returns
         -------
         A dictionary containing all stored options, where the keys and values are
