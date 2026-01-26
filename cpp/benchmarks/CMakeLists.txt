@@ -59,23 +59,18 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-# Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Use
-# CPM directly to ensure static linking and no system package interference
-include(CPM)
-CPMAddPackage(
-  NAME
-  benchmark
-  GITHUB_REPOSITORY
-  google/benchmark
-  GIT_TAG
-  v1.8.3
-  OPTIONS
-  "BENCHMARK_ENABLE_TESTING OFF"
-  "BENCHMARK_ENABLE_INSTALL OFF"
-  "BUILD_SHARED_LIBS OFF"
-  EXCLUDE_FROM_ALL
-  YES
-)
+# Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Force
+# CPM to always build (not find) and ensure static library is built
+set(CPM_DOWNLOAD_benchmark ON)
+# Set benchmark-specific options before including it
+set(BENCHMARK_ENABLE_TESTING OFF)
+set(BENCHMARK_ENABLE_INSTALL OFF)
+# Save and restore BUILD_SHARED_LIBS to not affect other targets
+set(_original_build_shared_libs ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
+include(${rapids-cmake-dir}/cpm/gbench.cmake)
+rapids_cpm_gbench(BUILD_STATIC)
+set(BUILD_SHARED_LIBS ${_original_build_shared_libs})
 
 add_executable(bench_partition "bench_partition.cpp")
 set_target_properties(
