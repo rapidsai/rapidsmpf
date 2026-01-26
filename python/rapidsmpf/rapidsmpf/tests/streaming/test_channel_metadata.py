@@ -60,57 +60,38 @@ def test_partitioning_scenarios() -> None:
 def test_channel_metadata() -> None:
     """Test ChannelMetadata construction and properties."""
     # Basic construction
-    m = ChannelMetadata(local_count=4, global_count=16)
+    m = ChannelMetadata(local_count=4)
     assert m.local_count == 4
-    assert m.global_count == 16
     assert m.duplicated is False
-
-    # Optional global_count
-    assert ChannelMetadata(local_count=4).global_count is None
 
     # With partitioning and duplicated
     p = Partitioning(HashScheme(("key",), 16), "aligned")
-    m_full = ChannelMetadata(
-        local_count=4, global_count=16, partitioning=p, duplicated=True
-    )
+    m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
     assert m_full.partitioning == p
     assert m_full.duplicated is True
 
     # Equality and repr
-    m2 = ChannelMetadata(local_count=4, global_count=16)
+    m2 = ChannelMetadata(local_count=4)
     assert m == m2
-    assert m != ChannelMetadata(local_count=8, global_count=16)
+    assert m != ChannelMetadata(local_count=8)
     assert "local_count=4" in repr(m)
 
     # Validation
     with pytest.raises(ValueError, match="local_count must be non-negative"):
         ChannelMetadata(local_count=-1)
-    with pytest.raises(ValueError, match="global_count must be non-negative"):
-        ChannelMetadata(local_count=4, global_count=-1)
 
 
 def test_message_roundtrip() -> None:
-    """Test Partitioning and ChannelMetadata can round-trip through Message."""
-    # Partitioning round-trip
-    p = Partitioning(HashScheme(("key",), 16), "aligned")
-    msg_p = Message(42, p)
-    assert msg_p.sequence_number == 42
-    got_p = Partitioning.from_message(msg_p)
-    assert got_p.inter_rank == HashScheme(("key",), 16)
-    assert got_p.local == "aligned"
-    assert msg_p.empty()
-
-    # ChannelMetadata round-trip
+    """Test ChannelMetadata can round-trip through Message."""
     m = ChannelMetadata(
         local_count=4,
-        global_count=16,
         partitioning=Partitioning(HashScheme(("key",), 16), "aligned"),
         duplicated=True,
     )
     msg_m = Message(99, m)
+    assert msg_m.sequence_number == 99
     got_m = ChannelMetadata.from_message(msg_m)
     assert got_m.local_count == 4
-    assert got_m.global_count == 16
     assert got_m.duplicated is True
     assert got_m.partitioning.inter_rank == HashScheme(("key",), 16)
     assert msg_m.empty()

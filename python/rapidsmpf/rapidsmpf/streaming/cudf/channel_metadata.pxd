@@ -48,20 +48,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
     cdef cppclass cpp_ChannelMetadata "rapidsmpf::streaming::ChannelMetadata":
         int64_t local_count
-        optional[int64_t] global_count
         cpp_Partitioning partitioning
         bool_t duplicated
         cpp_ChannelMetadata(
             int64_t,
-            optional[int64_t],
             cpp_Partitioning,
             bool_t
         ) except +
         bool_t operator==(const cpp_ChannelMetadata&)
-
-    cpp_Message cpp_to_message_partitioning "rapidsmpf::streaming::to_message" (
-        uint64_t, unique_ptr[cpp_Partitioning]
-    ) except +
 
     cpp_Message cpp_to_message_channel_metadata "rapidsmpf::streaming::to_message" (
         uint64_t, unique_ptr[cpp_ChannelMetadata]
@@ -80,8 +74,6 @@ cdef class Partitioning:
 
     @staticmethod
     cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)
-
-    cdef unique_ptr[cpp_Partitioning] release_handle(self)
 
 
 cdef class ChannelMetadata:

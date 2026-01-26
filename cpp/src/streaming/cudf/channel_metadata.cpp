@@ -9,30 +9,9 @@
 
 namespace rapidsmpf::streaming {
 
-ContentDescription get_content_description(Partitioning const& /* obj */) {
-    // Partitioning metadata has negligible memory cost.
-    return ContentDescription{};
-}
-
 ContentDescription get_content_description(ChannelMetadata const& /* obj */) {
     // ChannelMetadata has negligible memory cost.
     return ContentDescription{};
-}
-
-Message to_message(std::uint64_t sequence_number, std::unique_ptr<Partitioning> p) {
-    auto cd = get_content_description(*p);
-    return Message{
-        sequence_number,
-        std::move(p),
-        cd,
-        // Copy callback: Partitioning is trivially copyable.
-        [](Message const& msg, MemoryReservation& /* reservation */) -> Message {
-            auto const& self = msg.get<Partitioning>();
-            auto copy = std::make_unique<Partitioning>(self);
-            auto cd = get_content_description(*copy);
-            return Message{msg.sequence_number(), std::move(copy), cd, msg.copy_cb()};
-        }
-    };
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadata> m) {

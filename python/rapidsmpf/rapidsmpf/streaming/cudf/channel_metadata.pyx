@@ -3,9 +3,8 @@
 """Channel metadata types for streaming pipelines."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t, uint64_t
+from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
-from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -16,13 +15,6 @@ from rapidsmpf.streaming.core.message cimport Message
 cdef extern from * nogil:
     """
     namespace {
-    std::unique_ptr<rapidsmpf::streaming::Partitioning>
-    cpp_partitioning_from_message(rapidsmpf::streaming::Message msg) {
-        return std::make_unique<rapidsmpf::streaming::Partitioning>(
-            msg.release<rapidsmpf::streaming::Partitioning>()
-        );
-    }
-
     std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
     cpp_channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
         return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
@@ -31,7 +23,6 @@ cdef extern from * nogil:
     }
     }
     """
-    unique_ptr[cpp_Partitioning] cpp_partitioning_from_message(cpp_Message) except +
     unique_ptr[cpp_ChannelMetadata] cpp_channel_metadata_from_message(
         cpp_Message
     ) except +
@@ -113,21 +104,6 @@ cdef class Partitioning:
         ret._handle = move(handle)
         return ret
 
-    @staticmethod
-    def from_message(Message message not None):
-        """Construct by consuming a Message (message becomes empty)."""
-        return Partitioning.from_handle(
-            cpp_partitioning_from_message(move(message._handle))
-        )
-
-    def into_message(self, uint64_t sequence_number, Message message not None):
-        """Move this Partitioning into a Message (invoked by Message.__init__)."""
-        if not message.empty():
-            raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_to_message_partitioning(
-            sequence_number, move(self.release_handle())
-        )
-
     @property
     def inter_rank(self):
         return _from_spec(deref(self._handle).inter_rank)
@@ -144,11 +120,6 @@ cdef class Partitioning:
     def __repr__(self):
         return f"Partitioning(inter_rank={self.inter_rank!r}, local={self.local!r})"
 
-    cdef unique_ptr[cpp_Partitioning] release_handle(self):
-        if not self._handle:
-            raise ValueError("is uninitialized, has it been released?")
-        return move(self._handle)
-
 
 cdef class ChannelMetadata:
     """Channel-level metadata: counts, partitioning, and duplication status."""
@@ -157,25 +128,18 @@ cdef class ChannelMetadata:
         self,
         int local_count,
         *,
-        global_count: int | None = None,
         partitioning: Partitioning | None = None,
         bint duplicated = False,
     ):
         if local_count < 0:
             raise ValueError(f"local_count must be non-negative, got {local_count}")
-        if global_count is not None and global_count < 0:
-            raise ValueError(f"global_count must be non-negative, got {global_count}")
-
-        cdef optional[int64_t] gc
-        if global_count is not None:
-            gc = <int64_t>global_count
 
         cdef cpp_Partitioning part
         if partitioning is not None:
             part = deref((<Partitioning>partitioning)._handle)
 
         self._handle = make_unique[cpp_ChannelMetadata](
-            local_count, gc, part, duplicated
+            local_count, part, duplicated
         )
 
     def __dealloc__(self):
@@ -208,13 +172,6 @@ cdef class ChannelMetadata:
         return deref(self._handle).local_count
 
     @property
-    def global_count(self) -> int | None:
-        cdef optional[int64_t] gc = deref(self._handle).global_count
-        if gc.has_value():
-            return gc.value()
-        return None
-
-    @property
     def partitioning(self) -> Partitioning:
         cdef Partitioning ret = Partitioning.__new__(Partitioning)
         ret._handle = make_unique[cpp_Partitioning](deref(self._handle).partitioning)
@@ -232,7 +189,6 @@ cdef class ChannelMetadata:
     def __repr__(self):
         return (
             f"ChannelMetadata(local_count={self.local_count}, "
-            f"global_count={self.global_count}, "
             f"partitioning={self.partitioning!r}, "
             f"duplicated={self.duplicated})"
         )

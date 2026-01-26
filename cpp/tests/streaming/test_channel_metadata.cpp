@@ -84,42 +84,30 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
     Partitioning p{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    ChannelMetadata m{4, 16, p, true};
+    ChannelMetadata m{4, p, true};
     EXPECT_EQ(m.local_count, 4);
-    EXPECT_EQ(m.global_count.value(), 16);
     EXPECT_EQ(m.partitioning, p);
     EXPECT_TRUE(m.duplicated);
 
-    // Minimal construction (no global_count)
+    // Minimal construction
     ChannelMetadata m_minimal{4};
     EXPECT_EQ(m_minimal.local_count, 4);
-    EXPECT_FALSE(m_minimal.global_count.has_value());
     EXPECT_FALSE(m_minimal.duplicated);
 
     // Equality
-    EXPECT_EQ(m, (ChannelMetadata{4, 16, p, true}));
-    EXPECT_NE(m, (ChannelMetadata{8, 16, p, true}));
+    EXPECT_EQ(m, (ChannelMetadata{4, p, true}));
+    EXPECT_NE(m, (ChannelMetadata{8, p, true}));
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
-    // Partitioning round-trip
-    auto p = std::make_unique<Partitioning>(Partitioning{
-        PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
-    });
-    Partitioning p_expected = *p;
-    auto msg_p = to_message(42, std::move(p));
-    EXPECT_EQ(msg_p.sequence_number(), 42);
-    EXPECT_TRUE(msg_p.holds<Partitioning>());
-    EXPECT_EQ(msg_p.release<Partitioning>(), p_expected);
-    EXPECT_TRUE(msg_p.empty());
-
     // ChannelMetadata round-trip
     Partitioning part{
         PartitioningSpec::from_hash(HashScheme{{"key"}, 16}), PartitioningSpec::aligned()
     };
-    auto m = std::make_unique<ChannelMetadata>(4, 16, part, false);
+    auto m = std::make_unique<ChannelMetadata>(4, part, false);
     ChannelMetadata m_expected = *m;
     auto msg_m = to_message(99, std::move(m));
+    EXPECT_EQ(msg_m.sequence_number(), 99);
     EXPECT_TRUE(msg_m.holds<ChannelMetadata>());
     EXPECT_EQ(msg_m.release<ChannelMetadata>(), m_expected);
     EXPECT_TRUE(msg_m.empty());

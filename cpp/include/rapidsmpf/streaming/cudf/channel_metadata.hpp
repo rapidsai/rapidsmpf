@@ -115,8 +115,6 @@ struct Partitioning {
  */
 struct ChannelMetadata {
     std::int64_t local_count{};  ///< Local chunk-count estimate for this rank.
-    std::optional<std::int64_t>
-        global_count;  ///< Global chunk-count estimate (all ranks).
     Partitioning partitioning;  ///< How the data is partitioned.
     bool duplicated{};  ///< Whether data is duplicated on all workers.
 
@@ -127,18 +125,13 @@ struct ChannelMetadata {
      * @brief Construct metadata with specified values.
      *
      * @param local_count Local chunk count (must be >= 0).
-     * @param global_count Optional global chunk count.
      * @param partitioning Partitioning metadata (default: no partitioning).
      * @param duplicated Whether data is duplicated (default: false).
      */
     ChannelMetadata(
-        std::int64_t local_count,
-        std::optional<std::int64_t> global_count = std::nullopt,
-        Partitioning partitioning = {},
-        bool duplicated = false
+        std::int64_t local_count, Partitioning partitioning = {}, bool duplicated = false
     )
         : local_count(local_count),
-          global_count(global_count),
           partitioning(std::move(partitioning)),
           duplicated(duplicated) {}
 
@@ -150,17 +143,6 @@ struct ChannelMetadata {
 };
 
 /**
- * @brief Generate a content description for a `Partitioning`.
- *
- * Partitioning metadata has negligible memory cost, so this returns
- * an empty content description.
- *
- * @param obj The partitioning to describe.
- * @return An empty content description.
- */
-ContentDescription get_content_description(Partitioning const& obj);
-
-/**
  * @brief Generate a content description for a `ChannelMetadata`.
  *
  * ChannelMetadata has negligible memory cost, so this returns an empty content
@@ -170,15 +152,6 @@ ContentDescription get_content_description(Partitioning const& obj);
  * @return An empty content description.
  */
 ContentDescription get_content_description(ChannelMetadata const& obj);
-
-/**
- * @brief Wrap a `Partitioning` into a `Message`.
- *
- * @param sequence_number Ordering identifier for the message.
- * @param p The partitioning metadata to wrap.
- * @return A `Message` encapsulating the partitioning as its payload.
- */
-Message to_message(std::uint64_t sequence_number, std::unique_ptr<Partitioning> p);
 
 /**
  * @brief Wrap a `ChannelMetadata` into a `Message`.
