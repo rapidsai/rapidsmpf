@@ -56,6 +56,43 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
+    coro::task<void> channel_drain_metadata_task(
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx
+    ) {
+        co_await channel->drain_metadata(ctx->executor());
+    }
+
+    void cpp_channel_drain_metadata(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    channel_drain_metadata_task(std::move(channel), ctx)
+                )
+            ),
+            "could not spawn task on thread pool"
+        );
+    }
+    }  // namespace
+    """
+    void cpp_channel_drain_metadata(
+        shared_ptr[cpp_Context] ctx,
+        shared_ptr[cpp_Channel] channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    )
+
+
+cdef extern from * nogil:
+    """
+    namespace {
     coro::task<void> channel_shutdown_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel
     ) {
@@ -82,6 +119,42 @@ cdef extern from * nogil:
     }  // namespace
     """
     void cpp_channel_shutdown(
+        shared_ptr[cpp_Context] ctx,
+        shared_ptr[cpp_Channel] channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    )
+
+
+cdef extern from * nogil:
+    """
+    namespace {
+    coro::task<void> channel_shutdown_metadata_task(
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel
+    ) {
+        co_await channel->shutdown_metadata();
+    }
+
+    void cpp_channel_shutdown_metadata(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    channel_shutdown_metadata_task(std::move(channel))
+                )
+            ),
+            "could not spawn task on thread pool"
+        );
+    }
+    }  // namespace
+    """
+    void cpp_channel_shutdown_metadata(
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
         void (*cpp_set_py_future)(void*, const char *),
@@ -134,6 +207,48 @@ cdef extern from * nogil:
 cdef extern from * nogil:
     """
     namespace {
+    coro::task<void> channel_send_metadata_task(
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        rapidsmpf::streaming::Message msg
+    ) {
+        co_await channel->send_metadata(std::move(msg));
+    }
+
+    void cpp_channel_send_metadata(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        rapidsmpf::streaming::Message msg,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    channel_send_metadata_task(
+                        std::move(channel),
+                        std::move(msg)
+                    )
+                )
+            ),
+            "could not spawn task on thread pool"
+        );
+    }
+    }  // namespace
+    """
+    void cpp_channel_send_metadata(
+        shared_ptr[cpp_Context] ctx,
+        shared_ptr[cpp_Channel] channel,
+        cpp_Message msg,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    )
+
+
+cdef extern from * nogil:
+    """
+    namespace {
     coro::task<void> channel_recv_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         std::shared_ptr<rapidsmpf::streaming::Message> msg_output
@@ -166,6 +281,48 @@ cdef extern from * nogil:
     }  // namespace
     """
     shared_ptr[cpp_Message] cpp_channel_recv(
+        shared_ptr[cpp_Context] ctx,
+        shared_ptr[cpp_Channel] channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    )
+
+
+cdef extern from * nogil:
+    """
+    namespace {
+    coro::task<void> channel_recv_metadata_task(
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        std::shared_ptr<rapidsmpf::streaming::Message> msg_output
+    ) {
+        *msg_output = co_await channel->receive_metadata();
+    }
+
+    std::shared_ptr<rapidsmpf::streaming::Message> cpp_channel_recv_metadata(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        std::shared_ptr<rapidsmpf::streaming::Channel> channel,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        auto msg_output = std::make_shared<rapidsmpf::streaming::Message>();
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    channel_recv_metadata_task(
+                        std::move(channel),
+                        msg_output
+                    )
+                )
+            ),
+            "could not spawn task on thread pool"
+        );
+        return msg_output;
+    }
+    }  // namespace
+    """
+    shared_ptr[cpp_Message] cpp_channel_recv_metadata(
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
         void (*cpp_set_py_future)(void*, const char *),
@@ -217,6 +374,26 @@ cdef class Channel:
             )
         await ret
 
+    async def drain_metadata(self, Context ctx not None):
+        """
+        Drain pending metadata messages and then shut down metadata processing.
+
+        Parameters
+        ----------
+        ctx
+            The current streaming context.
+        """
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        with nogil:
+            cpp_channel_drain_metadata(
+                ctx._handle,
+                self._handle,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
+            )
+        await ret
+
     async def shutdown(self, Context ctx not None):
         """
         Immediately shut down the channel.
@@ -236,6 +413,28 @@ cdef class Channel:
         Py_INCREF(ret)
         with nogil:
             cpp_channel_shutdown(
+                ctx._handle,
+                self._handle,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
+            )
+        await ret
+
+    async def shutdown_metadata(self, Context ctx not None):
+        """
+        Immediately shut down metadata handling.
+
+        Completes when the shutdown has been processed.
+
+        Parameters
+        ----------
+        ctx
+            The current streaming context.
+        """
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        with nogil:
+            cpp_channel_shutdown_metadata(
                 ctx._handle,
                 self._handle,
                 cpp_set_py_future,
@@ -270,6 +469,33 @@ cdef class Channel:
             )
         await ret
 
+    async def send_metadata(self, Context ctx, Message msg not None):
+        """
+        Send a metadata message into the channel.
+
+        Parameters
+        ----------
+        ctx
+            The current streaming context.
+        msg
+            Metadata message to move into the channel.
+
+        Warnings
+        --------
+        `msg` is released and left empty after this call.
+        """
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        with nogil:
+            cpp_channel_send_metadata(
+                ctx._handle,
+                self._handle,
+                move(msg._handle),
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
+            )
+        await ret
+
     async def recv(self, Context ctx not None):
         """
         Receive the next message from the channel.
@@ -289,6 +515,35 @@ cdef class Channel:
         cdef shared_ptr[cpp_Message] c_msg
         with nogil:
             c_msg = cpp_channel_recv(
+                ctx._handle,
+                self._handle,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
+            )
+        await ret
+        if deref(c_msg).empty():
+            return None
+        return Message.from_handle(move(deref(c_msg)))
+
+    async def recv_metadata(self, Context ctx not None):
+        """
+        Receive the next metadata message from the channel.
+
+        Parameters
+        ----------
+        ctx
+            The current streaming context.
+
+        Returns
+        -------
+        A `Message` if a message is available, otherwise ``None`` if the
+        metadata queue is shut down and empty.
+        """
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        cdef shared_ptr[cpp_Message] c_msg
+        with nogil:
+            c_msg = cpp_channel_recv_metadata(
                 ctx._handle,
                 self._handle,
                 cpp_set_py_future,
