@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include <rapidsmpf/streaming/core/message.hpp>
@@ -17,10 +16,10 @@ namespace rapidsmpf::streaming {
 /**
  * @brief Hash partitioning scheme.
  *
- * Rows are distributed by `hash(columns) % modulus`.
+ * Rows are distributed by `hash(columns[column_indices]) % modulus`.
  */
 struct HashScheme {
-    std::vector<std::string> columns;  ///< Columns to hash on.
+    std::vector<std::int32_t> column_indices;  ///< Column indices to hash on.
     std::int64_t modulus;  ///< Hash modulus (number of partitions).
 
     /**

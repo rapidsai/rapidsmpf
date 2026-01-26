@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int64_t, uint64_t
+from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
 from libcpp.optional cimport optional
-from libcpp.string cimport string
 from libcpp.vector cimport vector
 
 from rapidsmpf.streaming.core.message cimport cpp_Message
@@ -15,10 +14,10 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         namespace "rapidsmpf::streaming" nogil:
 
     cdef cppclass cpp_HashScheme "rapidsmpf::streaming::HashScheme":
-        vector[string] columns
+        vector[int32_t] column_indices
         int64_t modulus
         cpp_HashScheme() except +
-        cpp_HashScheme(vector[string], int64_t) except +
+        cpp_HashScheme(vector[int32_t], int64_t) except +
         bool_t operator==(const cpp_HashScheme&)
 
     cdef enum cpp_SpecType "rapidsmpf::streaming::SpecType":

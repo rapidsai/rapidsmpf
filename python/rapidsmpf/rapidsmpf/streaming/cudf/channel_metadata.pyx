@@ -3,9 +3,8 @@
 """Channel metadata types for streaming pipelines."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint64_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
-from libcpp.string cimport string
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -29,12 +28,12 @@ cdef extern from * nogil:
 
 
 cdef class HashScheme:
-    """Hash partitioning scheme: rows distributed by hash(columns) % modulus."""
+    """Hash partitioning scheme: rows distributed by hash(column_indices) % modulus."""
 
-    def __init__(self, tuple columns, int modulus):
-        cdef vector[string] cols
-        for c in columns:
-            cols.push_back((<str>c).encode())
+    def __init__(self, tuple column_indices, int modulus):
+        cdef vector[int32_t] cols
+        for c in column_indices:
+            cols.push_back(<int32_t>c)
         self._scheme = cpp_HashScheme(cols, modulus)
 
     @staticmethod
@@ -44,8 +43,8 @@ cdef class HashScheme:
         return ret
 
     @property
-    def columns(self) -> tuple:
-        return tuple(c.decode() for c in self._scheme.columns)
+    def column_indices(self) -> tuple:
+        return tuple(self._scheme.column_indices)
 
     @property
     def modulus(self) -> int:
@@ -57,7 +56,7 @@ cdef class HashScheme:
         return self._scheme == (<HashScheme>other)._scheme
 
     def __repr__(self):
-        return f"HashScheme({self.columns!r}, {self.modulus})"
+        return f"HashScheme({self.column_indices!r}, {self.modulus})"
 
 
 cdef cpp_PartitioningSpec _to_spec(obj) except *:

@@ -12,15 +12,15 @@ from rapidsmpf.streaming.cudf import ChannelMetadata, HashScheme, Partitioning
 
 def test_hash_scheme() -> None:
     """Test HashScheme construction, properties, equality, and repr."""
-    h1 = HashScheme(("col_a", "col_b"), 16)
-    assert h1.columns == ("col_a", "col_b")
+    h1 = HashScheme((0, 1), 16)
+    assert h1.column_indices == (0, 1)
     assert h1.modulus == 16
-    assert repr(h1) == "HashScheme(('col_a', 'col_b'), 16)"
+    assert repr(h1) == "HashScheme((0, 1), 16)"
 
     # Equality
-    assert h1 == HashScheme(("col_a", "col_b"), 16)
-    assert h1 != HashScheme(("col_a", "col_b"), 32)
-    assert h1 != HashScheme(("other",), 16)
+    assert h1 == HashScheme((0, 1), 16)
+    assert h1 != HashScheme((0, 1), 32)
+    assert h1 != HashScheme((2,), 16)
 
 
 def test_partitioning_scenarios() -> None:
@@ -32,22 +32,22 @@ def test_partitioning_scenarios() -> None:
     assert Partitioning(None, None) == p_default
 
     # Direct global shuffle: inter_rank=Hash, local=Aligned
-    p_global = Partitioning(HashScheme(("key",), 16), "aligned")
-    assert p_global.inter_rank == HashScheme(("key",), 16)
+    p_global = Partitioning(HashScheme((0,), 16), "aligned")
+    assert p_global.inter_rank == HashScheme((0,), 16)
     assert p_global.local == "aligned"
 
     # Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)
-    p_twostage = Partitioning(HashScheme(("key",), 4), HashScheme(("key",), 8))
-    assert p_twostage.inter_rank == HashScheme(("key",), 4)
-    assert p_twostage.local == HashScheme(("key",), 8)
+    p_twostage = Partitioning(HashScheme((0,), 4), HashScheme((0,), 8))
+    assert p_twostage.inter_rank == HashScheme((0,), 4)
+    assert p_twostage.local == HashScheme((0,), 8)
 
     # After local repartition: inter_rank=Hash, local=None
-    p_local_none = Partitioning(HashScheme(("key",), 16), None)
-    assert p_local_none.inter_rank == HashScheme(("key",), 16)
+    p_local_none = Partitioning(HashScheme((0,), 16), None)
+    assert p_local_none.inter_rank == HashScheme((0,), 16)
     assert p_local_none.local is None
 
     # Equality and repr
-    assert p_global == Partitioning(HashScheme(("key",), 16), "aligned")
+    assert p_global == Partitioning(HashScheme((0,), 16), "aligned")
     assert p_global != p_twostage
     assert "Partitioning" in repr(p_global)
     assert "inter_rank" in repr(p_global)
@@ -65,7 +65,7 @@ def test_channel_metadata() -> None:
     assert m.duplicated is False
 
     # With partitioning and duplicated
-    p = Partitioning(HashScheme(("key",), 16), "aligned")
+    p = Partitioning(HashScheme((0,), 16), "aligned")
     m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
     assert m_full.partitioning == p
     assert m_full.duplicated is True
@@ -85,7 +85,7 @@ def test_message_roundtrip() -> None:
     """Test ChannelMetadata can round-trip through Message."""
     m = ChannelMetadata(
         local_count=4,
-        partitioning=Partitioning(HashScheme(("key",), 16), "aligned"),
+        partitioning=Partitioning(HashScheme((0,), 16), "aligned"),
         duplicated=True,
     )
     msg_m = Message(99, m)
@@ -93,5 +93,5 @@ def test_message_roundtrip() -> None:
     got_m = ChannelMetadata.from_message(msg_m)
     assert got_m.local_count == 4
     assert got_m.duplicated is True
-    assert got_m.partitioning.inter_rank == HashScheme(("key",), 16)
+    assert got_m.partitioning.inter_rank == HashScheme((0,), 16)
     assert msg_m.empty()
