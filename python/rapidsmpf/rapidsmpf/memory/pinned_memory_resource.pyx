@@ -1,7 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_shared
+
+from rapidsmpf.config cimport Options, cpp_Options
+
+
+cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
+    cdef bool_t cpp_is_pinned_memory_resources_supported \
+        "rapidsmpf::is_pinned_memory_resources_supported"(...) except +
+
+    cdef shared_ptr[cpp_PinnedMemoryResource] cpp_from_options \
+        "rapidsmpf::PinnedMemoryResource::from_options"(cpp_Options options) except +
 
 
 cpdef bool_t is_pinned_memory_resources_supported():
@@ -67,3 +77,22 @@ cdef class PinnedMemoryResource:
         if is_pinned_memory_resources_supported():
             return PinnedMemoryResource(numa_id)
         return None
+
+    @classmethod
+    def from_options(cls, Options options not None):
+        """
+        Construct from configuration options.
+
+        Parameters
+        ----------
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed PinnedMemoryResource instance.
+        """
+        cdef PinnedMemoryResource ret = cls.__new__(cls)
+        with nogil:
+            ret._handle = cpp_from_options(options._handle)
+        return ret
