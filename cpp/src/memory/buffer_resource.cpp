@@ -211,4 +211,22 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
 }
 
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
+    // Create a memory availability map that limits device memory based on the
+    // `spill_device_limit` option.qq
+    return {
+        {MemoryType::DEVICE,
+         LimitAvailableMemory{
+             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
+                 auto const [_, total_mem] = rmm::available_device_memory();
+                 return rmm::align_down(
+                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                     rmm::CUDA_ALLOCATION_ALIGNMENT
+                 );
+             })
+         }}
+    };
+}
+
 }  // namespace rapidsmpf

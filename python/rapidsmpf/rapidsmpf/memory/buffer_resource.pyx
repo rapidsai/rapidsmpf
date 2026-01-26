@@ -149,7 +149,9 @@ cdef class BufferResource:
         statistics = None,
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
-        if memory_available is not None:
+        if isinstance(memory_available, AvailableMemoryMap):
+            _mem_available = move((<AvailableMemoryMap>memory_available)._handle)
+        elif memory_available is not None:
             for mem_type, func in memory_available.items():
                 if not isinstance(func, LimitAvailableMemory):
                     raise NotImplementedError(
@@ -474,3 +476,47 @@ cdef class LimitAvailableMemory:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef unordered_map[MemoryType, cpp_MemoryAvailable] \
+        cpp_memory_available_from_options \
+        "rapidsmpf::memory_available_from_options"(
+            cpp_RmmResourceAdaptor* mr, cpp_Options options
+        ) except +
+
+
+cdef class AvailableMemoryMap:
+    """
+    Map of functions reporting available memory for different memory types.
+
+    This class acts as an opaque handle to C++ memory-availability functions
+    that cannot be directly represented or exposed in Python. It enables
+    RapidsMPF to configure and use such functions from Python while keeping
+    the implementation in C++.
+
+    Instances of this class are typically constructed from configuration
+    options using the :meth:`from_options` factory method.
+    """
+
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct an AvailableMemoryMap from configuration options.
+
+        Parameters
+        ----------
+        mr
+            Pointer to a memory resource adaptor.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed map of memory-available functions.
+        """
+        cdef AvailableMemoryMap ret = cls.__new__(cls)
+        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        with nogil:
+            ret._handle = cpp_memory_available_from_options(mr_handle, options._handle)
+        return ret

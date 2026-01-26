@@ -436,4 +436,17 @@ class LimitAvailableMemory {
     RmmResourceAdaptor const* mr_;
 };
 
+/**
+ * @brief Construct a map of memory-available functions from configuration options.
+ *
+ * @param mr Pointer to a memory resource adaptor.
+ * @param options Configuration options.
+ *
+ * @return The map of memory-available functions.
+ */
+
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
+
+
 }  // namespace rapidsmpf
