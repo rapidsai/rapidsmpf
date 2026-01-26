@@ -90,14 +90,24 @@ struct PartitioningSpec {
  * @brief Hierarchical partitioning metadata for a data stream.
  *
  * Describes how data flowing through a channel is partitioned at multiple
- * levels of the system hierarchy:
+ * levels of the system hierarchy. Each level corresponds to a communicator
+ * used to shuffle data at that level:
  *
- * - `inter_rank`: Distribution across ranks (global partitioning).
- * - `local`: Distribution within a rank (local chunk assignment).
+ * - `inter_rank`: Distribution across ranks, corresponding to the primary
+ *   communicator (e.g., `Context::comm()`). Shuffle operations at this level
+ *   move data between ranks.
+ * - `local`: Distribution within a rank, corresponding to a single-rank
+ *   communicator. Operations at this level repartition data locally without
+ *   network communication.
+ *
+ * @note Future extensions may add additional levels (e.g., `inter_group` for
+ * rank groups) with corresponding communicators.
  */
 struct Partitioning {
-    PartitioningSpec inter_rank;  ///< Distribution across ranks.
-    PartitioningSpec local;  ///< Distribution within a rank.
+    /// Distribution across ranks (corresponds to primary communicator).
+    PartitioningSpec inter_rank;
+    /// Distribution within a rank (corresponds to local/single communicator).
+    PartitioningSpec local;
 
     /**
      * @brief Equality comparison.
