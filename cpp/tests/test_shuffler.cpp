@@ -21,7 +21,7 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"

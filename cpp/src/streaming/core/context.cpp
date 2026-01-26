@@ -8,7 +8,7 @@
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::streaming {
 

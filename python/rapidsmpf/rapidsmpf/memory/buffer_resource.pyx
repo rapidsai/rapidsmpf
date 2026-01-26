@@ -61,6 +61,7 @@ cdef extern from *:
 
 cdef extern from * nogil:
     """
+    namespace {
     std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
     cpp_br_reserve(
         std::shared_ptr<rapidsmpf::BufferResource> br,
@@ -86,6 +87,7 @@ cdef extern from * nogil:
             br->reserve_device_memory_and_spill(size, ab)
         );
     }
+    }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],

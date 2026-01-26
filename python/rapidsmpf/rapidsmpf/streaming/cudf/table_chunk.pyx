@@ -72,7 +72,7 @@ cdef extern from * nogil:
             table->copy(*reservation)
         );
     }
-    }
+    }  // namespace
     """
     unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
         cpp_Message

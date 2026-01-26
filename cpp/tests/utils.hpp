@@ -32,6 +32,11 @@ constexpr std::size_t operator"" _MiB(unsigned long long val) {
     return val * (1ull << 20);
 }
 
+/// @brief User-defined literal for specifying memory sizes in GiB.
+constexpr std::size_t operator"" _GiB(unsigned long long val) {
+    return val * (1 << 30);
+}
+
 template <typename T>
 [[nodiscard]] std::vector<T> iota_vector(std::size_t nelem, T start = 0) {
     std::vector<T> ret(nelem);

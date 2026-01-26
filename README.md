@@ -281,11 +281,11 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
-- **`memory_reserve_timeout_ms`**
-  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT_MS`
-  - **Default**: `100`
+- **`memory_reserve_timeout`**
+  - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
+  - **Default**: `100 ms`
   - **Description**: Controls the global progress timeout for memory reservation
-    requests, specified in milliseconds.
+    requests. If the value does not include a unit, it is interpreted as seconds.
 
     The value limits how long the system may go without making progress on any
     pending memory reservation. When the timeout expires and no reservation has
@@ -295,6 +295,24 @@ Each configuration option includes:
 
     This option ensures forward progress under memory pressure and prevents the
     system from stalling indefinitely when memory availability fluctuates.
+
+- **`allow_overbooking_by_default`**
+  - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
+  - **Default**: `true`
+  - **Description**: Controls the default overbooking behavior for *high-level*
+    memory reservation APIs, such as `reserve_memory()`.
+
+    When enabled, high-level memory reservation requests may overbook memory
+    after the global `memory_reserve_timeout` expires, allowing forward
+    progress under memory pressure.
+
+    When disabled, high-level memory reservation requests fail with an error if
+    no progress is possible within the timeout.
+
+    This option is only used when a high-level API does not explicitly specify
+    an overbooking policy. It does **not** change the behavior of lower-level
+    memory reservation primitives or imply that overbooking is enabled or
+    disabled globally across the system.
 
 
 #### Dask Integration

@@ -26,7 +26,7 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_all_task(
+    coro::task<void> extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
@@ -47,14 +47,14 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_all_task(gather, ordered, output)
+                    extract_all_task(gather, ordered, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
-    }
+    }  // namespace
     """
     shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,

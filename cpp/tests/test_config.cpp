@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 
 using namespace rapidsmpf::config;
 
-TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
+TEST(OptionsTest, EnvReturnsMatchingVariables) {
     // Set environment variables for testing
     setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
     setenv("RAPIDSMPF_TEST_VAR2", "value2", 1);
@@ -30,7 +30,7 @@ TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
     ASSERT_TRUE(env_vars.find("OTHER_VAR") == env_vars.end());
 }
 
-TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
+TEST(OptionsTest, EnvOutputMapIsPopulated) {
     setenv("RAPIDSMPF_ANOTHER_VAR", "another_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -40,7 +40,7 @@ TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
     EXPECT_EQ(output["ANOTHER_VAR"], "another_value");
 }
 
-TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
+TEST(OptionsTest, EnvDoesNotOverwriteExistingKey) {
     setenv("RAPIDSMPF_EXISTING_VAR", "env_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -52,7 +52,7 @@ TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
     EXPECT_EQ(output["EXISTING_VAR"], "original_value");
 }
 
-TEST(ConfigEnvironmentVariables, ThrowsIfNoCaptureGroup) {
+TEST(OptionsTest, EnvThrowsIfNoCaptureGroup) {
     setenv("RAPIDSMPF_NOCAPTURE", "should_fail", 1);
 
     // Should throw because there is no capture group in the regex
@@ -169,6 +169,80 @@ TEST(OptionsTest, InsertIfAbsentMapInsertsNewKeysOnly) {
     EXPECT_EQ(value, 444);
 }
 
+TEST(OptionsTest, InsertIfAbsentTypedInsertsAndGetReturnsValue) {
+    Options opts;
+
+    bool inserted = opts.insert_if_absent<int>("  SomeKey  ", 42);
+    EXPECT_TRUE(inserted);
+
+    // Factory should not be used because the value is already set.
+    auto value = opts.get<int>("somekey", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 42);
+
+    // Typed values have no string representation.
+    auto strings = opts.get_strings();
+    EXPECT_TRUE(strings.at("somekey").empty());
+
+    // Typed insertion makes the instance unserializable.
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedDoesNotOverwriteExistingKey) {
+    Options opts;
+    EXPECT_TRUE(opts.insert_if_absent<int>("k", 1));
+
+    // Should not overwrite.
+    EXPECT_FALSE(opts.insert_if_absent<int>("K", 2));
+
+    auto value = opts.get<int>("k", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 1);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedThrowsOnTypeMismatch) {
+    Options opts;
+
+    // Insert as int
+    EXPECT_TRUE(opts.insert_if_absent<int>("value", 42));
+
+    // Attempting to retrieve as a different type should throw std::bad_any_cast
+    EXPECT_THROW(
+        std::ignore = opts.get<double>(
+            "value",
+            make_factory<double>(
+                0,
+                [](auto) {
+                    ADD_FAILURE() << "factory should not be called";
+                    return 0.0;
+                }
+            )
+        );
+        , std::invalid_argument
+    );
+}
+
+TEST(OptionsTest, InsertIfAbsentStringViewUsesStringOverloadAndRemainsSerializable) {
+    Options opts;
+
+    std::string_view sv = "5";
+    bool inserted = opts.insert_if_absent("level", sv);
+    EXPECT_TRUE(inserted);
+
+    // Should store the string representation.
+    auto strings = opts.get_strings();
+    ASSERT_TRUE(strings.find("level") != strings.end());
+    EXPECT_EQ(strings["level"], "5");
+
+    // Should remain serializable, since no typed value was inserted and we have not
+    // accessed options via get().
+    EXPECT_NO_THROW(static_cast<void>(opts.serialize()));
+}
+
 TEST(OptionsTest, GetStringsReturnsAllStoredOptions) {
     std::unordered_map<std::string, std::string> strings = {
         {"option1", "value1"}, {"option2", "value2"}, {"Option3", "value3"}
@@ -188,6 +262,32 @@ TEST(OptionsTest, GetStringsReturnsEmptyMapIfNoOptions) {
     auto result = opts.get_strings();
 
     EXPECT_TRUE(result.empty());
+}
+
+TEST(OptionValueTest, TypedCtorStoresValue) {
+    OptionValue ov(123);
+
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+    EXPECT_EQ(std::any_cast<int>(ov.get_value()), 123);
+}
+
+TEST(OptionValueTest, TypedCtorMovesValue) {
+    std::vector<int> v{1, 2, 3};
+    auto* data_before = v.data();
+
+    OptionValue ov(std::move(v));
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+
+    auto const& stored = std::any_cast<std::vector<int> const&>(ov.get_value());
+    EXPECT_EQ(stored, (std::vector<int>{1, 2, 3}));
+    EXPECT_TRUE(v.empty() || v.data() != data_before);
+}
+
+TEST(OptionValueTest, TypedCtorDoesNotAllowSetValueAgain) {
+    OptionValue ov(1);
+    EXPECT_THROW(ov.set_value(std::make_any<int>(2)), std::invalid_argument);
 }
 
 TEST(OptionsTest, SerializeDeserializeRoundTripPreservesData) {
