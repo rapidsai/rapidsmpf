@@ -62,15 +62,34 @@ install(
 # Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Force
 # CPM to always build (not find) and ensure static library is built
 set(CPM_DOWNLOAD_benchmark ON)
-# Set benchmark-specific options before including it
-set(BENCHMARK_ENABLE_TESTING OFF)
-set(BENCHMARK_ENABLE_INSTALL OFF)
+# Prevent finding any system-installed benchmark package
+set(benchmark_FIND_PACKAGE_ARGUMENTS "REQUIRED NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH")
+# Set benchmark-specific options before including it - use CACHE FORCE to ensure they take effect
+set(BENCHMARK_ENABLE_TESTING
+    OFF
+    CACHE BOOL "" FORCE
+)
+set(BENCHMARK_ENABLE_INSTALL
+    OFF
+    CACHE BOOL "" FORCE
+)
+set(BENCHMARK_BUILD_STATIC_LIBS
+    ON
+    CACHE BOOL "" FORCE
+)
 # Save and restore BUILD_SHARED_LIBS to not affect other targets
 set(_original_build_shared_libs ${BUILD_SHARED_LIBS})
-set(BUILD_SHARED_LIBS OFF)
+set(BUILD_SHARED_LIBS
+    OFF
+    CACHE BOOL "" FORCE
+)
 include(${rapids-cmake-dir}/cpm/gbench.cmake)
 rapids_cpm_gbench(BUILD_STATIC)
-set(BUILD_SHARED_LIBS ${_original_build_shared_libs})
+# Restore BUILD_SHARED_LIBS
+set(BUILD_SHARED_LIBS
+    ${_original_build_shared_libs}
+    CACHE BOOL "" FORCE
+)
 
 add_executable(bench_partition "bench_partition.cpp")
 set_target_properties(
