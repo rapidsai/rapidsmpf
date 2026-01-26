@@ -60,15 +60,9 @@ install(
 )
 
 # Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Use
-# rapids_cpm_find directly to force building from source as static library Set BUILD_SHARED_LIBS
-# before calling rapids_cpm_find to ensure static build
-set(_original_build_shared_libs ${BUILD_SHARED_LIBS})
-# Set as regular variable first, then cache
-set(BUILD_SHARED_LIBS OFF)
-set(BUILD_SHARED_LIBS
-    OFF
-    CACHE BOOL "Build shared libraries" FORCE
-)
+# rapids_cpm_find directly to force building from source as static library Force CPM to download and
+# build from source instead of finding system packages
+set(CPM_DOWNLOAD_benchmark ON)
 set(BENCHMARK_ENABLE_TESTING
     OFF
     CACHE BOOL "" FORCE
@@ -83,18 +77,10 @@ rapids_cpm_find(
   GIT_REPOSITORY https://github.com/google/benchmark.git
   GIT_TAG v1.8.3
   GIT_SHALLOW TRUE
-  OPTIONS "BENCHMARK_DOWNLOAD_DEPENDENCIES ON"
+  OPTIONS "BENCHMARK_DOWNLOAD_DEPENDENCIES ON" "BENCHMARK_ENABLE_GTEST_TESTS OFF"
+          "BUILD_SHARED_LIBS OFF"
   EXCLUDE_FROM_ALL
 )
-# Restore BUILD_SHARED_LIBS
-if(_original_build_shared_libs)
-  set(BUILD_SHARED_LIBS
-      ${_original_build_shared_libs}
-      CACHE BOOL "Build shared libraries" FORCE
-  )
-else()
-  unset(BUILD_SHARED_LIBS CACHE)
-endif()
 
 add_executable(bench_partition "bench_partition.cpp")
 set_target_properties(
