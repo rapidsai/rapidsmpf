@@ -59,12 +59,16 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-# Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Force
-# CPM to always build (not find) and ensure static library is built
-set(CPM_DOWNLOAD_benchmark ON)
-# Prevent finding any system-installed benchmark package
-set(benchmark_FIND_PACKAGE_ARGUMENTS "REQUIRED NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH")
-# Set benchmark-specific options before including it - use CACHE FORCE to ensure they take effect
+# Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Use
+# rapids_cpm_find directly to force building from source as static library Set BUILD_SHARED_LIBS
+# before calling rapids_cpm_find to ensure static build
+set(_original_build_shared_libs ${BUILD_SHARED_LIBS})
+# Set as regular variable first, then cache
+set(BUILD_SHARED_LIBS OFF)
+set(BUILD_SHARED_LIBS
+    OFF
+    CACHE BOOL "Build shared libraries" FORCE
+)
 set(BENCHMARK_ENABLE_TESTING
     OFF
     CACHE BOOL "" FORCE
@@ -73,23 +77,24 @@ set(BENCHMARK_ENABLE_INSTALL
     OFF
     CACHE BOOL "" FORCE
 )
-set(BENCHMARK_BUILD_STATIC_LIBS
-    ON
-    CACHE BOOL "" FORCE
+rapids_cpm_find(
+  benchmark 1.8.3
+  CPM_ARGS
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG v1.8.3
+  GIT_SHALLOW TRUE
+  OPTIONS "BENCHMARK_DOWNLOAD_DEPENDENCIES ON"
+  EXCLUDE_FROM_ALL
 )
-# Save and restore BUILD_SHARED_LIBS to not affect other targets
-set(_original_build_shared_libs ${BUILD_SHARED_LIBS})
-set(BUILD_SHARED_LIBS
-    OFF
-    CACHE BOOL "" FORCE
-)
-include(${rapids-cmake-dir}/cpm/gbench.cmake)
-rapids_cpm_gbench(BUILD_STATIC)
 # Restore BUILD_SHARED_LIBS
-set(BUILD_SHARED_LIBS
-    ${_original_build_shared_libs}
-    CACHE BOOL "" FORCE
-)
+if(_original_build_shared_libs)
+  set(BUILD_SHARED_LIBS
+      ${_original_build_shared_libs}
+      CACHE BOOL "Build shared libraries" FORCE
+  )
+else()
+  unset(BUILD_SHARED_LIBS CACHE)
+endif()
 
 add_executable(bench_partition "bench_partition.cpp")
 set_target_properties(
