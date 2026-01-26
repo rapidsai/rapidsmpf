@@ -35,6 +35,19 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
  *
  * The constructor is private, use the factory method `Context::create_channel()` to
  * create a new channel.
+ *
+ * In addition to sending messages through a channel, channel producers can communicate
+ * metadata to consumers through a metadata side-channel.
+ *
+ * @note The `Channel` is bounded for the purposes of sending messages (via `send`), but
+ * the side-channel is unbounded for the purposes of sending metadata (via
+ * `send_metadata`). There is no implied ordering between metadata messages and ordinary
+ * messages (they travel over separate paths and do not interfere).
+ *
+ * @note The metadata side-channel should be drained (or shutdown) like the `Channel`
+ * itself. For convenience, `drain` and `shutdown` ensure that both channel and metadata
+ * channel are shut down appropriately. One can also drain or shutdown the side-channel
+ * independently (`drain_metadata` and `shutdown_metadata`).
  */
 class Channel {
     friend Context;
@@ -68,7 +81,13 @@ class Channel {
     /**
      * @brief Asynchronously send a metadata message into the channel.
      *
-     * Suspends if the metadata queue is locked by another producer.
+     * @note Sending metadata is always possible, even if the other end of the channel
+     * never consumes the metadata.
+     *
+     * @note A typical usage of metadata will have the consumer reading metadata _before_
+     * reading messages from the channel. Hence, the producer should send metadata (or
+     * shutdown the side-channel via `shutdown_metadata`) before proceeding to send
+     * messages.
      *
      * @param msg The metadata message to send.
      * @return A coroutine that evaluates to true if the msg was successfully sent or
@@ -81,7 +100,7 @@ class Channel {
     /**
      * @brief Asynchronously receive a metadata message from the channel.
      *
-     * Suspends if the metadata queue is empty.
+     * Suspends if no metadata is available.
      *
      * @return A coroutine that evaluates to the message, which will be empty if the
      * metadata queue is shut down.
@@ -119,9 +138,12 @@ class Channel {
     [[nodiscard]] Node shutdown();
 
     /**
-     * @brief Immediately shuts down the metadata queue.
+     * @brief Immediately shuts down the metadata channel.
      *
      * Any pending or future metadata send/receive operations will complete with failure.
+     *
+     * @note If the producer has no metadata to provide, it should `shutdown_metadata`
+     * before anything else.
      *
      * @return A coroutine representing the completion of the shutdown.
      */
