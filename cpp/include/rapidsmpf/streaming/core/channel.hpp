@@ -113,6 +113,10 @@ class Channel {
      *
      * This is intended to ensure all remaining metadata messages are processed.
      *
+     * @warning If the consumer has no intention of reading metadata messages it _must_
+     * call `shutdown_metadata` otherwise when the producer `drain`s the output metadata
+     * channel it will block forever.
+     *
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the metadata shutdown drain.
      */
@@ -123,6 +127,10 @@ class Channel {
      *
      * This is intended to ensure all remaining messages are processed.
      *
+     * @warning If the consumer has no intention of reading metadata messages it _must_
+     * call `shutdown_metadata` otherwise when the producer `drain`s the output metadata
+     * channel it will block forever.
+     *
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
@@ -131,7 +139,8 @@ class Channel {
     /**
      * @brief Immediately shuts down the channel.
      *
-     * Any pending or future send/receive operations will complete with failure.
+     * Any pending or future send/receive operations (including metadata messages) will
+     * complete with failure.
      *
      * @return A coroutine representing the completion of the shutdown.
      */

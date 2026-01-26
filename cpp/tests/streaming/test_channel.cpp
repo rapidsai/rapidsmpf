@@ -28,9 +28,9 @@ std::vector<Message> make_int_messages(std::size_t n) {
 }
 }  // namespace
 
-using BaseStreamingChannel = BaseStreamingFixture;
+using StreamingChannel = BaseStreamingFixture;
 
-TEST_F(BaseStreamingChannel, DataRoundTripWithoutMetadata) {
+TEST_F(StreamingChannel, DataRoundTripWithoutMetadata) {
     auto ch = ctx->create_channel();
     std::vector<Message> outputs;
     std::vector<Node> nodes;
@@ -45,7 +45,7 @@ TEST_F(BaseStreamingChannel, DataRoundTripWithoutMetadata) {
     }
 }
 
-TEST_F(BaseStreamingChannel, MetadataSendReceiveAndShutdown) {
+TEST_F(StreamingChannel, MetadataSendReceiveAndShutdown) {
     auto ch = ctx->create_channel();
     std::vector<Message> metadata_outputs;
     std::vector<Message> data_outputs;
@@ -102,7 +102,7 @@ TEST_F(BaseStreamingChannel, MetadataSendReceiveAndShutdown) {
     EXPECT_EQ(data_outputs[1].get<int>(), 2);
 }
 
-TEST_F(BaseStreamingChannel, DataOnlyWithMetadataShutdown) {
+TEST_F(StreamingChannel, DataOnlyWithMetadataShutdown) {
     auto ch = ctx->create_channel();
     std::vector<Message> data_outputs;
     std::vector<Message> metadata_outputs;
@@ -153,7 +153,7 @@ TEST_F(BaseStreamingChannel, DataOnlyWithMetadataShutdown) {
     EXPECT_EQ(data_outputs[1].get<int>(), 20);
 }
 
-TEST_F(BaseStreamingChannel, MetadataOnlyWithDataShutdown) {
+TEST_F(StreamingChannel, MetadataOnlyWithDataShutdown) {
     auto ch = ctx->create_channel();
     std::vector<Message> metadata_outputs;
     std::vector<Message> data_outputs;
@@ -203,7 +203,7 @@ TEST_F(BaseStreamingChannel, MetadataOnlyWithDataShutdown) {
     EXPECT_TRUE(data_outputs.empty());
 }
 
-TEST_F(BaseStreamingChannel, ConsumerIgnoresMetadata) {
+TEST_F(StreamingChannel, ConsumerIgnoresMetadata) {
     auto ch = ctx->create_channel();
     std::vector<Message> data_outputs;
     std::vector<Node> nodes;
@@ -244,7 +244,7 @@ TEST_F(BaseStreamingChannel, ConsumerIgnoresMetadata) {
     EXPECT_EQ(data_outputs[0].get<int>(), 30);
 }
 
-TEST_F(BaseStreamingChannel, ProducerThrowsWithMetadata) {
+TEST_F(StreamingChannel, ProducerThrowsWithMetadata) {
     auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
@@ -273,7 +273,7 @@ TEST_F(BaseStreamingChannel, ProducerThrowsWithMetadata) {
     EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::runtime_error);
 }
 
-TEST_F(BaseStreamingChannel, ConsumerThrowsWithMetadata) {
+TEST_F(StreamingChannel, ConsumerThrowsWithMetadata) {
     auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
@@ -297,7 +297,7 @@ TEST_F(BaseStreamingChannel, ConsumerThrowsWithMetadata) {
     EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::runtime_error);
 }
 
-TEST_F(BaseStreamingChannel, ProducerAndConsumerThrow) {
+TEST_F(StreamingChannel, ProducerAndConsumerThrow) {
     auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
