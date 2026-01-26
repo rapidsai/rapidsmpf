@@ -53,7 +53,9 @@ TEST(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::NO), "1.00 ms");
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::YES), "1 ms");
     EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 µs");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 us");
     EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 µs");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 us");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::NO), "1.00 ns");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::YES), "1 ns");
     EXPECT_EQ(format_duration(60.0, 2, TrimZeroFraction::NO), "1.00 min");
@@ -182,6 +184,7 @@ TEST(UtilsTest, ParseDuration) {
     EXPECT_DOUBLE_EQ(parse_duration("2.5 ms").count(), 2.5e-3);
     EXPECT_DOUBLE_EQ(parse_duration("1 us").count(), 1e-6);
     EXPECT_DOUBLE_EQ(parse_duration("1 µs").count(), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 us").count(), 1e-6);
     EXPECT_DOUBLE_EQ(parse_duration("3 US").count(), 3e-6);
     EXPECT_DOUBLE_EQ(parse_duration("1 ns").count(), 1e-9);
     EXPECT_DOUBLE_EQ(parse_duration("10 NS").count(), 10e-9);
