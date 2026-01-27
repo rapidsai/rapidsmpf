@@ -5,12 +5,13 @@ from __future__ import annotations
 import gc
 import pickle
 import weakref
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import rmm.mr
 
+from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
@@ -25,6 +26,10 @@ from rapidsmpf.memory.pinned_memory_resource import (
 )
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
+from rapidsmpf.streaming.core.context import Context
+
+if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.channel import Channel
 
 
 def test_get_with_explicit_values() -> None:
@@ -533,7 +538,7 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
 
 
 def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
-    opts = Options({"statistics": "1"})
+    opts = Options({"statistics": "ON"})
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource.from_options(mr, opts)
 
@@ -558,3 +563,64 @@ def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> 
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource.from_options(mr, opts)
     assert br.pinned_mr is not None
+
+
+def test_context_from_options_creates_instance_with_explicit_options() -> None:
+    opts = Options(
+        {
+            "statistics": "True",
+            "num_streams": "8",
+            "spill_device_limit": "1GiB",
+        }
+    )
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.statistics().enabled
+        assert ctx.stream_pool_size() == 8
+        assert ctx.comm() is comm
+
+
+def test_context_from_options_uses_default_when_options_empty() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert not ctx.statistics().enabled
+        assert ctx.stream_pool_size() == 16  # Default
+        assert ctx.comm() is comm
+
+
+def test_context_from_options_enables_statistics_when_requested() -> None:
+    opts = Options({"statistics": "on"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.statistics().enabled
+
+
+def test_context_from_options_creates_buffer_resource() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.br() is not None
+
+
+def test_context_from_options_can_create_channel() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        channel: Channel[Any] = ctx.create_channel()
+        assert channel is not None
