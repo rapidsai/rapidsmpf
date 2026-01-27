@@ -52,10 +52,10 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
-BufferResource BufferResource::from_options(
+std::shared_ptr<BufferResource> BufferResource::from_options(
     RmmResourceAdaptor* mr, config::Options options
 ) {
-    return BufferResource(
+    return std::make_shared<BufferResource>(
         mr,
         PinnedMemoryResource::from_options(options),
         memory_available_from_options(mr, options),

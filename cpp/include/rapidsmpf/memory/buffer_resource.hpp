@@ -104,9 +104,12 @@ class BufferResource {
      * returned BufferResource.
      * @param options Configuration options.
      *
-     * @return A BufferResource instance configured according to the options.
+     * @return A shared pointer to a BufferResource instance configured according to the
+     * options.
      */
-    static BufferResource from_options(RmmResourceAdaptor* mr, config::Options options);
+    static std::shared_ptr<BufferResource> from_options(
+        RmmResourceAdaptor* mr, config::Options options
+    );
 
     ~BufferResource() noexcept = default;
 
