@@ -444,9 +444,17 @@ class LimitAvailableMemory {
  *
  * @return The map of memory-available functions.
  */
-
 std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
 memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
 
+/**
+ * @brief Get the `periodic_spill_check` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ *
+ * @return The duration of the pause between spill checks or std::nullopt if no dedicated
+ * thread should check for spilling.
+ */
+std::optional<Duration> periodic_spill_check_from_options(config::Options options);
 
 }  // namespace rapidsmpf

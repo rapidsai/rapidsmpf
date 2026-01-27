@@ -495,8 +495,8 @@ cdef class AvailableMemoryMap:
     RapidsMPF to configure and use such functions from Python while keeping
     the implementation in C++.
 
-    Instances of this class are typically constructed from configuration
-    options using the :meth:`from_options` factory method.
+    Instances of this class should be constructed from configuration options
+    using the :meth:`from_options` factory method.
     """
 
     @classmethod
@@ -520,3 +520,30 @@ cdef class AvailableMemoryMap:
         with nogil:
             ret._handle = cpp_memory_available_from_options(mr_handle, options._handle)
         return ret
+
+
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
+        "rapidsmpf::periodic_spill_check_from_options"(cpp_Options options) except +
+
+
+def periodic_spill_check_from_options(Options options not None):
+    """
+    Get the ``periodic_spill_check`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The duration of the pause between spill checks, in seconds, or ``None`` if no
+    dedicated thread should check for spilling.
+    """
+    cdef optional[cpp_Duration] ret
+    with nogil:
+        ret = cpp_periodic_spill_check_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value().count()

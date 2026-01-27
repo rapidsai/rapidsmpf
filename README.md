@@ -281,6 +281,23 @@ Each configuration option includes:
     - `DEBUG`: Debug-level messages.
     - `TRACE`: Fine-grained trace-level messages.
 
+- **`statistics`**
+  - **Environment Variable**: `RAPIDSMPF_STATISTICS`
+  - **Default**: `False`
+  - **Description**: Enable RapidsMPF statitistics collection.
+
+- **`num_streaming_threads`**
+  - **Environment Variable**: `RAPIDSMPF_NUM_STREAMING_THREADS`
+  - **Default**: `1`
+  - **Description**: Number of threads used to execute coroutines. Must be greater than zero.
+
+- **`num_streams`**
+  - **Environment Variable**: `RAPIDSMPF_NUM_STREAMS`
+  - **Default**: `16`
+  - **Description**: Number of CUDA streams used by RapidsMPF. A pool of CUDA
+    streams is created at startup, and work is scheduled onto these streams to
+    enable concurrent GPU execution and overlap of computation and data movement.
+
 - **`memory_reserve_timeout`**
   - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
   - **Default**: `100 ms`
@@ -313,6 +330,34 @@ Each configuration option includes:
     an overbooking policy. It does **not** change the behavior of lower-level
     memory reservation primitives or imply that overbooking is enabled or
     disabled globally across the system.
+
+- **`pinned_memory`**
+  - **Environment Variable**: `RAPIDSMPF_PINNED_MEMORY`
+  - **Default**: `false`
+  - **Description**: Enables pinned host memory if it is available on the system.
+  Pinned host memory provides higher bandwidth and lower latency for device-to-host
+  transfers compared to regular pageable host memory. When enabled, RapidsMPF primarily
+  uses pinned host memory for spilling. Availability of pinned host memory can be checked
+  using `is_pinned_memory_resources_supported()`.
+
+- **`spill_device_limit`**
+  - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
+  - **Default**: `80%`
+  - **Description**:
+    Soft upper limit on device memory usage that RapidsMPF attempts to stay under
+    by triggering spilling. This limit is a best-effort target and may not always
+    be enforceable. The value can be specified either as an absolute byte count
+    (e.g. `"10GiB"`, `"512MB"`) or as a percentage of the total memory of the current
+    device (e.g. `"80%"`).
+
+- **`periodic_spill_check`**
+  - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`
+  - **Default**: `1ms`
+  - **Description**: Enable periodic spill checks. A dedicated thread continuously
+    checks and performs spilling based on the current available memory as reported by
+    the buffer resource. The value of `periodic_spill_check` specifies the pause
+    between checks and supports time units, e.g. `us` or `ms`. If no unit is specified,
+    seconds are assumed. Use `"disabled"` to disable periodic spill checks.
 
 
 #### Dask Integration

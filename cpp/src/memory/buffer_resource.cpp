@@ -229,4 +229,18 @@ memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
     };
 }
 
+std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
+    return options.get<std::optional<Duration>>(
+        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+            if (s.empty()) {
+                return parse_duration("1ms");
+            }
+            if (auto val = parse_optional(s); val.has_value()) {
+                return parse_duration(val.value());
+            }
+            return std::nullopt;
+        }
+    );
+}
+
 }  // namespace rapidsmpf
