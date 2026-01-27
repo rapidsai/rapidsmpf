@@ -39,11 +39,10 @@ AllReduce::AllReduce(
 
 void AllReduce::insert(PackedData&& packed_data) {
     RAPIDSMPF_EXPECTS(
-        !inserted_,
+        !inserted_.exchange(true),
         "AllReduce::insert can only be called once per instance",
         std::runtime_error
     );
-    inserted_ = true;
     gatherer_.insert(0, std::move(packed_data));
     gatherer_.insert_finished();
 }

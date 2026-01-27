@@ -222,7 +222,7 @@ class AllReduce {
     Rank nranks_;  ///< Number of ranks in the communicator
     AllGather gatherer_;  ///< Underlying allgather primitive
 
-    bool inserted_{false};  ///< Whether insert has been called
+    std::atomic<bool> inserted_{false};  ///< Whether insert has been called
 };
 
 namespace detail {
