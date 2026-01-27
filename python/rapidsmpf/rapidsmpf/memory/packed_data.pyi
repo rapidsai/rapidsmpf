@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from pylibcudf.contiguous_split import PackedColumns as CudfPackedColumns
 from rmm.pylibrmm.stream import Stream
@@ -14,3 +14,6 @@ class PackedData:
         stream: Stream,
         br: BufferResource,
     ) -> PackedData: ...
+    @classmethod
+    def from_host_bytes(cls, data: bytes, br: BufferResource) -> PackedData: ...
+    def to_host_bytes(self) -> bytes: ...

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -29,12 +29,44 @@ cdef extern from *:
             std::move(metadata), br->move(std::move(gpu_data), stream)
         );
     }
+
+    std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_host_bytes(
+        const std::uint8_t* data,
+        std::size_t size,
+        rapidsmpf::BufferResource* br
+    ) {
+        auto metadata = std::make_unique<std::vector<std::uint8_t>>(data, data + size);
+        // Create an empty host buffer using reserve + allocate
+        auto reservation = br->reserve_or_fail(0, rapidsmpf::MemoryType::HOST);
+        auto empty_buffer = br->allocate(
+            rmm::cuda_stream_default, std::move(reservation)
+        );
+        return std::make_unique<rapidsmpf::PackedData>(
+            std::move(metadata), std::move(empty_buffer)
+        );
+    }
+
+    std::vector<std::uint8_t> cpp_packed_data_to_host_bytes(
+        rapidsmpf::PackedData* pd
+    ) {
+        return *(pd->metadata);
+    }
     """
     unique_ptr[cpp_PackedData] cpp_packed_data_from_buffers(
         unique_ptr[vector[uint8_t]] metadata,
         unique_ptr[device_buffer] gpu_data,
         cuda_stream_view stream,
         cpp_BufferResource* br,
+    ) except + nogil
+
+    unique_ptr[cpp_PackedData] cpp_packed_data_from_host_bytes(
+        const uint8_t* data,
+        size_t size,
+        cpp_BufferResource* br,
+    ) except + nogil
+
+    vector[uint8_t] cpp_packed_data_to_host_bytes(
+        cpp_PackedData* pd,
     ) except + nogil
 
 
@@ -97,6 +129,56 @@ cdef class PackedData:
     def __dealloc__(self):
         with nogil:
             self.c_obj.reset()
+
+    @classmethod
+    def from_host_bytes(cls, data: bytes, BufferResource br not None):
+        """
+        Construct a PackedData from raw host bytes.
+
+        The bytes are stored in the metadata field with an empty data buffer.
+        This is useful for scalar allreduce operations.
+
+        Parameters
+        ----------
+        data
+            Raw bytes to store.
+        br
+            Buffer resource for memory allocation.
+
+        Returns
+        -------
+        A new PackedData instance containing the bytes.
+        """
+        cdef cpp_BufferResource* _br = br.ptr()
+        cdef PackedData ret = cls.__new__(cls)
+        cdef const uint8_t* data_ptr = <const uint8_t*><char*>data
+        cdef size_t size = len(data)
+        with nogil:
+            ret.c_obj = cpp_packed_data_from_host_bytes(data_ptr, size, _br)
+        return ret
+
+    def to_host_bytes(self) -> bytes:
+        """
+        Extract the host bytes from this PackedData.
+
+        Returns the bytes stored in the metadata field.
+
+        Returns
+        -------
+        The raw bytes.
+
+        Raises
+        ------
+        ValueError
+            If the PackedData is empty.
+        """
+        if not self.c_obj:
+            raise ValueError("PackedData is empty")
+
+        cdef vector[uint8_t] result
+        with nogil:
+            result = cpp_packed_data_to_host_bytes(self.c_obj.get())
+        return bytes(result)
 
 
 # Convert a vector of `cpp_PackedData` into a list of `PackedData`.
