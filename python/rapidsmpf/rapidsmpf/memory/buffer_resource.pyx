@@ -217,6 +217,34 @@ cdef class BufferResource:
             )
         self.spill_manager = SpillManager._create(self)
 
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct a BufferResource from configuration options.
+
+        This factory method creates a BufferResource using configuration options to
+        initialize all components.
+
+        Parameters
+        ----------
+        mr
+            RMM resource adaptor. The adaptor must outlive the returned BufferResource.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        A BufferResource instance configured according to the options.
+        """
+        return cls(
+            device_mr=mr,
+            pinned_mr=PinnedMemoryResource.from_options(options),
+            memory_available=AvailableMemoryMap.from_options(mr, options),
+            periodic_spill_check=periodic_spill_check_from_options(options),
+            stream_pool=stream_pool_from_options(options),
+            statistics=Statistics.from_options(mr, options),
+        )
+
     def __dealloc__(self):
         """
         Deallocate resource without holding the GIL.

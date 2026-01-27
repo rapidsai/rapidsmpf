@@ -28,6 +28,10 @@ class BufferResource:
         stream_pool: CudaStreamPool | None = None,
         statistics: Statistics | None = None,
     ) -> None: ...
+    @classmethod
+    def from_options(
+        cls: type[Self], mr: RmmResourceAdaptor, options: Options
+    ) -> Self: ...
     @property
     def device_mr(self) -> DeviceMemoryResource: ...
     @property
