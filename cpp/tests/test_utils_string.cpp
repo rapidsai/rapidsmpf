@@ -52,9 +52,7 @@ TEST(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(0.5, 2, TrimZeroFraction::YES), "500 ms");
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::NO), "1.00 ms");
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::YES), "1 ms");
-    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 µs");
     EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 us");
-    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 µs");
     EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 us");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::NO), "1.00 ns");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::YES), "1 ns");
