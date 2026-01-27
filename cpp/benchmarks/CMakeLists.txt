@@ -59,8 +59,7 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-# Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Use
-# rapids_cpm_gbench with BUILD_STATIC to ensure static linking
+# Find or install GoogleBench
 include(${rapids-cmake-dir}/cpm/gbench.cmake)
 rapids_cpm_gbench(BUILD_STATIC)
 
