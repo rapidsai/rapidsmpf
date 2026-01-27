@@ -49,7 +49,7 @@ cdef class PinnedMemoryResource:
         If pinned host memory pools are not supported by the current CUDA
         version.
     """
-    def __cinit__(self, numa_id = None):
+    def __init__(self, numa_id = None):
         if numa_id is None:
             self._handle = make_shared[cpp_PinnedMemoryResource]()
         else:
@@ -90,9 +90,14 @@ cdef class PinnedMemoryResource:
 
         Returns
         -------
-        The constructed PinnedMemoryResource instance.
+        The constructed PinnedMemoryResource instance if pinned memory is enabled
+        and supported by the system, otherwise ``None``.
         """
-        cdef PinnedMemoryResource ret = cls.__new__(cls)
+        cdef shared_ptr[cpp_PinnedMemoryResource] handle
         with nogil:
-            ret._handle = cpp_from_options(options._handle)
+            handle = cpp_from_options(options._handle)
+        if not handle:
+            return None
+        cdef PinnedMemoryResource ret = cls.__new__(cls)
+        ret._handle = handle
         return ret

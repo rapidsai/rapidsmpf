@@ -58,7 +58,7 @@ cdef class Statistics:
     mr
         Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
+    def __init__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
         cdef cpp_RmmResourceAdaptor* mr_handle
         self._mr = mr
         if enable and mr is not None:

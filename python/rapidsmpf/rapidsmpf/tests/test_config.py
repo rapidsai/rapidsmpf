@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -9,7 +9,20 @@ from typing import Any
 
 import pytest
 
+import rmm.mr
+
 from rapidsmpf.config import Optional, OptionalBytes, Options
+from rapidsmpf.memory.buffer_resource import (
+    AvailableMemoryMap,
+    periodic_spill_check_from_options,
+    stream_pool_from_options,
+)
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    is_pinned_memory_resources_supported,
+)
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
 
 
 def test_get_with_explicit_values() -> None:
@@ -356,11 +369,9 @@ def test_serialize_after_access_raises() -> None:
 def test_pickle_roundtrip() -> None:
     original_dict = {"x": "42", "y": "test", "Z": "true"}
     opts = Options(original_dict)
-
     pickled = pickle.dumps(opts)
     assert isinstance(pickled, bytes)
     unpickled = pickle.loads(pickled)
-
     assert isinstance(unpickled, Options)
     assert unpickled.get_strings() == {k.lower(): v for k, v in original_dict.items()}
 
@@ -369,6 +380,119 @@ def test_pickle_empty_options() -> None:
     opts = Options()
     pickled = pickle.dumps(opts)
     unpickled = pickle.loads(pickled)
-
     assert isinstance(unpickled, Options)
     assert unpickled.get_strings() == {}
+
+
+def test_statistics_from_options_enabled_when_set_to_true() -> None:
+    opts = Options({"statistics": "True"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    stats = Statistics.from_options(mr, opts)
+    assert stats is not None
+    assert stats.enabled
+
+
+def test_statistics_from_options_enabled_when_set_to_one() -> None:
+    opts = Options({"statistics": "1"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    stats = Statistics.from_options(mr, opts)
+    assert stats is not None
+    assert stats.enabled
+
+
+def test_statistics_from_options_disabled_when_set_to_false() -> None:
+    opts = Options({"statistics": "False"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    stats = Statistics.from_options(mr, opts)
+    assert stats is not None
+    assert not stats.enabled
+
+
+def test_statistics_from_options_disabled_by_default() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    stats = Statistics.from_options(mr, opts)
+    assert stats is not None
+    assert not stats.enabled
+
+
+def test_pinned_memory_resource_from_options_enabled_when_set_to_true() -> None:
+    opts = Options({"pinned_memory": "True"})
+    pmr = PinnedMemoryResource.from_options(opts)
+
+    # Should be enabled if system supports it, or None if not
+    if is_pinned_memory_resources_supported():
+        assert pmr is not None
+    else:
+        assert pmr is None
+
+
+def test_pinned_memory_resource_from_options_disabled_when_set_to_false() -> None:
+    opts = Options({"pinned_memory": "False"})
+    pmr = PinnedMemoryResource.from_options(opts)
+    assert pmr is None
+
+
+def test_pinned_memory_resource_from_options_disabled_by_default() -> None:
+    opts = Options()
+    pmr = PinnedMemoryResource.from_options(opts)
+    assert pmr is None
+
+
+def test_available_memory_map_from_options_creates_map() -> None:
+    opts = Options({"spill_device_limit": "1GiB"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mem_map = AvailableMemoryMap.from_options(mr, opts)
+    assert mem_map is not None
+
+
+def test_available_memory_map_from_options_uses_default() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mem_map = AvailableMemoryMap.from_options(mr, opts)
+    assert mem_map is not None
+
+
+def test_periodic_spill_check_from_options_parses_milliseconds() -> None:
+    opts = Options({"periodic_spill_check": "5ms"})
+    duration = periodic_spill_check_from_options(opts)
+    assert duration is not None
+    assert abs(duration - 0.005) < 1e-9  # 5ms = 0.005s
+
+
+def test_periodic_spill_check_from_options_parses_seconds() -> None:
+    opts = Options({"periodic_spill_check": "2"})
+    duration = periodic_spill_check_from_options(opts)
+    assert duration is not None
+    assert abs(duration - 2.0) < 1e-9
+
+
+def test_periodic_spill_check_from_options_disabled_when_set_to_disabled() -> None:
+    opts = Options({"periodic_spill_check": "disabled"})
+    duration = periodic_spill_check_from_options(opts)
+    assert duration is None
+
+
+def test_periodic_spill_check_from_options_uses_default() -> None:
+    opts = Options()
+    duration = periodic_spill_check_from_options(opts)
+    assert duration is not None
+    assert abs(duration - 0.001) < 1e-9  # Default: 1ms
+
+
+def test_stream_pool_from_options_returns_specified_size() -> None:
+    opts = Options({"num_streams": "32"})
+    pool_size = stream_pool_from_options(opts)
+    assert pool_size.get_pool_size() == 32
+
+
+def test_stream_pool_from_options_uses_default() -> None:
+    opts = Options()
+    pool_size = stream_pool_from_options(opts)
+    assert pool_size.get_pool_size() == 16  # Default
+
+
+def test_stream_pool_from_options_raises_on_zero() -> None:
+    opts = Options({"num_streams": "0"})
+    with pytest.raises(ValueError, match="greater than 0"):
+        stream_pool_from_options(opts)

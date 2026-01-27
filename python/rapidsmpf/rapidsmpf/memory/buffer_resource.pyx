@@ -538,8 +538,8 @@ def periodic_spill_check_from_options(Options options not None):
 
     Returns
     -------
-    The duration of the pause between spill checks, in seconds, or ``None`` if no
-    dedicated thread should check for spilling.
+    The duration of the pause between spill checks in seconds, or ``None`` if
+    periodic spill checks are disabled.
     """
     cdef optional[cpp_Duration] ret
     with nogil:
@@ -551,7 +551,7 @@ def periodic_spill_check_from_options(Options options not None):
 
 def stream_pool_from_options(Options options not None):
     """
-    Get a new CUDA stream pool from configuration options.
+    Create a new CUDA stream pool from configuration options.
 
     Parameters
     ----------
@@ -563,7 +563,10 @@ def stream_pool_from_options(Options options not None):
     Pool of CUDA streams used throughout RapidsMPF for operations that do not take
     an explicit CUDA stream.
     """
+    cdef int pool_size = options.get_or_default("num_streams", default_value=16)
+    if pool_size < 1:
+        raise ValueError("the `num_streams` options must be greater than 0")
     return CudaStreamPool(
-        pool_size=options.get_or_default("num_streams", default_value=16),
+        pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,
     )
