@@ -89,10 +89,7 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
     PackedData left = std::move(gathered[0]);
 
     for (std::size_t r = 1; std::cmp_less(r, nranks_); ++r) {
-        // The operator takes rvalue refs and modifies the left operand's buffer data in
-        // place. The operator accesses left.data.get() to get the buffer pointer, which
-        // doesn't move the unique_ptr, so left remains valid after the operator call.
-        reduce_operator_(std::move(left), std::move(gathered[r]));
+        reduce_operator_(left, std::move(gathered[r]));
     }
 
     return left;

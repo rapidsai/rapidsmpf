@@ -43,11 +43,10 @@ namespace rapidsmpf::coll {
  * @brief Type alias for the reduction function signature.
  *
  * The operator must update the left operand in place by combining it with the right
- * operand. Both operands are passed as rvalue references. The operator modifies the
- * underlying buffer data of the left operand in place, and the PackedData structure
- * remains valid after the call.
+ * operand. The left operand is passed by lvalue reference and the right operand is
+ * passed as an rvalue reference.
  */
-using ReduceOperatorFunction = std::function<void(PackedData&& left, PackedData&& right)>;
+using ReduceOperatorFunction = std::function<void(PackedData& left, PackedData&& right)>;
 
 /**
  * @brief Enumeration indicating whether a reduction operator runs on host or device.
@@ -86,11 +85,8 @@ class ReduceOperator {
      * @param left The left PackedData that will hold the result (updated in place).
      * @param right The right PackedData to combine into the left operand.
      */
-    void operator()(PackedData&& left, PackedData&& right) const {
-        // The operator modifies left's buffer data in place through the reference.
-        // We pass the rvalue refs to fn, but fn only accesses the data, not moving
-        // from the PackedData objects themselves.
-        fn(std::move(left), std::move(right));
+    void operator()(PackedData& left, PackedData&& right) const {
+        fn(left, std::move(right));
     }
 
     /**
@@ -249,7 +245,7 @@ struct HostOp {
      * @param left The left PackedData that will be updated in place.
      * @param right The right PackedData to combine into the left operand.
      */
-    void operator()(PackedData&& left, PackedData&& right) {
+    void operator()(PackedData& left, PackedData&& right) {
         RAPIDSMPF_EXPECTS(
             left.data && right.data, "HostOp requires non-null data buffers"
         );
@@ -312,7 +308,7 @@ struct DeviceOp {
      * @param left The left PackedData that will be updated in place.
      * @param right The right PackedData to combine into the left operand.
      */
-    void operator()(PackedData&& left, PackedData&& right) {
+    void operator()(PackedData& left, PackedData&& right) {
 #ifdef __CUDACC__
         RAPIDSMPF_EXPECTS(
             left.data && right.data, "DeviceOp requires non-null data buffers"
@@ -383,8 +379,8 @@ template <typename T, typename Op>
 ReduceOperator make_host_reduce_operator(Op op) {
     HostOp<T, Op> host_op{std::move(op)};
     return ReduceOperator(
-        [host_op = std::move(host_op)](PackedData&& left, PackedData&& right) mutable {
-            host_op(std::move(left), std::move(right));
+        [host_op = std::move(host_op)](PackedData& left, PackedData&& right) mutable {
+            host_op(left, std::move(right));
         },
         ReduceOperatorType::Host
     );
@@ -407,9 +403,9 @@ ReduceOperator make_device_reduce_operator(Op op) {
 #ifdef __CUDACC__
     DeviceOp<T, Op> device_op{std::move(op)};
     return ReduceOperator(
-        [device_op = std::move(device_op)](
-            PackedData&& left, PackedData&& right
-        ) mutable { device_op(std::move(left), std::move(right)); },
+        [device_op = std::move(device_op)](PackedData& left, PackedData&& right) mutable {
+            device_op(left, std::move(right));
+        },
         ReduceOperatorType::Device
     );
 #else
