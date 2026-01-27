@@ -110,7 +110,7 @@ std::string format_duration(
     constexpr std::array<Unit, 4> subsecond_units{{
         {.name = "s", .scale = 1.0},
         {.name = "ms", .scale = 1e-3},
-        {.name = "µs", .scale = 1e-6},
+        {.name = "us", .scale = 1e-6},
         {.name = "ns", .scale = 1e-9},
     }};
 

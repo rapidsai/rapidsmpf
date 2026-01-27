@@ -79,7 +79,7 @@ std::string format_nbytes(
  * @brief Format a time duration as a human-readable string.
  *
  * Converts a duration given in seconds into a scaled string representation
- * using common time units such as ns, µs, ms, s, min, h, and d.
+ * using common time units such as ns, us, ms, s, min, h, and d.
  *
  * The duration is accepted as a @c double to support both fractional seconds
  * and very large values without overflow.
