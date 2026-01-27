@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -133,7 +133,6 @@ rapids_find_package(
 include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
@@ -153,6 +152,7 @@ if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
 if(RAPIDSMPF_HAVE_STREAMING)
+  include(../cmake/thirdparty/get_cuco.cmake)
   include(../cmake/thirdparty/get_libcoro.cmake)
 endif()
 
@@ -196,8 +196,10 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
+  src/system_info.cpp
   src/topology_discovery.cpp
-  src/utils.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
 
 if(RAPIDSMPF_HAVE_STREAMING)
@@ -208,8 +210,10 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/coro_executor.cpp
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
+            src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/partition.cpp
@@ -285,7 +289,7 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL cuco::cuco $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>

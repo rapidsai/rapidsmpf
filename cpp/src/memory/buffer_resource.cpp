@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
@@ -51,7 +52,7 @@ BufferResource::BufferResource(
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
-    MemoryType mem_type, std::size_t size, bool allow_overbooking
+    MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -64,7 +65,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     // If negative, we are overbooking.
     std::size_t overbooking =
         headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
-    if (overbooking > 0 && !allow_overbooking) {
+    if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
         // Cancel the reservation, overbooking isn't allowed.
         return {MemoryReservation(mem_type, this, 0), overbooking};
     }
@@ -74,16 +75,16 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    size_t size, bool allow_overbooking
+    size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, true);
+    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
-            allow_overbooking || spilled >= ob,
+            allow_overbooking == AllowOverbooking::YES || spilled >= ob,
             "failed to spill enough memory (reserved: " + format_nbytes(size)
                 + ", overbooking: " + format_nbytes(ob)
                 + ", spilled: " + format_nbytes(spilled) + ")",

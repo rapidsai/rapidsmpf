@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,14 +17,12 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+
+#include "utils.hpp"
 
 
 using namespace rapidsmpf;
-
-constexpr std::size_t operator"" _KiB(unsigned long long n) {
-    return n * (1 << 10);
-}
 
 TEST(SpillManager, SpillFunction) {
     // Create a buffer resource that report `mem_available` as the available memory.

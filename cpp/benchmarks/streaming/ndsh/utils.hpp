@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,12 +11,12 @@
 
 #include <mpi.h>
 
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-
-#include "rapidsmpf/communicator/mpi.hpp"
-#include "rapidsmpf/streaming/core/channel.hpp"
-#include "rapidsmpf/streaming/core/node.hpp"
 
 namespace rapidsmpf::ndsh {
 namespace detail {
@@ -92,7 +92,7 @@ namespace detail {
 [[nodiscard]] streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& chunk,
-    bool allow_overbooking = false
+    AllowOverbooking allow_overbooking = AllowOverbooking::NO
 );
 
 ///< @brief Communicator type to use

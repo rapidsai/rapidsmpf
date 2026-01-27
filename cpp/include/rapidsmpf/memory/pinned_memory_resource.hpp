@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -19,7 +19,8 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
@@ -89,7 +90,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(int numa_id = get_current_numa_node_id());
+    PinnedMemoryResource(int numa_id = get_current_numa_node());
 
     /**
      * @brief Create a pinned memory resource if the system supports pinned memory.
@@ -103,7 +104,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @see PinnedMemoryResource::PinnedMemoryResource
      */
     static std::shared_ptr<PinnedMemoryResource> make_if_available(
-        int numa_id = get_current_numa_node_id()
+        int numa_id = get_current_numa_node()
     );
 
     ~PinnedMemoryResource() override;

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -35,7 +35,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
@@ -87,7 +87,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -126,7 +126,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -157,7 +157,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -243,7 +243,7 @@ std::vector<PackedData> spill_partitions(
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    bool allow_overbooking,
+    AllowOverbooking allow_overbooking,
     std::shared_ptr<Statistics> statistics
 ) {
     auto const start_time = Clock::now();

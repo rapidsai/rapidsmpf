@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -72,7 +72,7 @@ cdef extern from * nogil:
             table->copy(*reservation)
         );
     }
-    }
+    }  // namespace
     """
     unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
         cpp_Message
@@ -164,8 +164,8 @@ cdef class TableChunk:
         This reference is managed by the underlying C++ object, so it
         persists even when the chunk is transferred through Channels.
 
-        Warning
-        -------
+        Warnings
+        --------
         This object does not keep the provided stream alive. The caller must
         ensure the stream remains valid for the lifetime of the streaming pipeline.
         """

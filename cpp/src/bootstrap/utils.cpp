@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -70,29 +70,6 @@ std::string get_current_cpu_affinity() {
     }
 
     return oss.str();
-}
-
-std::vector<int> get_current_numa_nodes() {
-    std::vector<int> numa_nodes;
-#if RAPIDSMPF_HAVE_NUMA
-    if (numa_available() == -1) {
-        return numa_nodes;
-    }
-
-    // Since processes are typically bound to CPUs on the same NUMA node as their memory,
-    // using the CPU's NUMA node (via numa_node_of_cpu) is a reasonable approximation
-    // that works well in practice for topology-aware binding scenarios, thus
-    // intentionally avoiding the need to get the memory binding policy programmatically
-    // for now.
-    int cpu = sched_getcpu();
-    if (cpu >= 0) {
-        int numa_node = numa_node_of_cpu(cpu);
-        if (numa_node >= 0) {
-            numa_nodes.push_back(numa_node);
-        }
-    }
-#endif
-    return numa_nodes;
 }
 
 std::string get_ucx_net_devices() {

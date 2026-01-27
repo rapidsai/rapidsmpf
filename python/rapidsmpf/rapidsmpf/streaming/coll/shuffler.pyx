@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -7,132 +7,138 @@ from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
+from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
-
-import asyncio
-from functools import partial
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
+from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
-from rapidsmpf.streaming.core.utilities cimport cython_invoke_python_function
+
+import asyncio
 
 
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_async_task(
+    coro::task<void> extract_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        std::optional<std::vector<rapidsmpf::PackedData>> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
     ) {
-        output = co_await shuffle->extract_async(pid);
-        py_invoker(py_callback.get());
+        *output = co_await shuffle->extract_async(pid);
     }
 
-    void cpp_extract_async(
+    std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>>
+    cpp_extract_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
-        std::optional<std::vector<rapidsmpf::PackedData>> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<
+            std::optional<std::vector<rapidsmpf::PackedData>>
+        >();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
-                 _extract_async_task(
-                     shuffle, pid, output, py_invoker, std::move(py_callback)
-                 )
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    extract_async_task(shuffle, pid, output)
+                )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
+        return output;
     }
 
-    coro::task<void> _extract_any_async_task(
+    coro::task<void> extract_any_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
-            &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        std::shared_ptr<
+            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+        > output
     ) {
-        output = co_await shuffle->extract_any_async();
-        py_invoker(py_callback.get());
+        *output = co_await shuffle->extract_any_async();
     }
 
-    void cpp_extract_any_async(
+    std::shared_ptr<
+        std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+    > cpp_extract_any_async(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
-            &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<
+            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
+        >();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
-                 _extract_any_async_task(
-                     shuffle, output, py_invoker, std::move(py_callback)
-                 )
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    extract_any_async_task(
+                        shuffle, output
+                    )
+                )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
+        return output;
     }
 
-    coro::task<void> _insert_finished_task(
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+    coro::task<void> insert_finished_task(
+        rapidsmpf::streaming::ShufflerAsync *shuffle
     ) {
         co_await shuffle->insert_finished();
-        py_invoker(py_callback.get());
     }
 
     void cpp_insert_finished(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::ShufflerAsync *shuffle,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
-                 _insert_finished_task(
-                     shuffle, py_invoker, std::move(py_callback)
-                 )
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    insert_finished_task(shuffle)
+                )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
-    }
+    }  // namespace
     """
-    void cpp_extract_async(
+    shared_ptr[optional[vector[cpp_PackedData]]] cpp_extract_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         uint32_t pid,
-        optional[vector[cpp_PackedData]] &output,
-        void (*py_invoker)(void*),
-        cpp_OwningWrapper py_callback,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
     ) except +
 
-    void cpp_extract_any_async(
+    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] cpp_extract_any_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
-        optional[pair[uint32_t, vector[cpp_PackedData]]] &output,
-        void (*py_invoker)(void*),
-        cpp_OwningWrapper py_callback,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
     ) except +
 
     void cpp_insert_finished(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
-        void (*py_invoker)(void*),
-        cpp_OwningWrapper py_callback,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
     ) except +
 
 
@@ -242,16 +248,14 @@ cdef class ShufflerAsync:
         -----
         This must be awaited before extraction can occur.
         """
-        loop = asyncio.get_running_loop()
-        ret = loop.create_future()
-        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
-        Py_INCREF(callback)
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
         with nogil:
             cpp_insert_finished(
                 ctx._handle,
                 self._handle.get(),
-                cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
 
@@ -273,23 +277,20 @@ cdef class ShufflerAsync:
         None
             If the partition has already been extracted.
         """
-        loop = asyncio.get_running_loop()
-        ret = loop.create_future()
-        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
-        cdef optional[vector[cpp_PackedData]] c_ret
-        Py_INCREF(callback)
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        cdef shared_ptr[optional[vector[cpp_PackedData]]] c_ret
         with nogil:
-            cpp_extract_async(
+            c_ret = cpp_extract_async(
                 ctx._handle,
                 self._handle.get(),
                 pid,
-                c_ret,
-                cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_ret.has_value():
-            return packed_data_vector_to_list(move(deref(c_ret)))
+        if deref(c_ret).has_value():
+            return packed_data_vector_to_list(move(deref(deref(c_ret))))
         else:
             return None
 
@@ -310,24 +311,21 @@ cdef class ShufflerAsync:
         None
             If there are no more partitions to extract.
         """
-        loop = asyncio.get_running_loop()
-        ret = loop.create_future()
-        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
-        cdef optional[pair[uint32_t, vector[cpp_PackedData]]] c_ret
-        Py_INCREF(callback)
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        cdef shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret
         with nogil:
-            cpp_extract_any_async(
+            c_ret = cpp_extract_any_async(
                 ctx._handle,
                 self._handle.get(),
-                c_ret,
-                cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        if c_ret.has_value():
+        if deref(c_ret).has_value():
             return (
-                c_ret.value().first,
-                packed_data_vector_to_list(move(deref(c_ret).second))
+                deref(c_ret).value().first,
+                packed_data_vector_to_list(move(deref(c_ret).value().second))
             )
         else:
             return None

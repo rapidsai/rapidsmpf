@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,16 +23,6 @@ namespace rapidsmpf::bootstrap {
  * @return CPU affinity string, or empty string on error.
  */
 std::string get_current_cpu_affinity();
-
-/**
- * @brief Get current NUMA node(s) for memory binding.
- *
- * Queries the NUMA node associated with the CPU the current process is running on.
- * This is a best-effort approach and may not be accurate in all cases.
- *
- * @return Vector of NUMA node IDs. Empty if NUMA is not available or detection fails.
- */
-std::vector<int> get_current_numa_nodes();
 
 /**
  * @brief Get UCX_NET_DEVICES from environment.

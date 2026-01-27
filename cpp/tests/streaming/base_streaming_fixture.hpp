@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
@@ -31,7 +32,12 @@ class BaseStreamingFixture : public ::testing::Test {
         br.reset();
     }
 
-    void SetUpWithThreads(int num_streaming_threads) {
+    void SetUpWithThreads(
+        int num_streaming_threads,
+        std::unordered_map<
+            rapidsmpf::MemoryType,
+            rapidsmpf::BufferResource::MemoryAvailable> memory_available = {}
+    ) {
         // create a new options object, since we can not modify values in the global
         // options object
         auto env_vars = rapidsmpf::config::get_environment_variables();
@@ -39,7 +45,9 @@ class BaseStreamingFixture : public ::testing::Test {
         rapidsmpf::config::Options options(std::move(env_vars));
 
         stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(mr_cuda);
+        br = std::make_shared<rapidsmpf::BufferResource>(
+            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+        );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             std::move(options), GlobalEnvironment->comm_, br
         );

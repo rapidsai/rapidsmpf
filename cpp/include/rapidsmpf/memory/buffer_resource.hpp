@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,9 +23,21 @@
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+/**
+ * @brief Policy controlling whether a memory reservation is allowed to overbook.
+ *
+ * This enum is used throughout RapidsMPF to specify the overbooking behavior of
+ * a memory reservation request. The exact semantics depend on the specific API
+ * and execution context in which it is used.
+ */
+enum class AllowOverbooking : bool {
+    NO,  ///< Overbooking is not allowed.
+    YES,  ///< Overbooking is allowed.
+};
 
 /**
  * @brief Class managing buffer resources.
@@ -159,7 +171,7 @@ class BufferResource {
      * equals zero (a zero-sized reservation never fails).
      */
     std::pair<MemoryReservation, std::size_t> reserve(
-        MemoryType mem_type, size_t size, bool allow_overbooking
+        MemoryType mem_type, size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -180,7 +192,7 @@ class BufferResource {
      * cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
-        size_t size, bool allow_overbooking
+        size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -208,7 +220,7 @@ class BufferResource {
                 // available.
                 continue;
             }
-            auto [res, _] = reserve(mem_type, size, false);
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
             if (res.size() == size) {
                 return std::move(res);
             }
