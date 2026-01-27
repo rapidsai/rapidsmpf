@@ -150,7 +150,9 @@ cdef class PackedData:
             self.c_obj.reset()
 
     @classmethod
-    def from_host_bytes(cls, data: bytes, BufferResource br not None):
+    def from_host_bytes(
+        cls, const uint8_t[::1] data not None, BufferResource br not None
+    ):
         """
         Construct a PackedData from raw host bytes.
 
@@ -160,7 +162,7 @@ cdef class PackedData:
         Parameters
         ----------
         data
-            Raw bytes to store.
+            Contiguous buffer of bytes (bytes, bytearray, or buffer-protocol object).
         br
             Buffer resource for memory allocation.
 
@@ -170,8 +172,10 @@ cdef class PackedData:
         """
         cdef cpp_BufferResource* _br = br.ptr()
         cdef PackedData ret = cls.__new__(cls)
-        cdef const uint8_t* data_ptr = <const uint8_t*><char*>data
         cdef size_t size = len(data)
+        cdef const uint8_t* data_ptr = NULL
+        if size > 0:
+            data_ptr = <const uint8_t*>&data[0]
         with nogil:
             ret.c_obj = cpp_packed_data_from_host_bytes(data_ptr, size, _br)
         return ret
