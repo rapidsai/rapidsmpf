@@ -361,9 +361,10 @@ struct DeviceOp {
         // This should never be reached if DeviceOp is only instantiated with CUDA
         std::ignore = left;
         std::ignore = right;
-        throw std::runtime_error(
+        RAPIDSMPF_FAIL(
             "DeviceOp::operator() called but CUDA compilation (__CUDACC__) "
-            "was not available. DeviceOp requires CUDA/thrust support."
+            "was not available. DeviceOp requires CUDA/thrust support.",
+            std::runtime_error
         );
 #endif
     }
@@ -414,9 +415,10 @@ ReduceOperator make_device_reduce_operator(Op op) {
 #else
     std::ignore = op;
 
-    throw std::runtime_error(
+    RAPIDSMPF_FAIL(
         "make_device_reduce_operator was called from code that was not compiled "
-        "with NVCC (__CUDACC__ is not defined)."
+        "with NVCC (__CUDACC__ is not defined).",
+        std::runtime_error
     );
 #endif
 }
