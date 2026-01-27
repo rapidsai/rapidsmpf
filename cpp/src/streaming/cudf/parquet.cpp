@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -178,7 +178,7 @@ Node read_parquet(
     auto const num_files = local_files.size();
     // Estimate number of rows per file
     std::size_t files_per_chunk = 1;
-    if (files.size() > 1) {
+    if (!local_files.empty()) {
         auto nrows =
             cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
                 .num_rows();
