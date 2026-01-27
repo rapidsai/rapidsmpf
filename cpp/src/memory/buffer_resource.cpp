@@ -52,6 +52,19 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+BufferResource BufferResource::from_options(
+    RmmResourceAdaptor* mr, config::Options options
+) {
+    return BufferResource(
+        mr,
+        PinnedMemoryResource::from_options(options),
+        memory_available_from_options(mr, options),
+        periodic_spill_check_from_options(options),
+        stream_pool_from_options(options),
+        Statistics::from_options(mr, options)
+    );
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {

@@ -640,3 +640,32 @@ TEST(OptionsTest, StreamPoolFromOptionsThrowsOnZeroStreams) {
 
     EXPECT_THROW(stream_pool_from_options(opts), std::invalid_argument);
 }
+
+TEST(OptionsTest, BufferResourceFromOptionsCreatesInstance) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"statistics", "True"},
+        {"pinned_memory", "False"},
+        {"spill_device_limit", "1GiB"},
+        {"periodic_spill_check", "5ms"},
+        {"num_streams", "8"}
+    };
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    EXPECT_TRUE(br.statistics()->enabled());
+    EXPECT_EQ(br.stream_pool().get_pool_size(), 8);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsUsesDefaults) {
+    Options opts;  // Empty options
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    EXPECT_FALSE(br.statistics()->enabled());
+    EXPECT_EQ(br.stream_pool().get_pool_size(), 16);  // Default: 16
+}

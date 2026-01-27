@@ -94,6 +94,20 @@ class BufferResource {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    /**
+     * @brief Construct a BufferResource from configuration options.
+     *
+     * This factory method creates a BufferResource using configuration options to
+     * initialize all components.
+     *
+     * @param mr Pointer to the RMM resource adaptor, which must outlive the
+     * returned BufferResource.
+     * @param options Configuration options.
+     *
+     * @return A BufferResource instance configured according to the options.
+     */
+    static BufferResource from_options(RmmResourceAdaptor* mr, config::Options options);
+
     ~BufferResource() noexcept = default;
 
     /**
