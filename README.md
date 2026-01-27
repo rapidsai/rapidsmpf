@@ -284,7 +284,7 @@ Each configuration option includes:
 - **`statistics`**
   - **Environment Variable**: `RAPIDSMPF_STATISTICS`
   - **Default**: `False`
-  - **Description**: Enable RapidsMPF statitistics collection.
+  - **Description**: Enable RapidsMPF statistics collection.
 
 - **`num_streaming_threads`**
   - **Environment Variable**: `RAPIDSMPF_NUM_STREAMING_THREADS`
