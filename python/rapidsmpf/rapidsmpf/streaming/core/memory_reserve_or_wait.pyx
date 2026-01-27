@@ -241,7 +241,7 @@ cdef class MemoryReserveOrWait:
 
     A background task is spawned on demand to periodically check available memory and
     fulfill pending requests. If no reservation request can be satisfied within the
-    timeout specified by the ``"memory_reserve_timeout_ms"`` option, the scheduler
+    timeout specified by the ``"memory_reserve_timeout"`` option, the scheduler
     forces progress by selecting the smallest pending request and attempting to reserve
     memory for it. This attempt may result in an empty reservation if the request still
     cannot be satisfied.
@@ -253,8 +253,8 @@ cdef class MemoryReserveOrWait:
     Parameters
     ----------
     options
-        Configuration options. The option ``"memory_reserve_timeout_ms"`` controls the
-        global progress timeout and defaults to 100 ms.
+        Configuration options. The option ``"memory_reserve_timeout"`` controls the
+        global progress timeout.
     mem_type
         The memory type for which reservations are requested.
     ctx

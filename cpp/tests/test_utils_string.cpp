@@ -52,8 +52,8 @@ TEST(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(0.5, 2, TrimZeroFraction::YES), "500 ms");
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::NO), "1.00 ms");
     EXPECT_EQ(format_duration(0.001, 2, TrimZeroFraction::YES), "1 ms");
-    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 µs");
-    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 µs");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::NO), "1.00 us");
+    EXPECT_EQ(format_duration(0.000001, 2, TrimZeroFraction::YES), "1 us");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::NO), "1.00 ns");
     EXPECT_EQ(format_duration(0.000000001, 2, TrimZeroFraction::YES), "1 ns");
     EXPECT_EQ(format_duration(60.0, 2, TrimZeroFraction::NO), "1.00 min");
@@ -182,6 +182,7 @@ TEST(UtilsTest, ParseDuration) {
     EXPECT_DOUBLE_EQ(parse_duration("2.5 ms").count(), 2.5e-3);
     EXPECT_DOUBLE_EQ(parse_duration("1 us").count(), 1e-6);
     EXPECT_DOUBLE_EQ(parse_duration("1 µs").count(), 1e-6);
+    EXPECT_DOUBLE_EQ(parse_duration("1 us").count(), 1e-6);
     EXPECT_DOUBLE_EQ(parse_duration("3 US").count(), 3e-6);
     EXPECT_DOUBLE_EQ(parse_duration("1 ns").count(), 1e-9);
     EXPECT_DOUBLE_EQ(parse_duration("10 NS").count(), 10e-9);
@@ -257,4 +258,33 @@ TEST(UtilsTest, ParseStringTest) {
 
     // Invalid boolean
     EXPECT_THROW(parse_string<bool>("not_a_bool"), std::invalid_argument);
+}
+
+TEST(UtilsTest, ParseOptional) {
+    // Pass-through
+    EXPECT_EQ(parse_optional(""), std::optional<std::string>{""});
+    EXPECT_EQ(parse_optional("foo"), std::optional<std::string>{"foo"});
+    EXPECT_EQ(parse_optional("  foo  "), std::optional<std::string>{"  foo  "});
+    EXPECT_EQ(parse_optional("0"), std::optional<std::string>{"0"});
+    EXPECT_EQ(parse_optional("1"), std::optional<std::string>{"1"});
+    EXPECT_EQ(parse_optional("true"), std::optional<std::string>{"true"});
+
+    // Disabled keywords (case-insensitive, ignores surrounding whitespace)
+    EXPECT_EQ(parse_optional("false"), std::nullopt);
+    EXPECT_EQ(parse_optional(" FALSE "), std::nullopt);
+    EXPECT_EQ(parse_optional("no"), std::nullopt);
+    EXPECT_EQ(parse_optional("\tNO\n"), std::nullopt);
+    EXPECT_EQ(parse_optional("off"), std::nullopt);
+    EXPECT_EQ(parse_optional("  oFf  "), std::nullopt);
+    EXPECT_EQ(parse_optional("disable"), std::nullopt);
+    EXPECT_EQ(parse_optional("DISABLED"), std::nullopt);
+    EXPECT_EQ(parse_optional("none"), std::nullopt);
+    EXPECT_EQ(parse_optional(" n/a "), std::nullopt);
+    EXPECT_EQ(parse_optional("NA"), std::nullopt);
+
+    // Must be a full match (no partial matches)
+    EXPECT_EQ(parse_optional("falsehood"), std::optional<std::string>{"falsehood"});
+    EXPECT_EQ(parse_optional("disabled_now"), std::optional<std::string>{"disabled_now"});
+    EXPECT_EQ(parse_optional("n/a2"), std::optional<std::string>{"n/a2"});
+    EXPECT_EQ(parse_optional("naive"), std::optional<std::string>{"naive"});
 }
