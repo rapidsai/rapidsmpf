@@ -112,12 +112,18 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
-void Buffer::set_stream(rmm::cuda_stream_view stream) {
-    RAPIDSMPF_EXPECTS(
-        is_latest_write_done(),
-        "the latest write must be done before setting a new stream"
-    );
-    stream_ = stream;
+void Buffer::set_stream(rmm::cuda_stream_view new_stream) {
+    throw_if_locked();
+    if (new_stream.value() == stream_.value()) {
+        return;
+    }
+
+    // Ensure the new stream does not run ahead of any work already enqueued on
+    // the current stream.
+    latest_write_event_.stream_wait(new_stream);
+    stream_ = new_stream;
+
+    std::visit([&](auto&& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
 void buffer_copy(
@@ -149,7 +155,7 @@ void buffer_copy(
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     cuda_stream_join(dst.stream(), src.stream());
-    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view& stream) {
+    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
             src.data() + src_offset,

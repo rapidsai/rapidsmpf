@@ -69,7 +69,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
     auto send_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
-    send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view& stream) {
+    send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             send_buf_data, send_data_h.data(), nelems, cudaMemcpyDefault, stream
         ));

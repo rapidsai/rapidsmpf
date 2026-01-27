@@ -153,7 +153,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         packed_columns_->gpu_data->size(), stream(), reservation
                     );
                     gpu_data->write_access([&](std::byte* dst,
-                                               rmm::cuda_stream_view& stream) {
+                                               rmm::cuda_stream_view stream) {
                         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                             dst,
                             packed_columns_->gpu_data->data(),

@@ -57,7 +57,7 @@ streaming::Node build_bloom_filter(
         auto [res, _] =
             ctx->br()->reserve(MemoryType::DEVICE, filter->size(), AllowOverbooking::YES);
         auto buf = ctx->br()->allocate(stream, std::move(res));
-        buf->write_access([&](std::byte* data, rmm::cuda_stream_view& stream) {
+        buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 data, filter->data(), filter->size(), cudaMemcpyDefault, stream.value()
             ));

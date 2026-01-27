@@ -137,6 +137,13 @@ class HostBuffer {
     [[nodiscard]] std::vector<std::uint8_t> copy_to_uint8_vector() const;
 
     /**
+     * @brief Set the associated CUDA stream.
+     *
+     * @param stream The new CUDA stream.
+     */
+    void set_stream(rmm::cuda_stream_view stream);
+
+    /**
      * @brief Construct a `HostBuffer` by copying data from a `std::vector<std::uint8_t>`.
      *
      * A new buffer is allocated using the provided memory resource and stream.

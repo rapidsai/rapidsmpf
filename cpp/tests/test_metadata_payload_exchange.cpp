@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -57,7 +57,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
                 br->allocate(stream, br->reserve_or_fail(data_size, MemoryType::DEVICE));
             // Fill with test data
             data_buffer->write_access(
-                [data_size](std::byte* ptr, rmm::cuda_stream_view& stream) {
+                [data_size](std::byte* ptr, rmm::cuda_stream_view stream) {
                     std::vector<std::uint8_t> test_data(data_size);
                     std::iota(test_data.begin(), test_data.end(), 0);
                     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
