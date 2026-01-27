@@ -215,7 +215,7 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
 std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
 memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
     // Create a memory availability map that limits device memory based on the
-    // `spill_device_limit` option.qq
+    // `spill_device_limit` option.
     return {
         {MemoryType::DEVICE,
          LimitAvailableMemory{

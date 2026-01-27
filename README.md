@@ -392,7 +392,7 @@ Each configuration option includes:
 - **`dask_statistics`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
   - **Default**: `False`
-  - **Description**: Enable RapidsMPF statitistics collection.
+  - **Description**: Enable RapidsMPF statistics collection.
 
 - **`dask_print_statistics`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
