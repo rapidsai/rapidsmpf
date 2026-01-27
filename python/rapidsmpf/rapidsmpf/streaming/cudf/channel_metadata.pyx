@@ -166,23 +166,33 @@ cdef class ChannelMetadata:
             sequence_number, move(self.release_handle())
         )
 
+    cdef void _check_handle(self) except *:
+        """Raise ValueError if handle has been released."""
+        if not self._handle:
+            raise ValueError("ChannelMetadata has been released (handle moved out)")
+
     @property
     def local_count(self) -> int:
+        self._check_handle()
         return deref(self._handle).local_count
 
     @property
     def partitioning(self) -> Partitioning:
+        self._check_handle()
         cdef Partitioning ret = Partitioning.__new__(Partitioning)
         ret._handle = make_unique[cpp_Partitioning](deref(self._handle).partitioning)
         return ret
 
     @property
     def duplicated(self) -> bool:
+        self._check_handle()
         return deref(self._handle).duplicated
 
     def __eq__(self, other):
         if not isinstance(other, ChannelMetadata):
             return NotImplemented
+        self._check_handle()
+        (<ChannelMetadata>other)._check_handle()
         return deref(self._handle) == deref((<ChannelMetadata>other)._handle)
 
     def __repr__(self):

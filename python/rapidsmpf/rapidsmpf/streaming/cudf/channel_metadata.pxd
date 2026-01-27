@@ -81,4 +81,6 @@ cdef class ChannelMetadata:
     @staticmethod
     cdef ChannelMetadata from_handle(unique_ptr[cpp_ChannelMetadata] handle)
 
+    cdef void _check_handle(self) except *
+
     cdef unique_ptr[cpp_ChannelMetadata] release_handle(self)

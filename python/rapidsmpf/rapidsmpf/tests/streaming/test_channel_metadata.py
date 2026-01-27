@@ -95,3 +95,26 @@ def test_message_roundtrip() -> None:
     assert got_m.duplicated is True
     assert got_m.partitioning.inter_rank == HashScheme((0,), 16)
     assert msg_m.empty()
+
+
+def test_access_after_move_raises() -> None:
+    """Test that accessing a released ChannelMetadata raises ValueError."""
+    m = ChannelMetadata(
+        local_count=4,
+        partitioning=Partitioning(HashScheme((0,), 16), "aligned"),
+    )
+    # Move into a message (releases the handle)
+    _ = Message(0, m)
+
+    # Accessing any property should raise ValueError
+    with pytest.raises(ValueError, match="has been released"):
+        _ = m.local_count
+
+    with pytest.raises(ValueError, match="has been released"):
+        _ = m.partitioning
+
+    with pytest.raises(ValueError, match="has been released"):
+        _ = m.duplicated
+
+    with pytest.raises(ValueError, match="has been released"):
+        repr(m)
