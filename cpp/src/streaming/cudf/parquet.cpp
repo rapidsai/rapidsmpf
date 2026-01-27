@@ -178,7 +178,7 @@ Node read_parquet(
     auto const num_files = local_files.size();
     // Estimate number of rows per file
     std::size_t files_per_chunk = 1;
-    if (!local_files.empty()) {
+    if (num_files > 1) {
         auto nrows =
             cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
                 .num_rows();
