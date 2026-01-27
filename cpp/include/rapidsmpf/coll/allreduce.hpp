@@ -412,13 +412,12 @@ ReduceOperator make_device_reduce_operator(Op op) {
         ReduceOperatorType::Device
     );
 #else
+    std::ignore = op;
+
     throw std::runtime_error(
         "make_device_reduce_operator was called from code that was not compiled "
         "with NVCC (__CUDACC__ is not defined)."
     );
-
-    std::ignore = op;
-    return ReduceOperator([](PackedData&&, PackedData&&) {}, ReduceOperatorType::Device);
 #endif
 }
 
