@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -83,8 +83,9 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     std::ignore = comm->wait(std::move(send_fut));
     recv_buf = comm->wait(std::move(recv_fut));
-    auto [host_reservation, host_ob] =
-        br->reserve(rapidsmpf::MemoryType::HOST, nelems, true);
+    auto [host_reservation, host_ob] = br->reserve(
+        rapidsmpf::MemoryType::HOST, nelems, rapidsmpf::AllowOverbooking::YES
+    );
     auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
     stream.synchronize();
     EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());

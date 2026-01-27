@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,7 +23,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -165,7 +165,7 @@ class ArgumentParser {
                     enable_output_discard = true;
                     break;
                 case 'b':
-                    input_data_allow_overbooking = false;
+                    input_data_allow_overbooking = rapidsmpf::AllowOverbooking::NO;
                     break;
                 case 'x':
                     enable_memory_profiler = true;
@@ -240,7 +240,7 @@ class ArgumentParser {
         if (enable_output_discard) {
             ss << "  -s (enable output discard to simulate streaming)\n";
         }
-        if (!input_data_allow_overbooking) {
+        if (input_data_allow_overbooking == rapidsmpf::AllowOverbooking::NO) {
             ss << "  -b (disallow memory overbooking when generating input data)\n";
         }
         if (enable_memory_profiler) {
@@ -271,7 +271,9 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_output_discard{false};
-    bool input_data_allow_overbooking{true};
+    rapidsmpf::AllowOverbooking input_data_allow_overbooking{
+        rapidsmpf::AllowOverbooking::YES
+    };
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
@@ -327,7 +329,10 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), br, true, statistics
+                    std::move(packed_chunks),
+                    br,
+                    rapidsmpf::AllowOverbooking::YES,
+                    statistics
                 ),
                 stream,
                 br,
@@ -701,8 +706,8 @@ int main(int argc, char** argv) {
                     .count();
         }
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -718,8 +723,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"
