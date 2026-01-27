@@ -11,11 +11,13 @@
 #include <cudf/utilities/memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
+#include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -717,4 +719,74 @@ TEST(OptionsTest, BufferResourceFromOptionsEnablesPinnedMemoryWhenSupported) {
 
     // Should not throw when accessing pinned_mr
     EXPECT_NO_THROW(std::ignore = br->pinned_mr());
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"statistics", "True"},
+        {"num_streams", "8"},
+        {"spill_device_limit", "1GiB"},
+    };
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_TRUE(ctx->statistics()->enabled());
+    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 8);
+    EXPECT_EQ(ctx->comm(), comm);
+}
+
+TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_FALSE(ctx->statistics()->enabled());
+    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 16);  // Default
+    EXPECT_EQ(ctx->comm(), comm);
+}
+
+TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_TRUE(ctx->statistics()->enabled());
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_NE(ctx->progress_thread(), nullptr);
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_NE(ctx->executor(), nullptr);
 }

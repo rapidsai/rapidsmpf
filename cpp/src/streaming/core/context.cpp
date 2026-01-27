@@ -103,6 +103,17 @@ Context::Context(
           statistics
       ) {}
 
+std::shared_ptr<Context> Context::from_options(
+    RmmResourceAdaptor* mr, std::shared_ptr<Communicator> comm, config::Options options
+) {
+    return std::make_shared<Context>(
+        options,
+        comm,
+        BufferResource::from_options(mr, options),
+        Statistics::from_options(mr, options)
+    );
+}
+
 Context::~Context() noexcept {
     shutdown();
 }
