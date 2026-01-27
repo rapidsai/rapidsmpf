@@ -413,52 +413,49 @@ install(
   EXPORT rapidsmpf-exports
 )
 
-# Install cuCascade library since it's built with EXCLUDE_FROM_ALL This ensures libcucascade.so is
-# included in wheel packages cuCascade is built via CPM with EXCLUDE_FROM_ALL, so we need to find
-# and install the library file
+# Install cuCascade library files for wheel packaging cuCascade is built with EXCLUDE_FROM_ALL to
+# avoid exporting its targets We need to install all library files including symlinks
 if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
-  # Use install-time code to find and copy the library files. This runs during 'cmake --install'
-  # when the library definitely exists. Variables like ${CUCASCADE_BUILD_DIR} and ${lib_dir} are
-  # embedded at configure time. ${CMAKE_INSTALL_PREFIX} is evaluated at install time. Note: During
-  # wheel builds, CMAKE_BINARY_DIR might be different, so we search multiple locations Build the
-  # install code with proper variable substitution
-  set(_install_code
-      "
-    set(_search_dirs
-      \"${_CUCASCADE_BUILD_DIR}\"
-      \"${_CUCASCADE_BUILD_DIR}/lib\"
-      \"${CMAKE_BINARY_DIR}/_deps/cucascade-build\"
-      \"${CMAKE_BINARY_DIR}/_deps/cucascade-build/lib\"
-    )
+  # Get the actual target (resolve alias)
+  get_target_property(_cucascade_aliased cuCascade::cucascade ALIASED_TARGET)
+  if(_cucascade_aliased)
+    set(_cucascade_real_target ${_cucascade_aliased})
+  else()
+    set(_cucascade_real_target cuCascade::cucascade)
+  endif()
+
+  # Search for cuCascade library in build directories
+  set(_cucascade_search_dirs
+      "${_CUCASCADE_BUILD_DIR}" "${_CUCASCADE_BUILD_DIR}/lib"
+      "${CMAKE_BINARY_DIR}/_deps/cucascade-build" "${CMAKE_BINARY_DIR}/_deps/cucascade-build/lib"
+  )
+
+  # Install using CODE to handle all files including symlinks at install time
+  install(
+    CODE "
+    set(_cucascade_dirs \"${_cucascade_search_dirs}\")
     set(_found_libs FALSE)
-    message(STATUS \"Searching for cuCascade library files...\")
-    message(STATUS \"CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}\")
-    message(STATUS \"lib_dir: ${lib_dir}\")
-    foreach(_search_dir IN LISTS _search_dirs)
-      message(STATUS \"Checking directory: \$\{_search_dir\}\")
-      if(EXISTS \"\$\{_search_dir\}\")
-        file(GLOB _cucascade_libs \"\$\{_search_dir\}/libcucascade.so*\")
-        if(_cucascade_libs)
-          message(STATUS \"Found cuCascade libraries in: \$\{_search_dir\}\")
-          foreach(_lib IN LISTS _cucascade_libs)
-            get_filename_component(_lib_name \"\$\{_lib\}\" NAME)
-            get_filename_component(_lib_abs \"\$\{_lib\}\" ABSOLUTE)
-            message(STATUS \"Installing: \$\{_lib_name\} to \$\{CMAKE_INSTALL_PREFIX\}/${lib_dir}\")
-            file(INSTALL \"\$\{_lib_abs\}\" DESTINATION \"\$\{CMAKE_INSTALL_PREFIX\}/${lib_dir}\" FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
-          endforeach()
-          set(_found_libs TRUE)
-          break()
-        endif()
+    foreach(_dir IN LISTS _cucascade_dirs)
+      file(GLOB _cucascade_files \"\${_dir}/libcucascade.so*\")
+      if(_cucascade_files)
+        message(STATUS \"Installing cuCascade library files from: \${_dir}\")
+        foreach(_file IN LISTS _cucascade_files)
+          get_filename_component(_fname \"\${_file}\" NAME)
+          message(STATUS \"  Installing: \${_fname}\")
+          file(INSTALL \"\${_file}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${lib_dir}\")
+        endforeach()
+        set(_found_libs TRUE)
+        break()
       endif()
     endforeach()
     if(NOT _found_libs)
-      message(FATAL_ERROR \"cuCascade library files not found! Searched in: \$\{_search_dirs\}\")
-    else()
-      message(STATUS \"Successfully installed cuCascade library files\")
+      message(FATAL_ERROR \"cuCascade library files not found in any search directory: \${_cucascade_dirs}\")
     endif()
   "
+    COMPONENT rapidsmpf
   )
-  install(CODE "${_install_code}" COMPONENT rapidsmpf)
+
+  message(STATUS "Configured cuCascade library installation (target: ${_cucascade_real_target})")
 endif()
 
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
