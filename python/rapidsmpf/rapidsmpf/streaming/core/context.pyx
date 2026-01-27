@@ -64,8 +64,8 @@ cdef class Context:
     """
     def __cinit__(
         self,
-        Communicator comm,
-        BufferResource br,
+        Communicator comm not None,
+        BufferResource br not None,
         Options options = None,
         Statistics statistics = None,
     ):
