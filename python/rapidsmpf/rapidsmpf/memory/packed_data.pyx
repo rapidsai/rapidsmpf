@@ -19,6 +19,8 @@ from rapidsmpf.memory.packed_data cimport cpp_PackedData
 # Create a new PackedData from metadata and device buffers.
 cdef extern from *:
     """
+    #include <rapidsmpf/error.hpp>
+
     std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_buffers(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
@@ -46,9 +48,9 @@ cdef extern from *:
 
         // Copy data into the buffer
         if (size > 0) {
-            auto* dst = buffer->exclusive_data_access();
-            std::memcpy(dst, data, size);
-            buffer->unlock();
+            buffer->write_access([&](std::byte* dst, rmm::cuda_stream_view) {
+                std::memcpy(dst, data, size);
+            });
         }
 
         return std::make_unique<rapidsmpf::PackedData>(
@@ -59,14 +61,19 @@ cdef extern from *:
     std::vector<std::uint8_t> cpp_packed_data_to_host_bytes(
         rapidsmpf::PackedData* pd
     ) {
-        // Extract bytes from the data buffer (not metadata)
+        // Extract bytes from the data buffer (handles both host and device memory)
         auto* buf = pd->data.get();
         auto const nbytes = buf->size;
         std::vector<std::uint8_t> result(nbytes);
         if (nbytes > 0) {
-            auto const* src = buf->exclusive_data_access();
-            std::memcpy(result.data(), src, nbytes);
-            buf->unlock();
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                result.data(),
+                buf->data(),
+                nbytes,
+                cudaMemcpyDefault,
+                buf->stream().value()
+            ));
+            buf->stream().synchronize();
         }
         return result;
     }
@@ -159,6 +166,8 @@ cdef class PackedData:
         The bytes are stored in the data buffer (as host memory) with minimal
         metadata. This is useful for scalar allreduce operations.
 
+        Note: This makes a copy of the input data.
+
         Parameters
         ----------
         data
@@ -184,7 +193,10 @@ cdef class PackedData:
         """
         Extract the host bytes from this PackedData.
 
-        Returns the bytes stored in the data buffer.
+        Returns the bytes stored in the data buffer. Works with both
+        host and device memory buffers.
+
+        Note: This makes a copy of the data.
 
         Returns
         -------
