@@ -35,21 +35,40 @@ cdef extern from *:
         std::size_t size,
         rapidsmpf::BufferResource* br
     ) {
-        auto metadata = std::make_unique<std::vector<std::uint8_t>>(data, data + size);
-        // Create an empty host buffer using reserve + allocate
-        auto reservation = br->reserve_or_fail(0, rapidsmpf::MemoryType::HOST);
-        auto empty_buffer = br->allocate(
+        // Minimal metadata (1 byte) to satisfy PackedData constraint
+        auto metadata = std::make_unique<std::vector<std::uint8_t>>(1, 0);
+
+        // Allocate host buffer and copy data into it
+        auto reservation = br->reserve_or_fail(size, rapidsmpf::MemoryType::HOST);
+        auto buffer = br->allocate(
             rmm::cuda_stream_default, std::move(reservation)
         );
+
+        // Copy data into the buffer
+        if (size > 0) {
+            auto* dst = buffer->exclusive_data_access();
+            std::memcpy(dst, data, size);
+            buffer->unlock();
+        }
+
         return std::make_unique<rapidsmpf::PackedData>(
-            std::move(metadata), std::move(empty_buffer)
+            std::move(metadata), std::move(buffer)
         );
     }
 
     std::vector<std::uint8_t> cpp_packed_data_to_host_bytes(
         rapidsmpf::PackedData* pd
     ) {
-        return *(pd->metadata);
+        // Extract bytes from the data buffer (not metadata)
+        auto* buf = pd->data.get();
+        auto const nbytes = buf->size;
+        std::vector<std::uint8_t> result(nbytes);
+        if (nbytes > 0) {
+            auto const* src = buf->exclusive_data_access();
+            std::memcpy(result.data(), src, nbytes);
+            buf->unlock();
+        }
+        return result;
     }
     """
     unique_ptr[cpp_PackedData] cpp_packed_data_from_buffers(
@@ -135,8 +154,8 @@ cdef class PackedData:
         """
         Construct a PackedData from raw host bytes.
 
-        The bytes are stored in the metadata field with an empty data buffer.
-        This is useful for scalar allreduce operations.
+        The bytes are stored in the data buffer (as host memory) with minimal
+        metadata. This is useful for scalar allreduce operations.
 
         Parameters
         ----------
@@ -161,7 +180,7 @@ cdef class PackedData:
         """
         Extract the host bytes from this PackedData.
 
-        Returns the bytes stored in the metadata field.
+        Returns the bytes stored in the data buffer.
 
         Returns
         -------
