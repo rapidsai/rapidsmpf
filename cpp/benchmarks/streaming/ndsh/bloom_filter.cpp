@@ -46,7 +46,7 @@ streaming::Node build_bloom_filter(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         build_event.stream_wait(chunk.stream());
         filter->add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
@@ -99,7 +99,7 @@ streaming::Node apply_bloom_filter(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         auto chunk_stream = chunk.stream();
         cuda_stream_join(chunk_stream, stream, &event);
         auto mask = filter.contains(
