@@ -347,11 +347,10 @@ struct DeviceOp {
             T* left_ptr = reinterpret_cast<T*>(left_bytes);
             T const* right_ptr = reinterpret_cast<T const*>(right_bytes);
 
-            auto policy = thrust::cuda::par.on(stream.value());
+            auto policy = thrust::cuda::par_nosync.on(stream.value());
             thrust::transform(
                 policy, right_ptr, right_ptr + count, left_ptr, left_ptr, op
             );
-            RAPIDSMPF_CUDA_TRY(cudaGetLastError());
         });
 #else
         // This should never be reached if DeviceOp is only instantiated with CUDA
