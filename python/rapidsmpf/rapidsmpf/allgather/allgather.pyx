@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t, uint64_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -38,7 +38,7 @@ cdef class AllGather:
         The progress thread for asynchronous operations.
     op_id
         Unique operation identifier for this allgather. Must have a value
-        between 0 and 255.
+        between 0 and 2^20 - 1.
     br
         Buffer resource for memory allocation.
     statistics
@@ -55,7 +55,7 @@ cdef class AllGather:
         self,
         Communicator comm,
         ProgressThread progress_thread,
-        uint8_t op_id,
+        int32_t op_id,
         BufferResource br,
         Statistics statistics = None,
     ):
