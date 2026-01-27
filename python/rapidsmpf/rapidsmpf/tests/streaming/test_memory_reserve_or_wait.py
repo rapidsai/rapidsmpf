@@ -64,7 +64,7 @@ def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
 def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=0) as context:
         mrow = MemoryReserveOrWait(
-            Options({"memory_reserve_timeout_ms": "11000"}), MemoryType.DEVICE, context
+            Options({"memory_reserve_timeout": "10m"}), MemoryType.DEVICE, context
         )
 
         @define_py_node()
@@ -84,7 +84,7 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
 def test_timeout(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
-            Options({"memory_reserve_timeout_ms": "1"}), MemoryType.DEVICE, context
+            Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
         @define_py_node()
@@ -102,7 +102,7 @@ def test_timeout(py_executor: ThreadPoolExecutor) -> None:
 def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
-            Options({"memory_reserve_timeout_ms": "100000"}), MemoryType.DEVICE, context
+            Options({"memory_reserve_timeouts": "10m"}), MemoryType.DEVICE, context
         )
 
         @define_py_node()
@@ -144,7 +144,7 @@ def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
 def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=2048) as context:
         mrow = MemoryReserveOrWait(
-            Options({"memory_reserve_timeout_ms": "1"}), MemoryType.DEVICE, context
+            Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
         @define_py_node()
@@ -174,7 +174,7 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
 def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
-            Options({"memory_reserve_timeout_ms": "1"}), MemoryType.DEVICE, context
+            Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
         @define_py_node()
@@ -191,7 +191,7 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
 
 def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
     with make_context(
-        dev_limit=1024, overwrite_options={"memory_reserve_timeout_ms": "1"}
+        dev_limit=1024, overwrite_options={"memory_reserve_timeout": "1ms"}
     ) as context:
 
         @define_py_node()
@@ -241,7 +241,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
     with make_context(
         dev_limit=1024,
         overwrite_options={
-            "memory_reserve_timeout_ms": "1",
+            "memory_reserve_timeout": "1ms",
             "allow_overbooking_by_default": "true",
         },
     ) as context:
@@ -267,7 +267,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
     with make_context(
         dev_limit=1024,
         overwrite_options={
-            "memory_reserve_timeout_ms": "1",
+            "memory_reserve_timeout": "1ms",
             "allow_overbooking_by_default": "false",
         },
     ) as context:

@@ -303,7 +303,7 @@ Each configuration option includes:
     memory reservation APIs, such as `reserve_memory()`.
 
     When enabled, high-level memory reservation requests may overbook memory
-    after the global `memory_reserve_timeout_ms` expires, allowing forward
+    after the global `memory_reserve_timeout` expires, allowing forward
     progress under memory pressure.
 
     When disabled, high-level memory reservation requests fail with an error if

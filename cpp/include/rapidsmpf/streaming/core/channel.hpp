@@ -18,6 +18,7 @@
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
+#include <coro/queue.hpp>
 #include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
@@ -34,6 +35,19 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
  *
  * The constructor is private, use the factory method `Context::create_channel()` to
  * create a new channel.
+ *
+ * In addition to sending messages through a channel, channel producers can communicate
+ * metadata to consumers through a metadata side-channel.
+ *
+ * @note The `Channel` is bounded for the purposes of sending messages (via `send`), but
+ * the side-channel is unbounded for the purposes of sending metadata (via
+ * `send_metadata`). There is no implied ordering between metadata messages and ordinary
+ * messages (they travel over separate paths and do not interfere).
+ *
+ * @note The metadata side-channel should be drained (or shutdown) like the `Channel`
+ * itself. For convenience, `drain` and `shutdown` ensure that both channel and metadata
+ * channel are shut down appropriately. One can also drain or shutdown the side-channel
+ * independently (`drain_metadata` and `shutdown_metadata`).
  */
 class Channel {
     friend Context;
@@ -50,7 +64,7 @@ class Channel {
      *
      * @throws std::logic_error If the message is empty.
      */
-    coro::task<bool> send(Message msg);
+    [[nodiscard]] coro::task<bool> send(Message msg);
 
     /**
      * @brief Asynchronously receive a message from the channel.
@@ -62,26 +76,87 @@ class Channel {
      *
      * @throws std::logic_error If the received message is empty.
      */
-    coro::task<Message> receive();
+    [[nodiscard]] coro::task<Message> receive();
+
+    /**
+     * @brief Asynchronously send a metadata message into the channel.
+     *
+     * @note Sending metadata is always possible, even if the other end of the channel
+     * never consumes the metadata.
+     *
+     * @note A typical usage of metadata will have the consumer reading metadata _before_
+     * reading messages from the channel. Hence, the producer should send metadata (or
+     * shutdown the side-channel via `shutdown_metadata`) before proceeding to send
+     * messages.
+     *
+     * @param msg The metadata message to send.
+     * @return A coroutine that evaluates to true if the msg was successfully sent or
+     * false if the channel was shut down.
+     *
+     * @throws std::logic_error If the message is empty.
+     */
+    [[nodiscard]] coro::task<bool> send_metadata(Message msg);
+
+    /**
+     * @brief Asynchronously receive a metadata message from the channel.
+     *
+     * Suspends if no metadata is available.
+     *
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * metadata queue is shut down.
+     */
+    [[nodiscard]] coro::task<Message> receive_metadata();
+
+    /**
+     * @brief Drains all pending metadata messages from the channel and shuts down the
+     * metadata channel.
+     *
+     * This is intended to ensure all remaining metadata messages are processed.
+     *
+     * @warning If the consumer has no intention of reading metadata messages it _must_
+     * call `shutdown_metadata`  (directly, or indirectly via `shutdown`) otherwise when
+     * the producer `drain`s the output metadata channel it will block forever.
+     *
+     * @param executor The thread pool used to process remaining messages.
+     * @return A coroutine representing the completion of the metadata shutdown drain.
+     */
+    [[nodiscard]] Node drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
      *
      * This is intended to ensure all remaining messages are processed.
      *
+     * @warning If the consumer has no intention of reading metadata messages it _must_
+     * call `shutdown_metadata` (directly, or indirectly via `shutdown`) otherwise when
+     * the producer `drain`s the output metadata channel it will block forever.
+     *
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
+    [[nodiscard]] Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Immediately shuts down the channel.
      *
-     * Any pending or future send/receive operations will complete with failure.
+     * Any pending or future send/receive operations (including metadata messages) will
+     * complete with failure.
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown();
+    [[nodiscard]] Node shutdown();
+
+    /**
+     * @brief Immediately shuts down the metadata channel.
+     *
+     * Any pending or future metadata send/receive operations will complete with failure.
+     *
+     * @note If the producer has no metadata to provide, it should `shutdown_metadata`
+     * before anything else.
+     *
+     * @return A coroutine representing the completion of the shutdown.
+     */
+    [[nodiscard]] Node shutdown_metadata();
 
     /**
      * @brief Check whether the channel is empty.
@@ -103,6 +178,7 @@ class Channel {
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
     std::shared_ptr<SpillableMessages> sm_;
+    coro::queue<Message> metadata_;
 };
 
 /**

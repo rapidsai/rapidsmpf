@@ -133,7 +133,6 @@ rapids_find_package(
 include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
@@ -154,6 +153,7 @@ if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
 if(RAPIDSMPF_HAVE_STREAMING)
+  include(../cmake/thirdparty/get_cuco.cmake)
   include(../cmake/thirdparty/get_libcoro.cmake)
 endif()
 
@@ -288,7 +288,7 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL cuco::cuco $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
           $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>

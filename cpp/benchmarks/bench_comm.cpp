@@ -369,6 +369,21 @@ int main(int argc, char** argv) {
             elapsed_vec.push_back(elapsed);
         }
     }
+
+    {
+        auto const elapsed_mean = harmonic_mean(elapsed_vec);
+        std::stringstream ss;
+        ss << "means: " << format_duration(elapsed_mean)
+           << " | local comm: " << format_nbytes(local_messages_send / elapsed_mean)
+           << "/s | local throughput: " << format_nbytes(local_messages / elapsed_mean)
+           << "/s | global throughput: "
+           << format_nbytes(
+                  local_messages * static_cast<std::uint64_t>(comm->nranks())
+                  / elapsed_mean
+              )
+           << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
+        log.print(ss.str());
+    }
     log.print(stats->report("Statistics (of the last run):"));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
