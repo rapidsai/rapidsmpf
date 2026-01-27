@@ -297,6 +297,7 @@ Each configuration option includes:
   - **Description**: Number of CUDA streams used by RapidsMPF. A pool of CUDA
     streams is created at startup, and work is scheduled onto these streams to
     enable concurrent GPU execution and overlap of computation and data movement.
+    Must be greater than zero.
 
 - **`memory_reserve_timeout`**
   - **Environment Variable**: `RAPIDSMPF_MEMORY_RESERVE_TIMEOUT`
