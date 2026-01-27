@@ -69,7 +69,7 @@ partition_and_split(
     // hash_partition() returns the start offset of each partition thus we have to
     // skip the first offset. See: <https://github.com/rapidsai/cudf/issues/4607>.
     auto partition_offsets =
-        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 1);
+        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 2);
 
     // split does not make any copies.
     auto tbl_partitioned =
@@ -114,7 +114,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         br->device_mr()
     );
     reservation.clear();
-    std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
+    std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end() - 1);
     return split_and_pack(
         reordered->view(), splits, stream, br, statistics, allow_overbooking
     );
