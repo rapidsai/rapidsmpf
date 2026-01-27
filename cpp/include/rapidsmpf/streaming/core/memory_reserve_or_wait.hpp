@@ -19,6 +19,8 @@
 
 namespace rapidsmpf::streaming {
 
+// Forward declaration
+class Context;
 
 /**
  * @brief Asynchronous coordinator for memory reservation requests.
@@ -272,5 +274,74 @@ class MemoryReserveOrWait {
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;
 };
+
+/**
+ * @brief Reserve memory using the context memory reservation mechanism.
+ *
+ * Submits a memory reservation request for the configured memory type and suspends
+ * until the request is satisfied. If no pending reservation request can be satisfied
+ * within the configured `"memory_reserve_timeout"`, the behavior depends on
+ * @p allow_overbooking.
+ *
+ * This is a convenience helper that returns only the `MemoryReservation`. If more
+ * control is required, for example inspecting the amount of overbooking, callers
+ * should use `MemoryReserveOrWait` directly, such as
+ * `ctx.memory(MemoryType::DEVICE).reserve_or_wait_or_overbook(size, net_memory_delta)`.
+ *
+ * Priority and progress semantics are identical to
+ * `MemoryReserveOrWait::reserve_or_wait()`. In particular, @p net_memory_delta is used as
+ * a heuristic to prefer eligible requests that are expected to reduce memory pressure
+ * sooner. Smaller values have higher priority.
+ *
+ * @param ctx Node context used to obtain the memory reservation handle.
+ * @param size Number of bytes to reserve.
+ * @param net_memory_delta Estimated net change in memory usage after the reservation is
+ * allocated and the dependent operation completes. Smaller values have higher priority.
+ * @param mem_type Memory type for which to reserve memory.
+ * @param allow_overbooking Controls the behavior when no progress is possible within the
+ * configured timeout:
+ * - If set to `AllowOverbooking::YES`, the call may overbook memory when forcing
+ *   progress.
+ * - If set to `AllowOverbooking::NO`, the call fails if no progress is possible.
+ * - If not provided, the default behavior is determined by the configuration option
+ *   `"allow_overbooking_by_default"`.
+ * @return The allocated memory reservation.
+ *
+ * @throws std::runtime_error If shutdown occurs before the request can be processed.
+ * @throws std::overflow_error If no progress is possible within the timeout and
+ * `allow_overbooking` resolves to `AllowOverbooking::NO`.
+ *
+ * @code{.cpp}
+ * // Reserve memory inside a node:
+ * auto res = co_await reserve_memory(
+ *     ctx,
+ *     1024,
+ *     0,  // net_memory_delta
+ *     MemoryType::DEVICE,
+ *     AllowOverbooking::YES
+ * );
+ * EXPECT_EQ(res.size(), 1024);
+ *
+ * // Disable overbooking and fail if no progress is possible:
+ * auto res2 = co_await reserve_memory(
+ *     ctx,
+ *     2048,
+ *     0,  // net_memory_delta
+ *     MemoryType::DEVICE,
+ *     AllowOverbooking::NO
+ * );
+ * @endcode
+ *
+ * @see MemoryReserveOrWait::reserve_or_wait()
+ * @see MemoryReserveOrWait::reserve_or_wait_or_overbook()
+ * @see MemoryReserveOrWait::reserve_or_wait_or_fail()
+ */
+coro::task<MemoryReservation> reserve_memory(
+    std::shared_ptr<Context> ctx,
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    MemoryType mem_type = MemoryType::DEVICE,
+    std::optional<AllowOverbooking> allow_overbooking = std::nullopt
+);
 
 }  // namespace rapidsmpf::streaming
