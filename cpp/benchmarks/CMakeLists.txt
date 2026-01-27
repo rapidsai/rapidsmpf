@@ -60,27 +60,9 @@ install(
 )
 
 # Find or install GoogleBench Build static library to avoid overlinking errors in conda builds Use
-# rapids_cpm_find directly to force building from source as static library Force CPM to download and
-# build from source instead of finding system packages
-set(CPM_DOWNLOAD_benchmark ON)
-set(BENCHMARK_ENABLE_TESTING
-    OFF
-    CACHE BOOL "" FORCE
-)
-set(BENCHMARK_ENABLE_INSTALL
-    OFF
-    CACHE BOOL "" FORCE
-)
-rapids_cpm_find(
-  benchmark 1.8.3
-  CPM_ARGS
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG v1.8.3
-  GIT_SHALLOW TRUE
-  OPTIONS "BENCHMARK_DOWNLOAD_DEPENDENCIES ON" "BENCHMARK_ENABLE_GTEST_TESTS OFF"
-          "BUILD_SHARED_LIBS OFF"
-  EXCLUDE_FROM_ALL
-)
+# rapids_cpm_gbench with BUILD_STATIC to ensure static linking
+include(${rapids-cmake-dir}/cpm/gbench.cmake)
+rapids_cpm_gbench(BUILD_STATIC)
 
 add_executable(bench_partition "bench_partition.cpp")
 set_target_properties(
