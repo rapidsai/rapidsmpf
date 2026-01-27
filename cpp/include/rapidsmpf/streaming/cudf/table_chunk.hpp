@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -170,9 +170,24 @@ class TableChunk {
      * @return A new TableChunk with data available on device.
      *
      * @note After this call, the current object is in a moved-from state;
-     *       only reassignment, movement, or destruction are valid.
+     * only reassignment, movement, or destruction are valid.
      */
     [[nodiscard]] TableChunk make_available(MemoryReservation& reservation);
+
+    /**
+     * @brief Moves this table chunk into a new one with its cudf table made available.
+     *
+     * Takes ownership of the memory reservation and consumes it entirely as part
+     * of making the data available on device. The full reservation is considered
+     * used, even if the actual allocation requires fewer bytes.
+     *
+     * @param reservation Memory reservation to be consumed for allocations.
+     * @return A new TableChunk with data available on device.
+     *
+     * @note After this call, the current object is in a moved-from state; only
+     * reassignment, movement, or destruction are valid.
+     */
+    [[nodiscard]] TableChunk make_available(MemoryReservation&& reservation);
 
     /**
      * @brief Returns a view of the underlying table.
