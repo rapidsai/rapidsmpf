@@ -82,7 +82,7 @@ function(find_and_configure_cucascade)
     GIT_REPOSITORY https://github.com/${cucascade_fork}/cuCascade.git
     GIT_TAG ${cucascade_pinned_tag}
     GIT_SHALLOW TRUE
-    OPTIONS "BUILD_TESTS OFF" "BUILD_SHARED_LIBS ON" "BUILD_STATIC_LIBS OFF"
+    OPTIONS "BUILD_TESTS OFF" "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS ON" "BUILD_STATIC_LIBS OFF"
             "WARNINGS_AS_ERRORS OFF" "rmm_ROOT ${rmm_ROOT}" "cudf_ROOT ${cudf_ROOT}"
     EXCLUDE_FROM_ALL
   )
