@@ -26,40 +26,40 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_all_task(
+    coro::task<void> extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output
+        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
     ) {
-        output = co_await gather->extract_all(ordered);
+        *output = co_await gather->extract_all(ordered);
     }
 
-    void cpp_extract_all(
+    std::shared_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<std::vector<rapidsmpf::PackedData>>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_all_task(gather, ordered, output)
+                    extract_all_task(gather, ordered, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
+        return output;
     }
-    }
+    }  // namespace
     """
-    void cpp_extract_all(
+    shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,
         cpp_AllGather *gather,
         cpp_Ordered ordered,
-        vector[cpp_PackedData] &output,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +
@@ -126,20 +126,19 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
-        cdef vector[cpp_PackedData] c_ret
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
+        cdef shared_ptr[vector[cpp_PackedData]] c_ret
         with nogil:
-            cpp_extract_all(
+            c_ret = cpp_extract_all(
                 ctx._handle,
                 self._handle.get(),
                 cpp_Ordered.YES if ordered else cpp_Ordered.NO,
-                c_ret,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(deref(c_ret)))
 
 
 def allgather(

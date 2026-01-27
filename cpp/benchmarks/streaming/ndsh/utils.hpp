@@ -15,6 +15,7 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
@@ -106,7 +107,7 @@ namespace detail {
 [[nodiscard]] streaming::TableChunk to_device(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& chunk,
-    bool allow_overbooking = false
+    AllowOverbooking allow_overbooking = AllowOverbooking::NO
 );
 
 ///< @brief Communicator type to use

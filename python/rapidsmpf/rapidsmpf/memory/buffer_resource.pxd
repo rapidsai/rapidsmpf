@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
@@ -17,6 +18,11 @@ from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
 from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 from rapidsmpf.utils.time cimport cpp_Duration
 
+
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):
+        NO
+        YES
 
 cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":

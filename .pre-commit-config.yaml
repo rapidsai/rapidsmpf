@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -13,7 +13,7 @@ repos:
       - id: clang-format
         types_or: [c, c++, cuda]
   - repo: https://github.com/sirosen/texthooks
-    rev: 0.7.1
+    rev: 815307a61a62d48c84412f34f3e6789a2cd9179a  # frozen: 0.7.1
     hooks:
       - id: fix-smartquotes
   - repo: local
@@ -49,7 +49,7 @@ repos:
         pass_filenames: false
         verbose: true
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.5
+    rev: 9b1e9a33f1b33f6ecc2fdbb8d7cc894e951106e4  # frozen: v0.14.13
     hooks:
       - id: ruff-check
         args: ["--fix"]
@@ -57,18 +57,18 @@ repos:
       - id: ruff-format
         files: (python)|(ci)/.*$
   - repo: https://github.com/MarcoGorelli/cython-lint
-    rev: v0.16.7
+    rev: 23371f7c16014aa395d7d9569f01d07f0d5445d2  # frozen: v0.17.0
     hooks:
       - id: cython-lint
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.18.2'
+    rev: 'a66e98df7b4aeeb3724184b332785976d062b92e'  # frozen: v1.19.1
     hooks:
       - id: mypy
         args: ["--config-file=pyproject.toml",
                "python/rapidsmpf/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
-    rev: 6.0.1
+    rev: 0a09c783808cfe77bb3269250f663ff733d23302  # frozen: 7.0.0
     hooks:
       - id: isort
         name: isort (cython)
@@ -76,7 +76,7 @@ repos:
         files: python/.*
         types_or: [cython]
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: 63c8f8312b7559622c0d82815639671ae42132ac  # frozen: v2.4.1
     hooks:
       - id: codespell
         exclude: |
@@ -85,7 +85,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v1.2.1
+    rev: 983e9631686b9108451ddb4bbd6ac86cb252d4b1  # frozen: v1.2.1
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]
@@ -105,12 +105,12 @@ repos:
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
   - repo: https://github.com/rapidsai/dependency-file-generator
-    rev: v1.20.0
+    rev: 43302d278c4215036b7fe4b4af0a85f6fad39d2c  # frozen: v1.20.2
     hooks:
       - id: rapids-dependency-file-generator
         args: ["--clean", "--warn-all", "--strict"]
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
+    rev: 745eface02aef23e168a8afb6b5737818efbea95  # frozen: v0.11.0.1
     hooks:
       - id: shellcheck
 
