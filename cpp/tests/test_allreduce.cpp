@@ -134,17 +134,12 @@ PackedData make_packed(
     );
     RAPIDSMPF_EXPECTS(buffer->size == nbytes, "unexpected buffer size in make_packed");
 
-    if (mem_type == MemoryType::DEVICE) {
-        buffer->write_access([&](std::byte* buf_data, rmm::cuda_stream_view s) {
-            RAPIDSMPF_CUDA_TRY(
-                cudaMemcpyAsync(buf_data, data, nbytes, cudaMemcpyHostToDevice, s.value())
-            );
-        });
-    } else {
-        auto* raw_ptr = buffer->exclusive_data_access();
-        std::memcpy(raw_ptr, data, nbytes);
-        buffer->unlock();
-    }
+    auto* raw_ptr = buffer->exclusive_data_access();
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpyAsync(raw_ptr, data, nbytes, cudaMemcpyDefault, stream.value())
+    );
+    stream.synchronize();
+    buffer->unlock();
 
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(std::uint64_t));
     auto* meta_ptr = reinterpret_cast<std::uint64_t*>(metadata->data());
@@ -169,18 +164,12 @@ std::vector<T> unpack_to_host(PackedData& pd) {
     auto const count = nbytes / sizeof(T);
     std::vector<T> out(count);
 
-    if (buf->mem_type() == MemoryType::DEVICE) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            out.data(), buf->data(), nbytes, cudaMemcpyDeviceToHost, buf->stream().value()
-        ));
-        buf->stream().synchronize();
-    } else if (buf->mem_type() == MemoryType::HOST) {
-        auto* raw_ptr = buf->exclusive_data_access();
-        std::memcpy(out.data(), raw_ptr, nbytes);
-        buf->unlock();
-    } else {
-        RAPIDSMPF_FAIL("unpack_to_host: unsupported memory type");
-    }
+    auto* raw_ptr = buf->exclusive_data_access();
+    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+        out.data(), raw_ptr, nbytes, cudaMemcpyDefault, buf->stream().value()
+    ));
+    buf->stream().synchronize();
+    buf->unlock();
 
     return out;
 }
