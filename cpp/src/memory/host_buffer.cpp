@@ -160,15 +160,7 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
         ptr, [shared_db_ = std::move(shared_db)](void*) mutable { shared_db_.reset(); }
     };
 
-    // Upcast to HostMemoryResource& to get only host_accessible property
-    // (PinnedMemoryResource has both host_accessible and device_accessible)
-    // The mr parameter is not used for deallocation since owned_storage handles it
-    return HostBuffer{
-        std::move(span),
-        stream,
-        static_cast<HostMemoryResource&>(mr),
-        std::move(owned_storage)
-    };
+    return HostBuffer{std::move(span), stream, mr, std::move(owned_storage)};
 }
 
 }  // namespace rapidsmpf

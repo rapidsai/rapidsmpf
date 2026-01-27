@@ -123,9 +123,7 @@ class BufferResource {
         RAPIDSMPF_EXPECTS(
             pinned_mr_, "no pinned memory resource is available", std::invalid_argument
         );
-        // Upcast to HostMemoryResource& to get only host_accessible property
-        // (PinnedMemoryResource has both host_accessible and device_accessible)
-        return static_cast<HostMemoryResource&>(*pinned_mr_);
+        return *pinned_mr_;
     }
 
     /**
