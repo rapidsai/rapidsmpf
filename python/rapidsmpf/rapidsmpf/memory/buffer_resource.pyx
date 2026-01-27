@@ -547,3 +547,20 @@ def periodic_spill_check_from_options(Options options not None):
     if not ret.has_value():
         return None
     return ret.value().count()
+
+
+def stream_pool_from_options(Options options not None):
+    """
+    Get a new CUDA stream pool from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    Pool of CUDA streams used throughout RapidsMPF for operations that do not take
+    an explicit CUDA stream.
+    """
+    return options.get_or_default("num_streams", default_value=16)

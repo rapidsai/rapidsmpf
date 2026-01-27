@@ -457,4 +457,14 @@ memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
  */
 std::optional<Duration> periodic_spill_check_from_options(config::Options options);
 
+/**
+ * @brief Get a new CUDA stream pool from configuration options.
+ *
+ * @param options Configuration options.
+ * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
+ * not take an explicit CUDA stream.
+ */
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+
+
 }  // namespace rapidsmpf
