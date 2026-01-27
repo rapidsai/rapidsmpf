@@ -641,7 +641,7 @@ TEST(OptionsTest, StreamPoolFromOptionsThrowsOnZeroStreams) {
     EXPECT_THROW(stream_pool_from_options(opts), std::invalid_argument);
 }
 
-TEST(OptionsTest, BufferResourceFromOptionsCreatesInstance) {
+TEST(OptionsTest, BufferResourceFromOptionsCreatesInstanceWithExplicitOptions) {
     std::unordered_map<std::string, std::string> strings = {
         {"statistics", "True"},
         {"pinned_memory", "False"},
@@ -649,7 +649,7 @@ TEST(OptionsTest, BufferResourceFromOptionsCreatesInstance) {
         {"periodic_spill_check", "5ms"},
         {"num_streams", "8"}
     };
-    Options opts(strings);
+    config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
@@ -657,15 +657,64 @@ TEST(OptionsTest, BufferResourceFromOptionsCreatesInstance) {
 
     EXPECT_TRUE(br.statistics()->enabled());
     EXPECT_EQ(br.stream_pool().get_pool_size(), 8);
+    auto mem_avail = br.memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), 1_GiB);
 }
 
-TEST(OptionsTest, BufferResourceFromOptionsUsesDefaults) {
-    Options opts;  // Empty options
+TEST(OptionsTest, BufferResourceFromOptionsUsesDefaultWhenOptionsEmpty) {
+    config::Options opts;  // Empty options
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+    EXPECT_FALSE(br.statistics()->enabled());
+    EXPECT_EQ(br.stream_pool().get_pool_size(), 16);
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem * 4 / 5, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto mem_avail = br.memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), expected);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsEnablesStatisticsWhenRequested) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
+    config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
     auto br = BufferResource::from_options(&mr, opts);
 
-    EXPECT_FALSE(br.statistics()->enabled());
-    EXPECT_EQ(br.stream_pool().get_pool_size(), 16);  // Default: 16
+    EXPECT_TRUE(br.statistics()->enabled());
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsAcceptsPercentageForDeviceLimit) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_device_limit", "50%"}
+    };
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    // Verify device memory limit is 50% of total
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem / 2, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto mem_avail = br.memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), expected);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsEnablesPinnedMemoryWhenSupported) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    // Should not throw when accessing pinned_mr
+    EXPECT_NO_THROW(std::ignore = br.pinned_mr());
 }
