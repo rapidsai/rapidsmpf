@@ -37,8 +37,6 @@ AllReduce::AllReduce(
           std::move(finished_callback)
       } {}
 
-AllReduce::~AllReduce() = default;
-
 void AllReduce::insert(PackedData&& packed_data) {
     RAPIDSMPF_EXPECTS(
         !inserted_,

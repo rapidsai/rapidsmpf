@@ -169,7 +169,7 @@ class AllReduce {
      *       destructed before `wait_and_extract` is called, there is no guarantee
      *       that in-flight communication will be completed.
      */
-    ~AllReduce();
+    ~AllReduce() = default;
 
     /**
      * @brief Insert packed data into the allreduce operation.
