@@ -112,7 +112,7 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
-void Buffer::set_stream(rmm::cuda_stream_view new_stream) {
+void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
     throw_if_locked();
     if (new_stream.value() == stream_.value()) {
         return;

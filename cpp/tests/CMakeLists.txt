@@ -71,6 +71,7 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
+          test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
           test_communicator.cpp
