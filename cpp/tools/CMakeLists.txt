@@ -5,10 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(
-  rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
-       "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
-)
+add_executable(rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>")
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
@@ -16,14 +13,17 @@ set_target_properties(
              CXX_STANDARD_REQUIRED ON
 )
 target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
-if(NVML_INCLUDE_DIR)
-  target_include_directories(rrun PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
 target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
 target_link_libraries(
-  rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-               $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+  rrun
+  PRIVATE Threads::Threads
+          cuCascade::cucascade
+          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS rrun
@@ -33,9 +33,8 @@ install(
 )
 
 add_executable(
-  topology_discovery
-  "topology_discovery.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
-  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
+  topology_discovery "topology_discovery.cpp"
+                     "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
   topology_discovery
@@ -50,8 +49,13 @@ target_compile_options(
   topology_discovery PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
 target_link_libraries(
-  topology_discovery PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env>
-                             $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan ${CMAKE_DL_LIBS}
+  topology_discovery
+  PRIVATE cuCascade::cucascade
+          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          maybe_asan
+          ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS topology_discovery
@@ -62,9 +66,7 @@ install(
 
 add_executable(
   check_resource_binding
-  "check_resource_binding.cpp"
-  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
-  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(
@@ -76,9 +78,6 @@ set_target_properties(
 target_include_directories(
   check_resource_binding PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
 )
-if(NVML_INCLUDE_DIR)
-  target_include_directories(check_resource_binding PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 target_compile_options(
   check_resource_binding PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
@@ -86,8 +85,13 @@ target_compile_definitions(
   check_resource_binding PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
 )
 target_link_libraries(
-  check_resource_binding PRIVATE CUDA::cudart $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-                                 $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+  check_resource_binding
+  PRIVATE cuCascade::cucascade
+          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS check_resource_binding

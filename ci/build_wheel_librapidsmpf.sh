@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -38,6 +38,8 @@ export SITE_PACKAGES
 
 python -m auditwheel repair \
     --exclude libcudf.so \
+    --exclude libkvikio.so \
+    --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude libucp.so.0 \

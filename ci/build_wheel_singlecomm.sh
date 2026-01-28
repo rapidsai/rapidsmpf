@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 # Tests building without MPI and without UCXX. This script only ensures the build
@@ -45,6 +45,8 @@ export SITE_PACKAGES
 
 python -m auditwheel repair \
     --exclude libcudf.so \
+    --exclude libkvikio.so \
+    --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
@@ -79,6 +81,8 @@ export SKBUILD_CMAKE_ARGS=""
 
 python -m auditwheel repair \
     --exclude libcudf.so \
+    --exclude libkvikio.so \
+    --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude librapidsmpf.so \
