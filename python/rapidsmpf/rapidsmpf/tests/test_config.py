@@ -391,36 +391,26 @@ def test_pickle_empty_options() -> None:
     assert unpickled.get_strings() == {}
 
 
-def test_statistics_from_options_enabled_when_set_to_true() -> None:
-    opts = Options({"statistics": "True"})
+@pytest.mark.parametrize(
+    "statistics_value,expected_enabled",
+    [
+        ("True", True),
+        ("1", True),
+        ("False", False),
+        (None, False),  # Default case
+    ],
+)
+def test_statistics_from_options(
+    *, statistics_value: str | None, expected_enabled: bool
+) -> None:
+    if statistics_value is None:
+        opts = Options()
+    else:
+        opts = Options({"statistics": statistics_value})
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     stats = Statistics.from_options(mr, opts)
     assert stats is not None
-    assert stats.enabled
-
-
-def test_statistics_from_options_enabled_when_set_to_one() -> None:
-    opts = Options({"statistics": "1"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    stats = Statistics.from_options(mr, opts)
-    assert stats is not None
-    assert stats.enabled
-
-
-def test_statistics_from_options_disabled_when_set_to_false() -> None:
-    opts = Options({"statistics": "False"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    stats = Statistics.from_options(mr, opts)
-    assert stats is not None
-    assert not stats.enabled
-
-
-def test_statistics_from_options_disabled_by_default() -> None:
-    opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    stats = Statistics.from_options(mr, opts)
-    assert stats is not None
-    assert not stats.enabled
+    assert stats.enabled == expected_enabled
 
 
 def test_pinned_memory_resource_from_options_enabled_when_set_to_true() -> None:
