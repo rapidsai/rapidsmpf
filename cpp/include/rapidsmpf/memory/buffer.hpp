@@ -202,6 +202,15 @@ class Buffer {
     }
 
     /**
+     * @brief Rebind the buffer to a new stream.
+     *
+     * @param new_stream The new CUDA stream.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     */
+    void rebind_stream(rmm::cuda_stream_view new_stream);
+
+    /**
      * @brief Check whether the buffer's most recent write has completed.
      *
      * Returns whether the CUDA event that tracks the most recent write into this
