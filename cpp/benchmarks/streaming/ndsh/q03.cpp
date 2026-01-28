@@ -259,7 +259,7 @@ rapidsmpf::streaming::Node select_columns_for_groupby(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
@@ -340,7 +340,7 @@ rapidsmpf::streaming::Node top_k_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto const indices = cudf::sorted_order(
@@ -405,7 +405,7 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         // Here, we know that copying ch1_cols (a single col) is better than copying

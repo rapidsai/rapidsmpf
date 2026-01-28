@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -274,6 +275,36 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         // currently available memory.
         auto [res, _] = br_->reserve(mem_type_, request.size, AllowOverbooking::NO);
         push_into_queue(request.queue, std::move(res));
+    }
+}
+
+coro::task<MemoryReservation> reserve_memory(
+    std::shared_ptr<Context> ctx,
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    MemoryType mem_type,
+    std::optional<AllowOverbooking> allow_overbooking
+) {
+    // If allow_overbooking is not specified, get it from the configuration options.
+    if (!allow_overbooking.has_value()) {
+        bool const allow_overbook_default = ctx->options().get<bool>(
+            "allow_overbooking_by_default",
+            [](std::string const& s) { return s.empty() ? true : parse_string<bool>(s); }
+        );
+        allow_overbooking =
+            allow_overbook_default ? AllowOverbooking::YES : AllowOverbooking::NO;
+    }
+
+    // Reserve memory based on the overbooking policy.
+    if (allow_overbooking.value() == AllowOverbooking::YES) {
+        auto [res, _] = co_await ctx->memory(mem_type)->reserve_or_wait_or_overbook(
+            size, net_memory_delta
+        );
+        co_return std::move(res);
+    } else {
+        co_return co_await ctx->memory(mem_type)->reserve_or_wait_or_fail(
+            size, net_memory_delta
+        );
     }
 }
 
