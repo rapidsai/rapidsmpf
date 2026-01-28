@@ -192,8 +192,8 @@ class AllReduce {
      *
      * @param timeout Optional maximum duration to wait. Negative values mean
      * no timeout.
-     *
      * @return The reduced packed data.
+     *
      * @throws std::runtime_error If the timeout is reached.
      */
     [[nodiscard]] PackedData wait_and_extract(
