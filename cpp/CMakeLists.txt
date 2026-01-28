@@ -413,46 +413,6 @@ install(
   EXPORT rapidsmpf-exports
 )
 
-# Install cuCascade library files for wheel packaging cuCascade is built with EXCLUDE_FROM_ALL to
-# avoid exporting its targets
-if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
-  # Get the actual target (resolve alias)
-  get_target_property(_cucascade_aliased cuCascade::cucascade ALIASED_TARGET)
-  if(_cucascade_aliased)
-    set(_cucascade_real_target ${_cucascade_aliased})
-  else()
-    set(_cucascade_real_target cuCascade::cucascade)
-  endif()
-
-  # Ensure cuCascade is built when rapidsmpf is built
-  add_dependencies(rapidsmpf ${_cucascade_real_target})
-
-  # Create a custom target that copies cuCascade library to rapidsmpf's output directory This
-  # ensures the file is available during the install phase
-  add_custom_command(
-    TARGET rapidsmpf
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "Copying cuCascade library files..."
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${_cucascade_real_target}>"
-            "$<TARGET_FILE_DIR:rapidsmpf>/$<TARGET_FILE_NAME:${_cucascade_real_target}>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_SONAME_FILE:${_cucascade_real_target}>"
-            "$<TARGET_FILE_DIR:rapidsmpf>/$<TARGET_SONAME_FILE_NAME:${_cucascade_real_target}>"
-    COMMENT "Copying cuCascade library to rapidsmpf output directory"
-    VERBATIM
-  )
-
-  # Install cuCascade library files from rapidsmpf's output directory Using generator expressions to
-  # get the actual file locations
-  install(
-    FILES "$<TARGET_FILE:${_cucascade_real_target}>"
-          "$<TARGET_SONAME_FILE:${_cucascade_real_target}>"
-    DESTINATION ${lib_dir}
-    COMPONENT rapidsmpf
-  )
-
-  message(STATUS "Configured cuCascade library installation (target: ${_cucascade_real_target})")
-endif()
-
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
 set(doc_string

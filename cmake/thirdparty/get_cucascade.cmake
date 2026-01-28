@@ -75,6 +75,8 @@ function(find_and_configure_cucascade)
   set(ENV{rmm_ROOT} "${rmm_ROOT}")
   set(ENV{cudf_ROOT} "${cudf_ROOT}")
 
+  # Always build cuCascade as a static library to embed it into librapidsmpf.so. This avoids
+  # packaging issues with wheels and simplifies deployment.
   rapids_cpm_find(
     cuCascade ${cucascade_version}
     GLOBAL_TARGETS cuCascade::cucascade
@@ -82,8 +84,13 @@ function(find_and_configure_cucascade)
     GIT_REPOSITORY https://github.com/${cucascade_fork}/cuCascade.git
     GIT_TAG ${cucascade_pinned_tag}
     GIT_SHALLOW TRUE
-    OPTIONS "BUILD_TESTS OFF" "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS ON" "BUILD_STATIC_LIBS OFF"
-            "WARNINGS_AS_ERRORS OFF" "rmm_ROOT ${rmm_ROOT}" "cudf_ROOT ${cudf_ROOT}"
+    OPTIONS "BUILD_TESTS OFF"
+            "BUILD_BENCHMARKS OFF"
+            "BUILD_SHARED_LIBS OFF" # Don't build libcucascade.so
+            "BUILD_STATIC_LIBS ON" # Build libcucascade.a for static linking
+            "WARNINGS_AS_ERRORS OFF"
+            "rmm_ROOT ${rmm_ROOT}"
+            "cudf_ROOT ${cudf_ROOT}"
     EXCLUDE_FROM_ALL
   )
 
@@ -99,23 +106,6 @@ function(find_and_configure_cucascade)
     endif()
     # Mark this as not exported
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
-  endif()
-
-  # Set up installation of cuCascade library for wheel packaging Since cuCascade is built with
-  # EXCLUDE_FROM_ALL, we need to explicitly install the library files This install CODE runs during
-  # 'cmake --install' when the library files exist
-  if(TARGET cuCascade::cucascade)
-    # Get the install library directory (will be set by rapids_cmake_install_lib_dir in main
-    # CMakeLists) We'll use a relative path that will be resolved at install time
-    set(_cucascade_build_dir "${CMAKE_BINARY_DIR}/_deps/cucascade-build")
-
-    # Install CODE that finds and copies cuCascade library files This must be called from the main
-    # CMakeLists.txt after rapids_cmake_install_lib_dir is called Store the build directory in a
-    # cache variable for use in install CODE
-    set(_CUCASCADE_BUILD_DIR
-        "${_cucascade_build_dir}"
-        CACHE INTERNAL "cuCascade build directory"
-    )
   endif()
 endfunction()
 
