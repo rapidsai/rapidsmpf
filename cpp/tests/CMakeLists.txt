@@ -76,6 +76,7 @@ target_sources(
           test_communicator.cpp
           test_config.cpp
           test_cuda_stream.cpp
+          test_cudf_pack.cpp
           test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp

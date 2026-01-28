@@ -177,6 +177,7 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
+  src/integrations/cudf/pack.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
