@@ -11,7 +11,6 @@
 #include <gtest/gtest.h>
 
 #include <cudf_test/base_fixture.hpp>
-
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
 
@@ -101,17 +100,16 @@ TEST_F(BufferRebindStreamTest, RebindStreamAndCopy) {
 
     // Copy device_buffer1 to device_buffer2 using buffer_copy
     buffer_copy(*device_buffer2, *device_buffer1, buffer_size);
-    
+
     // Verify the data by copying back to host and comparing
     std::vector<uint8_t> result(buffer_size);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         result.data(), device_buffer2->data(), buffer_size, cudaMemcpyDefault, stream2
     ));
     stream2.synchronize();
-    
+
     EXPECT_EQ(result, random_data);
 }
-
 
 TEST_F(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     auto stream1 = stream_pool->get_stream();
@@ -141,9 +139,9 @@ TEST_F(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     });
 
     std::vector<uint8_t> result(test_size);
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemcpyAsync(result.data(), buffer1->data(), test_size, cudaMemcpyDefault, stream2)
-    );
+    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+        result.data(), buffer1->data(), test_size, cudaMemcpyDefault, stream2
+    ));
     stream2.synchronize();
 
     // First half should be 0xCD, second half should be 0xAB

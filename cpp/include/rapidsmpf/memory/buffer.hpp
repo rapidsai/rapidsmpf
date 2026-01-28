@@ -86,8 +86,8 @@ class Buffer {
     /**
      * @brief Provides stream-ordered write access to the buffer.
      *
-     * Calls @p f with a pointer to the buffer's memory and a reference to the
-     * buffer's stream (i.e., `this->stream_`).
+     * Calls @p f with a pointer to the buffer's memory and the buffer's stream
+     * (i.e., `this->stream()`).
      *
      * The callable must be invocable as:
      *   - `R(std::byte*, rmm::cuda_stream_view)`.
