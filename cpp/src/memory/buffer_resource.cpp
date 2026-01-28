@@ -4,6 +4,7 @@
  */
 
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 #include <rapidsmpf/cuda_stream.hpp>
@@ -49,6 +50,19 @@ BufferResource::BufferResource(
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+}
+
+std::shared_ptr<BufferResource> BufferResource::from_options(
+    RmmResourceAdaptor* mr, config::Options options
+) {
+    return std::make_shared<BufferResource>(
+        mr,
+        PinnedMemoryResource::from_options(options),
+        memory_available_from_options(mr, options),
+        periodic_spill_check_from_options(options),
+        stream_pool_from_options(options),
+        Statistics::from_options(mr, options)
+    );
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
@@ -209,6 +223,52 @@ SpillManager& BufferResource::spill_manager() {
 
 std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
+}
+
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
+    // Create a memory availability map that limits device memory based on the
+    // `spill_device_limit` option.
+    return {
+        {MemoryType::DEVICE,
+         LimitAvailableMemory{
+             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
+                 auto const [_, total_mem] = rmm::available_device_memory();
+                 return rmm::align_down(
+                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                     rmm::CUDA_ALLOCATION_ALIGNMENT
+                 );
+             })
+         }}
+    };
+}
+
+std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
+    return options.get<std::optional<Duration>>(
+        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+            if (s.empty()) {
+                return parse_duration("1ms");
+            }
+            if (auto val = parse_optional(s); val.has_value()) {
+                return parse_duration(val.value());
+            }
+            return std::nullopt;
+        }
+    );
+}
+
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
+    auto const num_streams = options.get<std::size_t>("num_streams", [](auto const& s) {
+        return s.empty() ? 16 : parse_string<std::size_t>(s);
+    });
+    RAPIDSMPF_EXPECTS(
+        num_streams > 0,
+        "The `num_streams` option must be greater than 0",
+        std::invalid_argument
+    );
+    return std::make_shared<rmm::cuda_stream_pool>(
+        num_streams, rmm::cuda_stream::flags::non_blocking
+    );
 }
 
 }  // namespace rapidsmpf

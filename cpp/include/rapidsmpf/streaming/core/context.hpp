@@ -77,6 +77,42 @@ class Context {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    /**
+     * @brief Create a Context based on configuration options.
+     *
+     * This is a convenience factory that wires up a fully initialized and usable
+     * Context.
+     *
+     * @note The current CUDA device must be set prior to calling this function.
+     * Options that depend on device memory availability query the current device.
+     *
+     * @param mr Device memory resource adaptor used by RapidsMPF. The adaptor must
+     * outlive the returned Context.
+     * @param comm The communicator to use.
+     * @param options Configuration options used to initialize the Context and its
+     * components.
+     * @return A fully initialized Context.
+     *
+     * @throws std::invalid_argument If an option value is invalid.
+     * @throws std::out_of_range If an option value exceeds the representable range.
+     *
+     * @warning Shutdown of the context must be initiated from the same thread that
+     * created it. Calling `shutdown()` from a different thread results in program
+     * termination. Since the destructor implicitly calls `shutdown()`, destroying
+     * the context from a different thread also results in termination unless the
+     * executor has already been shut down explicitly.
+     *
+     * A recommended usage pattern is to create a single `Context` instance up front
+     * on the main thread and reuse it throughout the lifetime of the program. This
+     * reduces overhead and avoids issues related to destruction on a different
+     * thread.
+     */
+    static std::shared_ptr<Context> from_options(
+        RmmResourceAdaptor* mr,
+        std::shared_ptr<Communicator> comm,
+        config::Options options
+    );
+
     // No copy constructor and assignment operator.
     Context(Context const&) = delete;
     Context& operator=(Context const&) = delete;

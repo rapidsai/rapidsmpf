@@ -117,6 +117,17 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     return PinnedMemoryResource::Disabled;
 }
 
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
+    config::Options options
+) {
+    bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
+        return parse_string<bool>(s.empty() ? "False" : s);
+    });
+
+    return pinned_memory ? PinnedMemoryResource::make_if_available()
+                         : PinnedMemoryResource::Disabled;
+}
+
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
 void* PinnedMemoryResource::allocate(

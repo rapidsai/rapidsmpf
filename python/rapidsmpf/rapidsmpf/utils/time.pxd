@@ -6,3 +6,4 @@ cdef extern from "<rapidsmpf/utils/misc.hpp>" nogil:
     cdef cppclass cpp_Duration "rapidsmpf::Duration":
         cpp_Duration() except +
         cpp_Duration(double) except +
+        double count() except +

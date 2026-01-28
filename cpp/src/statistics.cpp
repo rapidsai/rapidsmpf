@@ -25,6 +25,15 @@ Statistics::Statistics(RmmResourceAdaptor* mr) : enabled_{true}, mr_{mr} {
     );
 }
 
+std::shared_ptr<Statistics> Statistics::from_options(
+    RmmResourceAdaptor* mr, config::Options options
+) {
+    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
+        return parse_string<bool>(s.empty() ? "False" : s);
+    });
+    return statistics ? std::make_shared<Statistics>(mr) : Statistics::disabled();
+}
+
 std::shared_ptr<Statistics> Statistics::disabled() {
     static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
     return ret;

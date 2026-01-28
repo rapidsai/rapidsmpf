@@ -149,7 +149,9 @@ cdef class BufferResource:
         statistics = None,
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
-        if memory_available is not None:
+        if isinstance(memory_available, AvailableMemoryMap):
+            _mem_available = move((<AvailableMemoryMap>memory_available)._handle)
+        elif memory_available is not None:
             for mem_type, func in memory_available.items():
                 if not isinstance(func, LimitAvailableMemory):
                     raise NotImplementedError(
@@ -214,6 +216,34 @@ cdef class BufferResource:
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
+
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct a BufferResource from configuration options.
+
+        This factory method creates a BufferResource using configuration options to
+        initialize all components.
+
+        Parameters
+        ----------
+        mr
+            RMM resource adaptor. The adaptor must outlive the returned BufferResource.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        A BufferResource instance configured according to the options.
+        """
+        return cls(
+            device_mr=mr,
+            pinned_mr=PinnedMemoryResource.from_options(options),
+            memory_available=AvailableMemoryMap.from_options(mr, options),
+            periodic_spill_check=periodic_spill_check_from_options(options),
+            stream_pool=stream_pool_from_options(options),
+            statistics=Statistics.from_options(mr, options),
+        )
 
     def __dealloc__(self):
         """
@@ -474,3 +504,97 @@ cdef class LimitAvailableMemory:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef unordered_map[MemoryType, cpp_MemoryAvailable] \
+        cpp_memory_available_from_options \
+        "rapidsmpf::memory_available_from_options"(
+            cpp_RmmResourceAdaptor* mr, cpp_Options options
+        ) except +
+
+
+cdef class AvailableMemoryMap:
+    """
+    Map of functions reporting available memory for different memory types.
+
+    This class acts as an opaque handle to C++ memory-availability functions
+    that cannot be directly represented or exposed in Python. It enables
+    RapidsMPF to configure and use such functions from Python while keeping
+    the implementation in C++.
+
+    Instances of this class should be constructed from configuration options
+    using the :meth:`from_options` factory method.
+    """
+
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct an AvailableMemoryMap from configuration options.
+
+        Parameters
+        ----------
+        mr
+            Pointer to a memory resource adaptor.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed map of memory-available functions.
+        """
+        cdef AvailableMemoryMap ret = cls.__new__(cls)
+        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        with nogil:
+            ret._handle = cpp_memory_available_from_options(mr_handle, options._handle)
+        return ret
+
+
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
+        "rapidsmpf::periodic_spill_check_from_options"(cpp_Options options) except +
+
+
+def periodic_spill_check_from_options(Options options not None):
+    """
+    Get the ``periodic_spill_check`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The duration of the pause between spill checks in seconds, or ``None`` if
+    periodic spill checks are disabled.
+    """
+    cdef optional[cpp_Duration] ret
+    with nogil:
+        ret = cpp_periodic_spill_check_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value().count()
+
+
+def stream_pool_from_options(Options options not None):
+    """
+    Create a new CUDA stream pool from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    Pool of CUDA streams used throughout RapidsMPF for operations that do not take
+    an explicit CUDA stream.
+    """
+    cdef int pool_size = options.get_or_default("num_streams", default_value=16)
+    if pool_size < 1:
+        raise ValueError("the `num_streams` options must be greater than 0")
+    return CudaStreamPool(
+        pool_size=pool_size,
+        flags=CudaStreamFlags.NON_BLOCKING,
+    )

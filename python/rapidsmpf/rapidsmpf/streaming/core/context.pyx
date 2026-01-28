@@ -14,6 +14,7 @@ from rapidsmpf.config import get_environment_variables
 from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     MemoryReserveOrWait
@@ -64,8 +65,8 @@ cdef class Context:
     """
     def __cinit__(
         self,
-        Communicator comm,
-        BufferResource br,
+        Communicator comm not None,
+        BufferResource br not None,
         Options options = None,
         Statistics statistics = None,
     ):
@@ -98,6 +99,20 @@ cdef class Context:
             self._memory[mem_type] = MemoryReserveOrWait.from_handle(
                 deref(self._handle).memory(mem_type), self._br
             )
+
+    @classmethod
+    def from_options(
+        cls,
+        Communicator comm not None,
+        RmmResourceAdaptor mr not None,
+        Options options not None
+    ):
+        return cls(
+            comm=comm,
+            br=BufferResource.from_options(mr, options),
+            options=options,
+            statistics=Statistics.from_options(mr, options),
+        )
 
     def __enter__(self):
         return self

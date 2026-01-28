@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -15,7 +15,6 @@ from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
-        cpp_Statistics() except +
         bool enabled() except +
         string report() except +
         double add_stat(
