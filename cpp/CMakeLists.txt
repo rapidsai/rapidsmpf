@@ -413,8 +413,8 @@ install(
   EXPORT rapidsmpf-exports
 )
 
-# Install cuCascade library files for wheel packaging cuCascade is built with EXCLUDE_FROM_ALL to
-# avoid exporting its targets We need to install all library files including symlinks
+# Install cuCascade library files for wheel packaging
+# cuCascade is built with EXCLUDE_FROM_ALL to avoid exporting its targets
 if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
   # Get the actual target (resolve alias)
   get_target_property(_cucascade_aliased cuCascade::cucascade ALIASED_TARGET)
@@ -424,36 +424,49 @@ if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
     set(_cucascade_real_target cuCascade::cucascade)
   endif()
 
-  # Search for cuCascade library in build directories
-  set(_cucascade_search_dirs
-      "${_CUCASCADE_BUILD_DIR}" "${_CUCASCADE_BUILD_DIR}/lib"
-      "${CMAKE_BINARY_DIR}/_deps/cucascade-build" "${CMAKE_BINARY_DIR}/_deps/cucascade-build/lib"
-  )
+  # Ensure cuCascade is built when rapidsmpf is built
+  add_dependencies(rapidsmpf ${_cucascade_real_target})
 
-  # Install using CODE to handle all files including symlinks at install time
-  install(
-    CODE "
-    set(_cucascade_dirs \"${_cucascade_search_dirs}\")
+  # Use install CODE to find and install library files at install time
+  set(_cucascade_install_code "
+    # Search for cuCascade library files in possible build locations
     set(_found_libs FALSE)
-    foreach(_dir IN LISTS _cucascade_dirs)
-      file(GLOB _cucascade_files \"\${_dir}/libcucascade.so*\")
-      if(_cucascade_files)
-        message(STATUS \"Installing cuCascade library files from: \${_dir}\")
-        foreach(_file IN LISTS _cucascade_files)
-          get_filename_component(_fname \"\${_file}\" NAME)
-          message(STATUS \"  Installing: \${_fname}\")
-          file(INSTALL \"\${_file}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${lib_dir}\")
-        endforeach()
-        set(_found_libs TRUE)
+    set(_search_locs
+        \"${_CUCASCADE_BUILD_DIR}\"
+        \"${CMAKE_BINARY_DIR}/_deps/cucascade-build\"
+    )
+
+    message(STATUS \"Searching for cuCascade library...\")
+    foreach(_loc IN LISTS _search_locs)
+      set(_lib_paths \"\${_loc}\" \"\${_loc}/lib\")
+      foreach(_lib_path IN LISTS _lib_paths)
+        if(EXISTS \"\${_lib_path}\")
+          file(GLOB _lib_files \"\${_lib_path}/libcucascade.so*\")
+          if(_lib_files)
+            message(STATUS \"Found cuCascade in: \${_lib_path}\")
+            foreach(_lib_file IN LISTS _lib_files)
+              get_filename_component(_lib_name \"\${_lib_file}\" NAME)
+              message(STATUS \"  Installing: \${_lib_name}\")
+              file(INSTALL \"\${_lib_file}\"
+                   DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${lib_dir}\"
+                   FOLLOW_SYMLINK_CHAIN)
+            endforeach()
+            set(_found_libs TRUE)
+            break()
+          endif()
+        endif()
+      endforeach()
+      if(_found_libs)
         break()
       endif()
     endforeach()
+
     if(NOT _found_libs)
-      message(FATAL_ERROR \"cuCascade library files not found in any search directory: \${_cucascade_dirs}\")
+      message(FATAL_ERROR \"cuCascade library not found in: \${_search_locs}\")
     endif()
-  "
-    COMPONENT rapidsmpf
-  )
+  ")
+
+  install(CODE "${_cucascade_install_code}" COMPONENT rapidsmpf)
 
   message(STATUS "Configured cuCascade library installation (target: ${_cucascade_real_target})")
 endif()
