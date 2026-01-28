@@ -83,9 +83,7 @@ namespace detail {
  * @tparam timestamp_type The timestamp type to use for the filter scalar
  * (e.g., cudf::timestamp_D or cudf::timestamp_ms)
  * @param stream CUDA stream to use
- * @param year The year of the date to compare against
- * @param month The month of the date to compare against
- * @param day The day of the date to compare against
+ * @param date The date to compare against
  * @param column_name The name of the column to compare
  * @param op The comparison operator (e.g., LESS, LESS_EQUAL, GREATER)
  * @return Filter expression with proper lifetime management
@@ -93,18 +91,11 @@ namespace detail {
 template <typename timestamp_type>
 std::unique_ptr<streaming::Filter> make_date_filter(
     rmm::cuda_stream_view stream,
-    int year,
-    unsigned month,
-    unsigned day,
+    cuda::std::chrono::year_month_day date,
     std::string const& column_name,
     cudf::ast::ast_operator op
 ) {
     auto owner = new std::vector<std::any>;
-    auto const date = cuda::std::chrono::year_month_day(
-        cuda::std::chrono::year(year),
-        cuda::std::chrono::month(month),
-        cuda::std::chrono::day(day)
-    );
     auto sys_days = cuda::std::chrono::sys_days(date);
     owner->push_back(
         std::make_shared<cudf::timestamp_scalar<timestamp_type>>(

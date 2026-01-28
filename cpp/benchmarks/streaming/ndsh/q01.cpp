@@ -65,14 +65,18 @@ rapidsmpf::streaming::Node read_lineitem(
                        .build();
     auto stream = ctx->br()->stream_pool().get_stream();
     // l_shipdate <= DATE '1998-09-02'
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1998),
+        cuda::std::chrono::month(9),
+        cuda::std::chrono::day(2)
+    );
     auto filter_expr =
-        use_date32
-            ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
-                  stream, 1998, 9, 2, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
-              )
-            : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
-                  stream, 1998, 9, 2, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
-              );
+        use_date32 ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
+                     )
+                   : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
+                     );
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );

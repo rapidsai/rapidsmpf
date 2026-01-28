@@ -120,14 +120,18 @@ rapidsmpf::streaming::Node read_lineitem(
                        .build();
     auto stream = ctx->br()->stream_pool().get_stream();
     // l_shipdate > DATE '1995-03-15'
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1995),
+        cuda::std::chrono::month(3),
+        cuda::std::chrono::day(15)
+    );
     auto filter_expr =
-        use_date32
-            ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
-                  stream, 1995, 3, 15, "l_shipdate", cudf::ast::ast_operator::GREATER
-              )
-            : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
-                  stream, 1995, 3, 15, "l_shipdate", cudf::ast::ast_operator::GREATER
-              );
+        use_date32 ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::GREATER
+                     )
+                   : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::GREATER
+                     );
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
@@ -154,12 +158,17 @@ rapidsmpf::streaming::Node read_orders(
                        .build();
     auto stream = ctx->br()->stream_pool().get_stream();
     // o_orderdate < DATE '1995-03-15'
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1995),
+        cuda::std::chrono::month(3),
+        cuda::std::chrono::day(15)
+    );
     auto filter_expr =
         use_date32 ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
-                         stream, 1995, 3, 15, "o_orderdate", cudf::ast::ast_operator::LESS
+                         stream, date, "o_orderdate", cudf::ast::ast_operator::LESS
                      )
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
-                         stream, 1995, 3, 15, "o_orderdate", cudf::ast::ast_operator::LESS
+                         stream, date, "o_orderdate", cudf::ast::ast_operator::LESS
                      );
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
