@@ -196,7 +196,9 @@ cdef class PackedData:
         Returns the bytes stored in the data buffer. Works with both
         host and device memory buffers.
 
-        Note: This makes a copy of the data.
+        Returns a copy of the bytes stored in the data buffer. Works with both
+        host and device memory buffers. The method synchronizes with the
+        underlying buffer's CUDA stream before returning.
 
         Returns
         -------

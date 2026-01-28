@@ -32,3 +32,14 @@ def test_packed_data_host_bytes_roundtrip(
     packed = PackedData.from_host_bytes(original, br)
     result = packed.to_host_bytes()
     assert struct.unpack("q", result)[0] == value
+
+
+def test_packed_data_empty_bytes(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    """Test creating PackedData from empty bytes."""
+    br = BufferResource(device_mr)
+    original = b""
+    packed = PackedData.from_host_bytes(original, br)
+    result = packed.to_host_bytes()
+    assert result == original
