@@ -155,27 +155,25 @@ def test_get_pyobject_refcount() -> None:
     assert wr() is None
 
 
-def test_get_or_default_returns_default_when_key_missing() -> None:
-    opts = Options()
-    assert opts.get_or_default("debug", default_value=False) is False
-    assert opts.get_or_default("workers", default_value=8) == 8
-    assert opts.get_or_default("timeout", default_value=1.5) == 1.5
-    assert opts.get_or_default("loglevel", default_value="info") == "info"
-
-
-def test_get_or_default_parses_existing_values() -> None:
-    opts = Options(
-        {
-            "debug": "true",
-            "workers": "4",
-            "timeout": "2.0",
-            "loglevel": "debug",
-        }
-    )
-    assert opts.get_or_default("debug", default_value=False) is True
-    assert opts.get_or_default("workers", default_value=1) == 4
-    assert opts.get_or_default("timeout", default_value=1.0) == 2.0
-    assert opts.get_or_default("loglevel", default_value="info") == "debug"
+@pytest.mark.parametrize(
+    "opts,key,default_value,expected",
+    [
+        # Missing keys return defaults
+        (Options(), "debug", False, False),
+        (Options(), "workers", 8, 8),
+        (Options(), "timeout", 1.5, 1.5),
+        (Options(), "loglevel", "info", "info"),
+        # Existing keys parse to correct type
+        (Options({"debug": "true"}), "debug", False, True),
+        (Options({"workers": "4"}), "workers", 1, 4),
+        (Options({"timeout": "2.0"}), "timeout", 1.0, 2.0),
+        (Options({"loglevel": "debug"}), "loglevel", "info", "debug"),
+    ],
+)
+def test_get_or_default(
+    *, opts: Options, key: str, default_value: Any, expected: Any
+) -> None:
+    assert opts.get_or_default(key, default_value=default_value) == expected
 
 
 def test_get_or_default_type_conflict_raises() -> None:
@@ -392,48 +390,38 @@ def test_pickle_empty_options() -> None:
 
 
 @pytest.mark.parametrize(
-    "statistics_value,expected_enabled",
+    "opts,expected_enabled",
     [
-        ("True", True),
-        ("1", True),
-        ("False", False),
-        (None, False),  # Default case
+        (Options({"statistics": "True"}), True),
+        (Options({"statistics": "1"}), True),
+        (Options({"statistics": "False"}), False),
+        (Options(), False),  # Default case
     ],
 )
-def test_statistics_from_options(
-    *, statistics_value: str | None, expected_enabled: bool
-) -> None:
-    if statistics_value is None:
-        opts = Options()
-    else:
-        opts = Options({"statistics": statistics_value})
+def test_statistics_from_options(*, opts: Options, expected_enabled: bool) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     stats = Statistics.from_options(mr, opts)
     assert stats is not None
     assert stats.enabled == expected_enabled
 
 
-def test_pinned_memory_resource_from_options_enabled_when_set_to_true() -> None:
-    opts = Options({"pinned_memory": "True"})
+@pytest.mark.parametrize(
+    "opts,expect_enabled_if_supported",
+    [
+        (Options({"pinned_memory": "True"}), True),
+        (Options({"pinned_memory": "False"}), False),
+        (Options(), False),  # Default case
+    ],
+)
+def test_pinned_memory_resource_from_options(
+    *, opts: Options, expect_enabled_if_supported: bool
+) -> None:
     pmr = PinnedMemoryResource.from_options(opts)
 
-    # Should be enabled if system supports it, or None if not
-    if is_pinned_memory_resources_supported():
+    if expect_enabled_if_supported and is_pinned_memory_resources_supported():
         assert pmr is not None
     else:
         assert pmr is None
-
-
-def test_pinned_memory_resource_from_options_disabled_when_set_to_false() -> None:
-    opts = Options({"pinned_memory": "False"})
-    pmr = PinnedMemoryResource.from_options(opts)
-    assert pmr is None
-
-
-def test_pinned_memory_resource_from_options_disabled_by_default() -> None:
-    opts = Options()
-    pmr = PinnedMemoryResource.from_options(opts)
-    assert pmr is None
 
 
 def test_available_memory_map_from_options_creates_map() -> None:
@@ -450,43 +438,37 @@ def test_available_memory_map_from_options_uses_default() -> None:
     assert mem_map is not None
 
 
-def test_periodic_spill_check_from_options_parses_milliseconds() -> None:
-    opts = Options({"periodic_spill_check": "5ms"})
+@pytest.mark.parametrize(
+    "opts,expected_duration",
+    [
+        (Options({"periodic_spill_check": "5ms"}), 0.005),
+        (Options({"periodic_spill_check": "2"}), 2.0),
+        (Options({"periodic_spill_check": "disabled"}), None),
+        (Options(), 0.001),  # Default: 1ms
+    ],
+)
+def test_periodic_spill_check_from_options(
+    *, opts: Options, expected_duration: float | None
+) -> None:
     duration = periodic_spill_check_from_options(opts)
-    assert duration is not None
-    assert abs(duration - 0.005) < 1e-9  # 5ms = 0.005s
+
+    if expected_duration is None:
+        assert duration is None
+    else:
+        assert duration is not None
+        assert abs(duration - expected_duration) < 1e-9
 
 
-def test_periodic_spill_check_from_options_parses_seconds() -> None:
-    opts = Options({"periodic_spill_check": "2"})
-    duration = periodic_spill_check_from_options(opts)
-    assert duration is not None
-    assert abs(duration - 2.0) < 1e-9
-
-
-def test_periodic_spill_check_from_options_disabled_when_set_to_disabled() -> None:
-    opts = Options({"periodic_spill_check": "disabled"})
-    duration = periodic_spill_check_from_options(opts)
-    assert duration is None
-
-
-def test_periodic_spill_check_from_options_uses_default() -> None:
-    opts = Options()
-    duration = periodic_spill_check_from_options(opts)
-    assert duration is not None
-    assert abs(duration - 0.001) < 1e-9  # Default: 1ms
-
-
-def test_stream_pool_from_options_returns_specified_size() -> None:
-    opts = Options({"num_streams": "32"})
+@pytest.mark.parametrize(
+    "opts,expected_size",
+    [
+        (Options({"num_streams": "32"}), 32),
+        (Options(), 16),  # Default
+    ],
+)
+def test_stream_pool_from_options(*, opts: Options, expected_size: int) -> None:
     pool_size = stream_pool_from_options(opts)
-    assert pool_size.get_pool_size() == 32
-
-
-def test_stream_pool_from_options_uses_default() -> None:
-    opts = Options()
-    pool_size = stream_pool_from_options(opts)
-    assert pool_size.get_pool_size() == 16  # Default
+    assert pool_size.get_pool_size() == expected_size
 
 
 def test_stream_pool_from_options_raises_on_zero() -> None:
