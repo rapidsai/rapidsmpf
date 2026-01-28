@@ -427,48 +427,28 @@ if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
   # Ensure cuCascade is built when rapidsmpf is built
   add_dependencies(rapidsmpf ${_cucascade_real_target})
 
-  # Use install CODE to find and install library files at install time
-  set(_cucascade_install_code
-      "
-    # Search for cuCascade library files in possible build locations
-    set(_found_libs FALSE)
-    set(_search_locs
-        \"${_CUCASCADE_BUILD_DIR}\"
-        \"${CMAKE_BINARY_DIR}/_deps/cucascade-build\"
-    )
-
-    message(STATUS \"Searching for cuCascade library...\")
-    foreach(_loc IN LISTS _search_locs)
-      set(_lib_paths \"\${_loc}\" \"\${_loc}/lib\")
-      foreach(_lib_path IN LISTS _lib_paths)
-        if(EXISTS \"\${_lib_path}\")
-          file(GLOB _lib_files \"\${_lib_path}/libcucascade.so*\")
-          if(_lib_files)
-            message(STATUS \"Found cuCascade in: \${_lib_path}\")
-            foreach(_lib_file IN LISTS _lib_files)
-              get_filename_component(_lib_name \"\${_lib_file}\" NAME)
-              message(STATUS \"  Installing: \${_lib_name}\")
-              file(INSTALL \"\${_lib_file}\"
-                   DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${lib_dir}\"
-                   FOLLOW_SYMLINK_CHAIN)
-            endforeach()
-            set(_found_libs TRUE)
-            break()
-          endif()
-        endif()
-      endforeach()
-      if(_found_libs)
-        break()
-      endif()
-    endforeach()
-
-    if(NOT _found_libs)
-      message(FATAL_ERROR \"cuCascade library not found in: \${_search_locs}\")
-    endif()
-  "
+  # Create a custom target that copies cuCascade library to rapidsmpf's output directory This
+  # ensures the file is available during the install phase
+  add_custom_command(
+    TARGET rapidsmpf
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "Copying cuCascade library files..."
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${_cucascade_real_target}>"
+            "$<TARGET_FILE_DIR:rapidsmpf>/$<TARGET_FILE_NAME:${_cucascade_real_target}>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_SONAME_FILE:${_cucascade_real_target}>"
+            "$<TARGET_FILE_DIR:rapidsmpf>/$<TARGET_SONAME_FILE_NAME:${_cucascade_real_target}>"
+    COMMENT "Copying cuCascade library to rapidsmpf output directory"
+    VERBATIM
   )
 
-  install(CODE "${_cucascade_install_code}" COMPONENT rapidsmpf)
+  # Install cuCascade library files from rapidsmpf's output directory Using generator expressions to
+  # get the actual file locations
+  install(
+    FILES "$<TARGET_FILE:${_cucascade_real_target}>"
+          "$<TARGET_SONAME_FILE:${_cucascade_real_target}>"
+    DESTINATION ${lib_dir}
+    COMPONENT rapidsmpf
+  )
 
   message(STATUS "Configured cuCascade library installation (target: ${_cucascade_real_target})")
 endif()
