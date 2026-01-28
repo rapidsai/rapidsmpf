@@ -110,10 +110,11 @@ streaming::Node consume_channel(
 coro::task<streaming::TableChunk> to_device(
     std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
 ) {
-    auto const net_memory_delta = static_cast<std::int64_t>(chunk.make_available_cost());
     co_return chunk.make_available(
         co_await streaming::reserve_memory(
-            ctx, chunk.make_available_cost(), net_memory_delta
+            ctx,
+            chunk.make_available_cost(),
+            streaming::MemoryReserveOrWait::missing_net_memory_delta
         )
     );
 }
