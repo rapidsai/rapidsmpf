@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cstring>
 #include <memory>
 #include <random>
 #include <vector>
@@ -25,20 +24,16 @@ using namespace rapidsmpf;
 class BufferRebindStreamTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        // Create a stream pool with 2 streams
         stream_pool = std::make_shared<rmm::cuda_stream_pool>(2);
-
-        // Create buffer resource
         br = std::make_unique<BufferResource>(
             cudf::get_current_device_resource_ref(),
             PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},
-            std::nullopt,  // No periodic spill check
+            std::nullopt,
             stream_pool
         );
 
-        // Generate random data for the test
-        std::mt19937 rng(42);  // Fixed seed for reproducibility
+        std::mt19937 rng(42);
         std::uniform_int_distribution<uint8_t> dist(0, 255);
         random_data.resize(buffer_size);
         for (auto& byte : random_data) {
@@ -54,27 +49,23 @@ class BufferRebindStreamTest : public ::testing::Test {
     std::vector<uint8_t> random_data;
 };
 
+// test rebinding stream and copy data between buffers on different streams
 TEST_F(BufferRebindStreamTest, RebindStreamAndCopy) {
-    // Get two streams from the pool
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
-
-    // Ensure we have two different streams
     ASSERT_NE(stream1.value(), stream2.value());
 
-    // Create a large rmm buffer with random data on stream1
     auto rmm_buffer = std::make_unique<rmm::device_buffer>(
         random_data.data(), buffer_size, stream1, br->device_mr()
     );
 
-    // Create a same-sized device buffer using BufferResource on stream1
     auto [reserve1, overbooking1] =
         br->reserve(MemoryType::DEVICE, buffer_size, AllowOverbooking::YES);
     auto device_buffer1 = br->allocate(buffer_size, stream1, reserve1);
     EXPECT_EQ(device_buffer1->stream().value(), stream1.value());
 
-    // Copy 1MB parts iteratively from rmm_buffer to device_buffer1
     std::size_t num_chunks = buffer_size / chunk_size;
+    // copy 1MB parts iteratively from rmm_buffer to device_buffer1 on stream1
     for (std::size_t i = 0; i < num_chunks; ++i) {
         std::size_t offset = i * chunk_size;
         device_buffer1->write_access([&](std::byte* dst, rmm::cuda_stream_view stream) {
@@ -88,21 +79,20 @@ TEST_F(BufferRebindStreamTest, RebindStreamAndCopy) {
         });
     }
 
-    // Rebind the first device buffer to stream2
-    device_buffer1->rebind_stream(stream2);
-    EXPECT_EQ(device_buffer1->stream().value(), stream2.value());
-
-    // Create a second device buffer on stream2
+    // allocate buffer2 on stream2
     auto [reserve2, overbooking2] =
         br->reserve(MemoryType::DEVICE, buffer_size, AllowOverbooking::YES);
     auto device_buffer2 = br->allocate(buffer_size, stream2, reserve2);
     EXPECT_EQ(device_buffer2->stream().value(), stream2.value());
 
-    // Copy device_buffer1 to device_buffer2 using buffer_copy
+    // rebind buffer1 to stream2
+    device_buffer1->rebind_stream(stream2);
+    EXPECT_EQ(device_buffer1->stream().value(), stream2.value());
+
+    // copy buffer1 to buffer2 on stream2
     buffer_copy(*device_buffer2, *device_buffer1, buffer_size);
 
-    // Verify the data by copying back to host and comparing
-    std::vector<uint8_t> result(buffer_size);
+    std::vector<uint8_t> result(buffer_size);  // copy to host and verify
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         result.data(), device_buffer2->data(), buffer_size, cudaMemcpyDefault, stream2
     ));
@@ -111,6 +101,7 @@ TEST_F(BufferRebindStreamTest, RebindStreamAndCopy) {
     EXPECT_EQ(result, random_data);
 }
 
+// test rebinding stream and access the same buffer on different streams
 TEST_F(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
@@ -118,33 +109,27 @@ TEST_F(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 
     constexpr std::size_t test_size = 4_MiB;
 
-    // Create and initialize a buffer on stream1
     auto [reserve1, overbooking1] =
         br->reserve(MemoryType::DEVICE, test_size, AllowOverbooking::YES);
     auto buffer1 = br->allocate(test_size, stream1, reserve1);
 
-    // Initialize with a pattern on stream1
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0xAB, test_size, stream));
     });
 
-    // Rebind to stream2 - this should ensure stream2 waits for stream1's work
     buffer1->rebind_stream(stream2);
     EXPECT_EQ(buffer1->stream().value(), stream2.value());
 
-    // Now do more work on stream2 with this buffer
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        // Overwrite first half
         RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0xCD, test_size / 2, stream));
     });
 
-    std::vector<uint8_t> result(test_size);
+    std::vector<uint8_t> result(test_size);  // copy to host and verify
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         result.data(), buffer1->data(), test_size, cudaMemcpyDefault, stream2
     ));
     stream2.synchronize();
 
-    // First half should be 0xCD, second half should be 0xAB
     for (std::size_t i = 0; i < test_size / 2; ++i) {
         EXPECT_EQ(result[i], 0xCD) << "Mismatch at index " << i;
     }
