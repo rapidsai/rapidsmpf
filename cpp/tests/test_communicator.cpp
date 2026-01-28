@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdexcept>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -33,19 +35,36 @@ class BaseCommunicatorTest : public ::testing::Test {
         GlobalEnvironment->barrier();
     }
 
-    virtual rapidsmpf::MemoryType memory_type() = 0;
-
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
 
+TEST_F(BaseCommunicatorTest, TagConstruction) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Tag validation independent of communicator type";
+    }
+    EXPECT_THROW(
+        rapidsmpf::Tag(0, 1 << rapidsmpf::Tag::stage_id_bits), std::overflow_error
+    );
+    EXPECT_THROW(rapidsmpf::Tag(1 << rapidsmpf::Tag::op_id_bits, 0), std::overflow_error);
+    EXPECT_NO_THROW(rapidsmpf::Tag(0, (1 << rapidsmpf::Tag::stage_id_bits) - 1));
+    EXPECT_NO_THROW(
+        rapidsmpf::Tag(
+            (1 << rapidsmpf::Tag::op_id_bits) - 1,
+            (1 << rapidsmpf::Tag::stage_id_bits) - 1
+        )
+    );
+    EXPECT_THROW(rapidsmpf::Tag(0, -1), std::overflow_error);
+    EXPECT_THROW(rapidsmpf::Tag(-1, 0), std::overflow_error);
+}
+
 class BasicCommunicatorTest
     : public BaseCommunicatorTest,
       public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
   protected:
-    rapidsmpf::MemoryType memory_type() override {
+    rapidsmpf::MemoryType memory_type() {
         return GetParam();
     }
 };

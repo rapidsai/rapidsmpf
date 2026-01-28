@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t
+from libc.stdint cimport int32_t
 from libcpp cimport bool
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
@@ -77,7 +77,7 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, uint8_t op_id):
+    def __init__(self, Context ctx not None, int32_t op_id):
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 ctx._handle, op_id
@@ -145,7 +145,7 @@ def allgather(
     Context ctx not None,
     Channel ch_in not None,
     Channel ch_out not None,
-    uint8_t op_id,
+    int32_t op_id,
     *,
     bool ordered,
 ):
