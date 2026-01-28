@@ -12,14 +12,14 @@
 #include <mutex>
 #include <optional>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-namespace rapidsmpf::allgather {
+namespace rapidsmpf::coll {
 namespace detail {
 
 Chunk::Chunk(
@@ -531,4 +531,4 @@ ProgressThread::ProgressState AllGather::event_loop() {
                    : ProgressThread::ProgressState::InProgress;
 }
 
-}  // namespace rapidsmpf::allgather
+}  // namespace rapidsmpf::coll
