@@ -141,7 +141,7 @@ class AllReduce {
      * is finished and results are ready for extraction.
      *
      * @note This constructor internally creates an `AllGather` instance
-     *       that uses the same communicator, progress thread, and buffer resource.
+     * that uses the same communicator, progress thread, and buffer resource.
      */
     AllReduce(
         std::shared_ptr<Communicator> comm,
@@ -162,8 +162,8 @@ class AllReduce {
      * @brief Destructor.
      *
      * @note This operation is logically collective. If an `AllReduce` is locally
-     *       destructed before `wait_and_extract` is called, there is no guarantee
-     *       that in-flight communication will be completed.
+     * destructed before `wait_and_extract` is called, there is no guarantee
+     * that in-flight communication will be completed.
      */
     ~AllReduce() = default;
 
@@ -180,7 +180,7 @@ class AllReduce {
      * @brief Check if the allreduce operation has completed.
      *
      * @return True if all data and finish messages from all ranks have been
-     *         received and locally reduced.
+     * received and locally reduced.
      */
     [[nodiscard]] bool finished() const noexcept;
 
@@ -191,7 +191,7 @@ class AllReduce {
      * globally reduced result.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean
-     *        no timeout.
+     * no timeout.
      *
      * @return The reduced packed data.
      * @throws std::runtime_error If the timeout is reached.
@@ -208,7 +208,7 @@ class AllReduce {
      * would not block.
      *
      * @return True if the allreduce operation has completed and results are ready for
-     *         extraction, false otherwise.
+     * extraction, false otherwise.
      */
     [[nodiscard]] bool is_ready() const noexcept;
 
@@ -394,7 +394,7 @@ ReduceOperator make_host_reduce_operator(Op op) {
  * @return A ReduceOperator wrapping the DeviceOp.
  *
  * @note This function requires CUDA compilation (__CUDACC__ defined) to be used.
- *       Attempting to use it without CUDA will result in a compilation error.
+ * Attempting to use it without CUDA will result in a compilation error.
  */
 template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
