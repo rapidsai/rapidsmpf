@@ -113,9 +113,7 @@ class BufferResource {
      * @return Reference to the RMM resource used for host allocations.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
-        return rmm::host_async_resource_ref{
-            cuda::mr::resource_ref<cuda::mr::host_accessible>{host_mr_}
-        };
+        return host_mr_;
     }
 
     /**
@@ -127,9 +125,7 @@ class BufferResource {
         RAPIDSMPF_EXPECTS(
             pinned_mr_, "no pinned memory resource is available", std::invalid_argument
         );
-        return rmm::host_async_resource_ref{
-            cuda::mr::resource_ref<cuda::mr::host_accessible>{*pinned_mr_}
-        };
+        return *pinned_mr_;
     }
 
     /**
