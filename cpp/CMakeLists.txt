@@ -413,8 +413,8 @@ install(
   EXPORT rapidsmpf-exports
 )
 
-# Install cuCascade library files for wheel packaging
-# cuCascade is built with EXCLUDE_FROM_ALL to avoid exporting its targets
+# Install cuCascade library files for wheel packaging cuCascade is built with EXCLUDE_FROM_ALL to
+# avoid exporting its targets
 if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
   # Get the actual target (resolve alias)
   get_target_property(_cucascade_aliased cuCascade::cucascade ALIASED_TARGET)
@@ -428,7 +428,8 @@ if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
   add_dependencies(rapidsmpf ${_cucascade_real_target})
 
   # Use install CODE to find and install library files at install time
-  set(_cucascade_install_code "
+  set(_cucascade_install_code
+      "
     # Search for cuCascade library files in possible build locations
     set(_found_libs FALSE)
     set(_search_locs
@@ -464,7 +465,8 @@ if(TARGET cuCascade::cucascade AND DEFINED _CUCASCADE_BUILD_DIR)
     if(NOT _found_libs)
       message(FATAL_ERROR \"cuCascade library not found in: \${_search_locs}\")
     endif()
-  ")
+  "
+  )
 
   install(CODE "${_cucascade_install_code}" COMPONENT rapidsmpf)
 
