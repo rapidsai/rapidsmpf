@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include <any>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -12,13 +13,19 @@
 
 #include <mpi.h>
 
+#include <cudf/ast/expressions.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/types.hpp>
+#include <cudf/wrappers/timestamps.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
@@ -65,6 +72,70 @@ namespace detail {
 );
 
 }  // namespace detail
+
+/**
+ * @brief Create a date comparison filter expression.
+ *
+ * Creates a filter that compares a date column against a literal date value.
+ * The operation will be equivalent to
+ * "<column_name> <op> DATE '<year>-<month>-<day>'".
+ *
+ * @tparam timestamp_type The timestamp type to use for the filter scalar
+ * (e.g., cudf::timestamp_D or cudf::timestamp_ms)
+ * @param stream CUDA stream to use
+ * @param year The year of the date to compare against
+ * @param month The month of the date to compare against
+ * @param day The day of the date to compare against
+ * @param column_name The name of the column to compare
+ * @param op The comparison operator (e.g., LESS, LESS_EQUAL, GREATER)
+ * @return Filter expression with proper lifetime management
+ */
+template <typename timestamp_type>
+std::unique_ptr<streaming::Filter> make_date_filter(
+    rmm::cuda_stream_view stream,
+    int year,
+    unsigned month,
+    unsigned day,
+    std::string const& column_name,
+    cudf::ast::ast_operator op
+) {
+    auto owner = new std::vector<std::any>;
+    auto const date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(year),
+        cuda::std::chrono::month(month),
+        cuda::std::chrono::day(day)
+    );
+    auto sys_days = cuda::std::chrono::sys_days(date);
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            sys_days.time_since_epoch(), true, stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(0)
+            )
+        )
+    );
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>(column_name));
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            op,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(2)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+        )
+    );
+    return std::make_unique<streaming::Filter>(
+        stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+}
 
 /**
  * @brief Sink messages into a channel and discard them.
