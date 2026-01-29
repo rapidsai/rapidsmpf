@@ -1,11 +1,11 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
@@ -138,6 +138,38 @@ TEST(ErrorMacrosTest, ErrorMessages) {
     }
 }
 
+// Test fatal error functions (non-death tests for success cases)
+TEST(ErrorMacrosTest, FatalFunctionsNoTerminate) {
+    // RAPIDSMPF_EXPECTS_FATAL should not terminate when condition is true
+    EXPECT_NO_THROW(
+        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(true, "This should not terminate")
+    );
+
+    // RAPIDSMPF_CUDA_TRY_FATAL should not terminate on success
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaSuccess));
+}
+
+// Test fatal error functions (single consolidated death test)
+TEST(ErrorMacrosDeathTest, FatalFunctions) {
+    // Test RAPIDSMPF_EXPECTS_FATAL terminates on false condition
+    EXPECT_DEATH(
+        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(false, "Test expects fatal"),
+        "RAPIDSMPF FATAL ERROR.*Test expects fatal"
+    );
+
+    // Test RAPIDSMPF_FATAL always terminates
+    EXPECT_DEATH(
+        rapidsmpf::RAPIDSMPF_FATAL("Test fatal message"),
+        "RAPIDSMPF FATAL ERROR.*Test fatal"
+    );
+
+    // Test RAPIDSMPF_CUDA_TRY_FATAL terminates on CUDA error
+    EXPECT_DEATH(
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaErrorInvalidValue),
+        "RAPIDSMPF FATAL ERROR.*invalid argument"
+    );
+}
+
 // Test actual CUDA operations with the macros
 TEST(ErrorMacrosTest, ActualCudaOperations) {
     // Test successful memory allocation and free
@@ -175,4 +207,38 @@ TEST(ErrorMacrosTest, ActualCudaOperations) {
     }
 
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY(cudaFree(d_data)));
+}
+
+// Test actual CUDA operations with the fatal macros
+TEST(ErrorMacrosTest, ActualCudaOperationsFatal) {
+    // Test successful memory allocation and free with fatal macros
+    void* d_ptr = nullptr;
+    constexpr size_t test_allocation_size = 1024;
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaMalloc(&d_ptr, test_allocation_size)));
+    ASSERT_NE(d_ptr, nullptr);
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaFree(d_ptr)));
+
+    // Test successful CUDA memcpy operation
+    int* d_data = nullptr;
+    constexpr int test_value = 42;
+    int h_result = 0;
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(
+        cudaMalloc(reinterpret_cast<void**>(&d_data), sizeof(int))
+    ));
+    ASSERT_NE(d_data, nullptr);
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(
+        cudaMemcpy(d_data, &test_value, sizeof(int), cudaMemcpyHostToDevice)
+    ));
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(
+        cudaMemcpy(&h_result, d_data, sizeof(int), cudaMemcpyDeviceToHost)
+    ));
+
+    EXPECT_EQ(test_value, h_result);
+
+    EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaFree(d_data)));
 }

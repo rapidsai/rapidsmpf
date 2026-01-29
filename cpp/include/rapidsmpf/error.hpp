@@ -141,7 +141,7 @@ inline std::string build_error_message(
  * @param throw_fn Callable that throws the appropriate exception type.
  */
 template <typename ThrowFn>
-inline void expects_impl(
+void expects_impl(
     bool condition,
     std::string_view reason,
     std::source_location const& loc,
@@ -345,17 +345,15 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
     )                                                           \
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_MACRO(_1, _2, NAME, ...) NAME
-#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                       \
-    do {                                                                   \
-        cudaError_t const error = (_call);                                 \
-        if (cudaSuccess != error) {                                        \
-            cudaGetLastError();                                            \
-            throw _exception_type /*NOLINT(bugprone-macro-parentheses)*/ { \
-                ::rapidsmpf::detail::build_cuda_error_message(             \
-                    error, std::source_location::current()                 \
-                )                                                          \
-            };                                                             \
-        }                                                                  \
+#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                           \
+    do {                                                                       \
+        cudaError_t const error = (_call);                                     \
+        if (cudaSuccess != error) {                                            \
+            cudaGetLastError();                                                \
+            throw _exception_type{rapidsmpf::detail::build_cuda_error_message( \
+                error, std::source_location::current()                         \
+            )};                                                                \
+        }                                                                      \
     } while (0)
 #define RAPIDSMPF_CUDA_TRY_1(_call) RAPIDSMPF_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
@@ -374,18 +372,18 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
  * RAPIDSMPF_CUDA_TRY_FATAL(cudaDeviceSynchronize());
  * @endcode
  */
-#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                        \
-    do {                                                       \
-        cudaError_t const error = (_call);                     \
-        if (cudaSuccess != error) {                            \
-            cudaGetLastError();                                \
-            ::rapidsmpf::detail::fatal_error(                  \
-                ::rapidsmpf::detail::build_cuda_error_message( \
-                    error, std::source_location::current()     \
-                ),                                             \
-                std::source_location::current()                \
-            );                                                 \
-        }                                                      \
+#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                      \
+    do {                                                     \
+        cudaError_t const error = (_call);                   \
+        if (cudaSuccess != error) {                          \
+            cudaGetLastError();                              \
+            rapidsmpf::detail::fatal_error(                  \
+                rapidsmpf::detail::build_cuda_error_message( \
+                    error, std::source_location::current()   \
+                ),                                           \
+                std::source_location::current()              \
+            );                                               \
+        }                                                    \
     } while (0)
 
 /**
@@ -411,34 +409,34 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                              \
-    do {                                                                          \
-        cudaError_t const error = (_call);                                        \
-        if (cudaSuccess != error) {                                               \
-            cudaGetLastError();                                                   \
-            auto const msg = ::rapidsmpf::detail::build_cuda_alloc_error_message( \
-                error, (num_bytes), std::source_location::current()               \
-            );                                                                    \
-            if (cudaErrorMemoryAllocation == error) {                             \
-                throw rapidsmpf::out_of_memory{msg};                              \
-            }                                                                     \
-            throw rapidsmpf::bad_alloc{msg};                                      \
-        }                                                                         \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                            \
+    do {                                                                        \
+        cudaError_t const error = (_call);                                      \
+        if (cudaSuccess != error) {                                             \
+            cudaGetLastError();                                                 \
+            auto const msg = rapidsmpf::detail::build_cuda_alloc_error_message( \
+                error, (num_bytes), std::source_location::current()             \
+            );                                                                  \
+            if (cudaErrorMemoryAllocation == error) {                           \
+                throw rapidsmpf::out_of_memory{msg};                            \
+            }                                                                   \
+            throw rapidsmpf::bad_alloc{msg};                                    \
+        }                                                                       \
     } while (0)
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                   \
-    do {                                                                    \
-        cudaError_t const error = (_call);                                  \
-        if (cudaSuccess != error) {                                         \
-            cudaGetLastError();                                             \
-            auto const msg = ::rapidsmpf::detail::build_cuda_error_message( \
-                error, std::source_location::current()                      \
-            );                                                              \
-            if (cudaErrorMemoryAllocation == error) {                       \
-                throw rapidsmpf::out_of_memory{msg};                        \
-            }                                                               \
-            throw rapidsmpf::bad_alloc{msg};                                \
-        }                                                                   \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                 \
+    do {                                                                  \
+        cudaError_t const error = (_call);                                \
+        if (cudaSuccess != error) {                                       \
+            cudaGetLastError();                                           \
+            auto const msg = rapidsmpf::detail::build_cuda_error_message( \
+                error, std::source_location::current()                    \
+            );                                                            \
+            if (cudaErrorMemoryAllocation == error) {                     \
+                throw rapidsmpf::out_of_memory{msg};                      \
+            }                                                             \
+            throw rapidsmpf::bad_alloc{msg};                              \
+        }                                                                 \
     } while (0)
 
 }  // namespace rapidsmpf

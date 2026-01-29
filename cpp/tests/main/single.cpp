@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,6 +20,9 @@ TestEnvironmentType Environment::type() const {
 }
 
 void Environment::SetUp() {
+    // Use threadsafe death test style to avoid fork() warnings in threaded contexts
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(options_);
     split_comm_ = comm_;
