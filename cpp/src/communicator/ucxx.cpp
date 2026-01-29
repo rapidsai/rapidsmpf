@@ -579,9 +579,8 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
         decode_(&rank, sizeof(rank));
 
         return ListenerAddress{std::make_pair(host, port), rank};
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Wrong type");
     }
+    RAPIDSMPF_FAIL("Wrong type");
 }
 
 /**
@@ -633,9 +632,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         encode_(packed_listener_address->data(), packed_listener_address_size);
 
         return packed;
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Invalid control type");
     }
+    RAPIDSMPF_FAIL("Invalid control type");
 };
 
 /**
