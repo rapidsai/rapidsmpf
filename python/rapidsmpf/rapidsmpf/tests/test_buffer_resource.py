@@ -6,7 +6,7 @@ import pytest
 
 import rmm.mr
 
-from rapidsmpf.exception import ReservationError
+from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor

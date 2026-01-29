@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules config.pyx cuda_stream.pyx exception.pyx progress_thread.pyx
+set(cython_modules config.pyx cuda_stream.pyx error.pyx progress_thread.pyx
                    rmm_resource_adaptor.pyx shuffler.pyx statistics.pyx
 )
 

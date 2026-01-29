@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.ref cimport PyObject
-from rapidsmpf.exception import BadAlloc, OutOfMemory, ReservationError
+from rapidsmpf.error import BadAlloc, OutOfMemory, ReservationError
 
 
 # Store references to exception classes for use in C++ code
@@ -172,11 +172,11 @@ cdef extern from *:
           ;  // let latest Python exn pass through and ignore the current one
         throw;
       } catch (const rapidsmpf::reservation_error& exn) {
-        set_exception(exn, "rapidsmpf.exception", "ReservationError");
+        set_exception(exn, "rapidsmpf.error", "ReservationError");
       } catch (const rapidsmpf::out_of_memory& exn) {
-        set_exception(exn, "rapidsmpf.exception", "OutOfMemory");
+        set_exception(exn, "rapidsmpf.error", "OutOfMemory");
       } catch (const rapidsmpf::bad_alloc& exn) {
-        set_exception(exn, "rapidsmpf.exception", "BadAlloc");
+        set_exception(exn, "rapidsmpf.error", "BadAlloc");
       } catch (const std::bad_alloc& exn) {
         PyErr_SetString(PyExc_MemoryError, exn.what());
       } catch (const std::bad_cast& exn) {
