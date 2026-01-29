@@ -204,21 +204,14 @@ inline std::string build_cuda_alloc_error_message(
     std::terminate();
 }
 
-}  // namespace detail
-
 /**
- * @brief Check a condition and terminate if false.
- *
- * This is the fatal (non-throwing) version of RAPIDSMPF_EXPECTS. It checks a
- * condition and, if false, prints an error message to stderr and calls
- * std::terminate(). Use this in contexts where exceptions cannot be thrown,
- * such as destructors, noexcept functions, or when recovery is impossible.
+ * @brief Implementation for RAPIDSMPF_EXPECTS_FATAL.
  *
  * @param condition The condition to check.
  * @param reason The error message if the condition is false.
  * @param loc The source location (automatically captured at call site).
  */
-inline void RAPIDSMPF_EXPECTS_FATAL(
+inline void expects_fatal_impl(
     bool condition,
     std::string_view reason,
     std::source_location loc = std::source_location::current()
@@ -229,20 +222,18 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
 }
 
 /**
- * @brief Indicate a fatal error and terminate the program.
- *
- * Prints an error message to stderr and calls std::terminate(). Use this for
- * fatal errors in contexts where exceptions cannot be thrown, such as
- * destructors, noexcept functions, or when recovery is impossible.
+ * @brief Implementation for RAPIDSMPF_FATAL.
  *
  * @param reason The error message describing the fatal error.
  * @param loc The source location (automatically captured at call site).
  */
-[[noreturn]] inline void RAPIDSMPF_FATAL(
+[[noreturn]] inline void fatal_impl(
     std::string_view reason, std::source_location loc = std::source_location::current()
 ) noexcept {
     detail::fatal_error(reason, loc);
 }
+
+}  // namespace detail
 
 /**
  * @brief Check a condition and throw an exception if it is violated.
@@ -313,12 +304,50 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(what_, _exception_type)                                         \
+#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                         \
     throw _exception_type {                                                              \
-        rapidsmpf::detail::build_error_message((what_), std::source_location::current()) \
+        rapidsmpf::detail::build_error_message((_what), std::source_location::current()) \
     }
 
-#define RAPIDSMPF_FAIL_1(what_) RAPIDSMPF_FAIL_2(what_, std::logic_error)
+#define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
+
+/**
+ * @brief Check a condition and terminate if false.
+ *
+ * This is the fatal (non-throwing) version of RAPIDSMPF_EXPECTS. It checks a
+ * condition and, if false, prints an error message to stderr and calls
+ * std::terminate(). Use this in contexts where exceptions cannot be thrown,
+ * such as destructors, noexcept functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * RAPIDSMPF_EXPECTS_FATAL(ptr != nullptr, "Unexpected null pointer");
+ * @endcode
+ *
+ * @param _condition The condition to check.
+ * @param _reason The error message if the condition is false.
+ */
+#define RAPIDSMPF_EXPECTS_FATAL(_condition, _reason)                              \
+    rapidsmpf::detail::expects_fatal_impl(                                        \
+        static_cast<bool>(_condition), (_reason), std::source_location::current() \
+    )
+
+/**
+ * @brief Indicate a fatal error and terminate the program.
+ *
+ * Prints an error message to stderr and calls std::terminate(). Use this for
+ * fatal errors in contexts where exceptions cannot be thrown, such as
+ * destructors, noexcept functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * RAPIDSMPF_FATAL("Unrecoverable error occurred");
+ * @endcode
+ *
+ * @param _reason The error message describing the fatal error.
+ */
+#define RAPIDSMPF_FATAL(_reason) \
+    rapidsmpf::detail::fatal_impl((_reason), std::source_location::current())
 
 /**
  * @brief Error checking macro for CUDA runtime API functions.

@@ -141,9 +141,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
 // Test fatal error functions (non-death tests for success cases)
 TEST(ErrorMacrosTest, FatalFunctionsNoTerminate) {
     // RAPIDSMPF_EXPECTS_FATAL should not terminate when condition is true
-    EXPECT_NO_THROW(
-        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(true, "This should not terminate")
-    );
+    EXPECT_NO_THROW(RAPIDSMPF_EXPECTS_FATAL(true, "This should not terminate"));
 
     // RAPIDSMPF_CUDA_TRY_FATAL should not terminate on success
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaSuccess));
@@ -153,14 +151,13 @@ TEST(ErrorMacrosTest, FatalFunctionsNoTerminate) {
 TEST(ErrorMacrosDeathTest, FatalFunctions) {
     // Test RAPIDSMPF_EXPECTS_FATAL terminates on false condition
     EXPECT_DEATH(
-        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(false, "Test expects fatal"),
+        RAPIDSMPF_EXPECTS_FATAL(false, "Test expects fatal"),
         "RAPIDSMPF FATAL ERROR.*Test expects fatal"
     );
 
     // Test RAPIDSMPF_FATAL always terminates
     EXPECT_DEATH(
-        rapidsmpf::RAPIDSMPF_FATAL("Test fatal message"),
-        "RAPIDSMPF FATAL ERROR.*Test fatal"
+        RAPIDSMPF_FATAL("Test fatal message"), "RAPIDSMPF FATAL ERROR.*Test fatal"
     );
 
     // Test RAPIDSMPF_CUDA_TRY_FATAL terminates on CUDA error

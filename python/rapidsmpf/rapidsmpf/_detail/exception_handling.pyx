@@ -153,11 +153,11 @@ cdef extern from *:
       ExceptT const &exn, char const* module_name, char const* class_name
     ) {
         PyObject* module = PyImport_ImportModule(module_name);
-        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(
+        RAPIDSMPF_EXPECTS_FATAL(
           module != nullptr, "cannot find " + std::string{module_name}
         );
         PyObject* exc_class = PyObject_GetAttrString(module, class_name);
-        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(
+        RAPIDSMPF_EXPECTS_FATAL(
           exc_class != nullptr, "cannot find " + std::string{class_name}
         );
         PyErr_SetString(exc_class, exn.what());
