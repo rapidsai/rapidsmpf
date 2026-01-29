@@ -53,10 +53,10 @@ cdef class AllGather:
 
     def __init__(
         self,
-        Communicator comm,
-        ProgressThread progress_thread,
+        Communicator comm not None,
+        ProgressThread progress_thread not None,
         int32_t op_id,
-        BufferResource br,
+        BufferResource br not None,
         Statistics statistics = None,
     ):
         self._comm = comm
