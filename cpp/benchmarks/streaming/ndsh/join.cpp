@@ -457,7 +457,6 @@ streaming::Node left_semi_join_broadcast_left(
     CudaEvent left_event;
     left_event.record(left_table.stream());
 
-    std::size_t sequence = 0;
     while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
@@ -471,7 +470,7 @@ streaming::Node left_semi_join_broadcast_left(
             std::move(right_chunk),
             left_on,
             right_on,
-            sequence++,
+            right_msg.sequence_number(),
             &left_event
         ));
     }
@@ -491,6 +490,7 @@ streaming::Node left_semi_join_shuffle(
     ctx->comm()->logger().print("Shuffle left semi join");
 
     co_await ctx->executor()->schedule();
+    CudaEvent left_event;
 
     while (true) {
         // Requirement: two shuffles kick out partitions in the same order
@@ -513,8 +513,6 @@ streaming::Node left_semi_join_shuffle(
         auto right_chunk =
             co_await to_device(ctx, right_msg.release<streaming::TableChunk>());
 
-        // We don't have any dependencies across chunks, so make an event per chunk pair.
-        CudaEvent left_event;
         left_event.record(left_chunk.stream());
 
         co_await ch_out->send(semi_join_chunk(
@@ -544,7 +542,7 @@ streaming::Node shuffle(
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().print("Shuffle: no more input");
+            ctx->comm()->logger().debug("Shuffle: no more input");
             break;
         }
         auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
