@@ -366,6 +366,35 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
 #define RAPIDSMPF_CUDA_TRY_1(_call) RAPIDSMPF_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
 /**
+ * @brief Error checking macro for CUDA runtime API calls that terminates on error.
+ *
+ * Invokes a CUDA runtime API function call. If the call does not return
+ * `cudaSuccess`, invokes cudaGetLastError() to clear the error and terminates
+ * the program with a fatal error message detailing the CUDA error that occurred.
+ *
+ * Use this in contexts where exceptions cannot be thrown, such as destructors,
+ * noexcept functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * ```
+ * RAPIDSMPF_CUDA_TRY_FATAL(cudaDeviceSynchronize());
+ * ```
+ */
+#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                        \
+    do {                                                       \
+        cudaError_t const error = (_call);                     \
+        if (cudaSuccess != error) {                            \
+            cudaGetLastError();                                \
+            ::rapidsmpf::detail::fatal_error(                  \
+                ::rapidsmpf::detail::build_cuda_error_message( \
+                    error, std::source_location::current()     \
+                ),                                             \
+                std::source_location::current()                \
+            );                                                 \
+        }                                                      \
+    } while (0)
+
+/**
  * @brief Error checking macro for CUDA memory allocation calls.
  *
  * Invokes a CUDA memory allocation function call. If the call does not return
@@ -416,48 +445,5 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
             throw rapidsmpf::bad_alloc{msg};                                \
         }                                                                   \
     } while (0)
-
-/**
- * @brief Error checking macro similar to `assert` for CUDA runtime API calls
- *
- * This utility should be used in situations where extra error checking is desired in
- * "Debug" builds, or in situations where an error case cannot throw an exception (such as
- * a class destructor).
- *
- * In "Release" builds, simply invokes the `_call`.
- *
- * In "Debug" builds, invokes `_call` and uses `assert` to verify the returned
- * `cudaError_t` is equal to `cudaSuccess`.
- *
- *
- * Replaces usecases such as:
- * ```
- * auto status = cudaRuntimeApi(...);
- * assert(status == cudaSuccess);
- * ```
- *
- * Example:
- * ```
- * RAPIDSMPF_ASSERT_CUDA_SUCCESS(cudaRuntimeApi(...));
- * ```
- *
- */
-#ifdef NDEBUG
-#define RAPIDSMPF_ASSERT_CUDA_SUCCESS(_call) \
-    do {                                     \
-        (_call);                             \
-    } while (0);
-#else
-#define RAPIDSMPF_ASSERT_CUDA_SUCCESS(_call)                                          \
-    do {                                                                              \
-        cudaError_t const status__ = (_call);                                         \
-        if (status__ != cudaSuccess) {                                                \
-            std::cerr << "CUDA Error detected. " << cudaGetErrorName(status__) << " " \
-                      << cudaGetErrorString(status__) << std::endl;                   \
-        }                                                                             \
-        /* NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay) */     \
-        assert(status__ == cudaSuccess);                                              \
-    } while (0)
-#endif
 
 }  // namespace rapidsmpf
