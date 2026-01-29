@@ -16,6 +16,7 @@ from rmm.pylibrmm.cuda_stream import CudaStreamFlags
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
@@ -49,14 +50,14 @@ cdef extern from *:
     """
     cpp_MemoryAvailable to_MemoryAvailable(
         shared_ptr[cpp_LimitAvailableMemory]
-    ) except +
+    ) except +ex_handler
     int64_t _call_memory_available(
         cpp_BufferResource* resource,
         MemoryType mem_type
-    ) except + nogil
+    ) except +ex_handler nogil
     shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
         cuda_stream_pool* ptr
-    ) except +
+    ) except +ex_handler
 
 
 cdef extern from * nogil:
@@ -94,12 +95,12 @@ cdef extern from * nogil:
         MemoryType,
         size_t,
         bool_t,
-    ) except +
+    ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_device_memory_and_spill(
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
-    ) except +
+    ) except +ex_handler
 
 cdef class BufferResource:
     """
@@ -511,7 +512,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         cpp_memory_available_from_options \
         "rapidsmpf::memory_available_from_options"(
             cpp_RmmResourceAdaptor* mr, cpp_Options options
-        ) except +
+        ) except +ex_handler
 
 
 cdef class AvailableMemoryMap:
@@ -552,7 +553,9 @@ cdef class AvailableMemoryMap:
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
-        "rapidsmpf::periodic_spill_check_from_options"(cpp_Options options) except +
+        "rapidsmpf::periodic_spill_check_from_options"(
+            cpp_Options options
+        ) except +ex_handler
 
 
 def periodic_spill_check_from_options(Options options not None):
