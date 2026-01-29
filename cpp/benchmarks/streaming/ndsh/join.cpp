@@ -161,13 +161,12 @@ streaming::Message semi_join_chunk(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk const& left_chunk,
     streaming::TableChunk&& right_chunk,
-    [[maybe_unused]] std::vector<cudf::size_type> left_on,
+    std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     std::uint64_t sequence,
     CudaEvent* left_event
 ) {
-    CudaEvent event;  // TODO: see if this is needed for deallocation.
-    right_chunk = to_device(ctx, std::move(right_chunk));
+    CudaEvent event;
     auto chunk_stream = right_chunk.stream();
 
     left_event->stream_wait(chunk_stream);
@@ -452,7 +451,7 @@ streaming::Node left_semi_join_broadcast_left(
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto left_table = to_device(
+    auto left_table = co_await to_device(
         ctx, (co_await broadcast(ctx, left, tag)).release<streaming::TableChunk>()
     );
     ctx->comm()->logger().print(
@@ -467,10 +466,12 @@ streaming::Node left_semi_join_broadcast_left(
         if (right_msg.empty()) {
             break;
         }
+        auto right_chunk =
+            co_await to_device(ctx, right_msg.release<streaming::TableChunk>());
         co_await ch_out->send(semi_join_chunk(
             ctx,
             left_table,
-            right_msg.release<streaming::TableChunk>(),
+            std::move(right_chunk),
             left_on,
             right_on,
             sequence++,
@@ -499,10 +500,6 @@ streaming::Node left_semi_join_shuffle(
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();
 
-        // We don't have any dependencies across chunks, so make an event per chunk pair.
-        CudaEvent left_event;
-        left_event.record(left_msg.release<streaming::TableChunk>().stream());
-
         if (left_msg.empty()) {
             RAPIDSMPF_EXPECTS(
                 right_msg.empty(), "Left does not have same number of partitions as right"
@@ -514,10 +511,19 @@ streaming::Node left_semi_join_shuffle(
             "Mismatching sequence numbers"
         );
 
+        auto left_chunk =
+            co_await to_device(ctx, left_msg.release<streaming::TableChunk>());
+        auto right_chunk =
+            co_await to_device(ctx, right_msg.release<streaming::TableChunk>());
+
+        // We don't have any dependencies across chunks, so make an event per chunk pair.
+        CudaEvent left_event;
+        left_event.record(left_chunk.stream());
+
         co_await ch_out->send(semi_join_chunk(
             ctx,
-            left_msg.release<streaming::TableChunk>(),
-            right_msg.release<streaming::TableChunk>(),
+            left_chunk,
+            std::move(right_chunk),
             left_on,
             right_on,
             left_msg.sequence_number(),

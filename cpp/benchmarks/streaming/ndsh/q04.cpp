@@ -90,8 +90,9 @@ rapidsmpf::streaming::Node final_groupby_agg(
     RAPIDSMPF_EXPECTS(
         (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
     );
-    auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto chunk = co_await rapidsmpf::ndsh::to_device(
+        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+    );
     auto stream = chunk.stream();
     auto mr = ctx->br()->device_mr();
     auto table = chunk.table_view();
@@ -149,8 +150,9 @@ rapidsmpf::streaming::Node sort_by(
     if (msg.empty()) {
         co_return;
     }
-    auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto chunk = co_await rapidsmpf::ndsh::to_device(
+        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+    );
     auto stream = chunk.stream();
     auto mr = ctx->br()->device_mr();
     auto table = chunk.table_view();
@@ -198,7 +200,7 @@ rapidsmpf::streaming::Node select_columns(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
@@ -402,7 +404,7 @@ rapidsmpf::streaming::Node filter_lineitem(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         auto chunk_stream = chunk.stream();
@@ -448,7 +450,7 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         // Here, we know that copying ch1_cols (a single col) is better than copying
