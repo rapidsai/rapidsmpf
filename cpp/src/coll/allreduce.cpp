@@ -51,24 +51,31 @@ void AllReduce::ensure_reduction_done() {
     }
 
     // Slow path: acquire lock and perform reduction
-    std::lock_guard lock(mutex_);
+    {
+        std::lock_guard lock(mutex_);
 
-    if (reduction_done_.load(std::memory_order_acquire)) {
-        return;
+        if (reduction_done_.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        // Extract gathered data and perform reduction.
+        // Note: This is safe because gatherer_.finished() is true, so wait_and_extract
+        // won't block.
+        auto gathered = gatherer_.wait_and_extract(AllGather::Ordered::YES);
+        auto result = reduce_all(std::move(gathered));
+
+        reduced_result_ = std::move(result);
+        reduction_done_.store(true, std::memory_order_release);
+
+        // Call callback with mutex held to ensure consistent state
+        if (finished_callback_) {
+            finished_callback_();
+        }
+        // Lock is released here at end of scope
     }
 
-    // Extract gathered data and perform reduction.
-    // Note: This is safe because gatherer_.finished() is true, so wait_and_extract won't
-    // block.
-    auto gathered = gatherer_.wait_and_extract(AllGather::Ordered::YES);
-    auto result = reduce_all(std::move(gathered));
-
-    reduced_result_ = std::move(result);
-    reduction_done_.store(true, std::memory_order_release);
+    // Notify waiters after releasing the mutex to avoid "hurry up and wait"
     cv_.notify_all();
-    if (finished_callback_) {
-        finished_callback_();
-    }
 }
 
 void AllReduce::insert(PackedData&& packed_data) {
