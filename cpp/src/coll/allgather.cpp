@@ -521,11 +521,11 @@ ProgressThread::ProgressState AllGather::event_loop() {
             std::lock_guard lock(mutex_);
             can_extract_ = true;
         }
-        cv_.notify_one();
         std::function<void()> callback = std::move(finished_callback_);
         if (callback) {
             callback();
         }
+        cv_.notify_one();
     }
     return is_done ? ProgressThread::ProgressState::Done
                    : ProgressThread::ProgressState::InProgress;
