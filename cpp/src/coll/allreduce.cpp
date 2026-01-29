@@ -87,30 +87,27 @@ bool AllReduce::finished() const noexcept {
 }
 
 PackedData AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
-    // If reduction is not done yet, we need to wait for the allgather to complete first
+    // If reduction is not done yet, wait on the condition variable
     if (!reduction_done_.load(std::memory_order_acquire)) {
+        std::unique_lock lock(mutex_);
+
         if (timeout.count() < 0) {
-            while (!gatherer_.finished()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
+            cv_.wait(lock, [this] {
+                return reduction_done_.load(std::memory_order_acquire);
+            });
         } else {
-            auto start = std::chrono::steady_clock::now();
-            while (!gatherer_.finished()) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - start
+            bool completed = cv_.wait_for(lock, timeout, [this] {
+                return reduction_done_.load(std::memory_order_acquire);
+            });
+
+            if (!completed) {
+                RAPIDSMPF_FAIL(
+                    "AllReduce::wait_and_extract timed out waiting for reduction to "
+                    "complete",
+                    std::runtime_error
                 );
-                if (elapsed >= timeout) {
-                    RAPIDSMPF_FAIL(
-                        "AllReduce::wait_and_extract timed out waiting for allgather to "
-                        "complete",
-                        std::runtime_error
-                    );
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
-
-        ensure_reduction_done();
     }
 
     // Extract and return the result (this is destructive - can only be called once)
