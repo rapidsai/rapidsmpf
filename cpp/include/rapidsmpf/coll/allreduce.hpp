@@ -9,11 +9,14 @@
 #include <atomic>
 #include <chrono>
 #include <concepts>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <type_traits>
@@ -222,6 +225,9 @@ class AllReduce {
     /// @brief Perform the reduction across all ranks for the gathered contributions.
     [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
+    /// @brief Ensure reduction has been performed (called on-demand, thread-safe).
+    void ensure_reduction_done() const;
+
     ReduceOperator reduce_operator_;  ///< Reduction operator
     BufferResource* br_;  ///< Buffer resource for memory normalization
 
@@ -229,6 +235,16 @@ class AllReduce {
     AllGather gatherer_;  ///< Underlying allgather primitive
 
     std::atomic<bool> inserted_{false};  ///< Whether insert has been called
+    std::function<void()>
+        finished_callback_;  ///< Callback invoked when allreduce completes
+
+    mutable std::mutex mutex_;  ///< Mutex for synchronization
+    mutable std::condition_variable cv_;  ///< Condition variable for waiting
+    mutable std::optional<PackedData>
+        reduced_result_;  ///< Reduced result (populated after reduction)
+    mutable std::atomic<bool> reduction_done_{
+        false
+    };  ///< Whether reduction has completed
 };
 
 namespace detail {

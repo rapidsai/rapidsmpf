@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -34,8 +35,42 @@ AllReduce::AllReduce(
           op_id,
           br,
           std::move(statistics),
-          std::move(finished_callback)
-      } {}
+          [this]() { ensure_reduction_done(); }
+      },
+      finished_callback_{std::move(finished_callback)} {}
+
+void AllReduce::ensure_reduction_done() const {
+    // Fast path: check if reduction is already done.
+    if (reduction_done_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    // If we're here this should always be true, but check just in case.
+    if (!gatherer_.finished()) {
+        return;
+    }
+
+    // Slow path: acquire lock and perform reduction
+    std::lock_guard lock(mutex_);
+
+    if (reduction_done_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    // Extract gathered data and perform reduction.
+    // Note: This is safe because gatherer_.finished() is true, so wait_and_extract won't
+    // block.
+    auto gathered =
+        const_cast<AllGather&>(gatherer_).wait_and_extract(AllGather::Ordered::YES);
+    auto result = const_cast<AllReduce*>(this)->reduce_all(std::move(gathered));
+
+    reduced_result_ = std::move(result);
+    reduction_done_.store(true, std::memory_order_release);
+    cv_.notify_all();
+    if (finished_callback_) {
+        finished_callback_();
+    }
+}
 
 void AllReduce::insert(PackedData&& packed_data) {
     RAPIDSMPF_EXPECTS(
@@ -48,19 +83,50 @@ void AllReduce::insert(PackedData&& packed_data) {
 }
 
 bool AllReduce::finished() const noexcept {
-    return gatherer_.finished();
+    return reduction_done_.load(std::memory_order_acquire);
 }
 
 PackedData AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
-    // Block until the underlying allgather completes, then perform the reduction locally
-    // (exactly once).
-    auto gathered =
-        gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
-    return reduce_all(std::move(gathered));
+    // If reduction is not done yet, we need to wait for the allgather to complete first
+    if (!reduction_done_.load(std::memory_order_acquire)) {
+        if (timeout.count() < 0) {
+            while (!gatherer_.finished()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        } else {
+            auto start = std::chrono::steady_clock::now();
+            while (!gatherer_.finished()) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start
+                );
+                if (elapsed >= timeout) {
+                    RAPIDSMPF_FAIL(
+                        "AllReduce::wait_and_extract timed out waiting for allgather to "
+                        "complete",
+                        std::runtime_error
+                    );
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        ensure_reduction_done();
+    }
+
+    // Extract and return the result (this is destructive - can only be called once)
+    std::lock_guard lock(mutex_);
+    RAPIDSMPF_EXPECTS(
+        reduced_result_.has_value(),
+        "AllReduce::wait_and_extract can only be called once",
+        std::runtime_error
+    );
+    PackedData result = std::move(*reduced_result_);
+    reduced_result_.reset();
+    return result;
 }
 
 bool AllReduce::is_ready() const noexcept {
-    return gatherer_.finished();
+    return reduction_done_.load(std::memory_order_acquire);
 }
 
 PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
