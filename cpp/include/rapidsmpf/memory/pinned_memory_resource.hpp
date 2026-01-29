@@ -37,6 +37,9 @@ namespace rapidsmpf {
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
  * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
+ *
+ * @return True if the PinnedMemoryResource is supported for the current CUDA version,
+ * false otherwise.
  */
 inline bool is_pinned_memory_resources_supported() {
     static const bool supported = [] {

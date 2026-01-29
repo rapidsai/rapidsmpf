@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -118,30 +120,21 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
-        return device_mr_;
-    }
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
-        return host_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
      *
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
-        );
-        return *pinned_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
