@@ -139,6 +139,12 @@ class HostBuffer {
     /**
      * @brief Set the associated CUDA stream.
      *
+     * This function only updates the buffer's associated CUDA stream. It does not
+     * perform any stream synchronization or establish ordering guarantees between
+     * the previous stream and @p stream. Callers must ensure that any work
+     * previously enqueued on the old stream that may access the buffer has completed
+     * or is otherwise properly synchronized before switching streams.
+     *
      * @param stream The new CUDA stream.
      */
     void set_stream(rmm::cuda_stream_view stream);
