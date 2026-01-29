@@ -1,8 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport unique_ptr
 from libcpp.vector cimport vector
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
 cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
@@ -10,7 +12,8 @@ cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
         pass
 
     cdef void cpp_run_streaming_pipeline \
-        "rapidsmpf::streaming::run_streaming_pipeline"(vector[cpp_Node]) except +
+        "rapidsmpf::streaming::run_streaming_pipeline"(vector[cpp_Node]) \
+        except +ex_handler
 
 
 cdef class CppNode:

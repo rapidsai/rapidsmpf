@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -6,6 +6,8 @@ from libc.stdint cimport uint64_t
 from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            UpstreamResourceAdaptor)
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
 cdef extern from "<rapidsmpf/memory/scoped_memory_record.hpp>" nogil:
@@ -15,7 +17,7 @@ cdef extern from "<rapidsmpf/memory/scoped_memory_record.hpp>" nogil:
         ALL
 
     cdef cppclass cpp_ScopedMemoryRecord"rapidsmpf::ScopedMemoryRecord":
-        cpp_ScopedMemoryRecord() except +
+        cpp_ScopedMemoryRecord() except +ex_handler
         uint64_t num_total_allocs(AllocType alloc_type) noexcept
         uint64_t num_current_allocs(AllocType alloc_type) noexcept
         uint64_t current(AllocType alloc_type) noexcept

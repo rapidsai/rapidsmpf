@@ -11,6 +11,7 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -125,21 +126,22 @@ cdef extern from * nogil:
         uint32_t pid,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
-    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] cpp_extract_any_async(
+    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] \
+        cpp_extract_any_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
     void cpp_insert_finished(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 
 def shuffler(

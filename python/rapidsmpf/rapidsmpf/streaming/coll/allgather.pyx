@@ -62,7 +62,7 @@ cdef extern from * nogil:
         cpp_Ordered ordered,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 
 cdef class AllGather:
