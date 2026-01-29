@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -120,6 +120,8 @@ class MPI final : public Communicator {
      * @param options Configuration options.
      */
     MPI(MPI_Comm comm, config::Options options);
+
+    ~MPI() noexcept override = default;
 
     /**
      * @copydoc Communicator::rank
