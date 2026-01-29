@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -56,7 +56,7 @@ rapidsmpf::streaming::Node chunkwise_sort_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         co_await ch_out->send(to_message(
             msg.sequence_number(),
             std::make_unique<streaming::TableChunk>(make_table(chunk), chunk.stream())

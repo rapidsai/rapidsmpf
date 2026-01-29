@@ -225,7 +225,7 @@ Duration run(
 
     auto const t0_elapsed = Clock::now();
 
-    Tag const tag{0, 1};
+    Tag const tag{0, 0};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
