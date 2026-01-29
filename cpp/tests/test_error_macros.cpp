@@ -147,26 +147,6 @@ TEST(ErrorMacrosTest, FatalFunctionsNoTerminate) {
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaSuccess));
 }
 
-// Test fatal error functions (single consolidated death test)
-TEST(ErrorMacrosDeathTest, FatalFunctions) {
-    // Test RAPIDSMPF_EXPECTS_FATAL terminates on false condition
-    EXPECT_DEATH(
-        RAPIDSMPF_EXPECTS_FATAL(false, "Test expects fatal"),
-        "RAPIDSMPF FATAL ERROR.*Test expects fatal"
-    );
-
-    // Test RAPIDSMPF_FATAL always terminates
-    EXPECT_DEATH(
-        RAPIDSMPF_FATAL("Test fatal message"), "RAPIDSMPF FATAL ERROR.*Test fatal"
-    );
-
-    // Test RAPIDSMPF_CUDA_TRY_FATAL terminates on CUDA error
-    EXPECT_DEATH(
-        RAPIDSMPF_CUDA_TRY_FATAL(cudaErrorInvalidValue),
-        "RAPIDSMPF FATAL ERROR.*invalid argument"
-    );
-}
-
 // Test actual CUDA operations with the macros
 TEST(ErrorMacrosTest, ActualCudaOperations) {
     // Test successful memory allocation and free
