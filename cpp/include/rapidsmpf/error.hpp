@@ -5,7 +5,11 @@
 
 #pragma once
 
-#include <stdexcept>  // NOLINT(unused-includes)
+#include <source_location>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -109,6 +113,46 @@ class reservation_error : public bad_alloc {
     explicit reservation_error(std::string const& msg) : reservation_error{msg.c_str()} {}
 };
 
+namespace detail {
+
+/**
+ * @brief Build error message with source location information.
+ *
+ * @param reason The error reason message.
+ * @param loc The source location where the error occurred.
+ * @return Formatted error message string.
+ */
+inline std::string build_error_message(
+    std::string_view reason, const std::source_location& loc
+) {
+    std::ostringstream ss;
+    ss << "RAPIDSMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
+       << reason;
+    return ss.str();
+}
+
+/**
+ * @brief Core implementation for RAPIDSMPF_EXPECTS
+ *
+ * @param condition The condition to check.
+ * @param reason The error reason if condition is false.
+ * @param loc The source location (automatically captured).
+ * @param throw_fn Lambda that throws the appropriate exception type.
+ */
+template <typename ThrowFn>
+inline void expects_impl(
+    bool condition,
+    std::string_view reason,
+    const std::source_location& loc,
+    ThrowFn&& throw_fn
+) {
+    if (!condition) {
+        throw_fn(build_error_message(reason, loc));
+    }
+}
+
+}  // namespace detail
+
 /**
  * @brief Macro for checking (pre-)conditions that throws an exception when
  * a condition is violated.
@@ -140,13 +184,15 @@ class reservation_error : public bad_alloc {
 
 #define GET_RAPIDSMPF_EXPECTS_MACRO(_1, _2, _3, NAME, ...) NAME
 
-#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)                   \
-    do {                                                                            \
-        static_assert(std::is_base_of_v<std::exception, _exception_type>);          \
-        (_condition) ? static_cast<void>(0)                                         \
-                     : throw _exception_type /*NOLINT(bugprone-macro-parentheses)*/ \
-            {"RAPIDSMPF failure at: " __FILE__                                      \
-             ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _reason};                       \
+#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)          \
+    do {                                                                   \
+        static_assert(std::is_base_of_v<std::exception, _exception_type>); \
+        rapidsmpf::detail::expects_impl(                                   \
+            static_cast<bool>(_condition),                                 \
+            (_reason),                                                     \
+            std::source_location::current(),                               \
+            [](auto&& msg) { throw _exception_type{msg}; }                 \
+        );                                                                 \
     } while (0)
 
 #define RAPIDSMPF_EXPECTS_2(_condition, _reason) \
@@ -179,10 +225,9 @@ class reservation_error : public bad_alloc {
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                      \
-    /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                                    \
-    throw _exception_type {                                                           \
-        "RAPIDSMPF failure at:" __FILE__ ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _what \
+#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                         \
+    throw _exception_type {                                                              \
+        rapidsmpf::detail::build_error_message((_what), std::source_location::current()) \
     }
 
 #define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
@@ -219,7 +264,6 @@ class reservation_error : public bad_alloc {
         cudaError_t const error = (_call);                                             \
         if (cudaSuccess != error) {                                                    \
             cudaGetLastError();                                                        \
-            /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                             \
             throw _exception_type{                                                     \
                 std::string{"CUDA error at: "} + __FILE__ + ":"                        \
                 + RAPIDSMPF_STRINGIFY(__LINE__) + ": " + cudaGetErrorName(error) + " " \
