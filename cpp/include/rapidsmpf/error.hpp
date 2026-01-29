@@ -82,6 +82,34 @@ class out_of_memory : public bad_alloc {
 };
 
 /**
+ * @brief Exception thrown when a memory reservation fails in RapidsMPF.
+ *
+ * @ingroup errors
+ *
+ * This error is thrown when attempting to reserve memory fails, or when an
+ * existing memory reservation is insufficient for a requested allocation.
+ * It does not necessarily indicate that the system is out of physical memory,
+ * only that the reservation contract could not be satisfied.
+ */
+class reservation_error : public bad_alloc {
+  public:
+    /**
+     * @brief Construct a reservation_error with an error message.
+     *
+     * @param msg Message to be associated with the exception.
+     */
+    explicit reservation_error(const char* msg)
+        : bad_alloc{std::string{"reservation_error: "} + msg} {}
+
+    /**
+     * @brief Construct a reservation_error with an error message.
+     *
+     * @param msg Message to be associated with the exception.
+     */
+    explicit reservation_error(std::string const& msg) : reservation_error{msg.c_str()} {}
+};
+
+/**
  * @brief Macro for checking (pre-)conditions that throws an exception when
  * a condition is violated.
  *

@@ -138,8 +138,8 @@ partition_and_split(
  * @param allow_overbooking If true, allow overbooking (true by default).
  * @return The concatenated table resulting from unpacking the input partitions.
  *
- * @throws std::overflow_error If the buffer resource cannot reserve enough memory to
- * concatenate all partitions.
+ * @throws rapidsmpf::reservation_error If the buffer resource cannot reserve enough
+ * memory to concatenate all partitions.
  * @throws std::logic_error If the partitions are not in device memory.
  *
  * @see partition_and_pack
@@ -171,7 +171,7 @@ partition_and_split(
  *
  * @return A vector of `PackedData`, where each buffer resides in host memory.
  *
- * @throws std::overflow_error If host memory reservation fails.
+ * @throws rapidsmpf::reservation_error If host memory reservation fails.
  */
 std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions,
@@ -199,7 +199,7 @@ std::vector<PackedData> spill_partitions(
  *
  * @return A vector of `PackedData`, each with a buffer in device memory.
  *
- * @throws std::overflow_error If overbooking exceeds the amount spilled and
+ * @throws rapidsmpf::reservation_error If overbooking exceeds the amount spilled and
  *         `allow_overbooking` is false.
  */
 std::vector<PackedData> unspill_partitions(

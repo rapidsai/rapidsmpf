@@ -172,8 +172,8 @@ std::unique_ptr<streaming::Filter> make_date_filter(
  * @return A new `TableChunk` that is available on device.
  *
  * @throws std::runtime_error If shutdown occurs before the reservation can be processed.
- * @throws std::overflow_error If no progress is possible within the timeout and
- * overbooking is disabled.
+ * @throws rapidsmpf::reservation_error if overbooking is not allowed and not enough
+ * memory is available to reserve.
  */
 coro::task<streaming::TableChunk> to_device(
     std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
