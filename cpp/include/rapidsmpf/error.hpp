@@ -41,7 +41,7 @@ class bad_alloc : public std::bad_alloc {
      * @param msg Message to be associated with the exception
      */
     bad_alloc(const char* msg)
-        : _what{std::string{std::bad_alloc::what()} + ": " + msg} {}
+        : what_{std::string{std::bad_alloc::what()} + ": " + msg} {}
 
     /**
      * @brief Constructs a bad_alloc with the error message.
@@ -56,11 +56,11 @@ class bad_alloc : public std::bad_alloc {
      * @return The explanatory string.
      */
     [[nodiscard]] const char* what() const noexcept override {
-        return _what.c_str();
+        return what_.c_str();
     }
 
   private:
-    std::string _what;
+    std::string what_;
 };
 
 /**
@@ -317,12 +317,12 @@ inline void RAPIDSMPF_EXPECTS_FATAL(
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                         \
+#define RAPIDSMPF_FAIL_2(what_, _exception_type)                                         \
     throw _exception_type {                                                              \
-        rapidsmpf::detail::build_error_message((_what), std::source_location::current()) \
+        rapidsmpf::detail::build_error_message((what_), std::source_location::current()) \
     }
 
-#define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
+#define RAPIDSMPF_FAIL_1(what_) RAPIDSMPF_FAIL_2(what_, std::logic_error)
 
 /**
  * @brief Error checking macro for CUDA runtime API functions.
