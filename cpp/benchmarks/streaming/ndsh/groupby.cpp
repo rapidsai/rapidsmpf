@@ -18,8 +18,6 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utils.hpp"
-
 namespace rapidsmpf::ndsh {
 
 streaming::Node chunkwise_group_by(
@@ -37,7 +35,7 @@ streaming::Node chunkwise_group_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
         auto stream = chunk.stream();
         auto table = chunk.table_view();
         auto agg_requests = std::vector<cudf::groupby::aggregation_request>();

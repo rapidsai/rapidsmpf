@@ -200,9 +200,8 @@ rapidsmpf::streaming::Node select_columns_for_groupby(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
@@ -281,9 +280,8 @@ rapidsmpf::streaming::Node top_k_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto const indices = cudf::sorted_order(
             chunk.table_view().select(keys),
             order,
@@ -346,9 +344,8 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         // Here, we know that copying ch1_cols (a single col) is better than copying
         // ch2_cols (the whole table)
         std::vector<coro::task<bool>> tasks;
