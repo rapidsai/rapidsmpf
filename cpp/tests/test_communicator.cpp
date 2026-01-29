@@ -42,9 +42,6 @@ class BaseCommunicatorTest : public ::testing::Test {
 };
 
 TEST_F(BaseCommunicatorTest, TagConstruction) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
-        GTEST_SKIP() << "Tag validation independent of communicator type";
-    }
     EXPECT_THROW(
         rapidsmpf::Tag(0, 1 << rapidsmpf::Tag::stage_id_bits), std::overflow_error
     );

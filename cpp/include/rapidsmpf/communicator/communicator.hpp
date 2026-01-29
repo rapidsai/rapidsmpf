@@ -47,7 +47,7 @@ using OpID = std::int32_t;
  * @typedef StageID
  * @brief Identifier for a stage of a communication operation.
  *
- * @note Although typed as an `int32`, the number of distinct operations is limited to
+ * @note Although typed as an `int32`, the number of distinct stages is limited to
  * `2^3`.
  */
 using StageID = std::int32_t;
