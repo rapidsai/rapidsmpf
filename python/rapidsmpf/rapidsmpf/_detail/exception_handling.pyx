@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 cdef extern from *:
@@ -98,3 +98,63 @@ cdef void throw_py_as_cpp_exception(CppExcept err) noexcept nogil:
         The exception description that will be thrown as a C++ exception.
     """
     cpp_throw_py_as_cpp_exception(err)
+
+
+# Exception handler for mapping C++ exceptions to Python exceptions
+cdef extern from *:
+    """
+    #include <exception>
+    #include <stdexcept>
+
+    #include <Python.h>
+    #include <rapidsmpf/error.hpp>
+
+    namespace {
+
+    /**
+     * @brief Exception handler to map C++ exceptions to Python ones in Cython
+     *
+     * This exception handler extends the base exception handler provided by
+     * Cython. In addition to the exceptions that Cython itself supports, this
+     * handler adds support for rapidsmpf-specific exceptions.
+     */
+    void ex_handler()
+    {
+      try {
+        if (PyErr_Occurred())
+          ;  // let latest Python exn pass through and ignore the current one
+        throw;
+      } catch (const rapidsmpf::reservation_error& exn) {
+        PyErr_SetString(PyExc_MemoryError, exn.what());
+      } catch (const rapidsmpf::out_of_memory& exn) {
+        PyErr_SetString(PyExc_MemoryError, exn.what());
+      } catch (const rapidsmpf::bad_alloc& exn) {
+        PyErr_SetString(PyExc_MemoryError, exn.what());
+      } catch (const std::bad_alloc& exn) {
+        PyErr_SetString(PyExc_MemoryError, exn.what());
+      } catch (const std::bad_cast& exn) {
+        PyErr_SetString(PyExc_TypeError, exn.what());
+      } catch (const std::domain_error& exn) {
+        PyErr_SetString(PyExc_ValueError, exn.what());
+      } catch (const std::invalid_argument& exn) {
+        PyErr_SetString(PyExc_ValueError, exn.what());
+      } catch (const std::ios_base::failure& exn) {
+        PyErr_SetString(PyExc_IOError, exn.what());
+      } catch (const std::out_of_range& exn) {
+        PyErr_SetString(PyExc_IndexError, exn.what());
+      } catch (const std::overflow_error& exn) {
+        PyErr_SetString(PyExc_OverflowError, exn.what());
+      } catch (const std::range_error& exn) {
+        PyErr_SetString(PyExc_ArithmeticError, exn.what());
+      } catch (const std::underflow_error& exn) {
+        PyErr_SetString(PyExc_ArithmeticError, exn.what());
+      } catch (const std::exception& exn) {
+        PyErr_SetString(PyExc_RuntimeError, exn.what());
+      } catch (...) {
+        PyErr_SetString(PyExc_RuntimeError, "Unknown exception");
+      }
+    }
+
+    }  // anonymous namespace
+    """
+    cdef void ex_handler()

@@ -226,7 +226,7 @@ def unpack_and_concat(
 
     Raises
     ------
-    OverflowError
+    MemoryError
         If the buffer resource cannot reserve enough memory to concatenate all
         partitions.
 
@@ -289,7 +289,7 @@ def spill_partitions(
 
     Raises
     ------
-    OverflowError
+    MemoryError
         If host memory reservation fails.
     """
     cdef cpp_BufferResource* _br = br.ptr()
@@ -354,7 +354,7 @@ def unspill_partitions(
 
     Raises
     ------
-    OverflowError
+    MemoryError
         If overbooking exceeds the amount spilled and ``allow_overbooking is False``.
     """
     cdef cpp_BufferResource* _br = br.ptr()

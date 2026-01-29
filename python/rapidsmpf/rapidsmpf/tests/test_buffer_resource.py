@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
 
     # But a reservation cannot go to negative.
     with pytest.raises(
-        OverflowError,
+        MemoryError,
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
