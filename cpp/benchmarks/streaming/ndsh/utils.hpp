@@ -4,18 +4,28 @@
  */
 
 #pragma once
+#include <any>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include <mpi.h>
 
+#include <cudf/ast/expressions.hpp>
+#include <cudf/scalar/scalar.hpp>
+#include <cudf/types.hpp>
+#include <cudf/wrappers/timestamps.hpp>
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
@@ -48,8 +58,75 @@ namespace detail {
     std::string const& input_directory, std::string const& table_name
 );
 
+/**
+ * @brief Get cudf data types for all columns from parquet metadata.
+ *
+ * Reads parquet metadata to determine the cudf data type for each column.
+ *
+ * @param input_directory Directory containing input parquet files
+ * @param table_name Name of the table (e.g., "lineitem")
+ * @return Map from column name to cudf data type
+ */
+[[nodiscard]] std::map<std::string, cudf::data_type> get_column_types(
+    std::string const& input_directory, std::string const& table_name
+);
 
 }  // namespace detail
+
+/**
+ * @brief Create a date comparison filter expression.
+ *
+ * Creates a filter that compares a date column against a literal date value.
+ * The operation will be equivalent to
+ * "<column_name> <op> DATE '<year>-<month>-<day>'".
+ *
+ * @tparam timestamp_type The timestamp type to use for the filter scalar
+ * (e.g., cudf::timestamp_D or cudf::timestamp_ms)
+ * @param stream CUDA stream to use
+ * @param date The date to compare against
+ * @param column_name The name of the column to compare
+ * @param op The comparison operator (e.g., LESS, LESS_EQUAL, GREATER)
+ * @return Filter expression with proper lifetime management
+ */
+template <typename timestamp_type>
+std::unique_ptr<streaming::Filter> make_date_filter(
+    rmm::cuda_stream_view stream,
+    cuda::std::chrono::year_month_day date,
+    std::string const& column_name,
+    cudf::ast::ast_operator op
+) {
+    auto owner = new std::vector<std::any>;
+    auto sys_days = cuda::std::chrono::sys_days(date);
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            sys_days.time_since_epoch(), true, stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(0)
+            )
+        )
+    );
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>(column_name));
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            op,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(2)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+        )
+    );
+    return std::make_unique<streaming::Filter>(
+        stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+}
 
 /**
  * @brief Sink messages into a channel and discard them.
@@ -79,20 +156,27 @@ namespace detail {
 );
 
 /**
- * @brief Ensure a `TableChunk` is on device.
+ * @brief Ensure a `TableChunk` is available on device memory.
  *
- * @param ctx Streaming context
- * @param chunk Chunk to move from device, is left in a moved-from state
- * @param allow_overbooking Whether reserving memory is allowed to overbook
+ * If @p chunk is not already device-resident, this coroutine reserves device memory
+ * via `streaming::reserve_memory()` and then materializes the chunk on device using
+ * `TableChunk::make_available()`.
  *
- * @return New `TableChunk` on device
- * @throws std::overflow_error if overbooking is not allowed and not enough memory is
- * available to reserve.
+ * This helper does not take an explicit overbooking parameter. When no progress can
+ * be made within the configured `"memory_reserve_timeout"`, the behavior is determined
+ * the configuration option `"allow_overbooking_by_default"`.
+ *
+ * @param ctx Streaming context used to access the memory reservation mechanism.
+ * @param chunk Chunk to ensure is available on device. The input chunk is consumed
+ * and left in a moved-from state.
+ * @return A new `TableChunk` that is available on device.
+ *
+ * @throws std::runtime_error If shutdown occurs before the reservation can be processed.
+ * @throws std::overflow_error If no progress is possible within the timeout and
+ * overbooking is disabled.
  */
-[[nodiscard]] streaming::TableChunk to_device(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& chunk,
-    AllowOverbooking allow_overbooking = AllowOverbooking::NO
+coro::task<streaming::TableChunk> to_device(
+    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
 );
 
 ///< @brief Communicator type to use
