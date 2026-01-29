@@ -58,9 +58,8 @@ void CoroThreadPoolExecutor::shutdown() noexcept {
         auto const tid = std::this_thread::get_id();
         RAPIDSMPF_EXPECTS_FATAL(
             tid == creator_thread_id_,
-            "CoroThreadPoolExecutor::shutdown() called from a different thread than the "
-            "one "
-            "that constructed the executor"
+            "CoroThreadPoolExecutor::shutdown() called from a different "
+            "thread than the one that constructed the executor"
         );
         executor_->shutdown();
     }
