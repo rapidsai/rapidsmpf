@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdlib>
+#include <iostream>
 #include <source_location>
 #include <sstream>
 #include <stdexcept>
@@ -185,7 +187,63 @@ inline std::string build_cuda_alloc_error_message(
     return ss.str();
 }
 
+/**
+ * @brief Print fatal error message and terminate.
+ *
+ * This function prints an error message to stderr and calls std::terminate().
+ * Used for fatal errors in contexts where exceptions cannot be thrown (e.g.,
+ * destructors).
+ *
+ * @param reason The error reason message.
+ * @param loc The source location where the error occurred.
+ */
+[[noreturn]] inline void fatal_error(
+    std::string_view reason, const std::source_location& loc
+) noexcept {
+    std::cerr << "RAPIDSMPF FATAL ERROR at: " << loc.file_name() << ":" << loc.line()
+              << ": " << reason << std::endl;
+    std::terminate();
+}
+
 }  // namespace detail
+
+/**
+ * @brief Checks a condition and terminates if false (fatal version of RAPIDSMPF_EXPECTS).
+ *
+ * This is the fatal (non-throwing) version of RAPIDSMPF_EXPECTS. It checks a
+ * condition and, if false, prints an error message to stderr and calls
+ * std::terminate(). Use this in contexts where exceptions cannot be thrown,
+ * such as destructors, noexcept functions, or when recovery is impossible.
+ *
+ * @param condition The condition to check (program terminates if false).
+ * @param reason The error message if the condition is false.
+ * @param loc The source location (automatically captured at call site).
+ */
+inline void RAPIDSMPF_EXPECTS_FATAL(
+    bool condition,
+    std::string_view reason,
+    std::source_location loc = std::source_location::current()
+) noexcept {
+    if (!condition) {
+        detail::fatal_error(reason, loc);
+    }
+}
+
+/**
+ * @brief Indicates a fatal error and terminates the program.
+ *
+ * This function prints an error message to stderr and calls std::terminate().
+ * Use this for fatal errors in contexts where exceptions cannot be thrown,
+ * such as destructors, noexcept functions, or when recovery is impossible.
+ *
+ * @param reason The error message describing the fatal error.
+ * @param loc The source location (automatically captured at call site).
+ */
+[[noreturn]] inline void RAPIDSMPF_FATAL(
+    std::string_view reason, std::source_location loc = std::source_location::current()
+) noexcept {
+    detail::fatal_error(reason, loc);
+}
 
 /**
  * @brief Macro for checking (pre-)conditions that throws an exception when
