@@ -151,6 +151,40 @@ inline void expects_impl(
     }
 }
 
+/**
+ * @brief Build CUDA error message with source location information.
+ *
+ * @param error The CUDA error code.
+ * @param loc The source location where the error occurred.
+ * @return Formatted CUDA error message string.
+ */
+inline std::string build_cuda_error_message(
+    cudaError_t error, const std::source_location& loc
+) {
+    std::ostringstream ss;
+    ss << "CUDA error at: " << loc.file_name() << ":" << loc.line() << ": "
+       << cudaGetErrorName(error) << " " << cudaGetErrorString(error);
+    return ss.str();
+}
+
+/**
+ * @brief Build CUDA allocation error message with source location information.
+ *
+ * @param error The CUDA error code.
+ * @param num_bytes Number of bytes that failed to allocate.
+ * @param loc The source location where the error occurred.
+ * @return Formatted CUDA allocation error message string.
+ */
+inline std::string build_cuda_alloc_error_message(
+    cudaError_t error, std::size_t num_bytes, const std::source_location& loc
+) {
+    std::ostringstream ss;
+    ss << "CUDA error (failed to allocate " << num_bytes
+       << " bytes) at: " << loc.file_name() << ":" << loc.line() << ": "
+       << cudaGetErrorName(error) << " " << cudaGetErrorString(error);
+    return ss.str();
+}
+
 }  // namespace detail
 
 /**
@@ -259,17 +293,17 @@ inline void expects_impl(
     )                                                           \
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_MACRO(_1, _2, NAME, ...) NAME
-#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                                   \
-    do {                                                                               \
-        cudaError_t const error = (_call);                                             \
-        if (cudaSuccess != error) {                                                    \
-            cudaGetLastError();                                                        \
-            throw _exception_type{                                                     \
-                std::string{"CUDA error at: "} + __FILE__ + ":"                        \
-                + RAPIDSMPF_STRINGIFY(__LINE__) + ": " + cudaGetErrorName(error) + " " \
-                + cudaGetErrorString(error)                                            \
-            };                                                                         \
-        }                                                                              \
+#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                       \
+    do {                                                                   \
+        cudaError_t const error = (_call);                                 \
+        if (cudaSuccess != error) {                                        \
+            cudaGetLastError();                                            \
+            throw _exception_type /*NOLINT(bugprone-macro-parentheses)*/ { \
+                ::rapidsmpf::detail::build_cuda_error_message(             \
+                    error, std::source_location::current()                 \
+                )                                                          \
+            };                                                             \
+        }                                                                  \
     } while (0)
 #define RAPIDSMPF_CUDA_TRY_1(_call) RAPIDSMPF_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
@@ -295,37 +329,34 @@ inline void expects_impl(
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                                 \
-    do {                                                                             \
-        cudaError_t const error = (_call);                                           \
-        if (cudaSuccess != error) {                                                  \
-            cudaGetLastError();                                                      \
-            auto const msg = std::string{"CUDA error (failed to allocate "}          \
-                             + std::to_string(num_bytes) + " bytes) at: " + __FILE__ \
-                             + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + ": "            \
-                             + cudaGetErrorName(error) + " "                         \
-                             + cudaGetErrorString(error);                            \
-            if (cudaErrorMemoryAllocation == error) {                                \
-                throw rapidsmpf::out_of_memory{msg};                                 \
-            }                                                                        \
-            throw rapidsmpf::bad_alloc{msg};                                         \
-        }                                                                            \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                              \
+    do {                                                                          \
+        cudaError_t const error = (_call);                                        \
+        if (cudaSuccess != error) {                                               \
+            cudaGetLastError();                                                   \
+            auto const msg = ::rapidsmpf::detail::build_cuda_alloc_error_message( \
+                error, (num_bytes), std::source_location::current()               \
+            );                                                                    \
+            if (cudaErrorMemoryAllocation == error) {                             \
+                throw rapidsmpf::out_of_memory{msg};                              \
+            }                                                                     \
+            throw rapidsmpf::bad_alloc{msg};                                      \
+        }                                                                         \
     } while (0)
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                    \
-    do {                                                                     \
-        cudaError_t const error = (_call);                                   \
-        if (cudaSuccess != error) {                                          \
-            cudaGetLastError();                                              \
-            auto const msg = std::string{"CUDA error at: "} + __FILE__ + ":" \
-                             + RAPIDSMPF_STRINGIFY(__LINE__) + ": "          \
-                             + cudaGetErrorName(error) + " "                 \
-                             + cudaGetErrorString(error);                    \
-            if (cudaErrorMemoryAllocation == error) {                        \
-                throw rapidsmpf::out_of_memory{msg};                         \
-            }                                                                \
-            throw rapidsmpf::bad_alloc{msg};                                 \
-        }                                                                    \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                   \
+    do {                                                                    \
+        cudaError_t const error = (_call);                                  \
+        if (cudaSuccess != error) {                                         \
+            cudaGetLastError();                                             \
+            auto const msg = ::rapidsmpf::detail::build_cuda_error_message( \
+                error, std::source_location::current()                      \
+            );                                                              \
+            if (cudaErrorMemoryAllocation == error) {                       \
+                throw rapidsmpf::out_of_memory{msg};                        \
+            }                                                               \
+            throw rapidsmpf::bad_alloc{msg};                                \
+        }                                                                   \
     } while (0)
 
 /**
