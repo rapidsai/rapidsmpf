@@ -190,11 +190,17 @@ class AllReduce {
      * Blocks until the allreduce operation completes and returns the
      * globally reduced result.
      *
+     * This method is destructive and can only be called once. The first call
+     * extracts data from the underlying AllGather and performs the reduction.
+     * Subsequent calls will throw std::runtime_error because the underlying
+     * data has already been consumed.
+     *
      * @param timeout Optional maximum duration to wait. Negative values mean
      * no timeout.
      * @return The reduced packed data.
      *
-     * @throws std::runtime_error If the timeout is reached.
+     * @throws std::runtime_error If the timeout is reached or if this method is
+     * called more than once.
      */
     [[nodiscard]] PackedData wait_and_extract(
         std::chrono::milliseconds timeout = std::chrono::milliseconds{-1}
