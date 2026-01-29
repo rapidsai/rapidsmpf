@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Number
-from typing import Any
+from typing import Any, Self
 
+from rapidsmpf.config import Options
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
@@ -16,6 +17,10 @@ class Statistics:
         enable: bool,
         mr: RmmResourceAdaptor | None = None,
     ) -> None: ...
+    @classmethod
+    def from_options(
+        cls: type[Self], mr: RmmResourceAdaptor, options: Options
+    ) -> Self: ...
     @property
     def enabled(self) -> bool: ...
     def report(self) -> str: ...

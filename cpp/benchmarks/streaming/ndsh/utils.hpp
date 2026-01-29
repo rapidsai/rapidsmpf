@@ -156,20 +156,27 @@ std::unique_ptr<streaming::Filter> make_date_filter(
 );
 
 /**
- * @brief Ensure a `TableChunk` is on device.
+ * @brief Ensure a `TableChunk` is available on device memory.
  *
- * @param ctx Streaming context
- * @param chunk Chunk to move from device, is left in a moved-from state
- * @param allow_overbooking Whether reserving memory is allowed to overbook
+ * If @p chunk is not already device-resident, this coroutine reserves device memory
+ * via `streaming::reserve_memory()` and then materializes the chunk on device using
+ * `TableChunk::make_available()`.
  *
- * @return New `TableChunk` on device
- * @throws std::overflow_error if overbooking is not allowed and not enough memory is
- * available to reserve.
+ * This helper does not take an explicit overbooking parameter. When no progress can
+ * be made within the configured `"memory_reserve_timeout"`, the behavior is determined
+ * the configuration option `"allow_overbooking_by_default"`.
+ *
+ * @param ctx Streaming context used to access the memory reservation mechanism.
+ * @param chunk Chunk to ensure is available on device. The input chunk is consumed
+ * and left in a moved-from state.
+ * @return A new `TableChunk` that is available on device.
+ *
+ * @throws std::runtime_error If shutdown occurs before the reservation can be processed.
+ * @throws std::overflow_error If no progress is possible within the timeout and
+ * overbooking is disabled.
  */
-[[nodiscard]] streaming::TableChunk to_device(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& chunk,
-    AllowOverbooking allow_overbooking = AllowOverbooking::NO
+coro::task<streaming::TableChunk> to_device(
+    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
 );
 
 ///< @brief Communicator type to use

@@ -106,6 +106,11 @@ TableChunk TableChunk::make_available(MemoryReservation& reservation) {
     };
 }
 
+TableChunk TableChunk::make_available(MemoryReservation&& reservation) {
+    MemoryReservation& res = reservation;
+    return make_available(res);
+}
+
 cudf::table_view TableChunk::table_view() const {
     RAPIDSMPF_EXPECTS(
         is_available(),

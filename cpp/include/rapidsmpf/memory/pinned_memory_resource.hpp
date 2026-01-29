@@ -17,6 +17,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -103,6 +104,15 @@ class PinnedMemoryResource final : public HostMemoryResource {
     static std::shared_ptr<PinnedMemoryResource> make_if_available(
         int numa_id = get_current_numa_node()
     );
+
+    /**
+     * @brief Construct from configuration options.
+     *
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to the constructed PinnedMemoryResource instance.
+     */
+    static std::shared_ptr<PinnedMemoryResource> from_options(config::Options options);
 
     ~PinnedMemoryResource() override;
 
