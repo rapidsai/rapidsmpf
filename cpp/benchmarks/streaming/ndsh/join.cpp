@@ -166,7 +166,6 @@ streaming::Message semi_join_chunk(
     std::uint64_t sequence,
     CudaEvent* left_event
 ) {
-    CudaEvent event;
     auto chunk_stream = right_chunk.stream();
 
     left_event->stream_wait(chunk_stream);
@@ -204,7 +203,8 @@ streaming::Message semi_join_chunk(
 
     auto result_table = std::make_unique<cudf::table>(std::move(result_columns));
     // Deallocation of the join indices will happen on chunk_stream, so add stream dep
-    cuda_stream_join(left_chunk.stream(), chunk_stream, &event);
+    cuda_stream_join(left_chunk.stream(), chunk_stream);
+
     return streaming::to_message(
         sequence,
         std::make_unique<streaming::TableChunk>(std::move(result_table), chunk_stream)
