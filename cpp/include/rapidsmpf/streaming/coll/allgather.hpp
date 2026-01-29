@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -45,7 +45,7 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     AllGather& operator=(AllGather&&) = delete;
 
-    ~AllGather();
+    ~AllGather() noexcept;
 
     /**
      * @brief Gets the streaming context associated with this AllGather object.

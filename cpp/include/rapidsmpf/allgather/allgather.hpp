@@ -470,6 +470,7 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     /// @brief Deleted move assignment operator.
     AllGather& operator=(AllGather&&) = delete;
+
     /**
      * @brief Destructor.
      *
@@ -477,7 +478,7 @@ class AllGather {
      * is locally destructed before `wait`ing to extract, there is no
      * guarantee that in-flight communication will be completed.
      */
-    ~AllGather();
+    ~AllGather() noexcept;
 
     /**
      * @brief Main event loop for processing allgather operations.

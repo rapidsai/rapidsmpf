@@ -5,6 +5,7 @@
 
 #include <utility>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 
 namespace rapidsmpf::streaming {
@@ -55,14 +56,12 @@ void CoroThreadPoolExecutor::shutdown() noexcept {
     // Only allow shutdown to occur once.
     if (!is_shutdown_.exchange(true, std::memory_order::acq_rel)) {
         auto const tid = std::this_thread::get_id();
-        if (tid != creator_thread_id_) {
-            std::cerr << "CoroThreadPoolExecutor::shutdown() called from "
-                         "a different thread than the one that constructed "
-                         "the executor. Created by thread "
-                      << creator_thread_id_ << ", but current thread is " << tid
-                      << std::endl;
-            std::terminate();
-        }
+        RAPIDSMPF_EXPECTS_FATAL(
+            tid == creator_thread_id_,
+            "CoroThreadPoolExecutor::shutdown() called from a different thread than the "
+            "one "
+            "that constructed the executor"
+        );
         executor_->shutdown();
     }
 }

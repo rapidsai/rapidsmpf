@@ -372,7 +372,7 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     return spilled;
 }
 
-AllGather::~AllGather() {
+AllGather::~AllGather() noexcept {
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
         progress_thread_->remove_function(function_id_);
