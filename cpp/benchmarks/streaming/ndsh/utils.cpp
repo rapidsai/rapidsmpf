@@ -95,7 +95,7 @@ streaming::Node consume_channel(
             break;
         }
         if (msg.holds<streaming::TableChunk>()) {
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
             ctx->comm()->logger().print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
@@ -107,15 +107,16 @@ streaming::Node consume_channel(
     }
 }
 
-streaming::TableChunk to_device(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& chunk,
-    AllowOverbooking allow_overbooking
+coro::task<streaming::TableChunk> to_device(
+    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
 ) {
-    auto reservation = ctx->br()->reserve_device_memory_and_spill(
-        chunk.make_available_cost(), allow_overbooking
+    co_return chunk.make_available(
+        co_await streaming::reserve_memory(
+            ctx,
+            chunk.make_available_cost(),
+            streaming::MemoryReserveOrWait::missing_net_memory_delta
+        )
     );
-    return chunk.make_available(reservation);
 }
 
 std::shared_ptr<streaming::Context> create_context(
