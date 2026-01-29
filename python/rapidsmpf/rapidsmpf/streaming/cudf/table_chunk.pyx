@@ -374,7 +374,7 @@ cdef class TableChunk:
 
         Raises
         ------
-        MemoryError
+        ReservationError
             If the allocation or spilling process fails to free enough memory.
 
         Warnings

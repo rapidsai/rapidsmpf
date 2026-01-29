@@ -1,12 +1,12 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules config.pyx cuda_stream.pyx progress_thread.pyx rmm_resource_adaptor.pyx
-                   shuffler.pyx statistics.pyx
+set(cython_modules config.pyx cuda_stream.pyx exception.pyx progress_thread.pyx
+                   rmm_resource_adaptor.pyx shuffler.pyx statistics.pyx
 )
 
 # Add cupti module conditionally if CUPTI support is enabled

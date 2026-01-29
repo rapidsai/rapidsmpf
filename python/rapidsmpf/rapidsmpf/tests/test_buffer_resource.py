@@ -6,6 +6,7 @@ import pytest
 
 import rmm.mr
 
+from rapidsmpf.exception import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -113,7 +114,7 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
 
     # But a reservation cannot go to negative.
     with pytest.raises(
-        MemoryError,
+        ReservationError,
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))

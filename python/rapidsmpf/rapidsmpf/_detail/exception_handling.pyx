@@ -1,6 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.ref cimport PyObject
+from rapidsmpf.exception import BadAlloc, OutOfMemory, ReservationError
+
+
+# Store references to exception classes for use in C++ code
+cdef PyObject* _ReservationError = <PyObject*>ReservationError
+cdef PyObject* _OutOfMemory = <PyObject*>OutOfMemory
+cdef PyObject* _BadAlloc = <PyObject*>BadAlloc
+
 cdef extern from *:
     """
     enum class ExceptionType {
@@ -11,7 +20,10 @@ cdef extern from *:
         IOError = 3,
         IndexError = 4,
         OverflowError = 5,
-        ArithmeticError = 6
+        ArithmeticError = 6,
+        ReservationError = 7,
+        OutOfMemory = 8,
+        BadAlloc = 9
     };
     """
     cdef enum class ExceptionType:
@@ -23,9 +35,16 @@ cdef extern from *:
         IndexError
         OverflowError
         ArithmeticError
+        ReservationError
+        OutOfMemory
+        BadAlloc
 
 # Define mapping between Python exceptions and ExceptionType values
+# NOTE: Order matters! More specific exceptions must come before base classes.
 cdef dict exception_map = {
+    ReservationError: ExceptionType.ReservationError,
+    OutOfMemory: ExceptionType.OutOfMemory,
+    BadAlloc: ExceptionType.BadAlloc,
     MemoryError: ExceptionType.MemoryError,
     TypeError: ExceptionType.TypeError,
     ValueError: ExceptionType.ValueError,
@@ -63,8 +82,15 @@ cdef CppExcept translate_py_to_cpp_exception(py_exception) noexcept:
 cdef extern from *:
     """
     #include <ios>
+    #include <rapidsmpf/error.hpp>
     void cpp_throw_py_as_cpp_exception(std::pair<int, std::string> const &res) {
         switch(res.first) {
+            case static_cast<int>(ExceptionType::ReservationError):
+                throw rapidsmpf::reservation_error(res.second);
+            case static_cast<int>(ExceptionType::OutOfMemory):
+                throw rapidsmpf::out_of_memory(res.second);
+            case static_cast<int>(ExceptionType::BadAlloc):
+                throw rapidsmpf::bad_alloc(res.second);
             case static_cast<int>(ExceptionType::MemoryError):
                 throw std::bad_alloc();
             case static_cast<int>(ExceptionType::TypeError):
@@ -112,12 +138,33 @@ cdef extern from *:
     namespace {
 
     /**
-     * @brief Exception handler to map C++ exceptions to Python ones in Cython
+     * @brief Set Python exception from C++ exception
      *
-     * This exception handler extends the base exception handler provided by
-     * Cython. In addition to the exceptions that Cython itself supports, this
-     * handler adds support for rapidsmpf-specific exceptions.
+     * Loads the specified Python exception class from the given module and sets
+     * it as the current Python exception with the message from the C++ exception.
+     *
+     * @tparam ExceptT C++ exception type (must have a what() method)
+     * @param exn The C++ exception object
+     * @param module_name Python module name containing the exception class
+     * @param class_name Python exception class name within the module
      */
+    template<typename ExceptT>
+    void set_exception(
+      ExceptT const &exn, char const* module_name, char const* class_name
+    ) {
+        PyObject* module = PyImport_ImportModule(module_name);
+        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(
+          module != nullptr, "cannot find " + std::string{module_name}
+        );
+        PyObject* exc_class = PyObject_GetAttrString(module, class_name);
+        rapidsmpf::RAPIDSMPF_EXPECTS_FATAL(
+          exc_class != nullptr, "cannot find " + std::string{class_name}
+        );
+        PyErr_SetString(exc_class, exn.what());
+        Py_DECREF(exc_class);
+        Py_DECREF(module);
+    }
+
     void ex_handler()
     {
       try {
@@ -125,11 +172,11 @@ cdef extern from *:
           ;  // let latest Python exn pass through and ignore the current one
         throw;
       } catch (const rapidsmpf::reservation_error& exn) {
-        PyErr_SetString(PyExc_MemoryError, exn.what());
+        set_exception(exn, "rapidsmpf.exception", "ReservationError");
       } catch (const rapidsmpf::out_of_memory& exn) {
-        PyErr_SetString(PyExc_MemoryError, exn.what());
+        set_exception(exn, "rapidsmpf.exception", "OutOfMemory");
       } catch (const rapidsmpf::bad_alloc& exn) {
-        PyErr_SetString(PyExc_MemoryError, exn.what());
+        set_exception(exn, "rapidsmpf.exception", "BadAlloc");
       } catch (const std::bad_alloc& exn) {
         PyErr_SetString(PyExc_MemoryError, exn.what());
       } catch (const std::bad_cast& exn) {

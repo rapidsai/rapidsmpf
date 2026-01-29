@@ -384,7 +384,7 @@ cdef class BufferResource:
 
         Raises
         ------
-        MemoryError
+        ReservationError
             If overbooking is disabled and the buffer resource cannot free enough
             device memory through spilling to satisfy the request.
         """
@@ -414,7 +414,7 @@ cdef class BufferResource:
 
         Raises
         ------
-        MemoryError
+        ReservationError
             If the released size exceeds the total reserved size.
         """
         cdef size_t ret
