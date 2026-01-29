@@ -458,7 +458,7 @@ streaming::Node left_semi_join_broadcast_left(
     left_event.record(left_table.stream());
 
     std::size_t sequence = 0;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
             break;
