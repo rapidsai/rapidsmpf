@@ -36,38 +36,38 @@ TEST_F(StreamingChannelMetadata, HashScheme) {
 TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     // None
     auto spec_none = PartitioningSpec::none();
-    EXPECT_EQ(spec_none.type, SpecType::NONE);
+    EXPECT_EQ(spec_none.type, PartitioningSpec::Type::NONE);
 
-    // Aligned
-    auto spec_aligned = PartitioningSpec::aligned();
-    EXPECT_EQ(spec_aligned.type, SpecType::ALIGNED);
+    // Passthrough
+    auto spec_passthrough = PartitioningSpec::passthrough();
+    EXPECT_EQ(spec_passthrough.type, PartitioningSpec::Type::PASSTHROUGH);
 
     // Hash
     auto spec_hash = PartitioningSpec::from_hash(HashScheme{{0}, 16});
-    EXPECT_EQ(spec_hash.type, SpecType::HASH);
+    EXPECT_EQ(spec_hash.type, PartitioningSpec::Type::HASH);
     EXPECT_EQ(spec_hash.hash->column_indices[0], 0);
     EXPECT_EQ(spec_hash.hash->modulus, 16);
 
     // Equality
     EXPECT_EQ(spec_none, PartitioningSpec::none());
-    EXPECT_EQ(spec_aligned, PartitioningSpec::aligned());
+    EXPECT_EQ(spec_passthrough, PartitioningSpec::passthrough());
     EXPECT_EQ(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 16}));
-    EXPECT_NE(spec_none, spec_aligned);
+    EXPECT_NE(spec_none, spec_passthrough);
     EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 32}));
 }
 
 TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     // Default construction
     Partitioning p_default{};
-    EXPECT_EQ(p_default.inter_rank.type, SpecType::NONE);
-    EXPECT_EQ(p_default.local.type, SpecType::NONE);
+    EXPECT_EQ(p_default.inter_rank.type, PartitioningSpec::Type::NONE);
+    EXPECT_EQ(p_default.local.type, PartitioningSpec::Type::NONE);
 
-    // Direct global shuffle: inter_rank=Hash, local=Aligned
+    // Direct global shuffle: inter_rank=Hash, local=Passthrough
     Partitioning p_global{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::aligned()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
     };
-    EXPECT_EQ(p_global.inter_rank.type, SpecType::HASH);
-    EXPECT_EQ(p_global.local.type, SpecType::ALIGNED);
+    EXPECT_EQ(p_global.inter_rank.type, PartitioningSpec::Type::HASH);
+    EXPECT_EQ(p_global.local.type, PartitioningSpec::Type::PASSTHROUGH);
     EXPECT_EQ(p_global.inter_rank.hash->modulus, 16);
 
     // Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)
@@ -82,7 +82,8 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     EXPECT_EQ(
         p_global,
         (Partitioning{
-            PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::aligned()
+            PartitioningSpec::from_hash(HashScheme{{0}, 16}),
+            PartitioningSpec::passthrough()
         })
     );
     EXPECT_NE(p_global, p_twostage);
@@ -91,7 +92,7 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
 TEST_F(StreamingChannelMetadata, ChannelMetadata) {
     // Full construction
     Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::aligned()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
     };
     ChannelMetadata m{4, p, true};
     EXPECT_EQ(m.local_count, 4);
@@ -113,7 +114,7 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
 TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
     // ChannelMetadata round-trip (avoid copy to prevent GCC 14.x false positive)
     Partitioning part{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::aligned()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
     };
     auto m = std::make_unique<ChannelMetadata>(4, part, false);
     auto msg_m = to_message(99, std::move(m));

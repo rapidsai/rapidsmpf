@@ -23,7 +23,7 @@ class HashScheme:
     def __eq__(self, other: object) -> bool: ...
     def __repr__(self) -> str: ...
 
-PartitioningSpecValue = HashScheme | None | Literal["aligned"]
+PartitioningSpecValue = HashScheme | None | Literal["passthrough"]
 
 class Partitioning:
     """

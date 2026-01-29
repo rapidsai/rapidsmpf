@@ -33,7 +33,7 @@ cdef class HashScheme:
     def __init__(self, tuple column_indices, int modulus):
         cdef vector[int32_t] cols
         for c in column_indices:
-            cols.push_back(<int32_t>c)
+            cols.push_back(<int32_t?>c)
         self._scheme = cpp_HashScheme(cols, modulus)
 
     @staticmethod
@@ -63,30 +63,39 @@ cdef cpp_PartitioningSpec _to_spec(obj) except *:
     """Convert Python object to PartitioningSpec."""
     if obj is None:
         return cpp_PartitioningSpec.none()
-    elif obj == "aligned":
-        return cpp_PartitioningSpec.aligned()
+    elif obj == "passthrough":
+        return cpp_PartitioningSpec.passthrough()
     elif isinstance(obj, HashScheme):
         return cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
     else:
         raise TypeError(
-            f"Expected HashScheme, None, or 'aligned', got {type(obj).__name__}"
+            f"Expected HashScheme, None, or 'passthrough', got {type(obj).__name__}"
         )
 
 
 cdef object _from_spec(cpp_PartitioningSpec spec):
     """Convert PartitioningSpec to Python object."""
-    if spec.type == cpp_SpecType.NONE:
+    if spec.type == cpp_PartitioningSpec.cpp_Type.NONE:
         return None
-    elif spec.type == cpp_SpecType.ALIGNED:
-        return "aligned"
-    elif spec.type == cpp_SpecType.HASH:
+    elif spec.type == cpp_PartitioningSpec.cpp_Type.PASSTHROUGH:
+        return "passthrough"
+    elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     else:
-        raise ValueError("Unknown SpecType")
+        raise ValueError("Unknown PartitioningSpec.Type")
 
 
 cdef class Partitioning:
-    """Hierarchical partitioning metadata (inter_rank and local levels)."""
+    """
+    Hierarchical partitioning metadata for a data stream.
+
+    Parameters
+    ----------
+    inter_rank
+        Distribution across ranks. Can be a HashScheme, None, or 'passthrough'.
+    local
+        Distribution within a rank. Can be a HashScheme, None, or 'passthrough'.
+    """
 
     def __init__(self, inter_rank=None, local=None):
         self._handle = make_unique[cpp_Partitioning]()
@@ -121,7 +130,18 @@ cdef class Partitioning:
 
 
 cdef class ChannelMetadata:
-    """Channel-level metadata: counts, partitioning, and duplication status."""
+    """
+    Channel-level metadata describing a data stream.
+
+    Parameters
+    ----------
+    local_count
+        Estimated number of chunks for this rank.
+    partitioning
+        How the data is partitioned (default: no partitioning).
+    duplicated
+        Whether data is duplicated on all workers (default: False).
+    """
 
     def __init__(
         self,
@@ -166,34 +186,30 @@ cdef class ChannelMetadata:
             sequence_number, move(self.release_handle())
         )
 
-    cdef void _check_handle(self) except *:
-        """Raise ValueError if handle has been released."""
+    cdef const cpp_ChannelMetadata* handle_ptr(self) except NULL:
+        """Return pointer to underlying handle, raising if released."""
         if not self._handle:
-            raise ValueError("ChannelMetadata has been released (handle moved out)")
+            raise ValueError("ChannelMetadata is uninitialized, has it been released?")
+        return self._handle.get()
 
     @property
     def local_count(self) -> int:
-        self._check_handle()
-        return deref(self._handle).local_count
+        return self.handle_ptr().local_count
 
     @property
     def partitioning(self) -> Partitioning:
-        self._check_handle()
         cdef Partitioning ret = Partitioning.__new__(Partitioning)
-        ret._handle = make_unique[cpp_Partitioning](deref(self._handle).partitioning)
+        ret._handle = make_unique[cpp_Partitioning](self.handle_ptr().partitioning)
         return ret
 
     @property
     def duplicated(self) -> bool:
-        self._check_handle()
-        return deref(self._handle).duplicated
+        return self.handle_ptr().duplicated
 
     def __eq__(self, other):
         if not isinstance(other, ChannelMetadata):
             return NotImplemented
-        self._check_handle()
-        (<ChannelMetadata>other)._check_handle()
-        return deref(self._handle) == deref((<ChannelMetadata>other)._handle)
+        return deref(self.handle_ptr()) == deref((<ChannelMetadata>other).handle_ptr())
 
     def __repr__(self):
         return (

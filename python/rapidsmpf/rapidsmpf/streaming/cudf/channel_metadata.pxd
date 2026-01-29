@@ -15,25 +15,25 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
     cdef cppclass cpp_HashScheme "rapidsmpf::streaming::HashScheme":
         vector[int32_t] column_indices
-        int64_t modulus
+        int modulus
         cpp_HashScheme() except +
-        cpp_HashScheme(vector[int32_t], int64_t) except +
+        cpp_HashScheme(vector[int32_t], int) except +
         bool_t operator==(const cpp_HashScheme&)
 
-    cdef enum cpp_SpecType "rapidsmpf::streaming::SpecType":
-        NONE "rapidsmpf::streaming::SpecType::NONE"
-        ALIGNED "rapidsmpf::streaming::SpecType::ALIGNED"
-        HASH "rapidsmpf::streaming::SpecType::HASH"
-
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
-        cpp_SpecType type
+        enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":
+            NONE "rapidsmpf::streaming::PartitioningSpec::Type::NONE"
+            PASSTHROUGH "rapidsmpf::streaming::PartitioningSpec::Type::PASSTHROUGH"
+            HASH "rapidsmpf::streaming::PartitioningSpec::Type::HASH"
+
+        cpp_Type type
         optional[cpp_HashScheme] hash
 
         @staticmethod
         cpp_PartitioningSpec none()
 
         @staticmethod
-        cpp_PartitioningSpec aligned()
+        cpp_PartitioningSpec passthrough()
 
         @staticmethod
         cpp_PartitioningSpec from_hash(cpp_HashScheme)
@@ -46,11 +46,11 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         bool_t operator==(const cpp_Partitioning&)
 
     cdef cppclass cpp_ChannelMetadata "rapidsmpf::streaming::ChannelMetadata":
-        int64_t local_count
+        uint64_t local_count
         cpp_Partitioning partitioning
         bool_t duplicated
         cpp_ChannelMetadata(
-            int64_t,
+            uint64_t,
             cpp_Partitioning,
             bool_t
         ) except +
@@ -81,6 +81,6 @@ cdef class ChannelMetadata:
     @staticmethod
     cdef ChannelMetadata from_handle(unique_ptr[cpp_ChannelMetadata] handle)
 
-    cdef void _check_handle(self) except *
+    cdef const cpp_ChannelMetadata* handle_ptr(self) except NULL
 
     cdef unique_ptr[cpp_ChannelMetadata] release_handle(self)

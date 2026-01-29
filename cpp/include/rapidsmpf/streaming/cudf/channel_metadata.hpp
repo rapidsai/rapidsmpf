@@ -9,6 +9,8 @@
 #include <optional>
 #include <vector>
 
+#include <cudf/types.hpp>
+
 #include <rapidsmpf/streaming/core/message.hpp>
 
 namespace rapidsmpf::streaming {
@@ -19,8 +21,8 @@ namespace rapidsmpf::streaming {
  * Rows are distributed by `hash(columns[column_indices]) % modulus`.
  */
 struct HashScheme {
-    std::vector<std::int32_t> column_indices;  ///< Column indices to hash on.
-    std::int64_t modulus;  ///< Hash modulus (number of partitions).
+    std::vector<cudf::size_type> column_indices;  ///< Column indices to hash on.
+    int modulus;  ///< Hash modulus (number of partitions).
 
     /**
      * @brief Equality comparison.
@@ -30,30 +32,30 @@ struct HashScheme {
 };
 
 /**
- * @brief Type tag for PartitioningSpec.
- */
-enum class SpecType : std::uint8_t {
-    NONE,  ///< No partitioning at this level.
-    ALIGNED,  ///< Aligned with parent level.
-    HASH,  ///< Hash partitioning.
-};
-
-/**
  * @brief Partitioning specification for a single hierarchical level.
  *
  * Represents how data is partitioned at one level of the hierarchy
  * (e.g., inter-rank or local). Use the static factory methods to construct.
  *
- * - `none()`: No partitioning at this level.
- * - `aligned()`: Partitioning is inherited from the parent level.
+ * - `none()`: No partitioning information at this level.
+ * - `passthrough()`: Partitioning passes through from the parent level unchanged.
  * - `from_hash(h)`: Explicit hash partitioning with the given scheme.
  */
 struct PartitioningSpec {
-    SpecType type = SpecType::NONE;  ///< The type of partitioning.
+    /**
+     * @brief Type tag for PartitioningSpec.
+     */
+    enum class Type : std::uint8_t {
+        NONE,  ///< No partitioning information at this level.
+        PASSTHROUGH,  ///< Partitioning passes through from parent level unchanged.
+        HASH,  ///< Hash partitioning.
+    };
+
+    Type type = Type::NONE;  ///< The type of partitioning.
     std::optional<HashScheme> hash;  ///< Valid only when type == HASH.
 
     /**
-     * @brief Create a spec indicating no partitioning.
+     * @brief Create a spec indicating no partitioning information.
      * @return A PartitioningSpec with type NONE.
      */
     static PartitioningSpec none() {
@@ -61,11 +63,11 @@ struct PartitioningSpec {
     }
 
     /**
-     * @brief Create a spec indicating alignment with the parent level.
-     * @return A PartitioningSpec with type ALIGNED.
+     * @brief Create a spec indicating partitioning passes through from parent.
+     * @return A PartitioningSpec with type PASSTHROUGH.
      */
-    static PartitioningSpec aligned() {
-        return {.type = SpecType::ALIGNED, .hash = std::nullopt};
+    static PartitioningSpec passthrough() {
+        return {.type = Type::PASSTHROUGH, .hash = std::nullopt};
     }
 
     /**
@@ -74,7 +76,7 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type HASH.
      */
     static PartitioningSpec from_hash(HashScheme h) {
-        return {.type = SpecType::HASH, .hash = std::move(h)};
+        return {.type = Type::HASH, .hash = std::move(h)};
     }
 
     /**
@@ -118,7 +120,7 @@ struct Partitioning {
  * status for the data flowing through a channel.
  */
 struct ChannelMetadata {
-    std::int64_t local_count{};  ///< Local chunk-count estimate for this rank.
+    std::uint64_t local_count{};  ///< Local chunk-count estimate for this rank.
     Partitioning partitioning;  ///< How the data is partitioned.
     bool duplicated{};  ///< Whether data is duplicated on all workers.
 
@@ -128,12 +130,12 @@ struct ChannelMetadata {
     /**
      * @brief Construct metadata with specified values.
      *
-     * @param local_count Local chunk count (must be >= 0).
+     * @param local_count Local chunk count.
      * @param partitioning Partitioning metadata (default: no partitioning).
      * @param duplicated Whether data is duplicated (default: false).
      */
     ChannelMetadata(
-        std::int64_t local_count, Partitioning partitioning = {}, bool duplicated = false
+        std::uint64_t local_count, Partitioning partitioning = {}, bool duplicated = false
     )
         : local_count(local_count),
           partitioning(std::move(partitioning)),
@@ -145,17 +147,6 @@ struct ChannelMetadata {
      */
     bool operator==(ChannelMetadata const&) const = default;
 };
-
-/**
- * @brief Generate a content description for a `ChannelMetadata`.
- *
- * ChannelMetadata has negligible memory cost, so this returns an empty content
- * description.
- *
- * @param obj The metadata to describe.
- * @return An empty content description.
- */
-ContentDescription get_content_description(ChannelMetadata const& obj);
 
 /**
  * @brief Wrap a `ChannelMetadata` into a `Message`.
