@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,9 +23,21 @@
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+/**
+ * @brief Policy controlling whether a memory reservation is allowed to overbook.
+ *
+ * This enum is used throughout RapidsMPF to specify the overbooking behavior of
+ * a memory reservation request. The exact semantics depend on the specific API
+ * and execution context in which it is used.
+ */
+enum class AllowOverbooking : bool {
+    NO,  ///< Overbooking is not allowed.
+    YES,  ///< Overbooking is allowed.
+};
 
 /**
  * @brief Class managing buffer resources.
@@ -80,6 +92,23 @@ class BufferResource {
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    );
+
+    /**
+     * @brief Construct a BufferResource from configuration options.
+     *
+     * This factory method creates a BufferResource using configuration options to
+     * initialize all components.
+     *
+     * @param mr Pointer to the RMM resource adaptor, which must outlive the
+     * returned BufferResource.
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to a BufferResource instance configured according to the
+     * options.
+     */
+    static std::shared_ptr<BufferResource> from_options(
+        RmmResourceAdaptor* mr, config::Options options
     );
 
     ~BufferResource() noexcept = default;
@@ -157,7 +186,7 @@ class BufferResource {
      * equals zero (a zero-sized reservation never fails).
      */
     std::pair<MemoryReservation, std::size_t> reserve(
-        MemoryType mem_type, size_t size, bool allow_overbooking
+        MemoryType mem_type, size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -178,7 +207,7 @@ class BufferResource {
      * cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
-        size_t size, bool allow_overbooking
+        size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -206,7 +235,7 @@ class BufferResource {
                 // available.
                 continue;
             }
-            auto [res, _] = reserve(mem_type, size, false);
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
             if (res.size() == size) {
                 return std::move(res);
             }
@@ -423,5 +452,36 @@ class LimitAvailableMemory {
   private:
     RmmResourceAdaptor const* mr_;
 };
+
+/**
+ * @brief Construct a map of memory-available functions from configuration options.
+ *
+ * @param mr Pointer to a memory resource adaptor.
+ * @param options Configuration options.
+ *
+ * @return The map of memory-available functions.
+ */
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
+
+/**
+ * @brief Get the `periodic_spill_check` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ *
+ * @return The duration of the pause between spill checks or std::nullopt if no dedicated
+ * thread should check for spilling.
+ */
+std::optional<Duration> periodic_spill_check_from_options(config::Options options);
+
+/**
+ * @brief Get a new CUDA stream pool from configuration options.
+ *
+ * @param options Configuration options.
+ * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
+ * not take an explicit CUDA stream.
+ */
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+
 
 }  // namespace rapidsmpf

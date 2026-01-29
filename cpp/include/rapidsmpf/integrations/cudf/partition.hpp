@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -52,7 +52,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -87,7 +87,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -117,7 +117,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -151,7 +151,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 /**
@@ -205,7 +205,7 @@ std::vector<PackedData> spill_partitions(
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    bool allow_overbooking,
+    AllowOverbooking allow_overbooking,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <array>
@@ -74,7 +74,7 @@ rapidsmpf::streaming::Node consume_channel_parallel(
                 break;
             }
             if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
-                auto chunk = rapidsmpf::ndsh::to_device(
+                auto chunk = co_await rapidsmpf::ndsh::to_device(
                     ctx, msg.release<rapidsmpf::streaming::TableChunk>()
                 );
                 ctx->comm()->logger().print(

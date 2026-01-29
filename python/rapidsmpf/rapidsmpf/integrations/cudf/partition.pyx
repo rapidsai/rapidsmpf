@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Partitioning of cuDF tables."""
 
@@ -17,7 +17,8 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
+                                               BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
@@ -310,7 +311,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         "rapidsmpf::unspill_partitions"(
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
-            bool_t allow_overbooking,
+            AllowOverbooking allow_overbooking,
             shared_ptr[cpp_Statistics] statistics,
         ) except +
 
@@ -361,11 +362,14 @@ def unspill_partitions(
     cdef vector[cpp_PackedData] _ret
     if statistics is None:
         statistics = Statistics(enable=False)  # Disables statistics.
+    cdef AllowOverbooking ab = (
+        AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
+    )
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
             _br,
-            allow_overbooking,
+            ab,
             statistics._handle,
         )
     return packed_data_vector_to_list(move(_ret))

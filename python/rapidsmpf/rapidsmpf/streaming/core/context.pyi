@@ -3,13 +3,18 @@
 
 from __future__ import annotations
 
+from typing import Any, Self
+
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
+from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
+from rapidsmpf.streaming.core.memory_reserve_or_wait import MemoryReserveOrWait
 from rapidsmpf.streaming.core.message import PayloadT
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 
@@ -21,6 +26,18 @@ class Context:
         options: Options | None = None,
         statistics: Statistics | None = None,
     ) -> None: ...
+    @classmethod
+    def from_options(
+        cls: type[Self], comm: Communicator, mr: RmmResourceAdaptor, options: Options
+    ) -> Self: ...
+    def __enter__(self) -> Context: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any | None,
+    ) -> bool: ...
+    def shutdown(self) -> None: ...
     def options(self) -> Options: ...
     def comm(self) -> Communicator: ...
     def br(self) -> BufferResource: ...
@@ -29,3 +46,4 @@ class Context:
     def stream_pool_size(self) -> int: ...
     def create_channel(self) -> Channel[PayloadT]: ...
     def spillable_messages(self) -> SpillableMessages: ...
+    def memory(self, mem_type: MemoryType) -> MemoryReserveOrWait: ...

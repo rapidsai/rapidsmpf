@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -116,7 +116,6 @@ class StreamingShuffler : public BaseStreamingShuffle,
 
             // every partition is replicated on all ranks
             std::vector<cudf::table_view> expected_tables;
-            offsets.push_back(table->num_rows());
             for (auto pid : local_pids) {
                 auto t_view =
                     cudf::slice(table->view(), {offsets[pid], offsets[pid + 1]}).at(0);

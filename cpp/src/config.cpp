@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 #include <rapidsmpf/config.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace {
 // Serialization limits and format configuration (implementation details)
@@ -96,7 +96,7 @@ Options::Options(std::unordered_map<std::string, OptionValue> options)
     auto& opts = shared_->options;
     opts.reserve(options.size());
     for (auto&& [key, value] : options) {
-        auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
+        auto new_key = to_lower(trim(key));
         RAPIDSMPF_EXPECTS(
             opts.emplace(std::move(new_key), std::move(value)).second,
             "option keys must be case-insensitive",
@@ -121,21 +121,22 @@ std::unordered_map<std::string, OptionValue> from_options_as_strings(
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
     : Options(from_options_as_strings(std::move(options_as_strings))) {};
 
-bool Options::insert_if_absent(std::string const& key, std::string option_as_string) {
-    return insert_if_absent({{key, option_as_string}});
+bool Options::insert_if_absent(
+    std::string const& key, std::string_view option_as_string
+) {
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    auto [_, inserted] = shared_->options.try_emplace(
+        to_lower(trim(key)), OptionValue{std::string(option_as_string)}
+    );
+    return inserted;
 }
 
 std::size_t Options::insert_if_absent(
     std::unordered_map<std::string, std::string> options_as_strings
 ) {
-    auto& shared = *shared_;
-    std::lock_guard<std::mutex> lock(shared.mutex);
     std::size_t ret = 0;
     for (auto&& [key, val] : options_as_strings) {
-        auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
-        if (shared.options.insert({std::move(new_key), OptionValue(std::move(val))})
-                .second)
-        {
+        if (insert_if_absent(key, std::string_view{val})) {
             ++ret;
         }
     }

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,7 +37,7 @@ streaming::Node chunkwise_group_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>(), true);
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         auto stream = chunk.stream();
         auto table = chunk.table_view();
         auto agg_requests = std::vector<cudf::groupby::aggregation_request>();

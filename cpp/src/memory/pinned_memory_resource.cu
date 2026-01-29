@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <cstddef>
@@ -11,7 +11,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 #if CCCL_MAJOR_VERSION > 3 || (CCCL_MAJOR_VERSION == 3 && CCCL_MINOR_VERSION >= 2)
@@ -115,6 +115,17 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
         return std::make_shared<rapidsmpf::PinnedMemoryResource>(numa_id);
     }
     return PinnedMemoryResource::Disabled;
+}
+
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
+    config::Options options
+) {
+    bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
+        return parse_string<bool>(s.empty() ? "False" : s);
+    });
+
+    return pinned_memory ? PinnedMemoryResource::make_if_available()
+                         : PinnedMemoryResource::Disabled;
 }
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;

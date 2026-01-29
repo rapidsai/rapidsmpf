@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -66,7 +66,7 @@ streaming::Node concatenate(
         views.reserve(messages.size());
         for (auto&& msg : messages) {
             auto chunk = msg.release<streaming::TableChunk>();
-            chunk = to_device(ctx, std::move(chunk));
+            chunk = co_await to_device(ctx, std::move(chunk));
             cuda_stream_join(concat_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));

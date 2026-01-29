@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ streaming::Node build_bloom_filter(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         build_event.stream_wait(chunk.stream());
         filter->add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
@@ -54,7 +54,8 @@ streaming::Node build_bloom_filter(
 
     if (ctx->comm()->nranks() > 1) {
         auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
-        auto [res, _] = ctx->br()->reserve(MemoryType::DEVICE, filter->size(), true);
+        auto [res, _] =
+            ctx->br()->reserve(MemoryType::DEVICE, filter->size(), AllowOverbooking::YES);
         auto buf = ctx->br()->allocate(stream, std::move(res));
         buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -98,7 +99,7 @@ streaming::Node apply_bloom_filter(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         auto chunk_stream = chunk.stream();
         cuda_stream_join(chunk_stream, stream, &event);
         auto mask = filter.contains(

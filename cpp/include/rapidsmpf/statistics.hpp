@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,8 +10,9 @@
 #include <string>
 #include <utility>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -35,11 +36,25 @@ class Statistics {
      *
      * Automatically enables both statistics and memory profiling.
      *
-     * @param mr Pointer to a memory resource used for memory profiling.
+     * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
+     * for the lifetime of the returned object.
      *
      * @throws std::invalid_argument If `mr` is the nullptr.
      */
     Statistics(RmmResourceAdaptor* mr);
+
+    /**
+     * @brief Construct from configuration options.
+     *
+     * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
+     * for the lifetime of the returned object.
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to the constructed Statistics instance.
+     */
+    static std::shared_ptr<Statistics> from_options(
+        RmmResourceAdaptor* mr, config::Options options
+    );
 
     ~Statistics() noexcept = default;
     Statistics(Statistics const&) = delete;

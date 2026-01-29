@@ -40,7 +40,7 @@ cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 # Trap ERR so that `EXITCODE` is printed when a command fails and the script
 # exits with error status
 EXITCODE=0
-# shellcheck disable=SC2317
+# shellcheck disable=SC2329
 set_exit_code() {
     EXITCODE=$?
     rapids-logger "Test failed with exit code ${EXITCODE}"
@@ -69,13 +69,19 @@ rapids-logger "Run rrun gtests"
 
 BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
 
-rapids-logger "Validate NDSH benchmarks"
-python ../cpp/scripts/validate_ndsh.py \
+rapids-logger "Run NDSH benchmarks"
+python ../cpp/scripts/ndsh.py run \
   --input-dir scale-1/ \
   --output-dir validation/ \
   --generate-data \
   --benchmark-dir "${BENCHMARKS_DIR}" \
   --benchmark-args='--no-pinned-host-memory'
+
+rapids-logger "Validate NDSH benchmarks"
+python ../cpp/scripts/ndsh.py validate \
+  --results-path validation/output \
+  --expected-path validation/expected \
+  --ignore-timezone
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

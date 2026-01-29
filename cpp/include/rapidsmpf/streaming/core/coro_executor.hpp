@@ -1,10 +1,11 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 #include <memory>
+#include <thread>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -18,7 +19,19 @@ namespace rapidsmpf::streaming {
  * @brief Executor wrapper around a `coro::thread_pool` used for coroutine execution.
  *
  * The executor lifetime defines the lifetime of the underlying thread pool.
- * The number of threads can be provided explicitly or derived from configuration options.
+ * The number of threads can be provided explicitly or derived from configuration
+ * options.
+ *
+ * @warning Shutdown of the executor must be initiated from the same thread that
+ * created it. Calling `shutdown()` from a different thread results in program
+ * termination. Since the destructor implicitly calls `shutdown()`, destroying
+ * the executor from a different thread also results in termination unless the
+ * executor has already been shut down explicitly.
+ *
+ * This can be subtle in coroutine-based code, where a scheduled coroutine may
+ * unwind its stack on a different thread and trigger destructors. Explicitly
+ * calling `shutdown()` on the creator thread allows the destructor to run safely
+ * on any thread afterward.
  */
 class CoroThreadPoolExecutor {
   public:
@@ -56,6 +69,26 @@ class CoroThreadPoolExecutor {
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
+
+    ~CoroThreadPoolExecutor() noexcept;
+
+    /// @brief No move and copy constructors and assignment operators.
+    CoroThreadPoolExecutor(CoroThreadPoolExecutor&&) = delete;
+    CoroThreadPoolExecutor(CoroThreadPoolExecutor const&) = delete;
+    CoroThreadPoolExecutor& operator=(CoroThreadPoolExecutor& o) = delete;
+    CoroThreadPoolExecutor& operator=(CoroThreadPoolExecutor&& o) = delete;
+
+    /**
+     * @brief Shut down the underlying thread pool.
+     *
+     * This method is idempotent and only performs shutdown once. Subsequent calls
+     * have no effect.
+     *
+     * @warning Shutdown must be initiated from the same thread that constructed
+     * the executor. Calling this method from a different thread results in program
+     * termination.
+     */
+    void shutdown() noexcept;
 
     /**
      * @brief Get the configured number of streaming threads.
@@ -124,8 +157,10 @@ class CoroThreadPoolExecutor {
     }
 
   private:
+    std::atomic<bool> is_shutdown_{false};
     std::unique_ptr<coro::thread_pool> executor_;
     std::shared_ptr<Statistics> statistics_;
+    std::thread::id creator_thread_id_;
 };
 
 }  // namespace rapidsmpf::streaming

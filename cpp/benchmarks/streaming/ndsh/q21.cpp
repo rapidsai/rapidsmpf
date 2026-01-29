@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -237,7 +237,7 @@ rapidsmpf::streaming::Node filter_lineitem(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
 
@@ -280,7 +280,7 @@ rapidsmpf::streaming::Node filter_grouped_greater(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
 
@@ -325,7 +325,7 @@ rapidsmpf::streaming::Node filter_grouped_equal(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
 
@@ -372,7 +372,7 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
         // Here, we know that copying ch1_cols (a single col) is better than copying
@@ -435,7 +435,7 @@ rapidsmpf::streaming::Node slice(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
+        auto chunk = co_await rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
 
@@ -539,7 +539,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> sum_groupby_request(
             if (msg.empty()) {
                 break;
             }
-            auto chunk = rapidsmpf::ndsh::to_device(
+            auto chunk = co_await rapidsmpf::ndsh::to_device(
                 ctx, msg.release<rapidsmpf::streaming::TableChunk>()
             );
             auto stream = chunk.stream();
