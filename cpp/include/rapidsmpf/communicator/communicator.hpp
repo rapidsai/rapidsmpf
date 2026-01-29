@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -37,22 +38,47 @@ using Rank = std::int32_t;
  * @brief Operation ID defined by the user. This allows users to concurrently execute
  * multiple operations, and each operation will be identified by its OpID.
  *
- * @note This limits the total number of concurrent operations to 2^8
+ * @note Although typed as an `int32`, the number of distinct operations is limited to
+ * `2^20`.
  */
-using OpID = std::uint8_t;
+using OpID = std::int32_t;
 
 /**
  * @typedef StageID
  * @brief Identifier for a stage of a communication operation.
+ *
+ * @note Although typed as an `int32`, the number of distinct stages is limited to
+ * `2^3`.
  */
-using StageID = std::uint8_t;
+using StageID = std::int32_t;
 
 /**
  * @brief A tag used for identifying messages in a communication operation.
  *
- * @note The tag is a 32-bit integer, with the following layout:
- * bits     |31:16| 15:8 | 7:0 |
- * value    |empty|  op  |stage|
+ * The tag is a 32-bit integer, with the following layout (low bits to high bits
+ * left-to-right)
+ *
+ * @code{}
+ * bits   | 012       | 34567 01234567 0123456 | 7 01234567
+ *        |           |                        |
+ * value  | stage (3) | operation (20)         | empty (9)
+ *        |           |                        |
+ * @endcode{}
+ *
+ * The restriction of 23 used bits comes from empirical MPI implementation limits for
+ * `MPI_TAG_UB`. For example, when using UCX as a transport layer, OpenMPI is restricted
+ * to `2^23` distinct tags.
+ *
+ * All messages in rapidsmpf over the same `Communicator` are disambiguated by `Tag`s. A
+ * message sent with a given `Tag` can only be matched by a receive with a matching `Tag`.
+ *
+ * In the same way, collective operations over a `Communicator` are disambiguated by an
+ * `OpID`: two different collectives with different `OpID`s will not interfere.
+ *
+ * Due to implementation restrictions, we are limited in the number of distinct tags we
+ * can use (the `Tag` constructor checks for overflow but not reuse). In particular, we
+ * support at most `2^20` distinct `OpIDs`, corresponding to `2^20` distinct collectives
+ * running simultaneously.
  */
 class Tag {
   public:
@@ -63,13 +89,13 @@ class Tag {
     using StorageT = std::int32_t;
 
     /// @brief Number of bits for the stage ID
-    static constexpr int stage_id_bits{sizeof(StageID) * 8};
+    static constexpr int stage_id_bits{3};
 
     /// @brief Mask for the stage ID
     static constexpr StorageT stage_id_mask{(1 << stage_id_bits) - 1};
 
     /// @brief Number of bits for the operation ID
-    static constexpr int op_id_bits{sizeof(OpID) * 8};
+    static constexpr int op_id_bits{20};
 
     /// @brief Mask for the operation ID
     static constexpr StorageT op_id_mask{
@@ -79,13 +105,25 @@ class Tag {
     /**
      * @brief Constructs a tag
      *
+     * @throws std::overflow_error If either the `op` or `stage` values are negative or
+     * too large.
+     *
      * @param op The operation ID
      * @param stage The stage ID
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
               (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
-          } {}
+          } {
+        RAPIDSMPF_EXPECTS(
+            stage >= 0 && stage < (1 << stage_id_bits),
+            "Invalid stage value",
+            std::overflow_error
+        );
+        RAPIDSMPF_EXPECTS(
+            op >= 0 && op < (1 << op_id_bits), "Invalid OpID value", std::overflow_error
+        );
+    }
 
     /**
      * @brief Returns the max number of bits used for the tag

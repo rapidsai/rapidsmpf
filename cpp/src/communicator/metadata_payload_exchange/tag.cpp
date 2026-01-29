@@ -25,8 +25,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Statistics> statistics
 )
     : comm_(std::move(comm)),
-      metadata_tag_{op_id, 1},
-      gpu_data_tag_{op_id, 2},
+      metadata_tag_{op_id, 0},
+      gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       statistics_{std::move(statistics)} {}
 
