@@ -66,10 +66,8 @@ void AllReduce::ensure_reduction_done() {
         if (finished_callback_) {
             finished_callback_();
         }
-        // Lock is released here at end of scope
     }
 
-    // Notify waiters after releasing the mutex to avoid "hurry up and wait"
     cv_.notify_all();
 }
 
@@ -88,31 +86,26 @@ bool AllReduce::finished() const noexcept {
 }
 
 PackedData AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
-    // If reduction is not done yet, wait on the condition variable
-    if (!reduction_done_.load(std::memory_order_acquire)) {
-        std::unique_lock lock(mutex_);
+    std::unique_lock lock(mutex_);
 
-        if (timeout.count() < 0) {
-            cv_.wait(lock, [this] {
-                return reduction_done_.load(std::memory_order_acquire);
-            });
-        } else {
-            bool completed = cv_.wait_for(lock, timeout, [this] {
-                return reduction_done_.load(std::memory_order_acquire);
-            });
-
-            if (!completed) {
-                RAPIDSMPF_FAIL(
-                    "AllReduce::wait_and_extract timed out waiting for reduction to "
-                    "complete",
-                    std::runtime_error
-                );
-            }
+    if (timeout.count() < 0) {
+        cv_.wait(lock, [this] {
+            return reduction_done_.load(std::memory_order_acquire);
+        });
+    } else {
+        bool completed = cv_.wait_for(lock, timeout, [this] {
+            return reduction_done_.load(std::memory_order_acquire);
+        });
+        if (!completed) {
+            RAPIDSMPF_FAIL(
+                "AllReduce::wait_and_extract timed out waiting for reduction to "
+                "complete",
+                std::runtime_error
+            );
         }
     }
 
     // Extract and return the result (this is destructive - can only be called once)
-    std::lock_guard lock(mutex_);
     RAPIDSMPF_EXPECTS(
         reduced_result_.has_value(),
         "AllReduce::wait_and_extract can only be called once",
