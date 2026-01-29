@@ -203,9 +203,6 @@ streaming::Message semi_join_chunk(
                               ->release();
 
     auto result_table = std::make_unique<cudf::table>(std::move(result_columns));
-    ctx->comm()->logger().debug(
-        "semi_join_chunk: result_table.num_rows()=", result_table->num_rows()
-    );
     // Deallocation of the join indices will happen on chunk_stream, so add stream dep
     cuda_stream_join(left_chunk.stream(), chunk_stream, &event);
     return streaming::to_message(
