@@ -126,10 +126,11 @@ enum class KeepKeys : bool {
  * @note This performs a broadcast join, broadcasting the table represented by the `left`
  * channel to all ranks, and then streaming through the chunks of the `right` channel.
  * The `right` channel is required to provide hash-partitioned data in-order.
+ * All of the chunks from the `left` channel must fit in memory at once.
  *
  * @param ctx Streaming context.
- * @param left Channel of `TableChunk`s in hash-partitioned order.
- * @param right Channel of `TableChunk`s in matching hash-partitioned order.
+ * @param left Channel of `TableChunk`s.
+ * @param right Channel of `TableChunk`s in hash-partitioned order (shuffled).
  * @param ch_out Output channel of `TableChunk`s.
  * @param left_on Column indices of the keys in the left table.
  * @param right_on Column indices of the keys in the right table.

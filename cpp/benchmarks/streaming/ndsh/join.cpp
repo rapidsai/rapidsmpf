@@ -412,29 +412,6 @@ streaming::Node inner_join_shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
-/**
- * @brief Perform a left semi join between two tables, broadcasting the left table to all
- * ranks.
- *
- * @param ctx Streaming context
- * @param left Channel of `TableChunk`s used as the broadcasted build side. This table is
- * broadcasted to all ranks.
- * @param right Channel of `TableChunk`s joined in turn against the build side. This table
- * is required to be shuffled / hash-partitioned.
- * @param ch_out Output channel of `TableChunk`s.
- * @param left_on Column indices of the keys in the left table.
- * @param right_on Column indices of the keys in the right table.
- * @param tag Disambiguating tag for the broadcast of the left table.
- * @param keep_keys Does the result contain the key columns, or only "carrier" value
- * columns
- * @return Coroutine representing the completion of the join.
- *
- * @note This implementation assumes that:
- * - `left` is small and fits in memory
- * - `right` is shuffled / hash-partitioned
- * It doesn't implement build table reuse across chunks of `left`, because we assume that
- * `right` is too large to broadcast.
- */
 streaming::Node left_semi_join_broadcast_left(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
