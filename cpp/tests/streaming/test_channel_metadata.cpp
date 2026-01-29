@@ -3,10 +3,10 @@
  * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
-// GCC 14.x has false positives on array-bounds and stringop-overflow when
+// GCC 13.x/14.x have false positives on array-bounds and stringop-overflow when
 // copying vectors through deeply inlined std::optional copy constructors.
 // Suppress for this test file.
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
@@ -127,6 +127,6 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
     EXPECT_TRUE(msg_m.empty());
 }
 
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13
 #pragma GCC diagnostic pop
 #endif
