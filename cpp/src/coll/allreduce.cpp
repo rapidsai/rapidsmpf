@@ -45,11 +45,6 @@ void AllReduce::ensure_reduction_done() {
         return;
     }
 
-    // If we're here this should always be true, but check just in case.
-    if (!gatherer_.finished()) {
-        return;
-    }
-
     // Slow path: acquire lock and perform reduction
     {
         std::lock_guard lock(mutex_);
