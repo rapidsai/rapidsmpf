@@ -38,7 +38,7 @@ class bad_alloc : public std::bad_alloc {
      *
      * @param msg Message to be associated with the exception.
      */
-    explicit bad_alloc(const char* msg)
+    explicit bad_alloc(char const* msg)
         : what_{std::string{std::bad_alloc::what()} + ": " + msg} {}
 
     /**
@@ -53,7 +53,7 @@ class bad_alloc : public std::bad_alloc {
      *
      * @return The explanatory string.
      */
-    [[nodiscard]] const char* what() const noexcept override {
+    [[nodiscard]] char const* what() const noexcept override {
         return what_.c_str();
     }
 
@@ -75,7 +75,7 @@ class out_of_memory : public bad_alloc {
      *
      * @param msg Message to be associated with the exception.
      */
-    explicit out_of_memory(const char* msg)
+    explicit out_of_memory(char const* msg)
         : bad_alloc{std::string{"out_of_memory: "} + msg} {}
 
     /**
@@ -103,7 +103,7 @@ class reservation_error : public bad_alloc {
      *
      * @param msg Message to be associated with the exception.
      */
-    explicit reservation_error(const char* msg)
+    explicit reservation_error(char const* msg)
         : bad_alloc{std::string{"reservation_error: "} + msg} {}
 
     /**
@@ -124,7 +124,7 @@ namespace detail {
  * @return The formatted error message string.
  */
 inline std::string build_error_message(
-    std::string_view reason, const std::source_location& loc
+    std::string_view reason, std::source_location const& loc
 ) {
     std::ostringstream ss;
     ss << "RAPIDSMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
@@ -144,7 +144,7 @@ template <typename ThrowFn>
 inline void expects_impl(
     bool condition,
     std::string_view reason,
-    const std::source_location& loc,
+    std::source_location const& loc,
     ThrowFn&& throw_fn
 ) {
     if (!condition) {
@@ -160,7 +160,7 @@ inline void expects_impl(
  * @return The formatted CUDA error message string.
  */
 inline std::string build_cuda_error_message(
-    cudaError_t error, const std::source_location& loc
+    cudaError_t error, std::source_location const& loc
 ) {
     std::ostringstream ss;
     ss << "CUDA error at: " << loc.file_name() << ":" << loc.line() << ": "
@@ -177,7 +177,7 @@ inline std::string build_cuda_error_message(
  * @return The formatted CUDA allocation error message string.
  */
 inline std::string build_cuda_alloc_error_message(
-    cudaError_t error, std::size_t num_bytes, const std::source_location& loc
+    cudaError_t error, std::size_t num_bytes, std::source_location const& loc
 ) {
     std::ostringstream ss;
     ss << "CUDA error (failed to allocate " << num_bytes
@@ -197,7 +197,7 @@ inline std::string build_cuda_alloc_error_message(
  * @param loc The source location where the error occurred.
  */
 [[noreturn]] inline void fatal_error(
-    std::string_view reason, const std::source_location& loc
+    std::string_view reason, std::source_location const& loc
 ) noexcept {
     std::cerr << "RAPIDSMPF FATAL ERROR at: " << loc.file_name() << ":" << loc.line()
               << ": " << reason << std::endl;

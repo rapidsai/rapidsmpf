@@ -51,7 +51,7 @@ bool is_initialized() {
     return flag;
 }
 
-void detail::check_mpi_error(int error_code, const char* file, int line) {
+void detail::check_mpi_error(int error_code, char const* file, int line) {
     if (error_code != MPI_SUCCESS) {
         std::array<char, MPI_MAX_ERROR_STRING> error_string;
         int error_length;

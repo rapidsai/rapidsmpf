@@ -242,7 +242,7 @@ class Options {
      * the same key will result in a `std::bad_any_cast`.
      */
     template <typename T>
-    T const& get(const std::string& key, OptionFactory<T> factory) {
+    T const& get(std::string const& key, OptionFactory<T> factory) {
         auto& shared = *shared_;
         std::lock_guard<std::mutex> lock(shared.mutex);
         auto& option = shared.options[key];
@@ -250,7 +250,7 @@ class Options {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
         }
         try {
-            return std::any_cast<const T&>(option.get_value());
+            return std::any_cast<T const&>(option.get_value());
         } catch (const std::bad_any_cast&) {
             RAPIDSMPF_FAIL(
                 "accessing option with incompatible template type", std::invalid_argument

@@ -36,7 +36,7 @@ struct NvmlLoader {
     nvmlReturn_t (*p_nvmlDeviceGetName)(nvmlDevice_t, char*, unsigned int) = nullptr;
     nvmlReturn_t (*p_nvmlDeviceGetPciInfo_v3)(nvmlDevice_t, nvmlPciInfo_t*) = nullptr;
     nvmlReturn_t (*p_nvmlDeviceGetUUID)(nvmlDevice_t, char*, unsigned int) = nullptr;
-    const char* (*p_nvmlErrorString)(nvmlReturn_t) = nullptr;
+    char const* (*p_nvmlErrorString)(nvmlReturn_t) = nullptr;
 
     NvmlLoader() {
         load();
@@ -81,7 +81,7 @@ struct NvmlLoader {
             reinterpret_cast<nvmlReturn_t (*)(nvmlDevice_t, char*, unsigned int)>(
                 dlsym(handle, "nvmlDeviceGetUUID")
             );
-        p_nvmlErrorString = reinterpret_cast<const char* (*)(nvmlReturn_t)>(
+        p_nvmlErrorString = reinterpret_cast<char const* (*)(nvmlReturn_t)>(
             dlsym(handle, "nvmlErrorString")
         );
         // If any required symbol is missing, treat NVML as unavailable
