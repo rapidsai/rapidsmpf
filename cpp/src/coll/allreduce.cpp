@@ -39,7 +39,7 @@ AllReduce::AllReduce(
       },
       finished_callback_{std::move(finished_callback)} {}
 
-void AllReduce::ensure_reduction_done() const {
+void AllReduce::ensure_reduction_done() {
     // Fast path: check if reduction is already done.
     if (reduction_done_.load(std::memory_order_acquire)) {
         return;
@@ -60,9 +60,8 @@ void AllReduce::ensure_reduction_done() const {
     // Extract gathered data and perform reduction.
     // Note: This is safe because gatherer_.finished() is true, so wait_and_extract won't
     // block.
-    auto gathered =
-        const_cast<AllGather&>(gatherer_).wait_and_extract(AllGather::Ordered::YES);
-    auto result = const_cast<AllReduce*>(this)->reduce_all(std::move(gathered));
+    auto gathered = gatherer_.wait_and_extract(AllGather::Ordered::YES);
+    auto result = reduce_all(std::move(gathered));
 
     reduced_result_ = std::move(result);
     reduction_done_.store(true, std::memory_order_release);

@@ -226,7 +226,7 @@ class AllReduce {
     [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
     /// @brief Ensure reduction has been performed (called on-demand, thread-safe).
-    void ensure_reduction_done() const;
+    void ensure_reduction_done();
 
     ReduceOperator reduce_operator_;  ///< Reduction operator
     BufferResource* br_;  ///< Buffer resource for memory normalization
