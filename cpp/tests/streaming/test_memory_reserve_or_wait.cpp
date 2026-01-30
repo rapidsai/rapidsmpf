@@ -294,7 +294,7 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
         };
         EXPECT_THROW(
             std::ignore = co_await mrow.reserve_or_wait_or_fail(10, 0),
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }(ctx));
 }
@@ -331,7 +331,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWithOverbookingDisabled)
                 MemoryType::DEVICE,
                 AllowOverbooking::NO
             ),
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }(ctx));
 }
@@ -414,7 +414,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabl
                 MemoryType::DEVICE,
                 std::nullopt  // Use default from configuration
             ),
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }(ctx_with_no_overbook));
 }

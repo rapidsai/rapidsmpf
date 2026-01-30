@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.ref cimport PyObject
@@ -7,7 +7,8 @@ from libcpp cimport bool as bool_t
 from libcpp.string cimport string
 
 from rapidsmpf._detail.exception_handling cimport (
-    CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
+    CppExcept, ex_handler, throw_py_as_cpp_exception,
+    translate_py_to_cpp_exception)
 from rapidsmpf.config cimport cpp_Options
 
 
@@ -34,7 +35,7 @@ cdef extern from *:
         string key,
         T (*wrapper)(void *, string),
         void* py_factory
-    ) except + nogil
+    ) except +ex_handler nogil
 
 
 #########################################################################
@@ -167,7 +168,7 @@ cdef extern from *:
     """
 
     cdef cppclass PyObjectSharedPtr:
-        PyObjectSharedPtr() except +
+        PyObjectSharedPtr() except +ex_handler
         PyObject* get() noexcept
 
     PyObjectSharedPtr cpp_make_shared_pyobject(PyObject*)

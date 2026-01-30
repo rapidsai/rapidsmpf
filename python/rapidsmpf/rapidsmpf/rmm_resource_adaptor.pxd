@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint64_t
@@ -6,6 +6,7 @@ from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            UpstreamResourceAdaptor)
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
 
 
@@ -15,14 +16,14 @@ cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
     ):
         cpp_RmmResourceAdaptor(
             device_memory_resource* upstream_mr
-        ) except +
+        ) except +ex_handler
 
         cpp_RmmResourceAdaptor(
             device_memory_resource* upstream_mr,
             device_memory_resource* fallback_mr,
-        ) except +
+        ) except +ex_handler
 
-        cpp_ScopedMemoryRecord get_main_record() except +
+        cpp_ScopedMemoryRecord get_main_record() except +ex_handler
         uint64_t current_allocated() noexcept
 
 

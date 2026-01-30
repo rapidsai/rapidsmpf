@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """ucxx-based implementation of a RapidsMPF Communicator."""
 
@@ -53,13 +53,13 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     )
 
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
-        cpp_UCXX_Communicator() except +
+        cpp_UCXX_Communicator() except +ex_handler
         cpp_UCXX_Communicator(
             unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
             cpp_Options options
-        ) except +
+        ) except +ex_handler
         cpp_UCXX_ListenerAddress listener_address()
-        void barrier() except +
+        void barrier() except +ex_handler
 
 
 cdef Communicator cpp_new_communicator(

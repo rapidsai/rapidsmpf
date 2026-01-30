@@ -124,9 +124,8 @@ rapidsmpf::streaming::Node postprocess_group_by(
     RAPIDSMPF_EXPECTS(
         (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
     );
-    auto chunk = co_await rapidsmpf::ndsh::to_device(
-        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-    );
+    auto chunk =
+        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto columns =
         cudf::table{chunk.table_view(), stream, ctx->br()->device_mr()}.release();
@@ -188,9 +187,8 @@ rapidsmpf::streaming::Node select_columns_for_groupby(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();

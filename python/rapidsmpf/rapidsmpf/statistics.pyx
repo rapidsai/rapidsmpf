@@ -10,6 +10,7 @@ from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
@@ -20,7 +21,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
             cpp_RmmResourceAdaptor* mr, cpp_Options options
-        ) except +
+        ) except +ex_handler
 
 
 cdef extern from *:
@@ -42,10 +43,12 @@ cdef extern from *:
         stats.clear();
     }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
-    vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
-    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    vector[string] cpp_list_stat_names(cpp_Statistics stats) except +ex_handler nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except +ex_handler nogil
 
 cdef class Statistics:
     """
