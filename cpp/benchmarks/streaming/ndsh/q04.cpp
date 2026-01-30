@@ -65,67 +65,15 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
     return requests;
 }
 
-/* Perform final groupby aggregation.
-
-Since the cardinality of o_orderpriority is very low, the chunkwise groupby
-produces a set of small tables that fits comfortably in memory. We can perform
-regular cudf groupby operations instead of streaming versions.
-
-Input table:
-    - o_orderpriority
-    - order_count (partial counts from chunkwise groupby)
-
-Output table:
-    - o_orderpriority
-    - order_count (sum of partial counts)
-*/
-rapidsmpf::streaming::Node final_groupby_agg(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-    auto msg = co_await ch_in->receive();
-    RAPIDSMPF_EXPECTS(
-        (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
-    );
-    auto chunk =
-        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
-    auto stream = chunk.stream();
-    auto mr = ctx->br()->device_mr();
-    auto table = chunk.table_view();
-
-    // Perform groupby sum aggregation
-    auto grouper = cudf::groupby::groupby(
-        table.select({0}), cudf::null_policy::INCLUDE, cudf::sorted::NO
-    );
-    std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-    aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-    std::vector<cudf::groupby::aggregation_request> requests;
-    requests.push_back(
-        cudf::groupby::aggregation_request{
-            .values = table.column(1), .aggregations = std::move(aggs)
-        }
-    );
-    auto [keys, aggregated] = grouper.aggregate(requests, stream, mr);
-
-    // Build result table
-    auto result = keys->release();
-    for (auto&& a : aggregated) {
-        std::ranges::move(a.results, std::back_inserter(result));
-    }
-    std::ignore = std::move(chunk);
-
-    co_await ch_out->send(
-        rapidsmpf::streaming::to_message(
-            msg.sequence_number(),
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
-                std::make_unique<cudf::table>(std::move(result)), stream
-            )
-        )
-    );
-    co_await ch_out->drain(ctx->executor());
+std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
+    auto requests = std::vector<rapidsmpf::ndsh::groupby_request>();
+    std::vector<std::function<std::unique_ptr<cudf::groupby_aggregation>()>> aggs;
+    // sum of partial counts
+    aggs.emplace_back([]() {
+        return cudf::make_sum_aggregation<cudf::groupby_aggregation>();
+    });
+    requests.emplace_back(1, std::move(aggs));  // column 1 is order_count
+    return requests;
 }
 
 /* Sort the grouped orders table by o_orderpriority.
@@ -713,7 +661,14 @@ int main(int argc, char** argv) {
             if (ctx->comm()->rank() == 0) {
                 auto final_groupby_output = ctx->create_channel();
                 nodes.push_back(
-                    final_groupby_agg(ctx, final_groupby_input, final_groupby_output)
+                    rapidsmpf::ndsh::chunkwise_group_by(
+                        ctx,
+                        final_groupby_input,
+                        final_groupby_output,
+                        {0},
+                        final_groupby_requests(),
+                        cudf::null_policy::INCLUDE
+                    )
                 );
                 auto sorted_output = ctx->create_channel();
                 nodes.push_back(sort_by(ctx, final_groupby_output, sorted_output));
