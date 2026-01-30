@@ -64,7 +64,7 @@ rapidsmpf::streaming::Node read_lineitem(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns(columns)
+                       .column_names(columns)
                        .build();
     if (latch != nullptr) {
         co_await *latch;
@@ -85,7 +85,7 @@ rapidsmpf::streaming::Node read_nation(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "nation")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"n_nationkey"})
+                       .column_names({"n_nationkey"})
                        .build();
     // filter: "n_name" == "SAUDI ARABIA"
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
@@ -132,7 +132,7 @@ rapidsmpf::streaming::Node read_orders(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"o_orderkey"})
+                       .column_names({"o_orderkey"})
                        .build();
     // filter: "o_orderstatus" == "F"
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
@@ -218,7 +218,7 @@ rapidsmpf::streaming::Node read_supplier(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "supplier")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"s_suppkey", "s_nationkey", "s_name"})
+                       .column_names({"s_suppkey", "s_nationkey", "s_name"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk

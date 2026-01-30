@@ -57,7 +57,7 @@ rapidsmpf::streaming::Node read_lineitem(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns(
+                       .column_names(
                            {"l_discount",
                             "l_extendedprice",
                             "l_orderkey",
@@ -82,7 +82,7 @@ rapidsmpf::streaming::Node read_nation(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "nation")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"n_name", "n_nationkey"})
+                       .column_names({"n_name", "n_nationkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -100,7 +100,7 @@ rapidsmpf::streaming::Node read_orders(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"o_orderdate", "o_orderkey"})
+                       .column_names({"o_orderdate", "o_orderkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -118,7 +118,7 @@ rapidsmpf::streaming::Node read_part(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "part")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"p_partkey", "p_name"})
+                       .column_names({"p_partkey", "p_name"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -136,7 +136,7 @@ rapidsmpf::streaming::Node read_partsupp(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "partsupp")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"ps_partkey", "ps_suppkey", "ps_supplycost"})
+                       .column_names({"ps_partkey", "ps_suppkey", "ps_supplycost"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -154,7 +154,7 @@ rapidsmpf::streaming::Node read_supplier(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "supplier")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"s_nationkey", "s_suppkey"})
+                       .column_names({"s_nationkey", "s_suppkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
