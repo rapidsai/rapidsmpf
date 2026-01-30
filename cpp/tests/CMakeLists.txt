@@ -70,7 +70,8 @@ disable_sign_conversion_warning(test_sources)
 
 target_sources(
   test_sources
-  PRIVATE test_allgather.cpp
+  PRIVATE test_aligned_buffer.cpp
+          test_allgather.cpp
           test_allreduce.cpp
           test_allreduce_custom_kernels.cu
           test_buffer_resource.cpp
