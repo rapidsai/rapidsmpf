@@ -21,53 +21,9 @@ function(_get_include_dir_from_target target_name out_var)
   )
 endfunction()
 
-# This function finds cuCascade and sets any additional necessary environment variables.
-#
-# NOTE: We explicitly find RMM, cuDF, and KvikIO targets here even though they are already
-# configured earlier in the build process. This is necessary because:
-#
-# 1. cuCascade runs as a CMake subdirectory/subproject and needs GLOBAL targets to see them
-# 2. We need to extract rmm_ROOT and cudf_ROOT from the targets to ensure cuCascade uses the same
-#    RMM/cuDF instances as rapidsmpf
-# 3. Prevents cuCascade from building its own copies of RMM/cuDF via CPM
-# 4. KvikIO is a dependency of cuDF and must be explicitly found and linked to ensure proper
-#    transitive linking (cuDF's CMake config may not properly propagate KvikIO dependencies)
+# Finds and configure cuCascade as static library. Using it as static library avoids packaging
+# issues with wheels.
 function(find_and_configure_cucascade)
-  if(NOT TARGET rmm::rmm)
-    find_package(rmm REQUIRED CONFIG)
-  endif()
-  if(NOT TARGET cudf::cudf)
-    find_package(cudf REQUIRED CONFIG)
-  endif()
-  if(NOT TARGET kvikio::kvikio)
-    find_package(kvikio REQUIRED CONFIG)
-  endif()
-
-  # Mark targets as GLOBAL so they're visible to cuCascade
-  foreach(_target rmm::rmm cudf::cudf kvikio::kvikio CUDA::cudart CUDA::nvml)
-    if(TARGET ${_target})
-      set_target_properties(${_target} PROPERTIES IMPORTED_GLOBAL TRUE)
-    endif()
-  endforeach()
-
-  # Get the actual package directories to ensure cuCascade uses the same RMM/cuDF
-  get_target_property(_rmm_location rmm::rmm LOCATION)
-  if(_rmm_location)
-    get_filename_component(_rmm_lib_dir "${_rmm_location}" DIRECTORY)
-    get_filename_component(rmm_ROOT "${_rmm_lib_dir}/.." ABSOLUTE)
-  endif()
-
-  get_target_property(_cudf_location cudf::cudf LOCATION)
-  if(_cudf_location)
-    get_filename_component(_cudf_lib_dir "${_cudf_location}" DIRECTORY)
-    get_filename_component(cudf_ROOT "${_cudf_lib_dir}/.." ABSOLUTE)
-  endif()
-
-  message(STATUS "RMM root directory for cuCascade: ${rmm_ROOT}")
-  message(STATUS "cuDF root directory for cuCascade: ${cudf_ROOT}")
-
-  # Always build cuCascade as a static library to embed it into librapidsmpf.so. This avoids
-  # packaging issues with wheels and simplifies deployment.
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
@@ -76,20 +32,16 @@ function(find_and_configure_cucascade)
     GIT_TAG main
     GIT_SHALLOW TRUE
     OPTIONS "BUILD_TESTS OFF" "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS OFF" "BUILD_STATIC_LIBS ON"
-            "WARNINGS_AS_ERRORS OFF" "rmm_ROOT ${rmm_ROOT}" "cudf_ROOT ${cudf_ROOT}"
+            "WARNINGS_AS_ERRORS OFF"
     EXCLUDE_FROM_ALL
   )
 
   # Create an interface library that wraps cuCascade to avoid export conflicts This target won't be
-  # exported but can be used internally. Also link KvikIO to ensure transitive dependencies are
-  # satisfied (cuDF depends on KvikIO).
+  # exported but can be used internally.
   if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
     add_library(rapidsmpf_cucascade_internal INTERFACE)
     target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
     # Link KvikIO to ensure cuDF's dependency is satisfied
-    if(TARGET kvikio::kvikio)
-      target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
-    endif()
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
   endif()
 endfunction()
