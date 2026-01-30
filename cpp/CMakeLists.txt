@@ -180,6 +180,7 @@ add_library(
   src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/memory/aligned_buffer.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp

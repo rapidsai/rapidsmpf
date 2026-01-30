@@ -1,82 +1,19 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 #include <cstddef>
-#include <stdexcept>
 
 #include <cudf/table/table_view.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/detail/aligned_buffer.hpp>
 
 namespace rapidsmpf::ndsh {
-/**
- * @brief A type-erased buffer with an allocation with specified alignment.
- */
-struct AlignedBuffer {
-    /**
-     * @brief Construct the buffer.
-     *
-     * @param size The buffer size.
-     * @param alignment The requested alignment.
-     * @param stream Stream for allocations.
-     * @param mr Memory resource for allocations.
-     */
-    explicit AlignedBuffer(
-        std::size_t size,
-        std::size_t alignment,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
-    )
-        : size{size},
-          alignment{alignment},
-          stream{stream},
-          mr{mr},
-          data{mr.allocate(stream, size, alignment)} {}
-
-    /**
-     * @brief Deallocate the buffer.
-     */
-    ~AlignedBuffer() {
-        mr.deallocate(stream, data, size, alignment);
-    }
-
-    AlignedBuffer(AlignedBuffer const&) = delete;
-    AlignedBuffer& operator=(AlignedBuffer const&) = delete;
-
-    AlignedBuffer(AlignedBuffer&& other)
-        : size{other.size},
-          alignment{other.alignment},
-          stream{other.stream},
-          mr{other.mr},
-          data{std::exchange(other.data, nullptr)} {}
-
-    AlignedBuffer& operator=(AlignedBuffer&& other) {
-        if (this != &other) {
-            RAPIDSMPF_EXPECTS(
-                !data,
-                "cannot move into an already initialized aligned_buffer",
-                std::invalid_argument
-            );
-        }
-        size = other.size;
-        alignment = other.alignment;
-        stream = other.stream;
-        mr = other.mr;
-        data = std::exchange(other.data, nullptr);
-        return *this;
-    }
-
-    std::size_t size;  ///< Size in bytes
-    std::size_t alignment;  ///< Alignment in bytes
-    rmm::cuda_stream_view stream;  ///< Stream we were allocated on
-    rmm::device_async_resource_ref mr;  ///< Memory resource for deallocation
-    void* data;  ///< Data
-};
 
 /**
  * @brief A bloom filter, used for approximate set membership queries.
@@ -159,7 +96,7 @@ struct BloomFilter {
   private:
     std::size_t num_blocks_;  ///< Number of blocks used in the filter.
     std::uint64_t seed_;  ///< Seed used when hashing values.
-    AlignedBuffer storage_;  ///< Backing storage.
+    detail::AlignedBuffer storage_;  ///< Backing storage.
 };
 
 }  // namespace rapidsmpf::ndsh

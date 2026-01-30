@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -58,7 +58,9 @@ BloomFilter::BloomFilter(
       storage_{
           num_blocks * sizeof(StorageType), std::alignment_of_v<StorageType>, stream, mr
       } {
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage_.data, 0, storage_.size, stream));
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemsetAsync(storage_.data(), 0, storage_.size(), storage_.stream())
+    );
 }
 
 void BloomFilter::add(
@@ -68,7 +70,7 @@ void BloomFilter::add(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
         PolicyType{}
@@ -88,13 +90,13 @@ void BloomFilter::merge(BloomFilter const& other, rmm::cuda_stream_view stream) 
         num_blocks_ == other.num_blocks_, "Mismatching number of blocks in filters"
     );
     auto ref_this = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
         PolicyType{}
     };
     auto ref_other = BloomFilterRefType{
-        static_cast<StorageType*>(other.storage_.data),
+        static_cast<StorageType*>(other.storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
         PolicyType{}
@@ -118,7 +120,7 @@ rmm::device_uvector<bool> BloomFilter::contains(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
         PolicyType{}
@@ -137,15 +139,15 @@ std::size_t BloomFilter::fitting_num_blocks(std::size_t l2size) {
 }
 
 rmm::cuda_stream_view BloomFilter::stream() const noexcept {
-    return storage_.stream;
+    return storage_.stream();
 }
 
 void* BloomFilter::data() const noexcept {
-    return storage_.data;
+    return storage_.data();
 }
 
 std::size_t BloomFilter::size() const noexcept {
-    return storage_.size;
+    return storage_.size();
 }
 
 }  // namespace rapidsmpf::ndsh
