@@ -630,6 +630,17 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print(f"No qDD.parquet files found in results directory: {args.results_path}")
         return 1
 
+    # Filter to specific queries if requested
+    if args.queries:
+        results_files = {
+            name: path
+            for name, path in results_files.items()
+            if int(name.lstrip("q")) in args.queries
+        }
+        if not results_files:
+            print(f"No matching result files found for queries: {args.queries}")
+            return 1
+
     print(f"\nValidating {len(results_files)} query(ies):")
 
     # Validate each matching pair
@@ -816,6 +827,13 @@ def main():
         type=Path,
         required=True,
         help="Directory containing expected parquet files (qDD.parquet)",
+    )
+    validate_parser.add_argument(
+        "-q",
+        "--queries",
+        help="Comma-separated list of SQL query numbers to validate or the string 'all'",
+        type=query_type,
+        default="all",
     )
 
     # 'run-and-validate' subcommand - inherits from BOTH parents
