@@ -21,6 +21,14 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 import asyncio
 
+# Sentinel indicating that net_memory_delta estimation has not yet been implemented.
+#
+# This value is used when a reasonable estimate of the net memory delta is
+# not yet available. Any use of this sentinel should be treated as a TODO,
+# since providing a concrete estimate enables better spilling and scheduling
+# decisions.
+missing_net_memory_delta = cpp_missing_net_memory_delta
+
 
 cdef extern from * nogil:
     """
