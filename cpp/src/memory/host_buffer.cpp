@@ -90,6 +90,10 @@ std::byte const* HostBuffer::data() const noexcept {
     return span_.data();
 }
 
+void HostBuffer::set_stream(rmm::cuda_stream_view new_stream) {
+    stream_ = new_stream;
+}
+
 std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
     std::vector<std::uint8_t> ret(size());
     if (!empty()) {
