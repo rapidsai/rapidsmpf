@@ -98,7 +98,7 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, 20_KiB), std::overflow_error);
+    EXPECT_THROW(br.release(reserve1, 20_KiB), rapidsmpf::reservation_error);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
@@ -146,7 +146,7 @@ TEST(BufferResource, ReservationReleasing) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, 20_KiB), std::overflow_error);
+    EXPECT_THROW(br.release(reserve1, 20_KiB), rapidsmpf::reservation_error);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
@@ -201,7 +201,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 0);
 
     // Insufficent reservation for the allocation.
-    EXPECT_THROW(zeros(br, 10_KiB, stream, reserve1), std::overflow_error);
+    EXPECT_THROW(zeros(br, 10_KiB, stream, reserve1), rapidsmpf::reservation_error);
 
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();

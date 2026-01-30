@@ -48,7 +48,7 @@ struct rapidsmpf_domain {
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.
 #define RAPIDSMPF_REGISTER_STRING(msg)                                         \
-    [](const char* a_msg) -> auto& {                                           \
+    [](char const* a_msg) -> auto& {                                           \
         static nvtx3::registered_string_in<rapidsmpf_domain> a_reg_str{a_msg}; \
         return a_reg_str;                                                      \
     }(msg)

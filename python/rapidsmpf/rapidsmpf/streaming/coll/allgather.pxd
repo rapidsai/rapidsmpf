@@ -4,6 +4,7 @@
 from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
@@ -19,14 +20,14 @@ cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
             shared_ptr[cpp_Channel] ch_out,
             int32_t op_id,
             cpp_Ordered ordered,
-        ) except +
+        ) except +ex_handler
 
     cdef cppclass cpp_AllGather"rapidsmpf::streaming::AllGather":
         cpp_Allgather(
             shared_ptr[cpp_Context] ctx, int32_t op_id
-        ) except +
-        void insert(uint64_t, cpp_PackedData) except +
-        void insert_finished() except +
+        ) except +ex_handler
+        void insert(uint64_t, cpp_PackedData) except +ex_handler
+        void insert_finished() except +ex_handler
 
 
 cdef class AllGather:

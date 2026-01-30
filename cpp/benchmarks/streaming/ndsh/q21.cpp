@@ -237,9 +237,8 @@ rapidsmpf::streaming::Node filter_lineitem(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
 
         auto mask = cudf::binary_operation(
             chunk.table_view().column(2),
@@ -280,9 +279,8 @@ rapidsmpf::streaming::Node filter_grouped_greater(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
 
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
@@ -325,9 +323,8 @@ rapidsmpf::streaming::Node filter_grouped_equal(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
 
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
@@ -372,9 +369,8 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         // Here, we know that copying ch1_cols (a single col) is better than copying
         // ch2_cols (the whole table)
         std::vector<coro::task<bool>> tasks;
@@ -435,9 +431,8 @@ rapidsmpf::streaming::Node slice(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
 
         if (global_start == global_end) {
             co_await ch_out->send(
@@ -539,9 +534,10 @@ std::vector<rapidsmpf::ndsh::groupby_request> sum_groupby_request(
             if (msg.empty()) {
                 break;
             }
-            auto chunk = co_await rapidsmpf::ndsh::to_device(
-                ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-            );
+            auto chunk =
+                co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(
+                    ctx
+                );
             auto stream = chunk.stream();
             auto out = std::make_unique<cudf::table>(
                 chunk.table_view().select(keys), stream, ctx->br()->device_mr()

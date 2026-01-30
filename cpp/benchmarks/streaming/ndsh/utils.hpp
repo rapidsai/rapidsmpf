@@ -155,30 +155,6 @@ std::unique_ptr<streaming::Filter> make_date_filter(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 );
 
-/**
- * @brief Ensure a `TableChunk` is available on device memory.
- *
- * If @p chunk is not already device-resident, this coroutine reserves device memory
- * via `streaming::reserve_memory()` and then materializes the chunk on device using
- * `TableChunk::make_available()`.
- *
- * This helper does not take an explicit overbooking parameter. When no progress can
- * be made within the configured `"memory_reserve_timeout"`, the behavior is determined
- * the configuration option `"allow_overbooking_by_default"`.
- *
- * @param ctx Streaming context used to access the memory reservation mechanism.
- * @param chunk Chunk to ensure is available on device. The input chunk is consumed
- * and left in a moved-from state.
- * @return A new `TableChunk` that is available on device.
- *
- * @throws std::runtime_error If shutdown occurs before the reservation can be processed.
- * @throws std::overflow_error If no progress is possible within the timeout and
- * overbooking is disabled.
- */
-coro::task<streaming::TableChunk> to_device(
-    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
-);
-
 ///< @brief Communicator type to use
 enum class CommType : std::uint8_t {
     SINGLE,  ///< Single process communicator
