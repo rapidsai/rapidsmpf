@@ -3,13 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstring>
 #include <memory>
 #include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include <cuda/memory>
+
 #include <cudf_test/base_fixture.hpp>
+#include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
 
@@ -20,6 +24,22 @@
 #include "utils.hpp"
 
 using namespace rapidsmpf;
+
+namespace {
+
+// unlike cudaMemcpyAsync, cudaMemsetAsync does not transparently handle host ptrs on all
+// architectures.
+void checked_memset(
+    void* ptr, std::size_t size, uint8_t value, rmm::cuda_stream_view stream
+) {
+    if (cuda::is_device_accessible(ptr, rmm::get_current_cuda_device().value())) {
+        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, value, size, stream));
+    } else {
+        std::memset(ptr, value, size);
+    }
+}
+
+}  // namespace
 
 class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
   protected:
@@ -127,14 +147,14 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     EXPECT_EQ(buffer1->mem_type(), mem_type);
 
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0xAB, test_size, stream));
+        checked_memset(ptr, test_size, 0xAB, stream);
     });
 
     buffer1->rebind_stream(stream2);
     EXPECT_EQ(buffer1->stream().value(), stream2.value());
 
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0xCD, test_size / 2, stream));
+        checked_memset(ptr, test_size / 2, 0xCD, stream);
     });
 
     std::vector<uint8_t> result(test_size);
@@ -163,21 +183,19 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
     buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x11, test_size, stream));
+        checked_memset(ptr, test_size, 0x11, stream);
     });
 
     buffer->rebind_stream(stream2);
     EXPECT_EQ(buffer->stream().value(), stream2.value());
     buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x22, test_size / 2, stream));
+        checked_memset(ptr, test_size / 2, 0x22, stream);
     });
 
     buffer->rebind_stream(stream1);
     EXPECT_EQ(buffer->stream().value(), stream1.value());
     buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(
-            cudaMemsetAsync(ptr + test_size / 2, 0x33, test_size / 2, stream)
-        );
+        checked_memset(ptr + test_size / 2, test_size / 2, 0x33, stream);
     });
 
     std::vector<uint8_t> result(test_size);
