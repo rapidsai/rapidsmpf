@@ -439,6 +439,10 @@ streaming::Node left_semi_join_broadcast_left(
         if (right_msg.empty()) {
             break;
         }
+        // The ``right`` table has been hash-partitioned (via a shuffle) on
+        // the join key. Thanks to the hash-partitioning, we don't need to worry
+        // about deduplicating matches across partitions. Anything that matches
+        // in the semi-join belongs in the output.
         auto right_chunk =
             co_await right_msg.release<streaming::TableChunk>().make_available(ctx);
         co_await ch_out->send(semi_join_chunk(
