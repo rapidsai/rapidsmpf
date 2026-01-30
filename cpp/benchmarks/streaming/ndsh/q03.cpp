@@ -64,7 +64,7 @@ rapidsmpf::streaming::Node read_customer(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "customer")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"c_custkey"})  // 0
+                       .column_names({"c_custkey"})  // 0
                        .build();
     auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
         auto stream = ctx->br()->stream_pool().get_stream();
@@ -112,7 +112,7 @@ rapidsmpf::streaming::Node read_lineitem(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({
+                       .column_names({
                            "l_orderkey",  // 0
                            "l_extendedprice",  // 1
                            "l_discount",  // 2
@@ -149,7 +149,7 @@ rapidsmpf::streaming::Node read_orders(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({
+                       .column_names({
                            "o_orderkey",  // 0
                            "o_orderdate",  // 1
                            "o_shippriority",  // 2
