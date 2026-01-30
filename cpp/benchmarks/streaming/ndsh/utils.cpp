@@ -125,7 +125,8 @@ streaming::Node consume_channel(
             break;
         }
         if (msg.holds<streaming::TableChunk>()) {
-            auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             ctx->comm()->logger().print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
@@ -135,18 +136,6 @@ streaming::Node consume_channel(
             );
         }
     }
-}
-
-coro::task<streaming::TableChunk> to_device(
-    std::shared_ptr<streaming::Context> ctx, streaming::TableChunk&& chunk
-) {
-    co_return chunk.make_available(
-        co_await streaming::reserve_memory(
-            ctx,
-            chunk.make_available_cost(),
-            streaming::MemoryReserveOrWait::missing_net_memory_delta
-        )
-    );
 }
 
 std::shared_ptr<streaming::Context> create_context(

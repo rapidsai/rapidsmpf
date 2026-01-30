@@ -19,8 +19,6 @@
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utils.hpp"
-
 namespace rapidsmpf::ndsh {
 
 
@@ -65,8 +63,8 @@ streaming::Node concatenate(
         chunks.reserve(messages.size());
         views.reserve(messages.size());
         for (auto&& msg : messages) {
-            auto chunk = msg.release<streaming::TableChunk>();
-            chunk = co_await to_device(ctx, std::move(chunk));
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             cuda_stream_join(concat_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
