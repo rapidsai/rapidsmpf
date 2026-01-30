@@ -9,8 +9,6 @@
 
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -115,11 +113,11 @@ TableChunk TableChunk::make_available(MemoryReservation&& reservation) {
     return make_available(res);
 }
 
-coro::task<TableChunk> TableChunk::make_available(std::shared_ptr<Context> ctx) {
+coro::task<TableChunk> TableChunk::make_available(
+    std::shared_ptr<Context> ctx, std::int64_t net_memory_delta
+) {
     co_return make_available(
-        co_await reserve_memory(
-            ctx, make_available_cost(), MemoryReserveOrWait::missing_net_memory_delta
-        )
+        co_await reserve_memory(ctx, make_available_cost(), net_memory_delta)
     );
 }
 

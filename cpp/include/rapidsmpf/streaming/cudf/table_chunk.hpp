@@ -20,6 +20,7 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
 #include <coro/task.hpp>
@@ -206,6 +207,9 @@ class TableChunk {
      * determined the configuration option `"allow_overbooking_by_default"`.
      *
      * @param ctx Streaming context used to access the memory reservation mechanism.
+     * @param net_memory_delta Estimated change in memory usage after reservation is
+     * granted and operation using the `TableChunk` has completed. See
+     * `MemoryReserveOrWait::reserve_or_wait` for details.
      * @return A new `TableChunk` that is available on device.
      *
      * @throws std::runtime_error If shutdown occurs before the reservation can be
@@ -213,7 +217,10 @@ class TableChunk {
      * @throws std::overflow_error If no progress is possible within the timeout and
      * overbooking is disabled.
      */
-    [[nodiscard]] coro::task<TableChunk> make_available(std::shared_ptr<Context> ctx);
+    [[nodiscard]] coro::task<TableChunk> make_available(
+        std::shared_ptr<Context> ctx,
+        std::int64_t net_memory_delta = MemoryReserveOrWait::missing_net_memory_delta
+    );
 
     /**
      * @brief Returns a view of the underlying table.
