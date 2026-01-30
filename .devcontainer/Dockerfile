@@ -7,6 +7,11 @@ FROM ${BASE} as pip-base
 
 ENV DEFAULT_VIRTUAL_ENV=rapids
 
+# Install libnuma-dev for cuCascade dependency (pip devcontainers only)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnuma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM ${BASE} as conda-base
 
 ENV DEFAULT_CONDA_ENV=rapids
