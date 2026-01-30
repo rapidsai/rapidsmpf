@@ -352,9 +352,9 @@ inline void expects_fatal_impl(
 /**
  * @brief Error checking macro for CUDA runtime API functions.
  *
- * Invokes a CUDA runtime API function call. If the call does not return
- * `cudaSuccess`, it calls `cudaGetLastError()` to clear the error and throws an
- * exception describing the CUDA error.
+ * Invokes a CUDA runtime API function call. If the call does not return `cudaSuccess`, it
+ * calls `cudaGetLastError()` to clear the error and throws an exception describing the
+ * CUDA error.
  *
  * Defaults to throwing `rapidsmpf::cuda_error`, but a custom exception may also be
  * specified.
@@ -389,12 +389,11 @@ inline void expects_fatal_impl(
 /**
  * @brief Error checking macro for CUDA runtime API calls that terminates on error.
  *
- * Invokes a CUDA runtime API function call. If the call does not return
- * `cudaSuccess`, it calls `cudaGetLastError()` to clear the error and terminates
- * with a fatal error message describing the CUDA error.
+ * Invokes a CUDA runtime API function call. If the call does not return `cudaSuccess`,
+ * terminates with a fatal error message describing the CUDA error.
  *
- * Use this in contexts where exceptions cannot be thrown, such as destructors,
- * noexcept functions, or when recovery is impossible.
+ * Use this in contexts where exceptions cannot be thrown, such as destructors, noexcept
+ * functions, or when recovery is impossible.
  *
  * Example usage:
  * @code{.cpp}
@@ -405,7 +404,6 @@ inline void expects_fatal_impl(
     do {                                                     \
         cudaError_t const error = (_call);                   \
         if (cudaSuccess != error) {                          \
-            cudaGetLastError();                              \
             rapidsmpf::detail::fatal_error(                  \
                 rapidsmpf::detail::build_cuda_error_message( \
                     error, std::source_location::current()   \
@@ -442,6 +440,8 @@ inline void expects_fatal_impl(
     do {                                                                        \
         cudaError_t const error = (_call);                                      \
         if (cudaSuccess != error) {                                             \
+            /* Clear the CUDA error state. The error is now represented */      \
+            /* by the thrown exception. */                                      \
             cudaGetLastError();                                                 \
             auto const msg = rapidsmpf::detail::build_cuda_alloc_error_message( \
                 error, (num_bytes), std::source_location::current()             \
