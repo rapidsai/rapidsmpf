@@ -38,7 +38,7 @@ struct HashScheme {
  * (e.g., inter-rank or local). Use the static factory methods to construct.
  *
  * - `none()`: No partitioning information at this level.
- * - `passthrough()`: Partitioning passes through from the parent level unchanged.
+ * - `inherit()`: Partitioning is inherited from the parent level unchanged.
  * - `from_hash(h)`: Explicit hash partitioning with the given scheme.
  */
 struct PartitioningSpec {
@@ -47,7 +47,7 @@ struct PartitioningSpec {
      */
     enum class Type : std::uint8_t {
         NONE,  ///< No partitioning information at this level.
-        PASSTHROUGH,  ///< Partitioning passes through from parent level unchanged.
+        INHERIT,  ///< Partitioning is inherited from parent level unchanged.
         HASH,  ///< Hash partitioning.
     };
 
@@ -64,10 +64,10 @@ struct PartitioningSpec {
 
     /**
      * @brief Create a spec indicating partitioning passes through from parent.
-     * @return A PartitioningSpec with type PASSTHROUGH.
+     * @return A PartitioningSpec with type INHERIT.
      */
-    static PartitioningSpec passthrough() {
-        return {.type = Type::PASSTHROUGH, .hash = std::nullopt};
+    static PartitioningSpec inherit() {
+        return {.type = Type::INHERIT, .hash = std::nullopt};
     }
 
     /**

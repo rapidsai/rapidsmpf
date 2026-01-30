@@ -32,9 +32,9 @@ def test_partitioning_scenarios() -> None:
     assert Partitioning(None, None) == p_default
 
     # Direct global shuffle: inter_rank=Hash, local=Aligned
-    p_global = Partitioning(HashScheme((0,), 16), "passthrough")
+    p_global = Partitioning(HashScheme((0,), 16), "inherit")
     assert p_global.inter_rank == HashScheme((0,), 16)
-    assert p_global.local == "passthrough"
+    assert p_global.local == "inherit"
 
     # Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)
     p_twostage = Partitioning(HashScheme((0,), 4), HashScheme((0,), 8))
@@ -47,7 +47,7 @@ def test_partitioning_scenarios() -> None:
     assert p_local_none.local is None
 
     # Equality and repr
-    assert p_global == Partitioning(HashScheme((0,), 16), "passthrough")
+    assert p_global == Partitioning(HashScheme((0,), 16), "inherit")
     assert p_global != p_twostage
     assert "Partitioning" in repr(p_global)
     assert "inter_rank" in repr(p_global)
@@ -65,7 +65,7 @@ def test_channel_metadata() -> None:
     assert m.duplicated is False
 
     # With partitioning and duplicated
-    p = Partitioning(HashScheme((0,), 16), "passthrough")
+    p = Partitioning(HashScheme((0,), 16), "inherit")
     m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
     assert m_full.partitioning == p
     assert m_full.duplicated is True
@@ -85,7 +85,7 @@ def test_message_roundtrip() -> None:
     """Test ChannelMetadata can round-trip through Message."""
     m = ChannelMetadata(
         local_count=4,
-        partitioning=Partitioning(HashScheme((0,), 16), "passthrough"),
+        partitioning=Partitioning(HashScheme((0,), 16), "inherit"),
         duplicated=True,
     )
     msg_m = Message(99, m)
@@ -101,7 +101,7 @@ def test_access_after_move_raises() -> None:
     """Test that accessing a released ChannelMetadata raises ValueError."""
     m = ChannelMetadata(
         local_count=4,
-        partitioning=Partitioning(HashScheme((0,), 16), "passthrough"),
+        partitioning=Partitioning(HashScheme((0,), 16), "inherit"),
     )
     # Move into a message (releases the handle)
     _ = Message(0, m)

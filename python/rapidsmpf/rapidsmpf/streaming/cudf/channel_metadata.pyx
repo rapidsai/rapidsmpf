@@ -63,13 +63,13 @@ cdef cpp_PartitioningSpec _to_spec(obj) except *:
     """Convert Python object to PartitioningSpec."""
     if obj is None:
         return cpp_PartitioningSpec.none()
-    elif obj == "passthrough":
-        return cpp_PartitioningSpec.passthrough()
+    elif obj == "inherit":
+        return cpp_PartitioningSpec.inherit()
     elif isinstance(obj, HashScheme):
         return cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
     else:
         raise TypeError(
-            f"Expected HashScheme, None, or 'passthrough', got {type(obj).__name__}"
+            f"Expected HashScheme, None, or 'inherit', got {type(obj).__name__}"
         )
 
 
@@ -77,8 +77,8 @@ cdef object _from_spec(cpp_PartitioningSpec spec):
     """Convert PartitioningSpec to Python object."""
     if spec.type == cpp_PartitioningSpec.cpp_Type.NONE:
         return None
-    elif spec.type == cpp_PartitioningSpec.cpp_Type.PASSTHROUGH:
-        return "passthrough"
+    elif spec.type == cpp_PartitioningSpec.cpp_Type.INHERIT:
+        return "inherit"
     elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     else:
@@ -92,9 +92,9 @@ cdef class Partitioning:
     Parameters
     ----------
     inter_rank
-        Distribution across ranks. Can be a HashScheme, None, or 'passthrough'.
+        Distribution across ranks. Can be a HashScheme, None, or 'inherit'.
     local
-        Distribution within a rank. Can be a HashScheme, None, or 'passthrough'.
+        Distribution within a rank. Can be a HashScheme, None, or 'inherit'.
     """
 
     def __init__(self, inter_rank=None, local=None):

@@ -29,9 +29,9 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     auto spec_none = PartitioningSpec::none();
     EXPECT_EQ(spec_none.type, PartitioningSpec::Type::NONE);
 
-    // Passthrough
-    auto spec_passthrough = PartitioningSpec::passthrough();
-    EXPECT_EQ(spec_passthrough.type, PartitioningSpec::Type::PASSTHROUGH);
+    // Inherit
+    auto spec_inherit = PartitioningSpec::inherit();
+    EXPECT_EQ(spec_inherit.type, PartitioningSpec::Type::INHERIT);
 
     // Hash
     auto spec_hash = PartitioningSpec::from_hash(HashScheme{{0}, 16});
@@ -41,9 +41,9 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
 
     // Equality
     EXPECT_EQ(spec_none, PartitioningSpec::none());
-    EXPECT_EQ(spec_passthrough, PartitioningSpec::passthrough());
+    EXPECT_EQ(spec_inherit, PartitioningSpec::inherit());
     EXPECT_EQ(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 16}));
-    EXPECT_NE(spec_none, spec_passthrough);
+    EXPECT_NE(spec_none, spec_inherit);
     EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 32}));
 }
 
@@ -53,12 +53,12 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     EXPECT_EQ(p_default.inter_rank.type, PartitioningSpec::Type::NONE);
     EXPECT_EQ(p_default.local.type, PartitioningSpec::Type::NONE);
 
-    // Direct global shuffle: inter_rank=Hash, local=Passthrough
+    // Direct global shuffle: inter_rank=Hash, local=Inherit
     Partitioning p_global{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
     };
     EXPECT_EQ(p_global.inter_rank.type, PartitioningSpec::Type::HASH);
-    EXPECT_EQ(p_global.local.type, PartitioningSpec::Type::PASSTHROUGH);
+    EXPECT_EQ(p_global.local.type, PartitioningSpec::Type::INHERIT);
     EXPECT_EQ(p_global.inter_rank.hash->modulus, 16);
 
     // Two-stage shuffle: inter_rank=Hash(nranks), local=Hash(N_l)
@@ -73,8 +73,7 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     EXPECT_EQ(
         p_global,
         (Partitioning{
-            PartitioningSpec::from_hash(HashScheme{{0}, 16}),
-            PartitioningSpec::passthrough()
+            PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
         })
     );
     EXPECT_NE(p_global, p_twostage);
@@ -83,12 +82,12 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
 TEST_F(StreamingChannelMetadata, ChannelMetadata) {
     // Full construction - use std::move to avoid GCC false positive on vector copy
     Partitioning p{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
     };
     ChannelMetadata m{4, std::move(p), true};
     EXPECT_EQ(m.local_count, 4);
     EXPECT_EQ(m.partitioning.inter_rank.type, PartitioningSpec::Type::HASH);
-    EXPECT_EQ(m.partitioning.local.type, PartitioningSpec::Type::PASSTHROUGH);
+    EXPECT_EQ(m.partitioning.local.type, PartitioningSpec::Type::INHERIT);
     EXPECT_TRUE(m.duplicated);
 
     // Minimal construction
@@ -100,16 +99,14 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
     ChannelMetadata m_same{
         4,
         Partitioning{
-            PartitioningSpec::from_hash(HashScheme{{0}, 16}),
-            PartitioningSpec::passthrough()
+            PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
         },
         true
     };
     ChannelMetadata m_diff{
         8,
         Partitioning{
-            PartitioningSpec::from_hash(HashScheme{{0}, 16}),
-            PartitioningSpec::passthrough()
+            PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
         },
         true
     };
@@ -120,7 +117,7 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
 TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
     // ChannelMetadata round-trip
     Partitioning part{
-        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::passthrough()
+        PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
     };
     auto m = std::make_unique<ChannelMetadata>(4, std::move(part), false);
     auto msg_m = to_message(99, std::move(m));

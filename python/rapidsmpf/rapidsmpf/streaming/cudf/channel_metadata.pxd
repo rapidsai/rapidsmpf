@@ -23,7 +23,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":
             NONE "rapidsmpf::streaming::PartitioningSpec::Type::NONE"
-            PASSTHROUGH "rapidsmpf::streaming::PartitioningSpec::Type::PASSTHROUGH"
+            INHERIT "rapidsmpf::streaming::PartitioningSpec::Type::INHERIT"
             HASH "rapidsmpf::streaming::PartitioningSpec::Type::HASH"
 
         cpp_Type type
@@ -33,7 +33,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         cpp_PartitioningSpec none()
 
         @staticmethod
-        cpp_PartitioningSpec passthrough()
+        cpp_PartitioningSpec inherit()
 
         @staticmethod
         cpp_PartitioningSpec from_hash(cpp_HashScheme)
