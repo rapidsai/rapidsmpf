@@ -129,7 +129,7 @@ inline std::string build_error_message(
     std::source_location const& loc = std::source_location::current()
 ) {
     std::ostringstream ss;
-    ss << "RAPIDSMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
+    ss << "RapidsMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
        << reason;
     return ss.str();
 }
@@ -204,7 +204,7 @@ inline std::string build_cuda_alloc_error_message(
     std::string_view reason,
     std::source_location const& loc = std::source_location::current()
 ) noexcept {
-    std::cerr << "RAPIDSMPF FATAL ERROR at: " << loc.file_name() << ":" << loc.line()
+    std::cerr << "RapidsMPF fatal error at: " << loc.file_name() << ":" << loc.line()
               << ": " << reason << std::endl;
     std::terminate();
 }
