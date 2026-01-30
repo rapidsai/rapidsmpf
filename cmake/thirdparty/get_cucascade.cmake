@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -33,7 +33,6 @@ endfunction()
 # 4. KvikIO is a dependency of cuDF and must be explicitly found and linked to ensure proper
 #    transitive linking (cuDF's CMake config may not properly propagate KvikIO dependencies)
 function(find_and_configure_cucascade)
-  # Ensure rmm, cudf, and kvikio are found first
   if(NOT TARGET rmm::rmm)
     find_package(rmm REQUIRED CONFIG)
   endif()
@@ -67,10 +66,6 @@ function(find_and_configure_cucascade)
   message(STATUS "RMM root directory for cuCascade: ${rmm_ROOT}")
   message(STATUS "cuDF root directory for cuCascade: ${cudf_ROOT}")
 
-  # Use rapids_cpm_find and force cuCascade to use the same RMM/cuDF
-  set(ENV{rmm_ROOT} "${rmm_ROOT}")
-  set(ENV{cudf_ROOT} "${cudf_ROOT}")
-
   # Always build cuCascade as a static library to embed it into librapidsmpf.so. This avoids
   # packaging issues with wheels and simplifies deployment.
   rapids_cpm_find(
@@ -80,19 +75,14 @@ function(find_and_configure_cucascade)
     GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
     GIT_TAG main
     GIT_SHALLOW TRUE
-    OPTIONS "BUILD_TESTS OFF"
-            "BUILD_BENCHMARKS OFF"
-            "BUILD_SHARED_LIBS OFF" # Don't build libcucascade.so
-            "BUILD_STATIC_LIBS ON" # Build libcucascade.a for static linking
-            "WARNINGS_AS_ERRORS OFF"
-            "rmm_ROOT ${rmm_ROOT}"
-            "cudf_ROOT ${cudf_ROOT}"
+    OPTIONS "BUILD_TESTS OFF" "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS OFF" "BUILD_STATIC_LIBS ON"
+            "WARNINGS_AS_ERRORS OFF" "rmm_ROOT ${rmm_ROOT}" "cudf_ROOT ${cudf_ROOT}"
     EXCLUDE_FROM_ALL
   )
 
   # Create an interface library that wraps cuCascade to avoid export conflicts This target won't be
-  # exported but can be used internally Also link KvikIO to ensure transitive dependencies are
-  # satisfied (cuDF depends on KvikIO)
+  # exported but can be used internally. Also link KvikIO to ensure transitive dependencies are
+  # satisfied (cuDF depends on KvikIO).
   if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
     add_library(rapidsmpf_cucascade_internal INTERFACE)
     target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
@@ -100,7 +90,6 @@ function(find_and_configure_cucascade)
     if(TARGET kvikio::kvikio)
       target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
     endif()
-    # Mark this as not exported
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
   endif()
 endfunction()

@@ -413,7 +413,6 @@ install(
   DESTINATION ${lib_dir}
   EXPORT rapidsmpf-exports
 )
-
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
 set(doc_string
