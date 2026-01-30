@@ -21,9 +21,27 @@ function(_get_include_dir_from_target target_name out_var)
   )
 endfunction()
 
-# Finds and configure cuCascade as static library. Using it as static library avoids packaging
-# issues with wheels.
+# This function finds cuCascade and ensures kvikio is available for transitive linking.
+#
+# NOTE: We explicitly find kvikio here because:
+#
+# 1. cuCascade depends on cuDF, which depends on kvikio
+# 2. cuCascade runs as a CMake subdirectory/subproject and needs GLOBAL targets to see dependencies
+# 3. CMake's transitive dependency handling can fail with mixed static/shared libraries
+# 4. Without explicit kvikio linking, the linker cannot find libkvikio.so when building tools
+#
+# We build cuCascade as a static library to avoid packaging issues with wheels.
 function(find_and_configure_cucascade)
+  # Find kvikio to satisfy cuDF's dependency chain
+  if(NOT TARGET kvikio::kvikio)
+    find_package(kvikio REQUIRED CONFIG)
+  endif()
+
+  # Mark kvikio as GLOBAL so cuCascade's subproject can see it
+  if(TARGET kvikio::kvikio)
+    set_target_properties(kvikio::kvikio PROPERTIES IMPORTED_GLOBAL TRUE)
+  endif()
+
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
@@ -37,11 +55,14 @@ function(find_and_configure_cucascade)
   )
 
   # Create an interface library that wraps cuCascade to avoid export conflicts This target won't be
-  # exported but can be used internally.
+  # exported but can be used internally. Link kvikio explicitly to satisfy cuDF's dependency.
   if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
     add_library(rapidsmpf_cucascade_internal INTERFACE)
     target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
-    # Link KvikIO to ensure cuDF's dependency is satisfied
+    # Link kvikio to ensure cuDF's transitive dependency is satisfied
+    if(TARGET kvikio::kvikio)
+      target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
+    endif()
     set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
   endif()
 endfunction()
