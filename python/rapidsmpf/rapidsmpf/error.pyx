@@ -8,9 +8,10 @@ class ReservationError(MemoryError):
     """
     Exception raised when memory reservation fails.
 
-    This exception is raised when the BufferResource cannot reserve the
-    requested amount of memory, typically because insufficient memory is
-    available or overbooking is not allowed.
+    This exception is thrown when attempting to reserve memory fails, or when an
+    existing reservation is insufficient for a requested allocation. It does not
+    necessarily indicate that the system is out of physical memory, only that the
+    reservation contract could not be satisfied.
     """
     pass
 
