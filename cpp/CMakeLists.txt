@@ -219,6 +219,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
+            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
