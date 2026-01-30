@@ -177,7 +177,8 @@ streaming::Node left_semi_join_shuffle(
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_on,
-    std::vector<cudf::size_type> right_on
+    std::vector<cudf::size_type> right_on,
+    KeepKeys keep_keys = KeepKeys::YES
 );
 
 /**

@@ -74,51 +74,6 @@ std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
     return requests;
 }
 
-/* Select the columns after the join
-
-Input table:
-
-- o_orderkey
-- o_orderpriority
-
-*/
-rapidsmpf::streaming::Node select_columns(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
-    std::vector<cudf::size_type> indices
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-
-    while (!ch_out->is_shutdown()) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            ctx->comm()->logger().debug("Select columns: no more input");
-            break;
-        }
-        auto chunk =
-            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
-        auto chunk_stream = chunk.stream();
-        auto sequence_number = msg.sequence_number();
-        auto table = chunk.table_view();
-
-        auto result_table = std::make_unique<cudf::table>(
-            chunk.table_view().select(indices), chunk_stream, ctx->br()->device_mr()
-        );
-
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                sequence_number,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(result_table), chunk_stream
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
-}
-
 rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -373,13 +328,8 @@ int main(int argc, char** argv) {
             // [o_orderkey, o_orderpriority]
             auto order = ctx->create_channel();
 
-            // [o_orderkey, o_orderpriority]
-            // Ideally this would *just* be o_orderpriority, pushing the projection
-            // into the join node / dropping the join key.
-            auto orders_x_lineitem = ctx->create_channel();
-
             // [o_orderpriority]
-            auto projected_columns = ctx->create_channel();
+            auto orders_x_lineitem = ctx->create_channel();
             // [o_orderpriority, order_count]
             auto grouped_chunkwise = ctx->create_channel();
 
@@ -482,19 +432,15 @@ int main(int argc, char** argv) {
                         {0},
                         {0},
                         static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                        rapidsmpf::ndsh::KeepKeys::YES
+                        rapidsmpf::ndsh::KeepKeys::NO
                     )
                 );
             }
 
             nodes.push_back(
-                select_columns(ctx, orders_x_lineitem, projected_columns, {1})
-            );
-
-            nodes.push_back(
                 rapidsmpf::ndsh::chunkwise_group_by(
                     ctx,
-                    projected_columns,
+                    orders_x_lineitem,
                     grouped_chunkwise,
                     {0},
                     chunkwise_groupby_requests(),

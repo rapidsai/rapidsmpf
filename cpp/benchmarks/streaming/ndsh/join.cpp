@@ -151,16 +151,19 @@ streaming::Node broadcast(
  * @param ctx Streaming context
  * @param left_chunk Chunk to join. Used as the probe table in a filtered join.
  * @param right_chunk Chunk to join. Used as the build table in a filtered join.
- * @param right_on Key column indices in `left_chunk`.
+ * @param left_carrier Columns from `left_chunk` to include in the output.
+ * @param left_on Key column indices in `left_chunk`.
  * @param right_on Key column indices in `right_chunk`.
  * @param sequence Sequence number of the output
+ * @param left_event Event recording the availability of `left_chunk`.
  *
- * @return Message of `TableChunk` containing the result of the inner join.
+ * @return Message of `TableChunk` containing the result of the semi join.
  */
 streaming::Message semi_join_chunk(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk const& left_chunk,
     streaming::TableChunk&& right_chunk,
+    cudf::table_view left_carrier,
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     std::uint64_t sequence,
@@ -193,7 +196,7 @@ streaming::Message semi_join_chunk(
 
     cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
     auto result_columns = cudf::gather(
-                              left_chunk.table_view(),
+                              left_carrier,
                               indices,
                               cudf::out_of_bounds_policy::DONT_CHECK,
                               chunk_stream,
@@ -420,11 +423,11 @@ streaming::Node left_semi_join_broadcast_left(
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     OpID tag,
-    [[maybe_unused]] KeepKeys keep_keys
+    KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
+    ctx->comm()->logger().print("Left semi broadcast join ", static_cast<int>(tag));
     auto left_table = co_await (co_await broadcast(ctx, left, tag))
                           .release<streaming::TableChunk>()
                           .make_available(ctx);
@@ -433,6 +436,19 @@ streaming::Node left_semi_join_broadcast_left(
     );
     CudaEvent left_event;
     left_event.record(left_table.stream());
+
+    cudf::table_view left_carrier;
+    if (keep_keys == KeepKeys::YES) {
+        left_carrier = left_table.table_view();
+    } else {
+        std::vector<cudf::size_type> to_keep;
+        std::ranges::copy_if(
+            std::ranges::iota_view(0, left_table.table_view().num_columns()),
+            std::back_inserter(to_keep),
+            [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
+        );
+        left_carrier = left_table.table_view().select(to_keep);
+    }
 
     while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
@@ -449,6 +465,7 @@ streaming::Node left_semi_join_broadcast_left(
             ctx,
             left_table,
             std::move(right_chunk),
+            left_carrier,
             left_on,
             right_on,
             right_msg.sequence_number(),
@@ -465,7 +482,8 @@ streaming::Node left_semi_join_shuffle(
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> left_on,
-    std::vector<cudf::size_type> right_on
+    std::vector<cudf::size_type> right_on,
+    KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     ctx->comm()->logger().print("Shuffle left semi join");
@@ -496,10 +514,24 @@ streaming::Node left_semi_join_shuffle(
 
         left_event.record(left_chunk.stream());
 
+        cudf::table_view left_carrier;
+        if (keep_keys == KeepKeys::YES) {
+            left_carrier = left_chunk.table_view();
+        } else {
+            std::vector<cudf::size_type> to_keep;
+            std::ranges::copy_if(
+                std::ranges::iota_view(0, left_chunk.table_view().num_columns()),
+                std::back_inserter(to_keep),
+                [&](auto i) { return std::ranges::find(left_on, i) == left_on.end(); }
+            );
+            left_carrier = left_chunk.table_view().select(to_keep);
+        }
+
         co_await ch_out->send(semi_join_chunk(
             ctx,
             left_chunk,
             std::move(right_chunk),
+            left_carrier,
             left_on,
             right_on,
             left_msg.sequence_number(),
