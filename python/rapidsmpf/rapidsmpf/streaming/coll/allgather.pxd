@@ -4,7 +4,7 @@
 from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 
-from rapidsmpf.allgather.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
