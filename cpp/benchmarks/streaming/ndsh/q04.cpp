@@ -24,7 +24,6 @@
 #include <cudf/hashing.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
-#include <cudf/sorting.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -46,6 +45,7 @@
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
+#include "sort.hpp"
 #include "utils.hpp"
 
 namespace {
@@ -72,53 +72,6 @@ std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
     });
     requests.emplace_back(1, std::move(aggs));  // column 1 is order_count
     return requests;
-}
-
-/* Sort the grouped orders table by o_orderpriority.
-
-Input table:
-    - o_orderpriority
-    - order_count
-
-Output table:
-    - o_orderpriority (sorted ascending)
-    - order_count
-*/
-rapidsmpf::streaming::Node sort_by(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-    auto msg = co_await ch_in->receive();
-    if (msg.empty()) {
-        co_return;
-    }
-    auto chunk =
-        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
-    auto stream = chunk.stream();
-    auto mr = ctx->br()->device_mr();
-    auto table = chunk.table_view();
-
-    auto sorted_table = cudf::sort_by_key(
-        table,
-        table.select({0}),
-        {cudf::order::ASCENDING},
-        {cudf::null_order::BEFORE},
-        stream,
-        mr
-    );
-
-    co_await ch_out->send(
-        rapidsmpf::streaming::to_message(
-            msg.sequence_number(),
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
-                std::move(sorted_table), stream
-            )
-        )
-    );
-    co_await ch_out->drain(ctx->executor());
 }
 
 /* Select the columns after the join
@@ -586,7 +539,17 @@ int main(int argc, char** argv) {
                     )
                 );
                 auto sorted_output = ctx->create_channel();
-                nodes.push_back(sort_by(ctx, final_groupby_output, sorted_output));
+                nodes.push_back(
+                    rapidsmpf::ndsh::chunkwise_sort_by(
+                        ctx,
+                        final_groupby_output,
+                        sorted_output,
+                        {0},
+                        {0, 1},
+                        {cudf::order::ASCENDING},
+                        {cudf::null_order::BEFORE}
+                    )
+                );
                 nodes.push_back(
                     rapidsmpf::ndsh::write_parquet(
                         ctx,
