@@ -9,12 +9,6 @@ from typing import Literal
 from rapidsmpf.streaming.core.message import Message
 
 class HashScheme:
-    """
-    Hash partitioning scheme.
-
-    Rows are distributed by ``hash(table[column_indices]) % modulus``.
-    """
-
     def __init__(self, column_indices: tuple[int, ...], modulus: int) -> None: ...
     @property
     def column_indices(self) -> tuple[int, ...]: ...
@@ -26,13 +20,6 @@ class HashScheme:
 PartitioningSpecValue = HashScheme | None | Literal["inherit"]
 
 class Partitioning:
-    """
-    Hierarchical partitioning metadata for a data stream.
-
-    Describes how data flowing through a channel is partitioned at multiple
-    levels of the system hierarchy.
-    """
-
     def __init__(
         self,
         inter_rank: PartitioningSpecValue = None,
@@ -46,13 +33,6 @@ class Partitioning:
     def __repr__(self) -> str: ...
 
 class ChannelMetadata:
-    """
-    Channel-level metadata describing the data stream.
-
-    Contains information about chunk counts, partitioning, and duplication
-    status for the data flowing through a channel.
-    """
-
     def __init__(
         self,
         local_count: int,
