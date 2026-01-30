@@ -300,3 +300,52 @@ def test_make_available_or_wait_from_host(
 
     run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
+
+
+def test_data_alloc_size(context: Context, stream: Stream) -> None:
+    # Create a table chunk on device memory.
+    expect = random_table(1024)
+    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+
+    # Check device memory size.
+    assert device_chunk.data_alloc_size(MemoryType.DEVICE) == 1024
+    assert device_chunk.data_alloc_size(MemoryType.HOST) == 0
+    assert device_chunk.data_alloc_size(MemoryType.PINNED_HOST) == 0
+
+    # Check that None returns the total across all memory types.
+    total_size = device_chunk.data_alloc_size(None)
+    assert total_size == 1024
+    assert total_size == (
+        device_chunk.data_alloc_size(MemoryType.DEVICE)
+        + device_chunk.data_alloc_size(MemoryType.HOST)
+        + device_chunk.data_alloc_size(MemoryType.PINNED_HOST)
+    )
+
+    # Check that calling without arguments (default None) works the same.
+    assert device_chunk.data_alloc_size() == 1024
+    assert device_chunk.data_alloc_size() == device_chunk.data_alloc_size(None)
+
+    # Copy to host memory and verify memory distribution.
+    res, _ = context.br().reserve(
+        MemoryType.HOST,
+        device_chunk.data_alloc_size(MemoryType.DEVICE),
+        allow_overbooking=True,
+    )
+    host_chunk = device_chunk.copy(res)
+
+    assert host_chunk.data_alloc_size(MemoryType.DEVICE) == 0
+    assert host_chunk.data_alloc_size(MemoryType.HOST) == 1024
+    assert host_chunk.data_alloc_size(MemoryType.PINNED_HOST) == 0
+
+    # Check that None still returns the correct total.
+    total_size = host_chunk.data_alloc_size(None)
+    assert total_size == 1024
+    assert total_size == (
+        host_chunk.data_alloc_size(MemoryType.DEVICE)
+        + host_chunk.data_alloc_size(MemoryType.HOST)
+        + host_chunk.data_alloc_size(MemoryType.PINNED_HOST)
+    )
+
+    # Verify default parameter works after copy too.
+    assert host_chunk.data_alloc_size() == 1024
+    assert host_chunk.data_alloc_size() == host_chunk.data_alloc_size(None)

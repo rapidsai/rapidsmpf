@@ -19,6 +19,7 @@ from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
+from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 from rapidsmpf.streaming.core.memory_reserve_or_wait import reserve_memory
 
 
@@ -285,19 +286,22 @@ cdef class TableChunk:
             deref(self.handle_ptr()).stream().value()
         )
 
-    def data_alloc_size(self, MemoryType mem_type):
+    def data_alloc_size(self, mem_type=None):
         """
         Number of bytes allocated for the data in the specified memory type.
 
         Parameters
         ----------
         mem_type
-            The memory type to query.
+            The memory type to query. If None, returns the total size across
+            all memory types.
 
         Returns
         -------
         Number of bytes allocated.
         """
+        if mem_type is None:
+            return sum(self.data_alloc_size(m) for m in py_MemoryType)
         return deref(self.handle_ptr()).data_alloc_size(mem_type)
 
     def is_available(self):
