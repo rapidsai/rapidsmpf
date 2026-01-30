@@ -141,7 +141,7 @@ inline std::string build_error_message(
  * @param throw_fn Callable that throws the appropriate exception type.
  */
 template <typename ThrowFn>
-void expects_impl(
+constexpr void expects_impl(
     bool condition,
     std::string_view reason,
     std::source_location const& loc,
@@ -211,7 +211,7 @@ inline std::string build_cuda_alloc_error_message(
  * @param reason The error message if the condition is false.
  * @param loc The source location (automatically captured at call site).
  */
-inline void expects_fatal_impl(
+constexpr void expects_fatal_impl(
     bool condition,
     std::string_view reason,
     std::source_location loc = std::source_location::current()

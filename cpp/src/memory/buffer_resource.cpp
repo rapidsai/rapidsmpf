@@ -65,6 +65,21 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     );
 }
 
+rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
+    return device_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+    return host_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::pinned_mr() {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {

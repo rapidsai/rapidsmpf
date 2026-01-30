@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t, uint32_t
+from libc.stdint cimport int32_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
@@ -148,7 +148,7 @@ def shuffler(
     Context ctx not None,
     Channel ch_in not None,
     Channel ch_out not None,
-    uint8_t op_id,
+    int32_t op_id,
     uint32_t total_num_partitions,
 ):
     """
@@ -210,7 +210,7 @@ cdef class ShufflerAsync:
         Global number of output partitions in the shuffle.
     """
     def __init__(
-        self, Context ctx not None, uint8_t op_id, uint32_t total_num_partitions
+        self, Context ctx not None, int32_t op_id, uint32_t total_num_partitions
     ):
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](

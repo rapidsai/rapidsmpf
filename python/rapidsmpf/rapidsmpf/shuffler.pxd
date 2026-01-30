@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport uint8_t, uint32_t
+from libc.stdint cimport int32_t, uint32_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
@@ -24,7 +24,7 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_ProgressThread] comm,
-            uint8_t op_id,
+            int32_t op_id,
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics,

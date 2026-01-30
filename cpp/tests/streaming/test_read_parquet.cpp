@@ -32,7 +32,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
@@ -243,7 +243,7 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     }
     run_streaming_pipeline(std::move(nodes));
 
-    allgather::AllGather allgather(
+    coll::AllGather allgather(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         /* op_id = */ 0,
@@ -270,8 +270,7 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     allgather.insert_finished();
 
     // May as well check on all ranks, so we also mildly exercise the allgather.
-    auto gathered_packed_data =
-        allgather.wait_and_extract(allgather::AllGather::Ordered::YES);
+    auto gathered_packed_data = allgather.wait_and_extract(coll::AllGather::Ordered::YES);
     auto result = unpack_and_concat(
         std::move(gathered_packed_data), rmm::cuda_stream_default, br.get()
     );

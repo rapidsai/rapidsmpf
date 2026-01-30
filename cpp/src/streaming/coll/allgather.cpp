@@ -13,7 +13,7 @@ namespace rapidsmpf::streaming {
 
 AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
     : ctx_{std::move(ctx)},
-      gatherer_{allgather::AllGather(
+      gatherer_{coll::AllGather(
           ctx_->comm(),
           ctx_->progress_thread(),
           op_id,
