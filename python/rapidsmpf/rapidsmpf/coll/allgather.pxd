@@ -8,6 +8,7 @@ from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -32,15 +33,16 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             int32_t op_id,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics
-        ) except +
-        void insert(uint64_t sequence_number, cpp_PackedData packed_data) except +
-        void insert_finished() except +
-        bool finished() except +
+        ) except +ex_handler
+        void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
+            except +ex_handler
+        void insert_finished() except +ex_handler
+        bool finished() except +ex_handler
         vector[cpp_PackedData] wait_and_extract(
             Ordered ordered,
             milliseconds_t timeout
-        ) except +
-        vector[cpp_PackedData] extract_ready() except +
+        ) except +ex_handler
+        vector[cpp_PackedData] extract_ready() except +ex_handler
 
 
 cdef class AllGather:

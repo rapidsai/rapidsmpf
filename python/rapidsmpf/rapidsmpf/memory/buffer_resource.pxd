@@ -10,6 +10,7 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
@@ -32,12 +33,12 @@ cdef extern from "<functional>" nogil:
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
-        size_t memory_reserved(MemoryType mem_type) except +
-        cpp_MemoryAvailable memory_available(MemoryType mem_type) except +
-        cpp_SpillManager &spill_manager() except +
-        const cuda_stream_pool &stream_pool() except +
-        size_t release(cpp_MemoryReservation&, size_t) except +
-        shared_ptr[cpp_Statistics] statistics() except +
+        size_t memory_reserved(MemoryType mem_type) except +ex_handler
+        cpp_MemoryAvailable memory_available(MemoryType mem_type) except +ex_handler
+        cpp_SpillManager &spill_manager() except +ex_handler
+        const cuda_stream_pool &stream_pool() except +ex_handler
+        size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
+        shared_ptr[cpp_Statistics] statistics() except +ex_handler
 
 cdef class BufferResource:
     cdef object __weakref__
@@ -54,8 +55,8 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
             cpp_RmmResourceAdaptor *mr, int64_t limit
-        ) except +
-        int64_t operator()() except +
+        ) except +ex_handler
+        int64_t operator()() except +ex_handler
 
 
 cdef class LimitAvailableMemory:

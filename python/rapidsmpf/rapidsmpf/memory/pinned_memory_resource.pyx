@@ -3,15 +3,18 @@
 
 from libcpp.memory cimport make_shared
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 
 
 cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
     cdef bool_t cpp_is_pinned_memory_resources_supported \
-        "rapidsmpf::is_pinned_memory_resources_supported"(...) except +
+        "rapidsmpf::is_pinned_memory_resources_supported"(...) except +ex_handler
 
     cdef shared_ptr[cpp_PinnedMemoryResource] cpp_from_options \
-        "rapidsmpf::PinnedMemoryResource::from_options"(cpp_Options options) except +
+        "rapidsmpf::PinnedMemoryResource::from_options"(
+            cpp_Options options
+        ) except +ex_handler
 
 
 cpdef bool_t is_pinned_memory_resources_supported():

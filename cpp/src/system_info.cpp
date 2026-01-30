@@ -4,12 +4,10 @@
  */
 
 
-#include <exception>
-#include <iostream>
-
 #include <sched.h>
 #include <unistd.h>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/system_info.hpp>
 
 
@@ -23,12 +21,11 @@ std::uint64_t get_total_host_memory() noexcept {
     static const uint64_t ret = [] {
         auto const page_size = ::sysconf(_SC_PAGE_SIZE);
         auto const phys_pages = ::sysconf(_SC_PHYS_PAGES);
-
-        if (page_size == -1 || phys_pages == -1) {
-            std::cerr << "get_total_host_memory() - fatal error: "
-                      << "sysconf(_SC_PAGE_SIZE/_SC_PHYS_PAGES) failed" << std::endl;
-            std::terminate();
-        }
+        RAPIDSMPF_EXPECTS_FATAL(
+            page_size != -1 && phys_pages != -1,
+            "get_total_host_memory() - fatal error: "
+            "sysconf(_SC_PAGE_SIZE/_SC_PHYS_PAGES) failed"
+        );
         return static_cast<std::uint64_t>(page_size)
                * static_cast<std::uint64_t>(phys_pages);
     }();

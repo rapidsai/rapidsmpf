@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint8_t
 from libcpp.memory cimport shared_ptr
 from libcpp.vector cimport vector
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
 from rapidsmpf.streaming.core.node cimport cpp_Node
@@ -22,4 +23,4 @@ cdef extern from "<rapidsmpf/streaming/core/fanout.hpp>" \
             shared_ptr[cpp_Channel] ch_in,
             vector[shared_ptr[cpp_Channel]] chs_out,
             FanoutPolicy policy
-        ) except +
+        ) except +ex_handler

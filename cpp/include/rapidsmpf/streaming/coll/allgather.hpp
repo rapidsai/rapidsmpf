@@ -45,7 +45,7 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     AllGather& operator=(AllGather&&) = delete;
 
-    ~AllGather();
+    ~AllGather() noexcept;
 
     /**
      * @brief Gets the streaming context associated with this AllGather object.
