@@ -37,8 +37,7 @@ streaming::Node chunkwise_group_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk =
-            to_device(ctx, msg.release<streaming::TableChunk>(), AllowOverbooking::YES);
+        auto chunk = co_await to_device(ctx, msg.release<streaming::TableChunk>());
         auto stream = chunk.stream();
         auto table = chunk.table_view();
         auto agg_requests = std::vector<cudf::groupby::aggregation_request>();

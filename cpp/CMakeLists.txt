@@ -168,7 +168,8 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/allgather/allgather.cpp
+  src/coll/allgather.cpp
+  src/coll/allreduce.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
   src/bootstrap/utils.cpp

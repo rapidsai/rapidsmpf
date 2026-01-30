@@ -74,7 +74,7 @@ rapidsmpf::streaming::Node consume_channel_parallel(
                 break;
             }
             if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
-                auto chunk = rapidsmpf::ndsh::to_device(
+                auto chunk = co_await rapidsmpf::ndsh::to_device(
                     ctx, msg.release<rapidsmpf::streaming::TableChunk>()
                 );
                 ctx->comm()->logger().print(

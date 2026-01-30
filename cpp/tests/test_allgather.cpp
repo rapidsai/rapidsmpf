@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -24,7 +24,7 @@
 #include "environment.hpp"
 #include "utils.hpp"
 
-using namespace rapidsmpf::allgather;
+using namespace rapidsmpf::coll;
 
 extern Environment* GlobalEnvironment;
 

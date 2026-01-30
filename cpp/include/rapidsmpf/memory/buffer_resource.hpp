@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -94,6 +96,23 @@ class BufferResource {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    /**
+     * @brief Construct a BufferResource from configuration options.
+     *
+     * This factory method creates a BufferResource using configuration options to
+     * initialize all components.
+     *
+     * @param mr Pointer to the RMM resource adaptor, which must outlive the
+     * returned BufferResource.
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to a BufferResource instance configured according to the
+     * options.
+     */
+    static std::shared_ptr<BufferResource> from_options(
+        RmmResourceAdaptor* mr, config::Options options
+    );
+
     ~BufferResource() noexcept = default;
 
     /**
@@ -101,30 +120,21 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
-        return device_mr_;
-    }
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
-        return host_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
      *
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
-        );
-        return *pinned_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -435,5 +445,36 @@ class LimitAvailableMemory {
   private:
     RmmResourceAdaptor const* mr_;
 };
+
+/**
+ * @brief Construct a map of memory-available functions from configuration options.
+ *
+ * @param mr Pointer to a memory resource adaptor.
+ * @param options Configuration options.
+ *
+ * @return The map of memory-available functions.
+ */
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
+
+/**
+ * @brief Get the `periodic_spill_check` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ *
+ * @return The duration of the pause between spill checks or std::nullopt if no dedicated
+ * thread should check for spilling.
+ */
+std::optional<Duration> periodic_spill_check_from_options(config::Options options);
+
+/**
+ * @brief Get a new CUDA stream pool from configuration options.
+ *
+ * @param options Configuration options.
+ * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
+ * not take an explicit CUDA stream.
+ */
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+
 
 }  // namespace rapidsmpf
