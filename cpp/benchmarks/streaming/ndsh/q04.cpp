@@ -445,7 +445,7 @@ int main(int argc, char** argv) {
                     filtered_lineitem_shuffled,
                     {0},
                     num_partitions,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    static_cast<rapidsmpf::OpID>(10 * i + op_id++)
                 )
             );
 
@@ -458,7 +458,7 @@ int main(int argc, char** argv) {
                         filtered_order_shuffled,
                         {0},
                         num_partitions,
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++)
                     )
                 );
 
@@ -481,7 +481,7 @@ int main(int argc, char** argv) {
                         orders_x_lineitem,
                         {0},
                         {0},
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                        static_cast<rapidsmpf::OpID>(10 * i + op_id++),
                         rapidsmpf::ndsh::KeepKeys::YES
                     )
                 );
