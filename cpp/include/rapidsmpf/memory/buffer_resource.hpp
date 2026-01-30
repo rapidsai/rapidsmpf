@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -118,30 +120,21 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
-        return device_mr_;
-    }
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
-        return host_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
      *
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr() {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
-        );
-        return *pinned_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -203,8 +196,8 @@ class BufferResource {
      * if spilling was insufficient.
      * @return The memory reservation.
      *
-     * @throws std::overflow_error if allow_overbooking is false and the buffer resource
-     * cannot reserve and spill enough device memory.
+     * @throws rapidsmpf::reservation_error if allow_overbooking is false and the buffer
+     * resource cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
         size_t size, AllowOverbooking allow_overbooking
@@ -265,7 +258,7 @@ class BufferResource {
      * @param size The size to consume in bytes.
      * @return The remaining size of the reserved memory after consumption.
      *
-     * @throws std::overflow_error if the released size exceeds the size of the
+     * @throws rapidsmpf::reservation_error if the released size exceeds the size of the
      * reservation.
      */
     std::size_t release(MemoryReservation& reservation, std::size_t size);
@@ -279,7 +272,7 @@ class BufferResource {
      * @return A unique pointer to the allocated Buffer.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if `size` exceeds the size of the reservation.
+     * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> allocate(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
@@ -328,7 +321,8 @@ class BufferResource {
      * @param reservation Memory reservation used if a copy is required.
      * @return Unique pointer to the resulting Buffer.
      *
-     * @throws std::overflow_error If the allocation size exceeds the reservation.
+     * @throws rapidsmpf::reservation_error If the allocation size exceeds the
+     * reservation.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -345,7 +339,8 @@ class BufferResource {
      * @return A unique pointer to the resulting device buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't device memory.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws rapidsmpf::reservation_error if the memory requirement exceeds the
+     * reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -362,7 +357,8 @@ class BufferResource {
      * @return Unique pointer to the resulting host buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
-     * @throws std::overflow_error If the allocation size exceeds the reservation.
+     * @throws rapidsmpf::reservation_error If the allocation size exceeds the
+     * reservation.
      */
     std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation

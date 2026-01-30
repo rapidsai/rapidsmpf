@@ -3,6 +3,7 @@
 
 from libcpp.memory cimport shared_ptr
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
 from rapidsmpf.memory.buffer cimport MemoryType
@@ -17,7 +18,7 @@ from rapidsmpf.streaming.core.spillable_messages cimport (
 
 cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
     cdef cppclass cpp_Context "rapidsmpf::streaming::Context":
-        shared_ptr[cpp_Channel] create_channel() except +
+        shared_ptr[cpp_Channel] create_channel() except +ex_handler
         shared_ptr[cpp_SpillableMessages] spillable_messages() noexcept
         void shutdown() noexcept
         shared_ptr[cpp_MemoryReserveOrWait] memory(MemoryType mem_type) noexcept

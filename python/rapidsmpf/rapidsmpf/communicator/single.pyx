@@ -1,16 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_shared
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 
 
 cdef extern from "<rapidsmpf/communicator/single.hpp>" nogil:
     cdef cppclass cpp_Single_Communicator "rapidsmpf::Single":
-        cpp_Single_Communicator() except +
-        cpp_Single_Communicator(cpp_Options options) except +
+        cpp_Single_Communicator() except +ex_handler
+        cpp_Single_Communicator(cpp_Options options) except +ex_handler
 
 
 def new_communicator(Options options not None):

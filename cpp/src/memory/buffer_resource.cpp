@@ -65,6 +65,21 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     );
 }
 
+rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
+    return device_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+    return host_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::pinned_mr() {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -102,7 +117,7 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
             "failed to spill enough memory (reserved: " + format_nbytes(size)
                 + ", overbooking: " + format_nbytes(ob)
                 + ", spilled: " + format_nbytes(spilled) + ")",
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }
 
@@ -115,7 +130,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
         size <= reservation.size_,
         "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
             + format_nbytes(size) + ")",
-        std::overflow_error
+        rapidsmpf::reservation_error
     );
     std::size_t& reserved =
         memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];

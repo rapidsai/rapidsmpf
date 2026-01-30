@@ -3,13 +3,12 @@
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t, uint64_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
-                                            milliseconds_t)
+from rapidsmpf.coll.allgather cimport Ordered, cpp_AllGather, milliseconds_t
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -23,7 +22,7 @@ cdef class AllGather:
     """
     AllGather communication service for distributed operations.
 
-    The `rapidsmpf.allgather.AllGather` class provides a communication service
+    The `rapidsmpf.coll.AllGather` class provides a communication service
     where each rank contributes data and all ranks receive all inputs from all ranks.
 
     The implementation uses a ring broadcast algorithm where each rank receives a
@@ -38,7 +37,7 @@ cdef class AllGather:
         The progress thread for asynchronous operations.
     op_id
         Unique operation identifier for this allgather. Must have a value
-        between 0 and 255.
+        between 0 and 2^20 - 1.
     br
         Buffer resource for memory allocation.
     statistics
@@ -55,7 +54,7 @@ cdef class AllGather:
         self,
         Communicator comm not None,
         ProgressThread progress_thread not None,
-        uint8_t op_id,
+        int32_t op_id,
         BufferResource br not None,
         Statistics statistics = None,
     ):

@@ -10,6 +10,7 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 
@@ -129,12 +130,11 @@ ShufflerAsync::ShufflerAsync(
 }
 
 ShufflerAsync::~ShufflerAsync() noexcept {
-    if (!notifications_.empty()) {
-        std::cerr << "~ShufflerAsync: not all notification tasks complete, remember to "
-                     "await the finish token from this->insert_finished()"
-                  << std::endl;
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS_FATAL(
+        notifications_.empty(),
+        "~ShufflerAsync: not all notification tasks complete, remember to await the "
+        "finish token from this->insert_finished()"
+    );
     if (!ready_pids_.empty()) {
         ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
     }

@@ -9,6 +9,7 @@ from libcpp.memory cimport unique_ptr
 from libcpp.pair cimport pair
 from libcpp.utility cimport move
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
@@ -39,7 +40,7 @@ cdef extern from * nogil:
         cpp_Options options,
         MemoryType mem_type,
         cpp_Context &ctx
-    ) except +
+    ) except +ex_handler
 
 cdef extern from * nogil:
     """
@@ -72,7 +73,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 cdef extern from * nogil:
     """
@@ -121,7 +122,7 @@ cdef extern from * nogil:
         size_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 cdef extern from * nogil:
     """
@@ -179,7 +180,7 @@ cdef extern from * nogil:
         size_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 cdef extern from * nogil:
     """
@@ -228,7 +229,7 @@ cdef extern from * nogil:
         size_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 
 cdef class MemoryReserveOrWait:

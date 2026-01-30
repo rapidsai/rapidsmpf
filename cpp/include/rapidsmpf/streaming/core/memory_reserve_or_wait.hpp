@@ -167,7 +167,7 @@ class MemoryReserveOrWait {
      * `reserve_or_wait()` for details and semantics.
      * @return A `MemoryReservation` representing the allocated memory.
      *
-     * @throws std::overflow_error If no progress is possible within the timeout.
+     * @throws rapidsmpf::reservation_error If no progress is possible within the timeout.
      * @throws std::runtime_error If shutdown occurs before the request can be
      * processed.
      *
@@ -321,7 +321,7 @@ class MemoryReserveOrWait {
  * @return The allocated memory reservation.
  *
  * @throws std::runtime_error If shutdown occurs before the request can be processed.
- * @throws std::overflow_error If no progress is possible within the timeout and
+ * @throws rapidsmpf::reservation_error If no progress is possible within the timeout and
  * `allow_overbooking` resolves to `AllowOverbooking::NO`.
  *
  * @code{.cpp}

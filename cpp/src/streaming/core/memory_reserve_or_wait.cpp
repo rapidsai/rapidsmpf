@@ -137,7 +137,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
         ret.size() == size,
         "cannot reserve " + std::string{to_string(mem_type_)} + " memory ("
             + format_nbytes(size) + ")",
-        std::overflow_error
+        rapidsmpf::reservation_error
     );
     co_return ret;
 }

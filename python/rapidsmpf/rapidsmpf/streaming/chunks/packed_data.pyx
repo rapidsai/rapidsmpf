@@ -5,13 +5,14 @@ from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
 cdef extern from "<rapidsmpf/streaming/chunks/packed_data.hpp>" nogil:
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
-        (uint64_t sequence_number, unique_ptr[cpp_PackedData]) except +
+        (uint64_t sequence_number, unique_ptr[cpp_PackedData]) except +ex_handler
 
 cdef extern from * nogil:
     """
@@ -24,7 +25,7 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    unique_ptr[cpp_PackedData] cpp_from_message(cpp_Message) except +
+    unique_ptr[cpp_PackedData] cpp_from_message(cpp_Message) except +ex_handler
 
 
 cdef class PackedDataChunk:
