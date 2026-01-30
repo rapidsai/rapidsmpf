@@ -425,9 +425,9 @@ streaming::Node left_semi_join_broadcast_left(
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto left_table = co_await to_device(
-        ctx, (co_await broadcast(ctx, left, tag)).release<streaming::TableChunk>()
-    );
+    auto left_table = co_await (co_await broadcast(ctx, left, tag))
+                          .release<streaming::TableChunk>()
+                          .make_available(ctx);
     ctx->comm()->logger().print(
         "Left (probe) table has ", left_table.table_view().num_rows(), " rows"
     );
@@ -440,7 +440,7 @@ streaming::Node left_semi_join_broadcast_left(
             break;
         }
         auto right_chunk =
-            co_await to_device(ctx, right_msg.release<streaming::TableChunk>());
+            co_await right_msg.release<streaming::TableChunk>().make_available(ctx);
         co_await ch_out->send(semi_join_chunk(
             ctx,
             left_table,
@@ -486,9 +486,9 @@ streaming::Node left_semi_join_shuffle(
         );
 
         auto left_chunk =
-            co_await to_device(ctx, left_msg.release<streaming::TableChunk>());
+            co_await left_msg.release<streaming::TableChunk>().make_available(ctx);
         auto right_chunk =
-            co_await to_device(ctx, right_msg.release<streaming::TableChunk>());
+            co_await right_msg.release<streaming::TableChunk>().make_available(ctx);
 
         left_event.record(left_chunk.stream());
 

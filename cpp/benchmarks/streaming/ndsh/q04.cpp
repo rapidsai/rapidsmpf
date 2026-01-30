@@ -90,9 +90,8 @@ rapidsmpf::streaming::Node final_groupby_agg(
     RAPIDSMPF_EXPECTS(
         (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
     );
-    auto chunk = co_await rapidsmpf::ndsh::to_device(
-        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-    );
+    auto chunk =
+        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto mr = ctx->br()->device_mr();
     auto table = chunk.table_view();
@@ -150,9 +149,8 @@ rapidsmpf::streaming::Node sort_by(
     if (msg.empty()) {
         co_return;
     }
-    auto chunk = co_await rapidsmpf::ndsh::to_device(
-        ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-    );
+    auto chunk =
+        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto mr = ctx->br()->device_mr();
     auto table = chunk.table_view();
@@ -200,9 +198,8 @@ rapidsmpf::streaming::Node select_columns(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
@@ -404,9 +401,8 @@ rapidsmpf::streaming::Node filter_lineitem(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
@@ -450,10 +446,11 @@ rapidsmpf::streaming::Node fanout_bounded(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        // Here, we know that copying ch1_cols (a single col) is better than copying
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(
+                ctx
+            );  // Here, we know that copying ch1_cols (a single col) is better than
+                // copying
         // ch2_cols (the whole table)
         std::vector<coro::task<bool>> tasks;
         if (!ch1_out->is_shutdown()) {
