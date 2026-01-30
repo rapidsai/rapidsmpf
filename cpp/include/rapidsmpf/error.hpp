@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <source_location>
 #include <sstream>
@@ -120,11 +121,12 @@ namespace detail {
  * @brief Build an error message with source location information.
  *
  * @param reason The error reason message.
- * @param loc The source location where the error occurred.
+ * @param loc The source location (automatically captured).
  * @return The formatted error message string.
  */
 inline std::string build_error_message(
-    std::string_view reason, std::source_location const& loc
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
 ) {
     std::ostringstream ss;
     ss << "RAPIDSMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
@@ -137,15 +139,15 @@ inline std::string build_error_message(
  *
  * @param condition The condition to check.
  * @param reason The error reason if condition is false.
- * @param loc The source location (automatically captured).
  * @param throw_fn Callable that throws the appropriate exception type.
+ * @param loc The source location (automatically captured).
  */
 template <typename ThrowFn>
 constexpr void expects_impl(
     bool condition,
     std::string_view reason,
-    std::source_location const& loc,
-    ThrowFn&& throw_fn
+    ThrowFn&& throw_fn,
+    std::source_location const& loc = std::source_location::current()
 ) {
     if (!condition) {
         throw_fn(build_error_message(reason, loc));
@@ -156,11 +158,11 @@ constexpr void expects_impl(
  * @brief Build a CUDA error message with source location information.
  *
  * @param error The CUDA error code.
- * @param loc The source location where the error occurred.
+ * @param loc The source location (automatically captured).
  * @return The formatted CUDA error message string.
  */
 inline std::string build_cuda_error_message(
-    cudaError_t error, std::source_location const& loc
+    cudaError_t error, std::source_location const& loc = std::source_location::current()
 ) {
     std::ostringstream ss;
     ss << "CUDA error at: " << loc.file_name() << ":" << loc.line() << ": "
@@ -173,11 +175,13 @@ inline std::string build_cuda_error_message(
  *
  * @param error The CUDA error code.
  * @param num_bytes Number of bytes that failed to allocate.
- * @param loc The source location where the error occurred.
+ * @param loc The source location (automatically captured).
  * @return The formatted CUDA allocation error message string.
  */
 inline std::string build_cuda_alloc_error_message(
-    cudaError_t error, std::size_t num_bytes, std::source_location const& loc
+    cudaError_t error,
+    std::size_t num_bytes,
+    std::source_location const& loc = std::source_location::current()
 ) {
     std::ostringstream ss;
     ss << "CUDA error (failed to allocate " << num_bytes
@@ -194,10 +198,11 @@ inline std::string build_cuda_alloc_error_message(
  * destructors.
  *
  * @param reason The error reason message.
- * @param loc The source location where the error occurred.
+ * @param loc The source location (automatically captured).
  */
 [[noreturn]] inline void fatal_error(
-    std::string_view reason, std::source_location const& loc
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
 ) noexcept {
     std::cerr << "RAPIDSMPF FATAL ERROR at: " << loc.file_name() << ":" << loc.line()
               << ": " << reason << std::endl;
@@ -214,7 +219,7 @@ inline std::string build_cuda_alloc_error_message(
 constexpr void expects_fatal_impl(
     bool condition,
     std::string_view reason,
-    std::source_location loc = std::source_location::current()
+    std::source_location const& loc = std::source_location::current()
 ) noexcept {
     if (!condition) {
         detail::fatal_error(reason, loc);
@@ -228,7 +233,8 @@ constexpr void expects_fatal_impl(
  * @param loc The source location (automatically captured at call site).
  */
 [[noreturn]] inline void fatal_impl(
-    std::string_view reason, std::source_location loc = std::source_location::current()
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
 ) noexcept {
     detail::fatal_error(reason, loc);
 }
@@ -269,10 +275,9 @@ constexpr void expects_fatal_impl(
     do {                                                                   \
         static_assert(std::is_base_of_v<std::exception, _exception_type>); \
         rapidsmpf::detail::expects_impl(                                   \
-            static_cast<bool>(_condition),                                 \
-            (_reason),                                                     \
-            std::source_location::current(),                               \
-            [](auto&& msg) { throw _exception_type{msg}; }                 \
+            static_cast<bool>(_condition), (_reason), [](auto&& msg) {     \
+                throw _exception_type{msg};                                \
+            }                                                              \
         );                                                                 \
     } while (0)
 
@@ -304,9 +309,9 @@ constexpr void expects_fatal_impl(
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                         \
-    throw _exception_type {                                                              \
-        rapidsmpf::detail::build_error_message((_what), std::source_location::current()) \
+#define RAPIDSMPF_FAIL_2(_what, _exception_type)        \
+    throw _exception_type {                             \
+        rapidsmpf::detail::build_error_message((_what)) \
     }
 
 #define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
@@ -327,10 +332,8 @@ constexpr void expects_fatal_impl(
  * @param _condition The condition to check.
  * @param _reason The error message if the condition is false.
  */
-#define RAPIDSMPF_EXPECTS_FATAL(_condition, _reason)                              \
-    rapidsmpf::detail::expects_fatal_impl(                                        \
-        static_cast<bool>(_condition), (_reason), std::source_location::current() \
-    )
+#define RAPIDSMPF_EXPECTS_FATAL(_condition, _reason) \
+    rapidsmpf::detail::expects_fatal_impl(static_cast<bool>(_condition), (_reason))
 
 /**
  * @brief Indicate a fatal error and terminate the program.
@@ -346,8 +349,7 @@ constexpr void expects_fatal_impl(
  *
  * @param _reason The error message describing the fatal error.
  */
-#define RAPIDSMPF_FATAL(_reason) \
-    rapidsmpf::detail::fatal_impl((_reason), std::source_location::current())
+#define RAPIDSMPF_FATAL(_reason) rapidsmpf::detail::fatal_impl((_reason))
 
 /**
  * @brief Error checking macro for CUDA runtime API functions.
@@ -374,15 +376,15 @@ constexpr void expects_fatal_impl(
     )                                                           \
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_MACRO(_1, _2, NAME, ...) NAME
-#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                           \
-    do {                                                                       \
-        cudaError_t const error = (_call);                                     \
-        if (cudaSuccess != error) {                                            \
-            cudaGetLastError();                                                \
-            throw _exception_type{rapidsmpf::detail::build_cuda_error_message( \
-                error, std::source_location::current()                         \
-            )};                                                                \
-        }                                                                      \
+#define RAPIDSMPF_CUDA_TRY_2(_call, _exception_type)                                   \
+    do {                                                                               \
+        cudaError_t const error = (_call);                                             \
+        if (cudaSuccess != error) {                                                    \
+            /* Clear the CUDA error state. The error is now represented */             \
+            /* by the thrown exception. */                                             \
+            cudaGetLastError();                                                        \
+            throw _exception_type{rapidsmpf::detail::build_cuda_error_message(error)}; \
+        }                                                                              \
     } while (0)
 #define RAPIDSMPF_CUDA_TRY_1(_call) RAPIDSMPF_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
@@ -400,17 +402,14 @@ constexpr void expects_fatal_impl(
  * RAPIDSMPF_CUDA_TRY_FATAL(cudaDeviceSynchronize());
  * @endcode
  */
-#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                      \
-    do {                                                     \
-        cudaError_t const error = (_call);                   \
-        if (cudaSuccess != error) {                          \
-            rapidsmpf::detail::fatal_error(                  \
-                rapidsmpf::detail::build_cuda_error_message( \
-                    error, std::source_location::current()   \
-                ),                                           \
-                std::source_location::current()              \
-            );                                               \
-        }                                                    \
+#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                                     \
+    do {                                                                    \
+        cudaError_t const error = (_call);                                  \
+        if (cudaSuccess != error) {                                         \
+            std::cerr << rapidsmpf::detail::build_cuda_error_message(error) \
+                      << std::endl;                                         \
+            std::terminate();                                               \
+        }                                                                   \
     } while (0)
 
 /**
@@ -425,9 +424,9 @@ constexpr void expects_fatal_impl(
  *
  * This macro can be called with either one or two arguments:
  * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call): Performs error checking without specifying
- * bytes.
+ *   bytes.
  * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call, num_bytes): Includes the byte count in the error
- * message.
+ *   message.
  */
 #define RAPIDSMPF_CUDA_TRY_ALLOC(...)                                       \
     GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(                                     \
@@ -436,36 +435,35 @@ constexpr void expects_fatal_impl(
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                            \
-    do {                                                                        \
-        cudaError_t const error = (_call);                                      \
-        if (cudaSuccess != error) {                                             \
-            /* Clear the CUDA error state. The error is now represented */      \
-            /* by the thrown exception. */                                      \
-            cudaGetLastError();                                                 \
-            auto const msg = rapidsmpf::detail::build_cuda_alloc_error_message( \
-                error, (num_bytes), std::source_location::current()             \
-            );                                                                  \
-            if (cudaErrorMemoryAllocation == error) {                           \
-                throw rapidsmpf::out_of_memory{msg};                            \
-            }                                                                   \
-            throw rapidsmpf::bad_alloc{msg};                                    \
-        }                                                                       \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                                   \
+    do {                                                                               \
+        cudaError_t const error = (_call);                                             \
+        if (cudaSuccess != error) {                                                    \
+            /* Clear the CUDA error state. The error is now represented */             \
+            /* by the thrown exception. */                                             \
+            cudaGetLastError();                                                        \
+            auto const msg =                                                           \
+                rapidsmpf::detail::build_cuda_alloc_error_message(error, (num_bytes)); \
+            if (cudaErrorMemoryAllocation == error) {                                  \
+                throw rapidsmpf::out_of_memory{msg};                                   \
+            }                                                                          \
+            throw rapidsmpf::bad_alloc{msg};                                           \
+        }                                                                              \
     } while (0)
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                 \
-    do {                                                                  \
-        cudaError_t const error = (_call);                                \
-        if (cudaSuccess != error) {                                       \
-            cudaGetLastError();                                           \
-            auto const msg = rapidsmpf::detail::build_cuda_error_message( \
-                error, std::source_location::current()                    \
-            );                                                            \
-            if (cudaErrorMemoryAllocation == error) {                     \
-                throw rapidsmpf::out_of_memory{msg};                      \
-            }                                                             \
-            throw rapidsmpf::bad_alloc{msg};                              \
-        }                                                                 \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                        \
+    do {                                                                         \
+        cudaError_t const error = (_call);                                       \
+        if (cudaSuccess != error) {                                              \
+            /* Clear the CUDA error state. The error is now represented */       \
+            /* by the thrown exception. */                                       \
+            cudaGetLastError();                                                  \
+            auto const msg = rapidsmpf::detail::build_cuda_error_message(error); \
+            if (cudaErrorMemoryAllocation == error) {                            \
+                throw rapidsmpf::out_of_memory{msg};                             \
+            }                                                                    \
+            throw rapidsmpf::bad_alloc{msg};                                     \
+        }                                                                        \
     } while (0)
 
 }  // namespace rapidsmpf
