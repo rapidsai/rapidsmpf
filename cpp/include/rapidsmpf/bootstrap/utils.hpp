@@ -55,24 +55,51 @@ int get_gpu_id();
 bool is_running_with_rrun();
 
 /**
- * @brief Get the current `rrun` rank.
+ * @brief Check if the current process is running under Slurm with PMIx.
  *
- * This helper retrieves the rank of the current process when running with `rrun`.
- * The rank is fetched from the `RAPIDSMPF_RANK` environment variable.
+ * This helper detects Slurm environment by checking for PMIx namespace
+ * or Slurm job step environment variables.
+ *
+ * @return true if running under Slurm with PMIx, false otherwise.
+ */
+bool is_running_with_slurm();
+
+/**
+ * @brief Check if the current process is running with any bootstrap launcher.
+ *
+ * This helper detects bootstrap mode by checking for either `rrun` or Slurm/PMIx
+ * environment. Use this function when you need to determine whether to use
+ * bootstrap-based initialization vs MPI-based initialization.
+ *
+ * @return true if running under any bootstrap mode (rrun or Slurm), false otherwise.
+ */
+bool is_running_with_bootstrap();
+
+/**
+ * @brief Get the current bootstrap rank.
+ *
+ * This helper retrieves the rank of the current process when running with a
+ * bootstrap launcher (rrun or Slurm). Checks environment variables in order:
+ * 1. RAPIDSMPF_RANK (set by rrun)
+ * 2. PMIX_RANK (set by PMIx)
+ * 3. SLURM_PROCID (set by Slurm)
  *
  * @return Rank of the current process (>= 0) if found, -1 otherwise.
  */
 Rank get_rank();
 
 /**
- * @brief Get the number of `rrun` ranks.
+ * @brief Get the number of bootstrap ranks.
  *
- * This helper retrieves the number of ranks when running with `rrun`.
- * The number of ranks is fetched from the `RAPIDSMPF_NRANKS` environment variable.
+ * This helper retrieves the number of ranks when running with a bootstrap
+ * launcher (rrun or Slurm). Checks environment variables in order:
+ * 1. RAPIDSMPF_NRANKS (set by rrun)
+ * 2. SLURM_NPROCS (set by Slurm)
+ * 3. SLURM_NTASKS (set by Slurm)
  *
  * @return Number of ranks.
- * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not
- * set or cannot be parsed.
+ * @throws std::runtime_error if not running with a bootstrap launcher or if
+ * the environment variable cannot be parsed.
  */
 Rank get_nranks();
 
