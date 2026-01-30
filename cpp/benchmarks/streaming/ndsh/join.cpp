@@ -491,7 +491,7 @@ streaming::Node left_semi_join_shuffle(
     co_await ctx->executor()->schedule();
     CudaEvent left_event;
 
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();
