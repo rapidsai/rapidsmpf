@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
@@ -26,13 +27,12 @@ AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
           }
       )} {}
 
-AllGather::~AllGather() {
-    if (!event_.is_set()) {
-        std::cerr << "~AllGather: not all notification tasks complete, did you forget to "
-                     "await this->extract_all() or to this->insert_finished()?"
-                  << std::endl;
-        std::terminate();
-    }
+AllGather::~AllGather() noexcept {
+    RAPIDSMPF_EXPECTS_FATAL(
+        event_.is_set(),
+        "~AllGather: not all notification tasks complete, did you forget to await "
+        "this->extract_all() or to this->insert_finished()?"
+    );
 }
 
 [[nodiscard]] std::shared_ptr<Context> AllGather::ctx() const noexcept {

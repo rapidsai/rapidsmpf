@@ -237,7 +237,7 @@ class Communicator {
          * @param level The log level.
          * @return The corresponding log level name or "UNKNOWN" if out of range.
          */
-        static constexpr const char* level_name(LOG_LEVEL level) {
+        static constexpr char const* level_name(LOG_LEVEL level) {
             auto index = static_cast<std::size_t>(level);
             return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
         }

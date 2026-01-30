@@ -17,6 +17,7 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
                                                BufferResource,
                                                cpp_BufferResource)
@@ -38,7 +39,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             uint32_t seed,
             cuda_stream_view stream,
             cpp_BufferResource* br,
-        ) except +
+        ) except +ex_handler
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
         "rapidsmpf::split_and_pack"(
@@ -46,7 +47,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             const vector[size_type] &splits,
             cuda_stream_view stream,
             cpp_BufferResource* br,
-        ) except +
+        ) except +ex_handler
 
 
 def partition_and_pack(
@@ -178,7 +179,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             vector[cpp_PackedData] partition,
             cuda_stream_view stream,
             cpp_BufferResource* br,
-        ) except +
+        ) except +ex_handler
 
 
 # Help function to convert an iterable of `PackedData` to a vector of
@@ -226,7 +227,7 @@ def unpack_and_concat(
 
     Raises
     ------
-    OverflowError
+    ReservationError
         If the buffer resource cannot reserve enough memory to concatenate all
         partitions.
 
@@ -253,7 +254,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             shared_ptr[cpp_Statistics] statistics,
-        ) except +
+        ) except +ex_handler
 
 
 def spill_partitions(
@@ -289,7 +290,7 @@ def spill_partitions(
 
     Raises
     ------
-    OverflowError
+    ReservationError
         If host memory reservation fails.
     """
     cdef cpp_BufferResource* _br = br.ptr()
@@ -313,7 +314,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
             shared_ptr[cpp_Statistics] statistics,
-        ) except +
+        ) except +ex_handler
 
 
 def unspill_partitions(
@@ -354,7 +355,7 @@ def unspill_partitions(
 
     Raises
     ------
-    OverflowError
+    ReservationError
         If overbooking exceeds the amount spilled and ``allow_overbooking is False``.
     """
     cdef cpp_BufferResource* _br = br.ptr()

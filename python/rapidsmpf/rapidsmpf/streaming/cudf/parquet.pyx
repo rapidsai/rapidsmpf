@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -15,6 +15,7 @@ from pylibcudf.libcudf.types cimport size_type
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.chunks.arbitrary cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
@@ -34,7 +35,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
             parquet_reader_options options,
             size_type num_rows_per_chunk,
             unique_ptr[cpp_Filter],
-        ) except +
+        ) except +ex_handler
 
 
 cdef class Filter:

@@ -10,6 +10,7 @@ from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -27,16 +28,18 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics,
-        ) except +
-        void shutdown() except +
-        void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
-        void concat_insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
-        void insert_finished(vector[uint32_t] pids) except +
-        vector[cpp_PackedData] extract(uint32_t pid)  except +
-        bool finished() except +
-        uint32_t wait_any() except +
-        void wait_on(uint32_t pid) except +
-        string str() except +
+        ) except +ex_handler
+        void shutdown() except +ex_handler
+        void insert(unordered_map[uint32_t, cpp_PackedData] chunks) \
+            except +ex_handler
+        void concat_insert(unordered_map[uint32_t, cpp_PackedData] chunks) \
+            except +ex_handler
+        void insert_finished(vector[uint32_t] pids) except +ex_handler
+        vector[cpp_PackedData] extract(uint32_t pid)  except +ex_handler
+        bool finished() except +ex_handler
+        uint32_t wait_any() except +ex_handler
+        void wait_on(uint32_t pid) except +ex_handler
+        string str() except +ex_handler
 # Insert PackedData into a partition map. We implement this in C++ because
 # PackedData doesn't have a default ctor.
 cdef extern from *:
@@ -53,7 +56,7 @@ cdef extern from *:
         unordered_map[uint32_t, cpp_PackedData] &partition_map,
         uint32_t pid,
         unique_ptr[cpp_PackedData] packed_data,
-    ) except + nogil
+    ) except +ex_handler nogil
 
 
 cdef class Shuffler:

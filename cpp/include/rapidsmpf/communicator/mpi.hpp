@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -57,7 +57,7 @@ namespace detail {
  * @param file The file where the MPI call occurred.
  * @param line The line number where the MPI call occurred.
  */
-void check_mpi_error(int error_code, const char* file, int line);
+void check_mpi_error(int error_code, char const* file, int line);
 }  // namespace detail
 }  // namespace mpi
 

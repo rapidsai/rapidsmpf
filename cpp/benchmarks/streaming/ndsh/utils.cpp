@@ -204,7 +204,7 @@ std::shared_ptr<streaming::Context> create_context(
         }
         break;
     default:
-        RAPIDSMPF_EXPECTS(false, "Unknown communicator type");
+        RAPIDSMPF_FAIL("Unknown communicator type");
     }
     auto ctx = std::make_shared<streaming::Context>(options, comm, br, statistics);
     if (comm->rank() == 0) {
