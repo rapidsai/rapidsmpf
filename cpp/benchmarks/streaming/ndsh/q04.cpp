@@ -89,6 +89,7 @@ rapidsmpf::streaming::Node select_columns(
     std::vector<cudf::size_type> indices
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
 
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
@@ -96,7 +97,6 @@ rapidsmpf::streaming::Node select_columns(
             ctx->comm()->logger().debug("Select columns: no more input");
             break;
         }
-        co_await ctx->executor()->schedule();
         auto chunk =
             co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
@@ -191,13 +191,14 @@ rapidsmpf::streaming::Node filter_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
     auto mr = ctx->br()->device_mr();
+
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
-        co_await ctx->executor()->schedule();
         auto chunk =
             co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
@@ -236,8 +237,8 @@ rapidsmpf::streaming::Node fanout_bounded(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch2_out
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch1_out, ch2_out};
-
     co_await ctx->executor()->schedule();
+
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
