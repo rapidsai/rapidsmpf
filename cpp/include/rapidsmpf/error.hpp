@@ -129,7 +129,7 @@ inline std::string build_error_message(
     std::source_location const& loc = std::source_location::current()
 ) {
     std::ostringstream ss;
-    ss << "RapidsMPF failure at: " << loc.file_name() << ":" << loc.line() << ": "
+    ss << "RapidsMPF fatal error at: " << loc.file_name() << ":" << loc.line() << ": "
        << reason;
     return ss.str();
 }

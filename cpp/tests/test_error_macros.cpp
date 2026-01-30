@@ -77,7 +77,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
         FAIL() << "Expected RAPIDSMPF_EXPECTS to throw an exception";
     } catch (const std::logic_error& e) {
         std::string error_message = e.what();
-        EXPECT_TRUE(error_message.find("RAPIDSMPF failure at:") != std::string::npos);
+        EXPECT_TRUE(error_message.find("RapidsMPF fatal error at:") != std::string::npos);
         EXPECT_TRUE(error_message.find("Test message") != std::string::npos);
     }
 
@@ -87,7 +87,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
         FAIL() << "Expected RAPIDSMPF_FAIL to throw an exception";
     } catch (const std::logic_error& e) {
         std::string error_message = e.what();
-        EXPECT_TRUE(error_message.find("RAPIDSMPF failure at:") != std::string::npos);
+        EXPECT_TRUE(error_message.find("RapidsMPF fatal error at:") != std::string::npos);
         EXPECT_TRUE(error_message.find("Test failure message") != std::string::npos);
     }
 
