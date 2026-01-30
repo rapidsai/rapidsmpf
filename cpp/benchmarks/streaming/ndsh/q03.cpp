@@ -41,14 +41,15 @@
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "bloom_filter.hpp"
 #include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
+#include "rapidsmpf/integrations/cudf/bloom_filter.hpp"
 #include "utils.hpp"
 
 namespace {
@@ -448,9 +449,9 @@ int main(int argc, char** argv) {
     int device;
     RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
     RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
-    auto const num_filter_blocks = rapidsmpf::ndsh::BloomFilter::fitting_num_blocks(
-        static_cast<std::size_t>(l2size)
-    );
+    auto const num_filter_blocks =
+        rapidsmpf::BloomFilter::fitting_num_blocks(static_cast<std::size_t>(l2size));
+
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
         std::vector<rapidsmpf::streaming::Node> nodes;
@@ -501,16 +502,14 @@ int main(int argc, char** argv) {
             nodes.push_back(fanout_bounded(
                 ctx, customer_x_orders, bloom_filter_input, {0}, customer_x_orders_input
             ));
-            nodes.push_back(
-                rapidsmpf::ndsh::build_bloom_filter(
-                    ctx,
-                    bloom_filter_input,
-                    bloom_filter_output,
-                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    cudf::DEFAULT_HASH_SEED,
-                    num_filter_blocks
-                )
+            auto bloom_filter = rapidsmpf::streaming::BloomFilter(
+                ctx, cudf::DEFAULT_HASH_SEED, num_filter_blocks
             );
+            nodes.push_back(bloom_filter.build(
+                bloom_filter_input,
+                bloom_filter_output,
+                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+            ));
             // Out: l_orderkey, l_extendedprice, l_discount
             nodes.push_back(read_lineitem(
                 ctx,
@@ -522,9 +521,7 @@ int main(int argc, char** argv) {
             ));
             auto lineitem_output = ctx->create_channel();
             nodes.push_back(
-                rapidsmpf::ndsh::apply_bloom_filter(
-                    ctx, bloom_filter_output, lineitem, lineitem_output, {0}
-                )
+                bloom_filter.apply(bloom_filter_output, lineitem, lineitem_output, {0})
             );
             // join o_orderkey = l_orderkey
             // Out: o_orderkey, o_orderdate, o_shippriority, l_extendedprice,
