@@ -44,10 +44,6 @@ function(find_and_configure_cucascade)
     find_package(kvikio REQUIRED CONFIG)
   endif()
 
-  set(cucascade_version "1.0.0")
-  set(cucascade_fork "pentschev")
-  set(cucascade_pinned_tag "update-rmm")
-
   # Mark targets as GLOBAL so they're visible to cuCascade
   foreach(_target rmm::rmm cudf::cudf kvikio::kvikio CUDA::cudart CUDA::nvml)
     if(TARGET ${_target})
@@ -78,11 +74,11 @@ function(find_and_configure_cucascade)
   # Always build cuCascade as a static library to embed it into librapidsmpf.so. This avoids
   # packaging issues with wheels and simplifies deployment.
   rapids_cpm_find(
-    cuCascade ${cucascade_version}
+    cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/${cucascade_fork}/cuCascade.git
-    GIT_TAG ${cucascade_pinned_tag}
+    GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
+    GIT_TAG main
     GIT_SHALLOW TRUE
     OPTIONS "BUILD_TESTS OFF"
             "BUILD_BENCHMARKS OFF"
