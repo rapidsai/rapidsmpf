@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,10 +10,9 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
-#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/detail/aligned_buffer.hpp>
 
-namespace rapidsmpf::ndsh {
+namespace rapidsmpf {
 
 /**
  * @brief A bloom filter, used for approximate set membership queries.
@@ -55,7 +54,7 @@ struct BloomFilter {
      *
      * @throws std::logic_error If `other` is not compatible with this filter.
      */
-    void merge(BloomFilter const& other, rmm::cuda_stream_view stream);
+    void merge(BloomFilter& other, rmm::cuda_stream_view stream);
 
     /**
      * @brief Return a mask of which rows are contained in the filter.
@@ -63,6 +62,8 @@ struct BloomFilter {
      * @param values Value to check for set membership
      * @param stream CUDA stream for allocations and device operations.
      * @param mr Memory resource for allocations.
+     *
+     * @return Mask vector to be used for filtering the table.
      */
     [[nodiscard]] rmm::device_uvector<bool> contains(
         cudf::table_view const& values,
@@ -78,7 +79,7 @@ struct BloomFilter {
     /**
      * @brief @return Pointer to the underlying storage.
      */
-    [[nodiscard]] void* data() const noexcept;
+    [[nodiscard]] void* data() noexcept;
 
     /**
      * @brief @return Size in bytes of the underlying storage.
@@ -91,7 +92,7 @@ struct BloomFilter {
      *
      * @param l2size Size of the L2 cache in bytes.
      */
-    [[nodiscard]] static std::size_t fitting_num_blocks(std::size_t l2size);
+    [[nodiscard]] static std::size_t fitting_num_blocks(std::size_t l2size) noexcept;
 
   private:
     std::size_t num_blocks_;  ///< Number of blocks used in the filter.
@@ -99,4 +100,4 @@ struct BloomFilter {
     detail::AlignedBuffer storage_;  ///< Backing storage.
 };
 
-}  // namespace rapidsmpf::ndsh
+}  // namespace rapidsmpf

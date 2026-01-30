@@ -14,8 +14,7 @@ if(NOT RAPIDSMPF_HAVE_STREAMING)
 endif()
 
 add_library(
-  rapidsmpfndsh bloom_filter.cpp bloom_filter_impl.cu concatenate.cpp groupby.cpp join.cpp
-                parquet_writer.cpp sort.cpp utils.cpp
+  rapidsmpfndsh concatenate.cpp groupby.cpp join.cpp parquet_writer.cpp sort.cpp utils.cpp
 )
 
 set_target_properties(
@@ -30,8 +29,6 @@ set_target_properties(
              INTERFACE_POSITION_INDEPENDENT_CODE ON
 )
 
-# cuco is not -Wsign-conversion safe
-set_source_files_properties(bloom_filter_impl.cu PROPERTIES COMPILE_OPTIONS "-Wno-sign-conversion")
 target_compile_options(
   rapidsmpfndsh PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
