@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -14,12 +14,15 @@ from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.content_description import ContentDescription
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
+    from concurrent.futures import ThreadPoolExecutor
+
     import pylibcudf
     from rmm.pylibrmm.stream import Stream
 
@@ -252,3 +255,48 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
     }
     got = TableChunk.from_message(context.spillable_messages().extract(mid=mid))
     assert_eq(expect, got.table_view())
+
+
+def test_make_available_or_wait_already_available(
+    context: Context, stream: Stream, py_executor: ThreadPoolExecutor
+) -> None:
+    expect = random_table(1024)
+    chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    result_holder: list[TableChunk] = []
+
+    @define_py_node()
+    async def test_node(ctx: Context) -> None:
+        result = await chunk.make_available_or_wait(ctx, net_memory_delta=0)
+        result_holder.append(result)
+
+    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    assert_eq(expect, result_holder[0].table_view())
+
+
+@pytest.mark.parametrize("net_memory_delta", [0, 512])
+def test_make_available_or_wait_from_host(
+    context: Context,
+    stream: Stream,
+    py_executor: ThreadPoolExecutor,
+    *,
+    net_memory_delta: int,
+) -> None:
+    expect = random_table(1024)
+    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    res, _ = context.br().reserve(
+        MemoryType.HOST,
+        device_chunk.data_alloc_size(MemoryType.DEVICE),
+        allow_overbooking=True,
+    )
+    host_chunk = device_chunk.copy(res)
+    result_holder: list[TableChunk] = []
+
+    @define_py_node()
+    async def test_node(ctx: Context) -> None:
+        result = await host_chunk.make_available_or_wait(
+            ctx, net_memory_delta=net_memory_delta
+        )
+        result_holder.append(result)
+
+    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    assert_eq(expect, result_holder[0].table_view())

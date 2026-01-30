@@ -16,7 +16,10 @@ from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
 # Need the header include for inline C++ code
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
+
+from rapidsmpf.streaming.core.memory_reserve_or_wait import reserve_memory
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
@@ -325,9 +328,7 @@ cdef class TableChunk:
         Move this table chunk into a new one with its data made available.
 
         As part of the move, a copy or unpack operation may be performed,
-        using the associated CUDA stream for execution. After this call,
-        the current object is left in a moved-from state and should not be
-        accessed further except for reassignment, movement, or destruction.
+        using the associated CUDA stream for execution.
 
         Parameters
         ----------
@@ -349,6 +350,48 @@ cdef class TableChunk:
         with nogil:
             ret = cpp_table_make_available(move(handle), res)
         return TableChunk.from_handle(move(ret))
+
+    async def make_available_or_wait(
+        self, Context ctx not None, *, size_t net_memory_delta
+    ):
+        """
+        Move this table chunk into a new one with its data made available.
+
+        This is an asynchronous variant of :meth:`make_available`. The coroutine may
+        suspend if the required device memory is not immediately available and
+        resumes once a memory reservation has been granted or an error condition is
+        reached.
+
+        Parameters
+        ----------
+        ctx
+            Streaming context used to access the memory reservation mechanism.
+        net_memory_delta
+            Estimated change in memory usage after the reservation is granted and
+            all work using the returned table chunk has completed.
+
+        Returns
+        -------
+        TableChunk
+            A new table chunk with its data available on device.
+
+        Raises
+        ------
+        RuntimeError
+            If shutdown occurs before the reservation can be processed.
+        OverflowError
+            If no progress is possible within the timeout and overbooking is
+            disabled.
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+        """
+        return self.make_available(
+            await reserve_memory(
+                ctx, self.make_available_cost(), net_memory_delta=net_memory_delta
+            )
+        )
 
     def make_available_and_spill(
         self, BufferResource br not None, *, allow_overbooking

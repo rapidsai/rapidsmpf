@@ -10,6 +10,7 @@ from rmm.pylibrmm.stream import Stream
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.memory_reservation import MemoryReservation
+from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message, Payload
 
 class TableChunk:
@@ -29,6 +30,9 @@ class TableChunk:
     def is_available(self) -> bool: ...
     def make_available_cost(self) -> int: ...
     def make_available(self, reservation: MemoryReservation) -> TableChunk: ...
+    async def make_available_or_wait(
+        self, ctx: Context, *, net_memory_delta: int
+    ) -> TableChunk: ...
     def make_available_and_spill(
         self, br: BufferResource, *, allow_overbooking: bool
     ) -> TableChunk: ...
