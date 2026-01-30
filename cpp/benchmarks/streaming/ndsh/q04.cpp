@@ -103,17 +103,9 @@ rapidsmpf::streaming::Node select_columns(
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
 
-        std::vector<std::unique_ptr<cudf::column>> result;
-        result.reserve(indices.size());
-        for (auto idx : indices) {
-            result.push_back(
-                std::make_unique<cudf::column>(
-                    table.column(idx), chunk_stream, ctx->br()->device_mr()
-                )
-            );
-        }
-
-        auto result_table = std::make_unique<cudf::table>(std::move(result));
+        auto result_table = std::make_unique<cudf::table>(
+            chunk.table_view().select(indices), chunk_stream, ctx->br()->device_mr()
+        );
 
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
