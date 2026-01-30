@@ -1,11 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 
 from rapidsmpf._detail.exception_handling cimport (
-    CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
+    CppExcept, ex_handler, throw_py_as_cpp_exception,
+    translate_py_to_cpp_exception)
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 import weakref
@@ -64,7 +65,7 @@ cdef extern from *:
     cpp_SpillFunction cython_to_cpp_closure_lambda(
          size_t (*wrapper)(void *, size_t),
          void *py_spill_function
-    ) except + nogil
+    ) except +ex_handler nogil
 
 cdef class SpillManager:
     """

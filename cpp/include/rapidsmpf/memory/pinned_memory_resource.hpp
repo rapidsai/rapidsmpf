@@ -17,10 +17,11 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
@@ -36,6 +37,9 @@ namespace rapidsmpf {
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
  * RapidsMPF requires CUDA 12.6 or newer to support pinned memory resources.
+ *
+ * @return True if the PinnedMemoryResource is supported for the current CUDA version,
+ * false otherwise.
  */
 inline bool is_pinned_memory_resources_supported() {
     static const bool supported = [] {
@@ -103,6 +107,15 @@ class PinnedMemoryResource final : public HostMemoryResource {
     static std::shared_ptr<PinnedMemoryResource> make_if_available(
         int numa_id = get_current_numa_node()
     );
+
+    /**
+     * @brief Construct from configuration options.
+     *
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to the constructed PinnedMemoryResource instance.
+     */
+    static std::shared_ptr<PinnedMemoryResource> from_options(config::Options options);
 
     ~PinnedMemoryResource() override;
 

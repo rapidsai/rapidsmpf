@@ -4,13 +4,14 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t, uint32_t
+from libc.stdint cimport int32_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -27,7 +28,7 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_async_task(
+    coro::task<void> extract_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::uint32_t pid,
         std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
@@ -51,15 +52,15 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_async_task(shuffle, pid, output)
+                    extract_async_task(shuffle, pid, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
 
-    coro::task<void> _extract_any_async_task(
+    coro::task<void> extract_any_async_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle,
         std::shared_ptr<
             std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
@@ -84,17 +85,17 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_any_async_task(
+                    extract_any_async_task(
                         shuffle, output
                     )
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
 
-    coro::task<void> _insert_finished_task(
+    coro::task<void> insert_finished_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle
     ) {
         co_await shuffle->insert_finished();
@@ -111,13 +112,13 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _insert_finished_task(shuffle)
+                    insert_finished_task(shuffle)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
     }
-    }
+    }  // namespace
     """
     shared_ptr[optional[vector[cpp_PackedData]]] cpp_extract_async(
         shared_ptr[cpp_Context] ctx,
@@ -125,28 +126,29 @@ cdef extern from * nogil:
         uint32_t pid,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
-    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] cpp_extract_any_async(
+    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] \
+        cpp_extract_any_async(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
     void cpp_insert_finished(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 
 def shuffler(
     Context ctx not None,
     Channel ch_in not None,
     Channel ch_out not None,
-    uint8_t op_id,
+    int32_t op_id,
     uint32_t total_num_partitions,
 ):
     """
@@ -208,7 +210,7 @@ cdef class ShufflerAsync:
         Global number of output partitions in the shuffle.
     """
     def __init__(
-        self, Context ctx not None, uint8_t op_id, uint32_t total_num_partitions
+        self, Context ctx not None, int32_t op_id, uint32_t total_num_partitions
     ):
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](

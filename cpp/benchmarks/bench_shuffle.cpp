@@ -23,7 +23,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -706,8 +706,8 @@ int main(int argc, char** argv) {
                     .count();
         }
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -723,8 +723,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"

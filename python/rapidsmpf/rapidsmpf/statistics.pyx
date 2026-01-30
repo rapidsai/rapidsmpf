@@ -4,19 +4,26 @@
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, make_unique
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
 
 
-# Since `Statistics::Stat` doesn't have a default ctor, we use the following
-# getters.
+cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
+    cdef shared_ptr[cpp_Statistics] cpp_from_options \
+        "rapidsmpf::Statistics::from_options"(
+            cpp_RmmResourceAdaptor* mr, cpp_Options options
+        ) except +ex_handler
+
+
 cdef extern from *:
     """
     std::size_t cpp_get_statistic_count(
@@ -36,10 +43,12 @@ cdef extern from *:
         stats.clear();
     }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
-    vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
-    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    vector[string] cpp_list_stat_names(cpp_Statistics stats) except +ex_handler nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except +ex_handler nogil
 
 cdef class Statistics:
     """
@@ -52,9 +61,9 @@ cdef class Statistics:
     mr
         Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
+    def __init__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
         cdef cpp_RmmResourceAdaptor* mr_handle
-        self._mr = mr  # Keep mr alive.
+        self._mr = mr
         if enable and mr is not None:
             mr_handle = mr.get_handle()
             with nogil:
@@ -62,6 +71,29 @@ cdef class Statistics:
         else:
             with nogil:
                 self._handle = make_shared[cpp_Statistics](enable)
+
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct from configuration options.
+
+        Parameters
+        ----------
+        mr
+            Pointer to a memory resource used for memory profiling.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed Statistics instance.
+        """
+        cdef Statistics ret = cls.__new__(cls)
+        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        with nogil:
+            ret._handle = cpp_from_options(mr_handle, options._handle)
+        ret._mr = mr
+        return ret
 
     def __dealloc__(self):
         with nogil:

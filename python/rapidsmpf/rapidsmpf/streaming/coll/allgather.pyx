@@ -4,13 +4,13 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t
+from libc.stdint cimport int32_t
 from libcpp cimport bool
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf.allgather.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -26,7 +26,7 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_all_task(
+    coro::task<void> extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
@@ -47,14 +47,14 @@ cdef extern from * nogil:
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    _extract_all_task(gather, ordered, output)
+                    extract_all_task(gather, ordered, output)
                 )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
-    }
+    }  // namespace
     """
     shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,
@@ -62,7 +62,7 @@ cdef extern from * nogil:
         cpp_Ordered ordered,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
-    ) except +
+    ) except +ex_handler
 
 
 cdef class AllGather:
@@ -77,7 +77,7 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, uint8_t op_id):
+    def __init__(self, Context ctx not None, int32_t op_id):
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 ctx._handle, op_id
@@ -145,7 +145,7 @@ def allgather(
     Context ctx not None,
     Channel ch_in not None,
     Channel ch_out not None,
-    uint8_t op_id,
+    int32_t op_id,
     *,
     bool ordered,
 ):

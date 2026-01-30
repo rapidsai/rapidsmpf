@@ -71,6 +71,9 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
+          test_allreduce.cpp
+          test_allreduce_custom_kernels.cu
+          test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
           test_communicator.cpp
@@ -89,8 +92,8 @@ target_sources(
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
-          test_system_utils.cpp
-          test_utils.cpp
+          test_system_info.cpp
+          test_utils_string.cpp
 )
 
 # if streaming is enabled, add the streaming test sources
@@ -98,6 +101,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
     PRIVATE streaming/test_allgather.cpp
+            streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
             streaming/test_leaf_node.cpp

@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
@@ -17,14 +18,14 @@ cdef extern from "<rapidsmpf/streaming/core/leaf_node.hpp>" nogil:
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_out,
             vector[cpp_Message] messages,
-        ) except +
+        ) except +ex_handler
 
     cdef cpp_Node cpp_pull_from_channel \
         "rapidsmpf::streaming::node::pull_from_channel"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_in,
             vector[cpp_Message] out_messages,
-        ) except +
+        ) except +ex_handler
 
 
 def push_to_channel(Context ctx, Channel ch_out, object messages):

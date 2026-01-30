@@ -1,13 +1,14 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int64_t, uint8_t, uint64_t
+from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -16,31 +17,32 @@ from rapidsmpf.progress_thread cimport cpp_ProgressThread
 from rapidsmpf.statistics cimport cpp_Statistics
 
 
-cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace \
-        "rapidsmpf::allgather::AllGather" nogil:
+cdef extern from "<rapidsmpf/coll/allgather.hpp>" namespace \
+        "rapidsmpf::coll::AllGather" nogil:
     cpdef enum class Ordered(bool):
         NO
         YES
 
-cdef extern from "<rapidsmpf/allgather/allgather.hpp>" nogil:
+cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
     ctypedef int64_t milliseconds_t "std::chrono::milliseconds"
 
-    cdef cppclass cpp_AllGather "rapidsmpf::allgather::AllGather":
+    cdef cppclass cpp_AllGather "rapidsmpf::coll::AllGather":
         cpp_AllGather(
             shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_ProgressThread] progress_thread,
-            uint8_t op_id,
+            int32_t op_id,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics
-        ) except +
-        void insert(uint64_t sequence_number, cpp_PackedData packed_data) except +
-        void insert_finished() except +
-        bool finished() except +
+        ) except +ex_handler
+        void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
+            except +ex_handler
+        void insert_finished() except +ex_handler
+        bool finished() except +ex_handler
         vector[cpp_PackedData] wait_and_extract(
             Ordered ordered,
             milliseconds_t timeout
-        ) except +
-        vector[cpp_PackedData] extract_ready() except +
+        ) except +ex_handler
+        vector[cpp_PackedData] extract_ready() except +ex_handler
 
 
 cdef class AllGather:

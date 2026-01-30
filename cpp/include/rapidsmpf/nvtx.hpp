@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -9,7 +9,7 @@
 
 #include <nvtx3/nvtx3.hpp>
 
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 /**
  * @brief Help function to convert value to 64 bit signed integer
@@ -48,7 +48,7 @@ struct rapidsmpf_domain {
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.
 #define RAPIDSMPF_REGISTER_STRING(msg)                                         \
-    [](const char* a_msg) -> auto& {                                           \
+    [](char const* a_msg) -> auto& {                                           \
         static nvtx3::registered_string_in<rapidsmpf_domain> a_reg_str{a_msg}; \
         return a_reg_str;                                                      \
     }(msg)

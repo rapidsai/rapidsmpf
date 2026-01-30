@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,7 +17,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler {
 
@@ -104,9 +104,9 @@ class Shuffler::Progress {
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
-        Tag const ready_for_data_tag{shuffler_.op_id_, 1};
-        Tag const metadata_tag{shuffler_.op_id_, 2};
-        Tag const gpu_data_tag{shuffler_.op_id_, 3};
+        Tag const ready_for_data_tag{shuffler_.op_id_, 0};
+        Tag const metadata_tag{shuffler_.op_id_, 1};
+        Tag const gpu_data_tag{shuffler_.op_id_, 2};
 
         auto& log = shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;

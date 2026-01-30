@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -18,8 +18,6 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-
-#include "utils.hpp"
 
 namespace rapidsmpf::ndsh {
 
@@ -65,8 +63,8 @@ streaming::Node concatenate(
         chunks.reserve(messages.size());
         views.reserve(messages.size());
         for (auto&& msg : messages) {
-            auto chunk = msg.release<streaming::TableChunk>();
-            chunk = to_device(ctx, std::move(chunk));
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             cuda_stream_join(concat_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));

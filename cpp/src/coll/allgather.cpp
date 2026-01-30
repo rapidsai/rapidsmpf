@@ -12,14 +12,14 @@
 #include <mutex>
 #include <optional>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
-namespace rapidsmpf::allgather {
+namespace rapidsmpf::coll {
 namespace detail {
 
 Chunk::Chunk(
@@ -372,7 +372,7 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     return spilled;
 }
 
-AllGather::~AllGather() {
+AllGather::~AllGather() noexcept {
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
         progress_thread_->remove_function(function_id_);
@@ -531,4 +531,4 @@ ProgressThread::ProgressState AllGather::event_loop() {
                    : ProgressThread::ProgressState::InProgress;
 }
 
-}  // namespace rapidsmpf::allgather
+}  // namespace rapidsmpf::coll

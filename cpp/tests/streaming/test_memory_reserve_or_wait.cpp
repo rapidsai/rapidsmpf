@@ -10,7 +10,8 @@
 
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "base_streaming_fixture.hpp"
 
@@ -62,9 +63,8 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
-    constexpr std::int64_t timeout_ms = 12345;
     config::Options options{
-        {{"memory_reserve_timeout_ms", config::OptionValue(std::to_string(timeout_ms))}}
+        {{"memory_reserve_timeout", config::OptionValue("12345 ms")}}
     };
 
     MemoryReserveOrWait mrow{options, MemoryType::DEVICE, ctx->executor(), ctx->br()};
@@ -74,10 +74,7 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
     EXPECT_EQ(mrow.br(), ctx->br());
 
     // Timeout should match the configured value.
-    EXPECT_EQ(
-        std::chrono::duration_cast<std::chrono::milliseconds>(mrow.timeout()).count(),
-        timeout_ms
-    );
+    EXPECT_EQ(mrow.timeout(), parse_duration("12345 ms"));
 }
 
 TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
@@ -86,7 +83,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     };
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -131,7 +128,7 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     ReserveLog log;
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -189,7 +186,7 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
 
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -240,7 +237,7 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
 
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
-        config::Options({{"memory_reserve_timeout_ms", config::OptionValue("100000")}}),
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -272,7 +269,7 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
-            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
@@ -290,14 +287,134 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
-            config::Options({{"memory_reserve_timeout_ms", config::OptionValue("1")}}),
+            config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
         };
         EXPECT_THROW(
             std::ignore = co_await mrow.reserve_or_wait_or_fail(10, 0),
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }(ctx));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWithOverbookingEnabled) {
+    // Start with no available memory so the request cannot be satisfied normally.
+    set_mem_avail(0);
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        // Request should succeed with overbooking enabled.
+        auto res = co_await reserve_memory(
+            ctx,
+            512,
+            0,  // net_memory_delta
+            MemoryType::DEVICE,
+            AllowOverbooking::YES
+        );
+        EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+        EXPECT_EQ(res.size(), 512);
+    }(ctx));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWithOverbookingDisabled) {
+    // Start with no available memory so the request cannot be satisfied.
+    set_mem_avail(0);
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        // Request should fail with overbooking disabled.
+        EXPECT_THROW(
+            std::ignore = co_await reserve_memory(
+                ctx,
+                512,
+                0,  // net_memory_delta
+                MemoryType::DEVICE,
+                AllowOverbooking::NO
+            ),
+            rapidsmpf::reservation_error
+        );
+    }(ctx));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWhenMemoryAvailable) {
+    // Make memory available.
+    set_mem_avail(1024);
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        // Request should succeed without overbooking.
+        auto res = co_await reserve_memory(
+            ctx,
+            512,
+            0,  // net_memory_delta
+            MemoryType::DEVICE,
+            AllowOverbooking::NO
+        );
+        EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+        EXPECT_EQ(res.size(), 512);
+    }(ctx));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingEnabled) {
+    // Start with no available memory.
+    set_mem_avail(0);
+
+    // Create a new context with allow_overbooking_by_default set to true.
+    config::Options options{
+        {{"memory_reserve_timeout", config::OptionValue("1ns")},
+         {"allow_overbooking_by_default", config::OptionValue("true")}}
+    };
+    auto ctx_with_overbook = std::make_shared<Context>(
+        options,
+        ctx->comm(),
+        ctx->progress_thread(),
+        ctx->executor(),
+        ctx->br(),
+        ctx->statistics()
+    );
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        // Request should succeed because default is to allow overbooking.
+        auto res = co_await reserve_memory(
+            ctx,
+            2048,
+            0,  // net_memory_delta
+            MemoryType::DEVICE,
+            std::nullopt  // Use default from configuration
+        );
+        EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+        EXPECT_EQ(res.size(), 2048);
+    }(ctx_with_overbook));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabled) {
+    // Start with no available memory.
+    set_mem_avail(0);
+
+    // Create a new context with allow_overbooking_by_default set to false.
+    config::Options options{
+        {{"memory_reserve_timeout", config::OptionValue("1ns")},
+         {"allow_overbooking_by_default", config::OptionValue("false")}}
+    };
+    auto ctx_with_no_overbook = std::make_shared<Context>(
+        options,
+        ctx->comm(),
+        ctx->progress_thread(),
+        ctx->executor(),
+        ctx->br(),
+        ctx->statistics()
+    );
+
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+        // Request should fail because default is to disallow overbooking.
+        EXPECT_THROW(
+            std::ignore = co_await reserve_memory(
+                ctx,
+                2048,
+                0,  // net_memory_delta
+                MemoryType::DEVICE,
+                std::nullopt  // Use default from configuration
+            ),
+            rapidsmpf::reservation_error
+        );
+    }(ctx_with_no_overbook));
 }

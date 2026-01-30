@@ -1,13 +1,20 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <stdexcept>  // NOLINT(unused-includes)
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+#include <source_location>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -15,96 +22,248 @@ namespace rapidsmpf {
  * @brief Exception thrown when a CUDA error is encountered.
  *
  * @ingroup errors
- *
  */
 struct cuda_error : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
 /**
- * @brief Exception thrown when an RapidsMPF allocation fails
+ * @brief Exception thrown when a RapidsMPF allocation fails.
  *
  * @ingroup errors
- *
  */
 class bad_alloc : public std::bad_alloc {
   public:
     /**
-     * @brief Constructs a bad_alloc with the error message.
+     * @brief Construct a bad_alloc with the error message.
      *
-     * @param msg Message to be associated with the exception
+     * @param msg Message to be associated with the exception.
      */
-    bad_alloc(const char* msg)
-        : _what{std::string{std::bad_alloc::what()} + ": " + msg} {}
+    explicit bad_alloc(char const* msg)
+        : what_{std::string{std::bad_alloc::what()} + ": " + msg} {}
 
     /**
-     * @brief Constructs a bad_alloc with the error message.
+     * @brief Construct a bad_alloc with the error message.
      *
-     * @param msg Message to be associated with the exception
+     * @param msg Message to be associated with the exception.
      */
-    bad_alloc(std::string const& msg) : bad_alloc{msg.c_str()} {}
+    explicit bad_alloc(std::string const& msg) : bad_alloc{msg.c_str()} {}
 
     /**
-     * @brief Returns the explanatory string.
+     * @brief Return the explanatory string.
      *
      * @return The explanatory string.
      */
-    [[nodiscard]] const char* what() const noexcept override {
-        return _what.c_str();
+    [[nodiscard]] char const* what() const noexcept override {
+        return what_.c_str();
     }
 
   private:
-    std::string _what;
+    std::string what_;
 };
 
 /**
- * @brief Exception thrown when RapidsMPF runs out of memory
+ * @brief Exception thrown when RapidsMPF runs out of memory.
  *
  * @ingroup errors
  *
- * This error should only be thrown when we know for sure a resource is out of memory.
+ * This exception should only be thrown when we know a resource is out of memory.
  */
 class out_of_memory : public bad_alloc {
   public:
     /**
-     * @brief Constructs an out_of_memory with the error message.
+     * @brief Construct an out_of_memory with the error message.
      *
-     * @param msg Message to be associated with the exception
+     * @param msg Message to be associated with the exception.
      */
-    out_of_memory(const char* msg) : bad_alloc{std::string{"out_of_memory: "} + msg} {}
+    explicit out_of_memory(char const* msg)
+        : bad_alloc{std::string{"out_of_memory: "} + msg} {}
 
     /**
-     * @brief Constructs an out_of_memory with the error message.
+     * @brief Construct an out_of_memory with the error message.
      *
-     * @param msg Message to be associated with the exception
+     * @param msg Message to be associated with the exception.
      */
-    out_of_memory(std::string const& msg) : out_of_memory{msg.c_str()} {}
+    explicit out_of_memory(std::string const& msg) : out_of_memory{msg.c_str()} {}
 };
 
 /**
- * @brief Macro for checking (pre-)conditions that throws an exception when
- * a condition is violated.
+ * @brief Exception thrown when a memory reservation fails in RapidsMPF.
+ *
+ * @ingroup errors
+ *
+ * This exception is thrown when attempting to reserve memory fails, or when an
+ * existing reservation is insufficient for a requested allocation. It does not
+ * necessarily indicate that the system is out of physical memory, only that the
+ * reservation contract could not be satisfied.
+ */
+class reservation_error : public bad_alloc {
+  public:
+    /**
+     * @brief Construct a reservation_error with an error message.
+     *
+     * @param msg Message to be associated with the exception.
+     */
+    explicit reservation_error(char const* msg)
+        : bad_alloc{std::string{"reservation_error: "} + msg} {}
+
+    /**
+     * @brief Construct a reservation_error with an error message.
+     *
+     * @param msg Message to be associated with the exception.
+     */
+    explicit reservation_error(std::string const& msg) : reservation_error{msg.c_str()} {}
+};
+
+namespace detail {
+
+/**
+ * @brief Build an error message with source location information.
+ *
+ * @param reason The error reason message.
+ * @param loc The source location (automatically captured).
+ * @return The formatted error message string.
+ */
+inline std::string build_error_message(
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
+) {
+    std::ostringstream ss;
+    ss << "RapidsMPF fatal error at: " << loc.file_name() << ":" << loc.line() << ": "
+       << reason;
+    return ss.str();
+}
+
+/**
+ * @brief Core implementation for RAPIDSMPF_EXPECTS.
+ *
+ * @param condition The condition to check.
+ * @param reason The error reason if condition is false.
+ * @param throw_fn Callable that throws the appropriate exception type.
+ * @param loc The source location (automatically captured).
+ */
+template <typename ThrowFn>
+constexpr void expects_impl(
+    bool condition,
+    std::string_view reason,
+    ThrowFn&& throw_fn,
+    std::source_location const& loc = std::source_location::current()
+) {
+    if (!condition) {
+        throw_fn(build_error_message(reason, loc));
+    }
+}
+
+/**
+ * @brief Build a CUDA error message with source location information.
+ *
+ * @param error The CUDA error code.
+ * @param loc The source location (automatically captured).
+ * @return The formatted CUDA error message string.
+ */
+inline std::string build_cuda_error_message(
+    cudaError_t error, std::source_location const& loc = std::source_location::current()
+) {
+    std::ostringstream ss;
+    ss << "CUDA error at: " << loc.file_name() << ":" << loc.line() << ": "
+       << cudaGetErrorName(error) << " " << cudaGetErrorString(error);
+    return ss.str();
+}
+
+/**
+ * @brief Build a CUDA allocation error message with source location information.
+ *
+ * @param error The CUDA error code.
+ * @param num_bytes Number of bytes that failed to allocate.
+ * @param loc The source location (automatically captured).
+ * @return The formatted CUDA allocation error message string.
+ */
+inline std::string build_cuda_alloc_error_message(
+    cudaError_t error,
+    std::size_t num_bytes,
+    std::source_location const& loc = std::source_location::current()
+) {
+    std::ostringstream ss;
+    ss << "CUDA error (failed to allocate " << num_bytes
+       << " bytes) at: " << loc.file_name() << ":" << loc.line() << ": "
+       << cudaGetErrorName(error) << " " << cudaGetErrorString(error);
+    return ss.str();
+}
+
+/**
+ * @brief Print a fatal error message and terminate.
+ *
+ * Prints an error message to stderr and calls std::terminate(). Use this for
+ * fatal errors in contexts where exceptions cannot be thrown, for example in
+ * destructors.
+ *
+ * @param reason The error reason message.
+ * @param loc The source location (automatically captured).
+ */
+[[noreturn]] inline void fatal_error(
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
+) noexcept {
+    std::cerr << "RapidsMPF fatal error at: " << loc.file_name() << ":" << loc.line()
+              << ": " << reason << std::endl;
+    std::terminate();
+}
+
+/**
+ * @brief Implementation for RAPIDSMPF_EXPECTS_FATAL.
+ *
+ * @param condition The condition to check.
+ * @param reason The error message if the condition is false.
+ * @param loc The source location (automatically captured at call site).
+ */
+constexpr void expects_fatal_impl(
+    bool condition,
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
+) noexcept {
+    if (!condition) {
+        detail::fatal_error(reason, loc);
+    }
+}
+
+/**
+ * @brief Implementation for RAPIDSMPF_FATAL.
+ *
+ * @param reason The error message describing the fatal error.
+ * @param loc The source location (automatically captured at call site).
+ */
+[[noreturn]] inline void fatal_impl(
+    std::string_view reason,
+    std::source_location const& loc = std::source_location::current()
+) noexcept {
+    detail::fatal_error(reason, loc);
+}
+
+}  // namespace detail
+
+/**
+ * @brief Check a condition and throw an exception if it is violated.
  *
  * Defaults to throwing `std::logic_error`, but a custom exception may also be
  * specified.
  *
  * Example usage:
- * ```
- * // throws std::logic_error
+ * @code{.cpp}
+ * // Throws std::logic_error
  * RAPIDSMPF_EXPECTS(p != nullptr, "Unexpected null pointer");
  *
- * // throws std::runtime_error
- * RAPIDSMPF_EXPECTS(p != nullptr, "Unexpected nullptr", std::runtime_error);
- * ```
- * @param ... This macro accepts either two or three arguments:
- *   - The first argument must be an expression that evaluates to true or
- *     false, and is the condition being checked.
- *   - The second argument is a string literal used to construct the `what` of
- *     the exception.
- *   - When given, the third argument is the exception to be thrown. When not
- *     specified, defaults to `std::logic_error`.
+ * // Throws std::runtime_error
+ * RAPIDSMPF_EXPECTS(p != nullptr, "Unexpected null pointer", std::runtime_error);
+ * @endcode
  *
- * @throws `_exception_type` if the condition evaluates to 0 (false).
+ * @param ... This macro accepts either two or three arguments:
+ *   - The first argument must be an expression that evaluates to true or false,
+ *     and is the condition being checked.
+ *   - The second argument is a string used to construct the `what` of the exception.
+ *   - When given, the third argument is the exception type to be thrown. When not
+ *     specified, it defaults to `std::logic_error`.
+ *
+ * @throws _exception_type If the condition evaluates to false.
  */
 #define RAPIDSMPF_EXPECTS(...)                                                         \
     GET_RAPIDSMPF_EXPECTS_MACRO(__VA_ARGS__, RAPIDSMPF_EXPECTS_3, RAPIDSMPF_EXPECTS_2) \
@@ -112,38 +271,37 @@ class out_of_memory : public bad_alloc {
 
 #define GET_RAPIDSMPF_EXPECTS_MACRO(_1, _2, _3, NAME, ...) NAME
 
-#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)                   \
-    do {                                                                            \
-        static_assert(std::is_base_of_v<std::exception, _exception_type>);          \
-        (_condition) ? static_cast<void>(0)                                         \
-                     : throw _exception_type /*NOLINT(bugprone-macro-parentheses)*/ \
-            {"RAPIDSMPF failure at: " __FILE__                                      \
-             ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _reason};                       \
+#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)          \
+    do {                                                                   \
+        static_assert(std::is_base_of_v<std::exception, _exception_type>); \
+        rapidsmpf::detail::expects_impl(                                   \
+            static_cast<bool>(_condition), (_reason), [](auto&& msg) {     \
+                throw _exception_type{msg};                                \
+            }                                                              \
+        );                                                                 \
     } while (0)
 
 #define RAPIDSMPF_EXPECTS_2(_condition, _reason) \
     RAPIDSMPF_EXPECTS_3(_condition, _reason, std::logic_error)
 
-
 /**
- * @brief Indicates that an erroneous code path has been taken.
+ * @brief Indicate that an erroneous code path has been taken.
  *
  * Example usage:
- * ```c++
- * // Throws `std::logic_error`
+ * @code{.cpp}
+ * // Throws std::logic_error
  * RAPIDSMPF_FAIL("Unsupported code path");
  *
- * // Throws `std::runtime_error`
+ * // Throws std::runtime_error
  * RAPIDSMPF_FAIL("Unsupported code path", std::runtime_error);
- * ```
+ * @endcode
  *
  * @param ... This macro accepts either one or two arguments:
- *   - The first argument is a string literal used to construct the `what` of
- *     the exception.
- *   - When given, the second argument is the exception to be thrown. When not
- *     specified, defaults to `std::logic_error`.
+ *   - The first argument is a string used to construct the `what` of the exception.
+ *   - When given, the second argument is the exception type to be thrown. When not
+ *     specified, it defaults to `std::logic_error`.
  *
- * @throws `_exception_type` if the condition evaluates to 0 (false).
+ * @throws _exception_type Always throws.
  */
 #define RAPIDSMPF_FAIL(...)                                                   \
     GET_RAPIDSMPF_FAIL_MACRO(__VA_ARGS__, RAPIDSMPF_FAIL_2, RAPIDSMPF_FAIL_1) \
@@ -151,34 +309,66 @@ class out_of_memory : public bad_alloc {
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                      \
-    /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                                    \
-    throw _exception_type {                                                           \
-        "RAPIDSMPF failure at:" __FILE__ ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _what \
+#define RAPIDSMPF_FAIL_2(_what, _exception_type)        \
+    throw _exception_type {                             \
+        rapidsmpf::detail::build_error_message((_what)) \
     }
 
 #define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
 
 /**
+ * @brief Check a condition and terminate if false.
+ *
+ * This is the fatal (non-throwing) version of RAPIDSMPF_EXPECTS. It checks a
+ * condition and, if false, prints an error message to stderr and calls
+ * std::terminate(). Use this in contexts where exceptions cannot be thrown,
+ * such as destructors, noexcept functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * RAPIDSMPF_EXPECTS_FATAL(ptr != nullptr, "Unexpected null pointer");
+ * @endcode
+ *
+ * @param _condition The condition to check.
+ * @param _reason The error message if the condition is false.
+ */
+#define RAPIDSMPF_EXPECTS_FATAL(_condition, _reason) \
+    rapidsmpf::detail::expects_fatal_impl(static_cast<bool>(_condition), (_reason))
+
+/**
+ * @brief Indicate a fatal error and terminate the program.
+ *
+ * Prints an error message to stderr and calls std::terminate(). Use this for
+ * fatal errors in contexts where exceptions cannot be thrown, such as
+ * destructors, noexcept functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * RAPIDSMPF_FATAL("Unrecoverable error occurred");
+ * @endcode
+ *
+ * @param _reason The error message describing the fatal error.
+ */
+#define RAPIDSMPF_FATAL(_reason) rapidsmpf::detail::fatal_impl((_reason))
+
+/**
  * @brief Error checking macro for CUDA runtime API functions.
  *
- * Invokes a CUDA runtime API function call. If the call does not return
- * `cudaSuccess`, invokes cudaGetLastError() to clear the error and throws an
- * exception detailing the CUDA error that occurred
+ * Invokes a CUDA runtime API function call. If the call does not return `cudaSuccess`, it
+ * calls `cudaGetLastError()` to clear the error and throws an exception describing the
+ * CUDA error.
  *
- * Defaults to throwing rapidsmpf::cuda_error, but a custom exception may also be
+ * Defaults to throwing `rapidsmpf::cuda_error`, but a custom exception may also be
  * specified.
  *
- * Example:
- * ```c++
- *
- * // Throws rapidsmpf::cuda_error if `cudaMalloc` fails
+ * Example usage:
+ * @code{.cpp}
+ * // Throws rapidsmpf::cuda_error if cudaMalloc fails
  * RAPIDSMPF_CUDA_TRY(cudaMalloc(&p, 100));
  *
- * // Throws std::runtime_error if `cudaMalloc` fails
+ * // Throws std::runtime_error if cudaMalloc fails
  * RAPIDSMPF_CUDA_TRY(cudaMalloc(&p, 100), std::runtime_error);
- * ```
- *
+ * @endcode
  */
 #define RAPIDSMPF_CUDA_TRY(...)                                 \
     GET_RAPIDSMPF_CUDA_TRY_MACRO(                               \
@@ -190,31 +380,53 @@ class out_of_memory : public bad_alloc {
     do {                                                                               \
         cudaError_t const error = (_call);                                             \
         if (cudaSuccess != error) {                                                    \
+            /* Clear the CUDA error state. The error is now represented */             \
+            /* by the thrown exception. */                                             \
             cudaGetLastError();                                                        \
-            /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                             \
-            throw _exception_type{                                                     \
-                std::string{"CUDA error at: "} + __FILE__ + ":"                        \
-                + RAPIDSMPF_STRINGIFY(__LINE__) + ": " + cudaGetErrorName(error) + " " \
-                + cudaGetErrorString(error)                                            \
-            };                                                                         \
+            throw _exception_type{rapidsmpf::detail::build_cuda_error_message(error)}; \
         }                                                                              \
     } while (0)
 #define RAPIDSMPF_CUDA_TRY_1(_call) RAPIDSMPF_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
 /**
+ * @brief Error checking macro for CUDA runtime API calls that terminates on error.
+ *
+ * Invokes a CUDA runtime API function call. If the call does not return `cudaSuccess`,
+ * terminates with a fatal error message describing the CUDA error.
+ *
+ * Use this in contexts where exceptions cannot be thrown, such as destructors, noexcept
+ * functions, or when recovery is impossible.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * RAPIDSMPF_CUDA_TRY_FATAL(cudaDeviceSynchronize());
+ * @endcode
+ */
+#define RAPIDSMPF_CUDA_TRY_FATAL(_call)                                     \
+    do {                                                                    \
+        cudaError_t const error = (_call);                                  \
+        if (cudaSuccess != error) {                                         \
+            std::cerr << rapidsmpf::detail::build_cuda_error_message(error) \
+                      << std::endl;                                         \
+            std::terminate();                                               \
+        }                                                                   \
+    } while (0)
+
+/**
  * @brief Error checking macro for CUDA memory allocation calls.
  *
  * Invokes a CUDA memory allocation function call. If the call does not return
- * `cudaSuccess`, invokes cudaGetLastError() to clear the error and throws an
- * exception detailing the CUDA error that occurred
+ * `cudaSuccess`, it calls `cudaGetLastError()` to clear the error and throws an
+ * exception describing the CUDA error.
  *
- * Defaults to throwing rapidsmpf::bad_alloc, but when `cudaErrorMemoryAllocation` is
- * returned, rapidsmpf::out_of_memory is thrown instead.
+ * Defaults to throwing `rapidsmpf::bad_alloc`, but when `cudaErrorMemoryAllocation`
+ * is returned, `rapidsmpf::out_of_memory` is thrown instead.
  *
- * Can be called with either 1 or 2 arguments:
- * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call): Performs error checking without specifying bytes
- * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call, num_bytes): Includes the number of bytes in the
- * error message
+ * This macro can be called with either one or two arguments:
+ * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call): Performs error checking without specifying
+ *   bytes.
+ * - RAPIDSMPF_CUDA_TRY_ALLOC(cuda_call, num_bytes): Includes the byte count in the error
+ *   message.
  */
 #define RAPIDSMPF_CUDA_TRY_ALLOC(...)                                       \
     GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(                                     \
@@ -223,80 +435,35 @@ class out_of_memory : public bad_alloc {
     (__VA_ARGS__)
 #define GET_RAPIDSMPF_CUDA_TRY_ALLOC_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                                 \
-    do {                                                                             \
-        cudaError_t const error = (_call);                                           \
-        if (cudaSuccess != error) {                                                  \
-            cudaGetLastError();                                                      \
-            auto const msg = std::string{"CUDA error (failed to allocate "}          \
-                             + std::to_string(num_bytes) + " bytes) at: " + __FILE__ \
-                             + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + ": "            \
-                             + cudaGetErrorName(error) + " "                         \
-                             + cudaGetErrorString(error);                            \
-            if (cudaErrorMemoryAllocation == error) {                                \
-                throw rapidsmpf::out_of_memory{msg};                                 \
-            }                                                                        \
-            throw rapidsmpf::bad_alloc{msg};                                         \
-        }                                                                            \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_2(_call, num_bytes)                                   \
+    do {                                                                               \
+        cudaError_t const error = (_call);                                             \
+        if (cudaSuccess != error) {                                                    \
+            /* Clear the CUDA error state. The error is now represented */             \
+            /* by the thrown exception. */                                             \
+            cudaGetLastError();                                                        \
+            auto const msg =                                                           \
+                rapidsmpf::detail::build_cuda_alloc_error_message(error, (num_bytes)); \
+            if (cudaErrorMemoryAllocation == error) {                                  \
+                throw rapidsmpf::out_of_memory{msg};                                   \
+            }                                                                          \
+            throw rapidsmpf::bad_alloc{msg};                                           \
+        }                                                                              \
     } while (0)
 
-#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                    \
-    do {                                                                     \
-        cudaError_t const error = (_call);                                   \
-        if (cudaSuccess != error) {                                          \
-            cudaGetLastError();                                              \
-            auto const msg = std::string{"CUDA error at: "} + __FILE__ + ":" \
-                             + RAPIDSMPF_STRINGIFY(__LINE__) + ": "          \
-                             + cudaGetErrorName(error) + " "                 \
-                             + cudaGetErrorString(error);                    \
-            if (cudaErrorMemoryAllocation == error) {                        \
-                throw rapidsmpf::out_of_memory{msg};                         \
-            }                                                                \
-            throw rapidsmpf::bad_alloc{msg};                                 \
-        }                                                                    \
+#define RAPIDSMPF_CUDA_TRY_ALLOC_1(_call)                                        \
+    do {                                                                         \
+        cudaError_t const error = (_call);                                       \
+        if (cudaSuccess != error) {                                              \
+            /* Clear the CUDA error state. The error is now represented */       \
+            /* by the thrown exception. */                                       \
+            cudaGetLastError();                                                  \
+            auto const msg = rapidsmpf::detail::build_cuda_error_message(error); \
+            if (cudaErrorMemoryAllocation == error) {                            \
+                throw rapidsmpf::out_of_memory{msg};                             \
+            }                                                                    \
+            throw rapidsmpf::bad_alloc{msg};                                     \
+        }                                                                        \
     } while (0)
-
-/**
- * @brief Error checking macro similar to `assert` for CUDA runtime API calls
- *
- * This utility should be used in situations where extra error checking is desired in
- * "Debug" builds, or in situations where an error case cannot throw an exception (such as
- * a class destructor).
- *
- * In "Release" builds, simply invokes the `_call`.
- *
- * In "Debug" builds, invokes `_call` and uses `assert` to verify the returned
- * `cudaError_t` is equal to `cudaSuccess`.
- *
- *
- * Replaces usecases such as:
- * ```
- * auto status = cudaRuntimeApi(...);
- * assert(status == cudaSuccess);
- * ```
- *
- * Example:
- * ```
- * RAPIDSMPF_ASSERT_CUDA_SUCCESS(cudaRuntimeApi(...));
- * ```
- *
- */
-#ifdef NDEBUG
-#define RAPIDSMPF_ASSERT_CUDA_SUCCESS(_call) \
-    do {                                     \
-        (_call);                             \
-    } while (0);
-#else
-#define RAPIDSMPF_ASSERT_CUDA_SUCCESS(_call)                                          \
-    do {                                                                              \
-        cudaError_t const status__ = (_call);                                         \
-        if (status__ != cudaSuccess) {                                                \
-            std::cerr << "CUDA Error detected. " << cudaGetErrorName(status__) << " " \
-                      << cudaGetErrorString(status__) << std::endl;                   \
-        }                                                                             \
-        /* NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay) */     \
-        assert(status__ == cudaSuccess);                                              \
-    } while (0)
-#endif
 
 }  // namespace rapidsmpf
