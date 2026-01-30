@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -7,6 +7,8 @@ set -euo pipefail
 package_name="rapidsmpf"
 package_dir="python/rapidsmpf"
 
+RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX="true"
+export RAPIDS_INIT_PIP_REMOVE_NVIDIA_INDEX
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
