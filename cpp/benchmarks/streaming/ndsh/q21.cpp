@@ -290,7 +290,7 @@ rapidsmpf::streaming::Node filter_grouped_greater(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, chunk.stream(), ctx->br()->device_mr()
+                1, true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -334,7 +334,7 @@ rapidsmpf::streaming::Node filter_grouped_equal(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, chunk.stream(), ctx->br()->device_mr()
+                1, true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),
