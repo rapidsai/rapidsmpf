@@ -5,22 +5,6 @@
 # cmake-format: on
 # =============================================================================
 
-# Helper to get include directory from target or fallback
-function(_get_include_dir_from_target target_name out_var)
-  get_target_property(_includes ${target_name} INTERFACE_INCLUDE_DIRECTORIES)
-  if(_includes)
-    list(GET _includes 0 _result)
-  elseif(DEFINED ENV{CONDA_PREFIX})
-    set(_result "$ENV{CONDA_PREFIX}/include")
-  else()
-    set(_result "${CMAKE_PREFIX_PATH}/include")
-  endif()
-  set(${out_var}
-      "${_result}"
-      PARENT_SCOPE
-  )
-endfunction()
-
 # This function finds cuCascade and ensures kvikio is available for transitive linking.
 #
 # NOTE: We explicitly find kvikio here because:
