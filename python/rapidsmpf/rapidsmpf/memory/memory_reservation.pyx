@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -82,3 +82,15 @@ cdef class MemoryReservation:
         The buffer resource associated with this reservation.
         """
         return self._br
+
+    def clear(self):
+        """
+        Clear the remaining size of the reservation.
+
+        Resets the reservation so that any remaining, unconsumed bytes are released
+        back to the underlying memory resource. After this call, the reservation
+        has a remaining size of zero and cannot be used to satisfy further
+        allocations.
+        """
+        with nogil:
+            deref(self._handle).clear()

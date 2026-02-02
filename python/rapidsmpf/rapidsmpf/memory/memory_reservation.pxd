@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -10,6 +10,7 @@ from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 cdef extern from "<rapidsmpf/memory/memory_reservation.hpp>" nogil:
     cdef cppclass cpp_MemoryReservation "rapidsmpf::MemoryReservation":
+        void clear() noexcept
         size_t size() noexcept
         MemoryType mem_type() noexcept
 
