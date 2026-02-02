@@ -3,7 +3,7 @@
 
 from cpython.object cimport PyObject
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint64_t
+from libc.stdint cimport int64_t, uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
@@ -356,7 +356,7 @@ cdef class TableChunk:
         return TableChunk.from_handle(move(ret))
 
     async def make_available_or_wait(
-        self, Context ctx not None, *, size_t net_memory_delta
+        self, Context ctx not None, *, int64_t net_memory_delta
     ):
         """
         Move this table chunk into a new one with its data made available.

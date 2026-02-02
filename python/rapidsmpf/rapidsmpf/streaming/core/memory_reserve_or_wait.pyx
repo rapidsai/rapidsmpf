@@ -89,7 +89,7 @@ cdef extern from * nogil:
     coro::task<void> reserve_or_wait_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
         *output = std::make_unique<rapidsmpf::MemoryReservation>(
@@ -100,7 +100,7 @@ cdef extern from * nogil:
     auto cpp_reserve_or_wait(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -127,7 +127,7 @@ cdef extern from * nogil:
     shared_ptr[unique_ptr[cpp_MemoryReservation]] cpp_reserve_or_wait(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
-        size_t net_memory_delta,
+        int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -138,7 +138,7 @@ cdef extern from * nogil:
     coro::task<void> reserve_or_wait_or_overbook_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         std::shared_ptr<
             std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
         > output
@@ -155,7 +155,7 @@ cdef extern from * nogil:
     auto cpp_reserve_or_wait_or_overbook(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -185,7 +185,7 @@ cdef extern from * nogil:
         cpp_reserve_or_wait_or_overbook(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
-        size_t net_memory_delta,
+        int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -196,7 +196,7 @@ cdef extern from * nogil:
     coro::task<void> reserve_or_wait_or_fail_task(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
         *output = std::make_unique<rapidsmpf::MemoryReservation>(
@@ -207,7 +207,7 @@ cdef extern from * nogil:
     auto cpp_reserve_or_wait_or_fail(
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
-        std::size_t net_memory_delta,
+        std::int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -234,7 +234,7 @@ cdef extern from * nogil:
     shared_ptr[unique_ptr[cpp_MemoryReservation]] cpp_reserve_or_wait_or_fail(
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
-        size_t net_memory_delta,
+        int64_t net_memory_delta,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
