@@ -99,16 +99,6 @@ class TableChunk {
     );
 
     /**
-     * @brief Construct a TableChunk from packed columns.
-     *
-     * @param packed_columns Serialized device table.
-     * @param stream The CUDA stream on which the packed_columns was created.
-     */
-    TableChunk(
-        std::unique_ptr<cudf::packed_columns> packed_columns, rmm::cuda_stream_view stream
-    );
-
-    /**
      * @brief Construct a TableChunk from a packed data blob.
      *
      * The packed data's CUDA stream will be associated the new table chunk.
@@ -119,15 +109,22 @@ class TableChunk {
 
     ~TableChunk() = default;
 
-    /// @brief TableChunk is moveable
-    TableChunk(TableChunk&&) = default;
+    /**
+     * @brief Move constructor
+     *
+     * @note After this call `other.is_available() == false`.
+     * @param other The TableChunk to move from.
+     */
+    TableChunk(TableChunk&& other) noexcept;
 
     /**
      * @brief Move assignment
      *
-     * @returns Moved this.
+     * @note After this call `other.is_available() == false`.
+     * @param other The TableChunk to move from.
+     * @return Reference to this.
      */
-    TableChunk& operator=(TableChunk&&) = default;
+    TableChunk& operator=(TableChunk&& other) noexcept;
     TableChunk(TableChunk const&) = delete;
     TableChunk& operator=(TableChunk const&) = delete;
 
@@ -283,7 +280,6 @@ class TableChunk {
     // the TableChunk is a non-owning view.
     // TODO: use a variant and drop the unique pointers?
     std::unique_ptr<cudf::table> table_;
-    std::unique_ptr<cudf::packed_columns> packed_columns_;
     std::unique_ptr<PackedData> packed_data_;
 
     // Has value iff this TableChunk is available.

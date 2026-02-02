@@ -164,7 +164,7 @@ void buffer_copy(
             stream
         ));
     });
-    cuda_stream_join(src.stream(), dst.stream());
+    dst.latest_write_event_.stream_wait(src.stream());
 }
 
 }  // namespace rapidsmpf
