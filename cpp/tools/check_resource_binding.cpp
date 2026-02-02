@@ -14,8 +14,8 @@
  *   check_resource_binding [--json <topology.json>] [--gpu-id <id>]
  *
  * If --json is provided, reads expected values from the JSON file.
- * If --gpu-id is provided, uses TopologyDiscovery API to get expected values.
- * Otherwise, just reports current configuration.
+ * If --gpu-id is provided, uses cucascade::memory::topology_discovery API to get expected
+ * values. Otherwise, just reports current configuration.
  */
 
 #include <algorithm>
@@ -33,7 +33,8 @@
 
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
-#include <rapidsmpf/topology_discovery.hpp>
+
+#include <cucascade/memory/topology_discovery.hpp>
 
 namespace {
 
@@ -390,7 +391,7 @@ std::optional<ExpectedBinding> collect_expected_binding(
             return std::nullopt;
         }
     } else if (gpu_id >= 0) {
-        rapidsmpf::TopologyDiscovery discovery;
+        cucascade::memory::topology_discovery discovery;
         if (!discovery.discover()) {
             std::cerr << "Error: Failed to discover topology" << std::endl;
             return std::nullopt;
@@ -400,7 +401,7 @@ std::optional<ExpectedBinding> collect_expected_binding(
         auto it = std::find_if(
             topology.gpus.begin(),
             topology.gpus.end(),
-            [gpu_id](rapidsmpf::GpuTopologyInfo const& gpu) {
+            [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
                 return static_cast<int>(gpu.id) == gpu_id;
             }
         );

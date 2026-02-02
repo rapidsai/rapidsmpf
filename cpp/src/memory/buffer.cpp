@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdexcept>
@@ -110,6 +110,20 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
         return std::move(*ref);
     }
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
+}
+
+void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
+    throw_if_locked();
+    if (new_stream.value() == stream_.value()) {
+        return;
+    }
+
+    // Ensure the new stream does not run ahead of any work already enqueued on
+    // the current stream.
+    latest_write_event_.stream_wait(new_stream);
+    stream_ = new_stream;
+
+    std::visit([&](auto&& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
 void buffer_copy(
