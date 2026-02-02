@@ -9,6 +9,7 @@ import rmm.mr
 from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.memory_reservation import opaque_memory_usage
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
@@ -71,7 +72,7 @@ def test_buffer_resource() -> None:
     assert br.memory_available(MemoryType.DEVICE) == mem_available() == KiB(100)
 
 
-@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
+@pytest.mark.parametrize("mem_type", MemoryType)
 def test_memory_reservation(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -146,3 +147,101 @@ def test_statistics() -> None:
     stats_mr = Statistics(enable=True, mr=mr)
     br_with_mr = BufferResource(mr, statistics=stats_mr)
     assert br_with_mr.statistics is stats_mr
+
+
+@pytest.mark.parametrize("mem_type", MemoryType)
+def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+    )
+
+    res, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
+    assert res.size == KiB(50)
+
+    with opaque_memory_usage(res) as yielded_res:
+        assert yielded_res is res
+        assert res.size == KiB(50)
+
+    assert res.size == 0
+
+
+@pytest.mark.parametrize("mem_type", MemoryType)
+def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+    )
+
+    res, _ = br.reserve(mem_type, KiB(60), allow_overbooking=False)
+    assert res.size == KiB(60)
+
+    with pytest.raises(ValueError, match="test exception"), opaque_memory_usage(res):
+        raise ValueError("test exception")
+
+    assert res.size == 0
+
+
+@pytest.mark.parametrize("mem_type", MemoryType)
+def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))}
+    )
+
+    res1, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
+    assert res1.size == KiB(50)
+
+    with opaque_memory_usage(res1):
+        assert res1.size == KiB(50)
+
+    assert res1.size == 0
+
+    res2, _ = br.reserve(mem_type, KiB(75), allow_overbooking=False)
+    assert res2.size == KiB(75)
+
+    with opaque_memory_usage(res2):
+        assert res2.size == KiB(75)
+
+    assert res2.size == 0
+
+
+@pytest.mark.parametrize("mem_type", MemoryType)
+def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))}
+    )
+
+    res1, _ = br.reserve(mem_type, KiB(40), allow_overbooking=False)
+    res2, _ = br.reserve(mem_type, KiB(60), allow_overbooking=False)
+    assert res1.size == KiB(40)
+    assert res2.size == KiB(60)
+
+    with opaque_memory_usage(res1):
+        assert res1.size == KiB(40)
+        with opaque_memory_usage(res2):
+            assert res1.size == KiB(40)
+            assert res2.size == KiB(60)
+        assert res1.size == KiB(40)
+        assert res2.size == 0
+
+    assert res1.size == 0
+    assert res2.size == 0
+
+
+@pytest.mark.parametrize("mem_type", MemoryType)
+def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+    )
+
+    res, _ = br.reserve(mem_type, KiB(80), allow_overbooking=False)
+    assert res.size == KiB(80)
+
+    with opaque_memory_usage(res):
+        br.release(res, KiB(30))
+        assert res.size == KiB(50)
+
+    assert res.size == 0
