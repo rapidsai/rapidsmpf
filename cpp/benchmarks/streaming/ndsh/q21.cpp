@@ -92,7 +92,11 @@ rapidsmpf::streaming::Node read_nation(
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
         constexpr auto name = "SAUDI ARABIA";
-        owner->push_back(std::make_shared<cudf::string_scalar>(name, true, stream));
+        owner->push_back(
+            std::make_shared<cudf::string_scalar>(
+                name, /* is_valid = */ true, stream, ctx->br()->device_mr()
+            )
+        );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(0))
@@ -139,7 +143,11 @@ rapidsmpf::streaming::Node read_orders(
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
         constexpr auto status = "F";
-        owner->push_back(std::make_shared<cudf::string_scalar>(status, true, stream));
+        owner->push_back(
+            std::make_shared<cudf::string_scalar>(
+                status, /* is_valid = */ true, stream, ctx->br()->device_mr()
+            )
+        );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(0))
@@ -290,7 +298,7 @@ rapidsmpf::streaming::Node filter_grouped_greater(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, true, chunk.stream(), ctx->br()->device_mr()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -334,7 +342,7 @@ rapidsmpf::streaming::Node filter_grouped_equal(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, true, chunk.stream(), ctx->br()->device_mr()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),

@@ -56,7 +56,6 @@ struct BloomFilter {
      * @param ch_out Output channel receiving a single message containing the bloom
      * filter.
      * @param tag Disambiguating tag to combine filters across ranks.
-     *
      * @return Coroutine representing the construction of the bloom filter.
      */
     [[nodiscard]] Node build(
