@@ -392,7 +392,7 @@ def test_make_table_chunks_available_or_wait_single_chunk(
     assert res.size == 0
 
 
-@pytest.mark.parametrize("num_chunks", [2, 3, 5])
+@pytest.mark.parametrize("num_chunks", [1, 2, 3, 5])
 def test_make_table_chunks_available_or_wait_multiple_chunks(
     context: Context,
     stream: Stream,
@@ -441,13 +441,30 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
     assert res.size == 0
 
 
-@pytest.mark.parametrize("reserve_extra", [0, 512, 1024])
-def test_make_table_chunks_available_or_wait_with_reserve_extra(
+@pytest.mark.parametrize(
+    "reserve_extra,net_memory_delta,allow_overbooking",
+    [
+        # Test reserve_extra variations.
+        (0, 0, None),
+        (512, 0, None),
+        (1024, 0, None),
+        # Test net_memory_delta variations.
+        (0, -1024, None),
+        (0, 512, None),
+        (0, 2048, None),
+        # Test allow_overbooking variations.
+        (0, 0, True),
+        (0, 0, False),
+    ],
+)
+def test_make_table_chunks_available_or_wait(
     context: Context,
     stream: Stream,
     py_executor: ThreadPoolExecutor,
     *,
     reserve_extra: int,
+    net_memory_delta: int,
+    allow_overbooking: bool | None,
 ) -> None:
     expect = random_table(1024)
     device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
@@ -465,7 +482,8 @@ def test_make_table_chunks_available_or_wait_with_reserve_extra(
             ctx,
             host_chunk,
             reserve_extra=reserve_extra,
-            net_memory_delta=0,
+            net_memory_delta=net_memory_delta,
+            allow_overbooking=allow_overbooking,
         )
         result_holder.append((chunk, res))
 
@@ -475,42 +493,6 @@ def test_make_table_chunks_available_or_wait_with_reserve_extra(
     assert_eq(expect, chunk.table_view())
     # Reservation should have reserve_extra bytes remaining.
     assert res.size == reserve_extra
-
-
-@pytest.mark.parametrize("net_memory_delta", [-1024, 0, 512, 2048])
-def test_make_table_chunks_available_or_wait_with_net_memory_delta(
-    context: Context,
-    stream: Stream,
-    py_executor: ThreadPoolExecutor,
-    *,
-    net_memory_delta: int,
-) -> None:
-    expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
-    res_holder, _ = context.br().reserve(
-        MemoryType.HOST,
-        device_chunk.data_alloc_size(MemoryType.DEVICE),
-        allow_overbooking=True,
-    )
-    host_chunk = device_chunk.copy(res_holder)
-    result_holder: list[tuple] = []
-
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
-        chunk, res = await make_table_chunks_available_or_wait(
-            ctx,
-            host_chunk,
-            reserve_extra=0,
-            net_memory_delta=net_memory_delta,
-        )
-        result_holder.append((chunk, res))
-
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunk, res = result_holder[0]
-    assert chunk.is_available()
-    assert_eq(expect, chunk.table_view())
-    # Reservation should be consumed.
-    assert res.size == 0
 
 
 def test_make_table_chunks_available_or_wait_mixed_availability(
@@ -553,41 +535,4 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
     assert_eq(expect1, chunks[0].table_view())
     assert_eq(expect2, chunks[1].table_view())
     # Only the host chunk required device memory.
-    assert res.size == 0
-
-
-@pytest.mark.parametrize("allow_overbooking", [True, False, None])
-def test_make_table_chunks_available_or_wait_overbooking_parameter(
-    context: Context,
-    stream: Stream,
-    py_executor: ThreadPoolExecutor,
-    *,
-    allow_overbooking: bool | None,
-) -> None:
-    expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
-    res_holder, _ = context.br().reserve(
-        MemoryType.HOST,
-        device_chunk.data_alloc_size(MemoryType.DEVICE),
-        allow_overbooking=True,
-    )
-    host_chunk = device_chunk.copy(res_holder)
-    result_holder: list[tuple] = []
-
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
-        chunk, res = await make_table_chunks_available_or_wait(
-            ctx,
-            host_chunk,
-            reserve_extra=0,
-            net_memory_delta=0,
-            allow_overbooking=allow_overbooking,
-        )
-        result_holder.append((chunk, res))
-
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunk, res = result_holder[0]
-    assert chunk.is_available()
-    assert_eq(expect, chunk.table_view())
-    # Reservation should be consumed.
     assert res.size == 0
