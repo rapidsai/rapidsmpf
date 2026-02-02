@@ -506,3 +506,73 @@ cdef class TableChunk:
         with nogil:
             ret = cpp_table_copy(self._handle, res)
         return TableChunk.from_handle(move(ret))
+
+
+async def make_table_chunks_available_or_wait(
+    Context ctx not None,
+    *chunks,
+    size_t reserve_extra,
+    int64_t net_memory_delta,
+    allow_overbooking=None,
+):
+    """
+    Make one or more table chunks available, waiting on a memory reservation if needed.
+
+    This helper combines :meth:`TableChunk.make_available` with :func:`reserve_memory`.
+    It computes the device-memory cost of making the provided table chunks available,
+    reserves that amount (plus ``reserve_extra``), and then returns new table chunks
+    whose data are available on device.
+
+    The coroutine may suspend if the required device memory is not immediately
+    available and resumes once a memory reservation has been granted or an error
+    condition is reached. The behavior when the progress timeout expires depends
+    on whether overbooking is allowed.
+
+    Parameters
+    ----------
+    ctx
+        Streaming context used to access the memory reservation mechanism.
+    *chunks
+        One or more :class:`TableChunk` objects to make available on device.
+    reserve_extra
+        Additional bytes to include in the reservation beyond the aggregated
+        availability cost of ``chunks``.
+    net_memory_delta
+        Estimated change in memory usage after the reservation is granted and all
+        work using the returned table chunks has completed. This value is used as
+        a heuristic to prioritize eligible requests.
+    allow_overbooking
+        Whether to allow overbooking if no progress is possible.
+          - If ``True``, the reservation may overbook memory when no further
+            progress can be made. If ``False``, the call fails when no progress
+            is possible.
+          - If ``None``, the behavior is determined by the configuration option
+            ``"allow_overbooking_by_default"``, which is read via ``ctx.options()``.
+
+    Returns
+    -------
+    New table chunk(s) with their data available on device. If a single chunk
+    is provided, a single :class:`TableChunk` is returned. If multiple chunks
+    are provided, a tuple of :class:`TableChunk` is returned.
+
+    Raises
+    ------
+    RuntimeError
+        If shutdown occurs before the reservation can be processed.
+    OverflowError
+        If no progress is possible within the timeout and overbooking is disabled.
+
+    Warnings
+    --------
+    The original table chunks are released and must not be used after this call.
+    """
+    size = sum(chunk.make_available_cost() for chunk in chunks)
+    res = await reserve_memory(
+        ctx,
+        size + reserve_extra,
+        net_memory_delta=net_memory_delta,
+        mem_type=MemoryType.DEVICE,
+        allow_overbooking=allow_overbooking,
+    )
+    chunks = tuple(chunk.make_available(res) for chunk in chunks)
+    return chunks, res

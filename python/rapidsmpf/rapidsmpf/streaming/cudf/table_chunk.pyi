@@ -40,6 +40,14 @@ class TableChunk:
     def is_spillable(self) -> bool: ...
     def copy(self, reservation: MemoryReservation) -> TableChunk: ...
 
+async def make_table_chunks_available_or_wait(
+    context: Context,
+    *chunks: TableChunk,
+    reserve_extra: int,
+    net_memory_delta: int,
+    allow_overbooking: bool | None = None,
+) -> tuple[MemoryReservation, tuple[TableChunk]]: ...
+
 if TYPE_CHECKING:
     # Check that TableChunk implements Payload.
     tc: TableChunk
