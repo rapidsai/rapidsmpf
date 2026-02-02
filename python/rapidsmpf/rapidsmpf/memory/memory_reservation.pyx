@@ -116,8 +116,7 @@ def opaque_memory_usage(MemoryReservation reservation not None):
     Parameters
     ----------
     reservation
-        Memory reservation that accounts for the untracked memory usage. The
-        reservation may correspond to any supported memory type.
+        Memory reservation that accounts for the untracked memory usage.
 
     Yields
     ------
@@ -128,7 +127,7 @@ def opaque_memory_usage(MemoryReservation reservation not None):
     --------
     Account for allocations outside RapidsMPF:
     >>> with opaque_memory_usage(ctx, reservation):
-    ...     # library call that allocates memory unknown to ReapidsMPF.
+    ...     # library call that allocates memory unknown to RapidsMPF.
     ...     result = library_op(...)
     """
     yield reservation

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Self, overload
 
 from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
@@ -40,13 +41,24 @@ class TableChunk:
     def is_spillable(self) -> bool: ...
     def copy(self, reservation: MemoryReservation) -> TableChunk: ...
 
+@overload
 async def make_table_chunks_available_or_wait(
     context: Context,
-    *chunks: TableChunk,
+    chunks: TableChunk,
+    *,
     reserve_extra: int,
     net_memory_delta: int,
     allow_overbooking: bool | None = None,
-) -> tuple[MemoryReservation, tuple[TableChunk]]: ...
+) -> tuple[TableChunk, MemoryReservation]: ...
+@overload
+async def make_table_chunks_available_or_wait(
+    context: Context,
+    chunks: Iterable[TableChunk],
+    *,
+    reserve_extra: int,
+    net_memory_delta: int,
+    allow_overbooking: bool | None = None,
+) -> tuple[list[TableChunk], MemoryReservation]: ...
 
 if TYPE_CHECKING:
     # Check that TableChunk implements Payload.

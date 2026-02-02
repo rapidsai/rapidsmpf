@@ -376,8 +376,7 @@ cdef class TableChunk:
 
         Returns
         -------
-        TableChunk
-            A new table chunk with its data available on device.
+        A new table chunk with its data available on device.
 
         Raises
         ------
@@ -510,7 +509,8 @@ cdef class TableChunk:
 
 async def make_table_chunks_available_or_wait(
     Context ctx not None,
-    *chunks,
+    chunks,
+    *,
     size_t reserve_extra,
     int64_t net_memory_delta,
     allow_overbooking=None,
@@ -532,8 +532,8 @@ async def make_table_chunks_available_or_wait(
     ----------
     ctx
         Streaming context used to access the memory reservation mechanism.
-    *chunks
-        One or more :class:`TableChunk` objects to make available on device.
+    chunks
+        A table chunk or an iterable of table chunks to make available on device.
     reserve_extra
         Additional bytes to include in the reservation beyond the aggregated
         availability cost of ``chunks``.
@@ -551,9 +551,11 @@ async def make_table_chunks_available_or_wait(
 
     Returns
     -------
-    New table chunk(s) with their data available on device. If a single chunk
-    is provided, a single :class:`TableChunk` is returned. If multiple chunks
-    are provided, a tuple of :class:`TableChunk` is returned.
+    A tuple containing:
+      - If a chunk is provided: the new table chunk with its data available on device.
+      - If multiple chunks are provided: a list of new table chunks with their data
+        available on device.
+      - The memory reservation used with a remaining size of @p reserve_extra.
 
     Raises
     ------
@@ -566,6 +568,11 @@ async def make_table_chunks_available_or_wait(
     --------
     The original table chunks are released and must not be used after this call.
     """
+    # Handle both single chunk and iterable of chunks
+    input_chunks = chunks
+    if isinstance(input_chunks, TableChunk):
+        chunks = (input_chunks,)
+
     size = sum(chunk.make_available_cost() for chunk in chunks)
     res = await reserve_memory(
         ctx,
@@ -574,5 +581,8 @@ async def make_table_chunks_available_or_wait(
         mem_type=MemoryType.DEVICE,
         allow_overbooking=allow_overbooking,
     )
-    chunks = tuple(chunk.make_available(res) for chunk in chunks)
-    return chunks, res
+    available_chunks = [chunk.make_available(res) for chunk in chunks]
+    if isinstance(input_chunks, TableChunk):
+        return available_chunks[0], res
+    else:
+        return available_chunks, res

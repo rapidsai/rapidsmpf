@@ -379,16 +379,15 @@ def test_make_table_chunks_available_or_wait_single_chunk(
 
     @define_py_node()
     async def test_node(ctx: Context) -> None:
-        chunks, res = await make_table_chunks_available_or_wait(
+        result_chunk, res = await make_table_chunks_available_or_wait(
             ctx, chunk, reserve_extra=0, net_memory_delta=0
         )
-        result_holder.append((chunks, res))
+        result_holder.append((result_chunk, res))
 
     run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunks, res = result_holder[0]
-    assert len(chunks) == 1
-    assert chunks[0].is_available()
-    assert_eq(expect, chunks[0].table_view())
+    chunk, res = result_holder[0]
+    assert chunk.is_available()
+    assert_eq(expect, chunk.table_view())
     # Reservation should be consumed by making the chunk available.
     assert res.size == 0
 
@@ -426,7 +425,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
     async def test_node(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
-            *host_chunks,
+            host_chunks,
             reserve_extra=0,
             net_memory_delta=0,
         )
@@ -462,19 +461,18 @@ def test_make_table_chunks_available_or_wait_with_reserve_extra(
 
     @define_py_node()
     async def test_node(ctx: Context) -> None:
-        chunks, res = await make_table_chunks_available_or_wait(
+        chunk, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunk,
             reserve_extra=reserve_extra,
             net_memory_delta=0,
         )
-        result_holder.append((chunks, res))
+        result_holder.append((chunk, res))
 
     run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunks, res = result_holder[0]
-    assert len(chunks) == 1
-    assert chunks[0].is_available()
-    assert_eq(expect, chunks[0].table_view())
+    chunk, res = result_holder[0]
+    assert chunk.is_available()
+    assert_eq(expect, chunk.table_view())
     # Reservation should have reserve_extra bytes remaining.
     assert res.size == reserve_extra
 
@@ -499,19 +497,18 @@ def test_make_table_chunks_available_or_wait_with_net_memory_delta(
 
     @define_py_node()
     async def test_node(ctx: Context) -> None:
-        chunks, res = await make_table_chunks_available_or_wait(
+        chunk, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunk,
             reserve_extra=0,
             net_memory_delta=net_memory_delta,
         )
-        result_holder.append((chunks, res))
+        result_holder.append((chunk, res))
 
     run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunks, res = result_holder[0]
-    assert len(chunks) == 1
-    assert chunks[0].is_available()
-    assert_eq(expect, chunks[0].table_view())
+    chunk, res = result_holder[0]
+    assert chunk.is_available()
+    assert_eq(expect, chunk.table_view())
     # Reservation should be consumed.
     assert res.size == 0
 
@@ -543,8 +540,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
     async def test_node(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
-            available_chunk,
-            host_chunk,
+            [available_chunk, host_chunk],
             reserve_extra=0,
             net_memory_delta=0,
         )
@@ -580,19 +576,18 @@ def test_make_table_chunks_available_or_wait_overbooking_parameter(
 
     @define_py_node()
     async def test_node(ctx: Context) -> None:
-        chunks, res = await make_table_chunks_available_or_wait(
+        chunk, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunk,
             reserve_extra=0,
             net_memory_delta=0,
             allow_overbooking=allow_overbooking,
         )
-        result_holder.append((chunks, res))
+        result_holder.append((chunk, res))
 
     run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
-    chunks, res = result_holder[0]
-    assert len(chunks) == 1
-    assert chunks[0].is_available()
-    assert_eq(expect, chunks[0].table_view())
+    chunk, res = result_holder[0]
+    assert chunk.is_available()
+    assert_eq(expect, chunk.table_view())
     # Reservation should be consumed.
     assert res.size == 0
