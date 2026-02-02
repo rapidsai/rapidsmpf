@@ -171,12 +171,18 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     }
 
     // Smaller `net_memory_delta` has higher priority, so request 1 should complete first.
-    EXPECT_EQ(log.log.at(0).first, 1);
+    EXPECT_EQ(log.log.at(0).first, uint64_t{1});
 
     // Now allow the second request to complete.
     set_mem_avail(20);
+
+    // Wait until the second reservation completes.
+    while (log.log.size() < 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
     thd.join();
-    EXPECT_EQ(log.log.at(1).first, 2);
+    EXPECT_EQ(log.log.at(1).first, uint64_t{2});
 }
 
 TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
