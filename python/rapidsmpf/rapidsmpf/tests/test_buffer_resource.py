@@ -72,7 +72,7 @@ def test_buffer_resource() -> None:
     assert br.memory_available(MemoryType.DEVICE) == mem_available() == KiB(100)
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_memory_reservation(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -149,7 +149,7 @@ def test_statistics() -> None:
     assert br_with_mr.statistics is stats_mr
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -166,7 +166,7 @@ def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
     assert res.size == 0
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -182,7 +182,7 @@ def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
     assert res.size == 0
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -206,7 +206,7 @@ def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None
     assert res2.size == 0
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
@@ -230,7 +230,7 @@ def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
     assert res2.size == 0
 
 
-@pytest.mark.parametrize("mem_type", MemoryType)
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(

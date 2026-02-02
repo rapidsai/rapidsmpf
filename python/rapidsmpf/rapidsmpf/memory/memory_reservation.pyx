@@ -130,5 +130,7 @@ def opaque_memory_usage(MemoryReservation reservation not None):
     ...     # library call that allocates memory unknown to RapidsMPF.
     ...     result = library_op(...)
     """
-    yield reservation
-    reservation.clear()
+    try:
+        yield reservation
+    finally:
+        reservation.clear()
