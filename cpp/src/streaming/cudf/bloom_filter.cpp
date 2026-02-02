@@ -40,6 +40,9 @@ Node BloomFilter::build(
         chunk = co_await chunk.make_available(
             ctx_, -static_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
         );
+        // Filter is allocated one `stream`, but we run the additions on the chunk's
+        // stream. The addition modifies global memory but we can safely launch two
+        // kernels doing that concurrently because the updates are atomic.
         build_event.stream_wait(chunk.stream());
         filter->add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
