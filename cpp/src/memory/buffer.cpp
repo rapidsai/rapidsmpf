@@ -30,10 +30,9 @@ Buffer::Buffer(
     RAPIDSMPF_EXPECTS(
         std::get<HostBufferT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
-    RAPIDSMPF_EXPECTS(
+    RAPIDSMPF_EXPECTS_FATAL(
         contains(host_buffer_types, mem_type_),
-        "memory type is not suitable for a host buffer",
-        std::invalid_argument
+        "memory type is not suitable for a host buffer"
     );
 }
 
@@ -42,14 +41,11 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
       mem_type_{mem_type},
       storage_{std::move(device_buffer)} {
     RAPIDSMPF_EXPECTS(
-        std::get<DeviceBufferT>(storage_) != nullptr,
-        "the device buffer cannot be NULL",
-        std::invalid_argument
+        std::get<DeviceBufferT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
-    RAPIDSMPF_EXPECTS(
+    RAPIDSMPF_EXPECTS_FATAL(
         contains(device_buffer_types, mem_type_),
-        "memory type is not suitable for a device buffer",
-        std::invalid_argument
+        "memory type is not suitable for a device buffer"
     );
     stream_ = std::get<DeviceBufferT>(storage_)->stream();
     latest_write_event_.record(stream_);

@@ -203,8 +203,11 @@ class HostBuffer {
      *
      * @return A new `HostBuffer` owning the device buffer's memory.
      *
-     * @throws std::invalid_argument if `pinned_host_buffer` is null or if the memory type
-     * of the buffer is not pinned host.
+     * @throws std::invalid_argument if `pinned_host_buffer` is null.
+     *
+     * @warning The caller is responsible to ensure @p pinned_host_buffer is of pinned
+     * host memory type, if not, a warning is printed and the application will
+     * terminate.
      */
     static HostBuffer from_rmm_device_buffer(
         std::unique_ptr<rmm::device_buffer> pinned_host_buffer,

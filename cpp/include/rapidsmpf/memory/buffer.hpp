@@ -281,8 +281,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p host_buffer.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for host buffers.
      * @throws std::logic_error If the buffer is locked.
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for
+     * @p host_buffer, if not, a warning is printed and the application will
+     * terminate.
      */
     Buffer(
         std::unique_ptr<HostBuffer> host_buffer,
@@ -306,8 +309,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p device_buffer.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for device buffers.
      * @throws std::logic_error If the buffer is locked.
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for
+     * @p device_buffer, if not, a warning is printed and the application will
+     * terminate.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 

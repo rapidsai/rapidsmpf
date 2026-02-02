@@ -144,15 +144,12 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     PinnedMemoryResource& mr
 ) {
     RAPIDSMPF_EXPECTS(
-        pinned_host_buffer != nullptr,
-        "pinned_host_buffer must not be null",
-        std::invalid_argument
+        pinned_host_buffer != nullptr, "pinned_host_buffer must not be null"
     );
 
-    RAPIDSMPF_EXPECTS(
+    RAPIDSMPF_EXPECTS_FATAL(
         cuda::is_host_accessible(pinned_host_buffer->data()),
-        "pinned_host_buffer must be host accessible",
-        std::invalid_argument
+        "pinned_host_buffer must be host accessible"
     );
 
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
