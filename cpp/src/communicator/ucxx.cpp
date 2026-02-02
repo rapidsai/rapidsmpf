@@ -1134,6 +1134,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
 ) {
+    RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
@@ -1145,7 +1146,8 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
+    RAPIDSMPF_EXPECTS_FATAL(msg->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1155,8 +1157,10 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    RAPIDSMPF_EXPECTS(recv_buffer != nullptr, "recv buffer is nullptr");
-    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(
+        recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS_FATAL(recv_buffer->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->exclusive_data_access(),
         recv_buffer->size,
@@ -1169,7 +1173,9 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
     Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
 ) {
-    RAPIDSMPF_EXPECTS(synced_buffer != nullptr, "recv host buffer is nullptr");
+    RAPIDSMPF_EXPECTS(
+        synced_buffer != nullptr, "recv host buffer cannot be null", std::invalid_argument
+    );
     auto req = get_endpoint(rank)->tagRecv(
         synced_buffer->data(),
         synced_buffer->size(),
