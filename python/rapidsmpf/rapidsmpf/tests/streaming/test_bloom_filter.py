@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
+    from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
 
 
 def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
@@ -54,7 +55,7 @@ def run_bloom_filter_pipeline(
 
     ch_build: Channel[TableChunk] = context.create_channel()
     ch_probe: Channel[TableChunk] = context.create_channel()
-    ch_filter: Channel = context.create_channel()
+    ch_filter: Channel[BloomFilterChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
     nodes = [
