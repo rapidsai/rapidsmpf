@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cuda/memory>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -74,6 +76,13 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
 }
 
 rmm::host_async_resource_ref BufferResource::pinned_mr() {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
+rmm::device_async_resource_ref BufferResource::pinned_mr_as_device() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
@@ -185,7 +194,18 @@ std::unique_ptr<Buffer> BufferResource::move(
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+    // data() will be host accessible if data.data() is in pinned host memory
+    if (cuda::is_host_accessible(data->data())) {
+        return std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<HostBuffer>(
+                HostBuffer::from_rmm_device_buffer(std::move(data), stream, pinned_mr())
+            ),
+            stream,
+            MemoryType::PINNED_HOST
+        ));
+    } else {  // if data is in device memory OR empty
+        return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+    }
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -247,20 +267,25 @@ memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
     return {
         {MemoryType::DEVICE,
          LimitAvailableMemory{
-             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
-                 auto const [_, total_mem] = rmm::available_device_memory();
-                 return rmm::align_down(
-                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
-                     rmm::CUDA_ALLOCATION_ALIGNMENT
-                 );
-             })
+             mr,
+             options.get<std::int64_t>(
+                 "spill_device_limit",
+                 [](auto const& s) {
+                     auto const [_, total_mem] = rmm::available_device_memory();
+                     return rmm::align_down(
+                         parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                         rmm::CUDA_ALLOCATION_ALIGNMENT
+                     );
+                 }
+             )
          }}
     };
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
     return options.get<std::optional<Duration>>(
-        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+        "periodic_spill_check",
+        [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
                 return parse_duration("1ms");
             }

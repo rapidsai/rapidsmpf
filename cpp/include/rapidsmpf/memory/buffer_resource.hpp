@@ -137,6 +137,13 @@ class BufferResource {
     [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
+     * @brief Get the RMM pinned host memory resource as a device resource reference.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref pinned_mr_as_device();
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
@@ -293,14 +300,17 @@ class BufferResource {
     );
 
     /**
-     * @brief Move device buffer data into a Buffer.
+     * @brief Move rmm::device_buffer (resides in device or pinned host memory) into a
+     * Buffer.
      *
      * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * device memory.
+     * device memory or pinned host memory.
      *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
+     *
+     * @note If the @p data is empty, the resulting Buffer will be DEVICE memory type.
      *
      * @param data Unique pointer to the device buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with

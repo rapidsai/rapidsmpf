@@ -176,20 +176,76 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 br->release(reservation, data_alloc_size(MemoryType::DEVICE));
                 return TableChunk(std::move(table), stream());
             }
-        case MemoryType::HOST:
         case MemoryType::PINNED_HOST:
-            // Case 2.
-            if (packed_data_ == nullptr) {
-                // We use libcudf's pack() to serialize `table_view()` into a
-                // packed_columns and then we move the packed_columns' gpu_data to a
-                // new host buffer.
-                // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
-                // `cudf::pack()` allocates device memory we haven't reserved.
-                auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr());
-                auto packed_data = std::make_unique<PackedData>(
-                    std::move(packed_columns.metadata),
-                    br->move(std::move(packed_columns.gpu_data), stream())
-                );
+            {
+                // if available and in a cudf::table, use packing
+                if (table_ != nullptr) {
+                    // benchmarks shows that using cudf::pack with pinned mr is
+                    // sufficient.
+
+                    auto packed_columns =
+                        cudf::pack(table_view(), stream(), br->pinned_mr_as_device());
+                    br->release(reservation, packed_columns.gpu_data->size());
+
+                    // packed table is now in rmm::device_buffer. We need to move it to a
+                    // HostBuffer. We can't use TableChunk packed_columns constructor
+                    // because it would misinterpret the packed pinned host memory as
+                    // device memory and make it avaiable as a device table. This violates
+                    // the `is_available()` contract.
+
+                    auto host_buffer =
+                        br->move(std::move(packed_columns.gpu_data), stream());
+                    return TableChunk(std::make_unique<PackedData>(
+                        std::move(packed_columns.metadata), std::move(host_buffer)
+                    ));
+                } else {
+                    break;  // use buffer_copy
+                }
+            }
+        case MemoryType::HOST:
+            {                
+                // if data is not in a packed format (cudf table, non-owning table_view,
+                // etc), use packing
+                if (packed_data_ == nullptr) {
+                    // benchmarks shows that using cudf::pack with pinned mr is
+                    // sufficient.
+
+                    auto packed_columns =
+                        cudf::pack(table_view(), stream(), br->pinned_mr_as_device());
+                    br->release(reservation, packed_columns.gpu_data->size());
+
+                    // packed table is now in rmm::device_buffer. We need to move it to a
+                    // HostBuffer. We can't use TableChunk packed_columns constructor
+                    // because it would misinterpret the packed pinned host memory as
+                    // device memory and make it avaiable as a device table. This violates
+                    // the `is_available()` contract.
+
+                    auto host_buffer =
+                        br->move(std::move(packed_columns.gpu_data), stream());
+                    return TableChunk(std::make_unique<PackedData>(
+                        std::move(packed_columns.metadata), std::move(host_buffer)
+                    ));
+                } else {
+                    break;  // use buffer_copy
+                }
+            }
+        case MemoryType::HOST:
+            {
+                // if data is not in a packed format (cudf table, non-owning table_view,
+                // etc), use packing
+                if (packed_data_ == nullptr) {
+                    // We use libcudf's pack() to serialize `table_view()` into a
+                    // packed_columns and then we move the packed_columns' gpu_data to a
+                    // new host buffer.
+
+                    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
+                    // `cudf::pack()` allocates device memory we haven't reserved.
+                    auto packed_columns =
+                        cudf::pack(table_view(), stream(), br->device_mr());
+                    auto packed_data = std::make_unique<PackedData>(
+                        std::move(packed_columns.metadata),
+                        br->move(std::move(packed_columns.gpu_data), stream())
+                    );
 
                 // Handle the case where `cudf::pack` allocates slightly more than the
                 // input size. This can occur because cudf uses aligned allocations,
