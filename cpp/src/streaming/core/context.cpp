@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <memory>
 #include <utility>
 
@@ -51,6 +52,13 @@ std::size_t spill_messages(
     }
     return total_spilled;
 }
+
+std::size_t get_new_uid() noexcept {
+    static std::atomic<std::size_t> uid_counter{0};
+    return uid_counter.fetch_add(1, std::memory_order_acquire);
+}
+
+
 }  // namespace
 
 Context::Context(
@@ -61,7 +69,8 @@ Context::Context(
     std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
-    : creator_thread_id_{std::this_thread::get_id()},
+    : uid_{get_new_uid()},
+      creator_thread_id_{std::this_thread::get_id()},
       options_{std::move(options)},
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
@@ -178,4 +187,9 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
 std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {
     return spillable_messages_;
 }
+
+std::size_t Context::uid() const noexcept {
+    return uid_;
+}
+
 }  // namespace rapidsmpf::streaming
