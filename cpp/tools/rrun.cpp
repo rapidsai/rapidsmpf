@@ -215,28 +215,27 @@ void print_usage(std::string_view prog_name) {
         << "Usage: " << prog_name << " [options] <application> [app_args...]\n\n"
         << "Single-Node Options:\n"
         << "  -n <nranks>        Number of ranks to launch (required in single-node "
-           "mode)\n"
+        << "                     mode)\n"
         << "  -g <gpu_list>      Comma-separated list of GPU IDs (e.g., 0,1,2,3)\n"
         << "                     If not specified, auto-detect available GPUs\n\n"
         << "Slurm Options:\n"
         << "  --slurm            Run in Slurm mode (auto-detected when SLURM_JOB_ID is "
-           "set)\n"
+        << "                     set)\n"
         << "                     Two sub-modes:\n"
         << "                     1. Passthrough (no -n): Apply bindings and exec\n"
         << "                     2. Hybrid (with -n): Launch N ranks per Slurm task\n"
-        << "                     In hybrid mode, each Slurm task launches multiple "
-           "ranks\n"
-        << "                     with coordinated global rank numbering\n\n"
+        << "                     In hybrid mode, each Slurm task launches multiple\n"
+        << "                     ranks with coordinated global rank numbering\n\n"
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
-        << "                     Not used in Slurm mode with PMIx backend\n"
+        << "                     Not applicable in Slurm mode\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
         << "                     Not applicable in Slurm mode\n"
         << "  --bind-to <type>   Bind to topology resources (default: all)\n"
         << "                     Can be specified multiple times\n"
         << "                     Options: cpu, memory, network, all, none\n"
         << "                     Examples: --bind-to cpu --bind-to network\n"
-        << "                              --bind-to none (disable all bindings)\n"
+        << "                               --bind-to none (disable all bindings)\n"
         << "  -x, --set-env <VAR=val>\n"
         << "                     Set environment variable for all ranks\n"
         << "                     Can be specified multiple times\n"
@@ -881,6 +880,11 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
         std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
                   << std::endl;
     }
+
+    // Set rrun coordination environment variables so the application knows
+    // it's being launched by rrun and should use bootstrap mode
+    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
+    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
 
     // Set custom environment variables
     for (auto const& env_pair : cfg.env_vars) {

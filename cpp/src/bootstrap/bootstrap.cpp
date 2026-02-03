@@ -57,16 +57,25 @@ std::optional<int> getenv_int(std::string_view name) {
  * @brief Detect backend from environment variables.
  */
 Backend detect_backend() {
-    // Check for file-based coordination first (explicit configuration takes priority)
-    if (getenv_optional("RAPIDSMPF_COORD_DIR")) {
+    // Check for rrun coordination first (explicit configuration takes priority)
+    // If RAPIDSMPF_COORD_DIR or RAPIDSMPF_ROOT_ADDRESS is set, rrun is coordinating
+    // and we should use FILE backend (with or without pre-coordinated address)
+    if (getenv_optional("RAPIDSMPF_COORD_DIR")
+        || getenv_optional("RAPIDSMPF_ROOT_ADDRESS"))
+    {
         return Backend::FILE;
     }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
-    // Check for Slurm-specific environment variables.
+    // Check for Slurm-specific environment variables ONLY if rrun is NOT coordinating.
+    // This allows direct use of Slurm/PMIx backend when NOT launched via rrun.
     // Note: We don't check PMIX_NAMESPACE alone because OpenMPI also uses PMIx
     // internally and sets PMIX_NAMESPACE when launched with mpirun.
     // SLURM_JOB_ID + SLURM_PROCID is specific to Slurm srun tasks.
+    //
+    // Important: This path should only be taken by Slurm parent processes that are
+    // NOT launched by rrun. Child processes launched by rrun will have RAPIDSMPF_*
+    // variables set and will use FILE backend above.
     if (getenv_optional("SLURM_JOB_ID") && getenv_optional("SLURM_PROCID")) {
         return Backend::SLURM;
     }

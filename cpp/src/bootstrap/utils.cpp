@@ -103,7 +103,11 @@ bool is_running_with_slurm() {
 }
 
 bool is_running_with_bootstrap() {
-    return is_running_with_rrun() || is_running_with_slurm();
+    // Only return true if rrun is coordinating (i.e., RAPIDSMPF_RANK is set).
+    // Even if Slurm environment variables are present, the user may want to use
+    // MPI directly with `srun --mpi=pmix`, so we shouldn't force bootstrap mode
+    // unless rrun is explicitly managing the launch.
+    return is_running_with_rrun();
 }
 
 Rank get_rank() {
