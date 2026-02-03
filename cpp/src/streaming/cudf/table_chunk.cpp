@@ -166,8 +166,9 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
         case MemoryType::HOST:
         case MemoryType::PINNED_HOST:
             {
-                // if available and in a cudf::table, use packing
-                if (table_ != nullptr) {
+                // if data is not in a packed format (cudf table, non-owning table_view,
+                // etc), use packing
+                if (packed_data_ == nullptr) {
                     // We use libcudf's pack() to serialize `table_view()` into a
                     // packed_columns and then we move the packed_columns' gpu_data to a
                     // new host buffer.
@@ -201,8 +202,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         br->move(std::move(packed_data->data), reservation);
 
                     return TableChunk(std::move(packed_data));
-                } else {
-                    break;  // use buffer_copy
+                } else {  // use buffer_copy
+                    break;
                 }
             }
         default:
