@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -97,11 +97,12 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert table_chunk4.make_available_cost() == 0
     assert_eq(expect, table_chunk4.table_view())
 
-    # msg3 is on device but not availabe.
+    # msg3 is on device (was created by copying the host msg2). During the copy this
+    # is made available trivially.
     table_chunk5 = TableChunk.from_message(msg3)
     assert is_equal_streams(table_chunk5.stream, stream)
-    assert not table_chunk5.is_available()
-    # but it cost no device memory to make available.
+    assert table_chunk5.is_available()
+    # and it cost no device memory to make available.
     assert table_chunk5.make_available_cost() == 0
     res, _ = context.br().reserve(MemoryType.DEVICE, 0, allow_overbooking=True)
     table_chunk6 = table_chunk5.make_available(res)
