@@ -164,7 +164,9 @@ void buffer_copy(
             stream
         ));
     });
-    dst.latest_write_event_.stream_wait(src.stream());
+    // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
+    // we need the src.stream() to wait for that event.
+    dst.latest_write_event().stream_wait(src.stream());
 }
 
 }  // namespace rapidsmpf

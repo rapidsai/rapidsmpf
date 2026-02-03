@@ -45,13 +45,6 @@ namespace rapidsmpf {
  */
 class Buffer {
     friend class BufferResource;
-    friend void buffer_copy(
-        Buffer& dst,
-        Buffer const& src,
-        std::size_t size,
-        std::ptrdiff_t dst_offset,
-        std::ptrdiff_t src_offset
-    );
 
   public:
     /// @brief Storage type for a device buffer.
@@ -206,6 +199,15 @@ class Buffer {
      */
     [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
         return stream_;
+    }
+
+    /**
+     * @brief Get the CUDA event that tracks the latest write into the buffer.
+     *
+     * @return The CUDA event that tracks the latest write into the buffer.
+     */
+    [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
+        return latest_write_event_;
     }
 
     /**
