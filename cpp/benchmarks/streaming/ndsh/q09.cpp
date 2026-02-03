@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -57,7 +57,7 @@ rapidsmpf::streaming::Node read_lineitem(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns(
+                       .column_names(
                            {"l_discount",
                             "l_extendedprice",
                             "l_orderkey",
@@ -82,7 +82,7 @@ rapidsmpf::streaming::Node read_nation(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "nation")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"n_name", "n_nationkey"})
+                       .column_names({"n_name", "n_nationkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -100,7 +100,7 @@ rapidsmpf::streaming::Node read_orders(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"o_orderdate", "o_orderkey"})
+                       .column_names({"o_orderdate", "o_orderkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -118,7 +118,7 @@ rapidsmpf::streaming::Node read_part(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "part")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"p_partkey", "p_name"})
+                       .column_names({"p_partkey", "p_name"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -136,7 +136,7 @@ rapidsmpf::streaming::Node read_partsupp(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "partsupp")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"ps_partkey", "ps_suppkey", "ps_supplycost"})
+                       .column_names({"ps_partkey", "ps_suppkey", "ps_supplycost"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -154,7 +154,7 @@ rapidsmpf::streaming::Node read_supplier(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "supplier")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"s_nationkey", "s_suppkey"})
+                       .column_names({"s_nationkey", "s_suppkey"})
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -174,9 +174,8 @@ rapidsmpf::streaming::Node filter_part(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
         auto p_name = table.column(1);
@@ -216,9 +215,8 @@ rapidsmpf::streaming::Node select_columns(
             break;
         }
         co_await ctx->executor()->schedule();
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
@@ -293,7 +291,7 @@ rapidsmpf::streaming::Node round_sum_profit(
     auto next = co_await ch_in->receive();
     RAPIDSMPF_EXPECTS(next.empty(), "Not expecting to see a second chunk");
     auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto table = chunk.table_view();
     auto rounded = cudf::round(
         table.column(2),

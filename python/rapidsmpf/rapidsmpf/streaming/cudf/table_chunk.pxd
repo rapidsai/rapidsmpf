@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -9,6 +9,7 @@ from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 
@@ -16,12 +17,12 @@ from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cdef cppclass cpp_TableChunk "rapidsmpf::streaming::TableChunk":
         cuda_stream_view stream() noexcept
-        size_t data_alloc_size(MemoryType mem_type) except +
+        size_t data_alloc_size(MemoryType mem_type) except +ex_handler
         bool_t is_available() noexcept
         size_t make_available_cost() noexcept
-        cpp_table_view table_view() except +
+        cpp_table_view table_view() except +ex_handler
         bool_t is_spillable() noexcept
-        cpp_TableChunk copy(cpp_MemoryReservation& reservation) except +
+        cpp_TableChunk copy(cpp_MemoryReservation& reservation) except +ex_handler
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle

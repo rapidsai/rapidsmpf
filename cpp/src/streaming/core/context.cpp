@@ -6,6 +6,7 @@
 #include <memory>
 #include <utility>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -103,6 +104,17 @@ Context::Context(
           statistics
       ) {}
 
+std::shared_ptr<Context> Context::from_options(
+    RmmResourceAdaptor* mr, std::shared_ptr<Communicator> comm, config::Options options
+) {
+    return std::make_shared<Context>(
+        options,
+        comm,
+        BufferResource::from_options(mr, options),
+        Statistics::from_options(mr, options)
+    );
+}
+
 Context::~Context() noexcept {
     shutdown();
 }
@@ -112,14 +124,11 @@ void Context::shutdown() noexcept {
     if (!is_shutdown_.exchange(true, std::memory_order::acq_rel)) {
         br_->spill_manager().remove_spill_function(spill_function_id_);
         auto const tid = std::this_thread::get_id();
-        if (tid != creator_thread_id_) {
-            std::cerr << "Context::shutdown() called from "
-                         "a different thread than the one that constructed "
-                         "the executor. Created by thread "
-                      << creator_thread_id_ << ", but current thread is " << tid
-                      << std::endl;
-            std::terminate();
-        }
+        RAPIDSMPF_EXPECTS_FATAL(
+            tid == creator_thread_id_,
+            "Context::shutdown() called from a different thread than the one that "
+            "constructed the executor"
+        );
         executor_->shutdown();
     }
 }

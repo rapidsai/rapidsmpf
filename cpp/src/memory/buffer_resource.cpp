@@ -4,6 +4,7 @@
  */
 
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 #include <rapidsmpf/cuda_stream.hpp>
@@ -51,6 +52,34 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+std::shared_ptr<BufferResource> BufferResource::from_options(
+    RmmResourceAdaptor* mr, config::Options options
+) {
+    return std::make_shared<BufferResource>(
+        mr,
+        PinnedMemoryResource::from_options(options),
+        memory_available_from_options(mr, options),
+        periodic_spill_check_from_options(options),
+        stream_pool_from_options(options),
+        Statistics::from_options(mr, options)
+    );
+}
+
+rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
+    return device_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+    return host_mr_;
+}
+
+rmm::host_async_resource_ref BufferResource::pinned_mr() {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -88,7 +117,7 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
             "failed to spill enough memory (reserved: " + format_nbytes(size)
                 + ", overbooking: " + format_nbytes(ob)
                 + ", spilled: " + format_nbytes(spilled) + ")",
-            std::overflow_error
+            rapidsmpf::reservation_error
         );
     }
 
@@ -101,7 +130,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
         size <= reservation.size_,
         "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
             + format_nbytes(size) + ")",
-        std::overflow_error
+        rapidsmpf::reservation_error
     );
     std::size_t& reserved =
         memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
@@ -209,6 +238,52 @@ SpillManager& BufferResource::spill_manager() {
 
 std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
+}
+
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
+    // Create a memory availability map that limits device memory based on the
+    // `spill_device_limit` option.
+    return {
+        {MemoryType::DEVICE,
+         LimitAvailableMemory{
+             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
+                 auto const [_, total_mem] = rmm::available_device_memory();
+                 return rmm::align_down(
+                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                     rmm::CUDA_ALLOCATION_ALIGNMENT
+                 );
+             })
+         }}
+    };
+}
+
+std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
+    return options.get<std::optional<Duration>>(
+        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+            if (s.empty()) {
+                return parse_duration("1ms");
+            }
+            if (auto val = parse_optional(s); val.has_value()) {
+                return parse_duration(val.value());
+            }
+            return std::nullopt;
+        }
+    );
+}
+
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
+    auto const num_streams = options.get<std::size_t>("num_streams", [](auto const& s) {
+        return s.empty() ? 16 : parse_string<std::size_t>(s);
+    });
+    RAPIDSMPF_EXPECTS(
+        num_streams > 0,
+        "The `num_streams` option must be greater than 0",
+        std::invalid_argument
+    );
+    return std::make_shared<rmm::cuda_stream_pool>(
+        num_streams, rmm::cuda_stream::flags::non_blocking
+    );
 }
 
 }  // namespace rapidsmpf

@@ -9,6 +9,7 @@ from libcpp.utility cimport move
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
@@ -20,7 +21,7 @@ from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
-        (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +
+        (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +ex_handler
 
 
 cdef extern from * nogil:
@@ -72,18 +73,18 @@ cdef extern from * nogil:
             table->copy(*reservation)
         );
     }
-    }
+    }  // namespace
     """
     unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
         cpp_Message
-    ) except +
-    unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
+    ) except +ex_handler
+    unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +ex_handler
     unique_ptr[cpp_TableChunk] cpp_table_make_available(
         unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
-    ) except +
+    ) except +ex_handler
     unique_ptr[cpp_TableChunk] cpp_table_copy(
         unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
-    ) except +
+    ) except +ex_handler
 
 cdef class TableChunk:
     """
@@ -373,7 +374,7 @@ cdef class TableChunk:
 
         Raises
         ------
-        MemoryError
+        ReservationError
             If the allocation or spilling process fails to free enough memory.
 
         Warnings

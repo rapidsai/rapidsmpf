@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,8 +17,6 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utils.hpp"
-
 namespace rapidsmpf::ndsh {
 
 rapidsmpf::streaming::Node write_parquet(
@@ -32,7 +30,7 @@ rapidsmpf::streaming::Node write_parquet(
     auto builder = cudf::io::chunked_parquet_writer_options::builder(sink);
     auto msg = co_await ch_in->receive();
     RAPIDSMPF_EXPECTS(!msg.empty(), "Writing from empty channel not supported");
-    auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+    auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
     auto table = chunk.table_view();
     auto metadata = cudf::io::table_input_metadata(table);
     CudaEvent event;
@@ -53,7 +51,7 @@ rapidsmpf::streaming::Node write_parquet(
         if (msg.empty()) {
             break;
         }
-        chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
         table = chunk.table_view();
         RAPIDSMPF_EXPECTS(
             static_cast<std::size_t>(table.num_columns()) == column_names.size(),

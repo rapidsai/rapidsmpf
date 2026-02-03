@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -80,7 +79,7 @@ std::string format_nbytes(
  * @brief Format a time duration as a human-readable string.
  *
  * Converts a duration given in seconds into a scaled string representation
- * using common time units such as ns, µs, ms, s, min, h, and d.
+ * using common time units such as ns, us, ms, s, min, h, and d.
  *
  * The duration is accepted as a @c double to support both fractional seconds
  * and very large values without overflow.
@@ -226,7 +225,7 @@ Duration parse_duration(std::string_view text);
  *
  * @tparam T The type to parse the string into. Must support extraction from
  * `std::istream` via `operator>>`.
- * @param value The input string to parse.
+ * @param text The input string to parse.
  * @return T The parsed value of type `T`.
  *
  * @throws std::invalid_argument If the string cannot be parsed into the requested type.
@@ -239,12 +238,12 @@ Duration parse_duration(std::string_view text);
  * double d = parse_string<double>("3.14");    // d == 3.14
  */
 template <typename T>
-T parse_string(std::string const& value) {
-    std::stringstream sstream(value);
+T parse_string(std::string const& text) {
+    std::stringstream sstream(text);
     T ret;
     sstream >> ret;
     if (sstream.fail()) {
-        throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+        throw std::invalid_argument("cannot parse \"" + std::string{text} + "\"");
     }
     return ret;
 }
@@ -258,12 +257,27 @@ T parse_string(std::string const& value) {
  * value using `std::stoi`; if that fails, it is lowercased and trimmed before matching
  * against known textual representations.
  *
- * @param value String to convert to a boolean.
+ * @param text String to convert to a boolean.
  * @return The corresponding boolean value.
  *
  * @throws std::invalid_argument If the string cannot be interpreted as a boolean.
  */
 template <>
-bool parse_string(std::string const& value);
+bool parse_string(std::string const& text);
+
+/**
+ * @brief Parse an optional string value.
+ *
+ * Returns `std::nullopt` if the input string represents a disabled value.
+ * Otherwise, the input string is returned unchanged.
+ *
+ * Disabled values are matched case-insensitively and may include surrounding
+ * whitespace. Recognized values include: `false`, `no`, `off`, `disable`,
+ * `disabled`, `none`, `n/a`, and `na`.
+ *
+ * @param text Input string to parse.
+ * @return std::optional<std::string> Parsed optional string.
+ */
+std::optional<std::string> parse_optional(std::string text);
 
 }  // namespace rapidsmpf

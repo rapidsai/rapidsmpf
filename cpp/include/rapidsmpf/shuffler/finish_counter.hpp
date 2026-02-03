@@ -172,7 +172,7 @@ class FinishCounter {
 
         constexpr PartitionInfo() = default;
 
-        constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
+        void move_goalpost(ChunkID nchunks, Rank nranks) {
             RAPIDSMPF_EXPECTS(nchunks != 0, "the goalpost was moved by 0 chunks");
             RAPIDSMPF_EXPECTS(
                 ++rank_count <= nranks, "the goalpost was moved more than one per rank"
@@ -180,7 +180,7 @@ class FinishCounter {
             chunk_goal += nchunks;
         }
 
-        constexpr void add_finished_chunk(Rank nranks) {
+        void add_finished_chunk(Rank nranks) {
             finished_chunk_count++;
             // only throw if rank_count == nranks
             RAPIDSMPF_EXPECTS(

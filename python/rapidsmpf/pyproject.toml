@@ -17,7 +17,7 @@ authors = [
     { name = "NVIDIA Corporation" },
 ]
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "cuda-python>=13.0.1,<14.0",
     "cupy-cuda13x>=13.6.0",
@@ -31,7 +31,6 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -82,3 +81,12 @@ wheel.exclude = ["*.pyx", "CMakeLists.txt"]
 provider = "scikit_build_core.metadata.regex"
 input = "rapidsmpf/VERSION"
 regex = "(?P<value>.*)"
+
+[tool.pydistcheck]
+select = [
+    "distro-too-large-compressed",
+]
+output_file_size_precision = 4
+
+# PyPI hard limit is 1GiB, but try to keep this as small as possible
+max_allowed_size_compressed = '15Mi'

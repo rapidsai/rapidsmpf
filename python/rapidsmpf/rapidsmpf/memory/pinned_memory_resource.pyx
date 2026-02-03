@@ -1,7 +1,20 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_shared
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.config cimport Options, cpp_Options
+
+
+cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
+    cdef bool_t cpp_is_pinned_memory_resources_supported \
+        "rapidsmpf::is_pinned_memory_resources_supported"(...) except +ex_handler
+
+    cdef shared_ptr[cpp_PinnedMemoryResource] cpp_from_options \
+        "rapidsmpf::PinnedMemoryResource::from_options"(
+            cpp_Options options
+        ) except +ex_handler
 
 
 cpdef bool_t is_pinned_memory_resources_supported():
@@ -39,7 +52,7 @@ cdef class PinnedMemoryResource:
         If pinned host memory pools are not supported by the current CUDA
         version.
     """
-    def __cinit__(self, numa_id = None):
+    def __init__(self, numa_id = None):
         if numa_id is None:
             self._handle = make_shared[cpp_PinnedMemoryResource]()
         else:
@@ -67,3 +80,27 @@ cdef class PinnedMemoryResource:
         if is_pinned_memory_resources_supported():
             return PinnedMemoryResource(numa_id)
         return None
+
+    @classmethod
+    def from_options(cls, Options options not None):
+        """
+        Construct from configuration options.
+
+        Parameters
+        ----------
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed PinnedMemoryResource instance if pinned memory is enabled
+        and supported by the system, otherwise ``None``.
+        """
+        cdef shared_ptr[cpp_PinnedMemoryResource] handle
+        with nogil:
+            handle = cpp_from_options(options._handle)
+        if not handle:
+            return None
+        cdef PinnedMemoryResource ret = cls.__new__(cls)
+        ret._handle = handle
+        return ret

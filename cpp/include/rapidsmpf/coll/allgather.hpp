@@ -27,13 +27,13 @@
 #include <rapidsmpf/statistics.hpp>
 
 /**
- * @namespace rapidsmpf::allgather
- * @brief Allgather communication interfaces.
+ * @namespace rapidsmpf::coll
+ * @brief Collective communication interfaces.
  *
  * An allgather service for distributed communication where all ranks collect
  * data from all other ranks.
  */
-namespace rapidsmpf::allgather {
+namespace rapidsmpf::coll {
 namespace detail {
 
 /// @brief Type alias for chunk identifiers.
@@ -470,6 +470,7 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     /// @brief Deleted move assignment operator.
     AllGather& operator=(AllGather&&) = delete;
+
     /**
      * @brief Destructor.
      *
@@ -477,7 +478,7 @@ class AllGather {
      * is locally destructed before `wait`ing to extract, there is no
      * guarantee that in-flight communication will be completed.
      */
-    ~AllGather();
+    ~AllGather() noexcept;
 
     /**
      * @brief Main event loop for processing allgather operations.
@@ -557,4 +558,4 @@ class AllGather {
     std::vector<std::unique_ptr<Communicator::Future>> receive_futures_{};
 };
 
-}  // namespace rapidsmpf::allgather
+}  // namespace rapidsmpf::coll

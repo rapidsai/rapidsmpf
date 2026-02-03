@@ -136,8 +136,9 @@ rapids_find_package(
 include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cuco.cmake)
+include(../cmake/thirdparty/get_cucascade.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -182,7 +183,8 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/allgather/allgather.cpp
+  src/coll/allgather.cpp
+  src/coll/allreduce.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
   src/bootstrap/utils.cpp
@@ -192,6 +194,7 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
+  src/integrations/cudf/bloom_filter.cu
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
@@ -211,7 +214,6 @@ add_library(
   src/shuffler/shuffler.cpp
   src/statistics.cpp
   src/system_info.cpp
-  src/topology_discovery.cpp
   src/utils/misc.cpp
   src/utils/string.cpp
 )
@@ -230,9 +232,11 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
+            src/streaming/cudf/bloom_filter.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
+            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -306,9 +310,12 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL cuco::cuco $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE cuco::cuco
+          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
+          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
@@ -416,11 +423,6 @@ endif()
 # * add tools
 # -------------------------------------------------------------------------------------
 add_subdirectory(tools)
-
-# Ensure NVML include directory is also available to the topology_discovery tool
-if(NVML_INCLUDE_DIR AND TARGET topology_discovery)
-  target_include_directories(topology_discovery PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------

@@ -17,7 +17,7 @@ authors = [
     { name = "NVIDIA Corporation" },
 ]
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "libcudf==26.4.*,>=0.0.0a0",
     "librmm==26.4.*,>=0.0.0a0",
@@ -36,6 +36,9 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/rapidsai/rapidsmpf"
+
+[project.entry-points."cmake.prefix"]
+librapidsmpf = "librapidsmpf"
 
 [tool.rapids-build-backend]
 build-backend = "scikit_build_core.build"
@@ -68,12 +71,11 @@ provider = "scikit_build_core.metadata.regex"
 input = "librapidsmpf/VERSION"
 regex = "(?P<value>.*)"
 
-[project.entry-points."cmake.prefix"]
-librapidsmpf = "librapidsmpf"
-
 [tool.pydistcheck]
 select = [
     "distro-too-large-compressed",
 ]
 output_file_size_precision = 4
-max_allowed_size_compressed = '75M'
+
+# PyPI hard limit is 1GiB, but try to keep this as small as possible
+max_allowed_size_compressed = '30Mi'

@@ -104,9 +104,9 @@ class Shuffler::Progress {
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
-        Tag const ready_for_data_tag{shuffler_.op_id_, 1};
-        Tag const metadata_tag{shuffler_.op_id_, 2};
-        Tag const gpu_data_tag{shuffler_.op_id_, 3};
+        Tag const ready_for_data_tag{shuffler_.op_id_, 0};
+        Tag const metadata_tag{shuffler_.op_id_, 1};
+        Tag const gpu_data_tag{shuffler_.op_id_, 2};
 
         auto& log = shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;

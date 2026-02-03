@@ -1,28 +1,31 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
-#include <cudf/contiguous_split.hpp>
+#include <cudf/packed_types.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
-#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
-#include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
+#include <rapidsmpf/streaming/core/message.hpp>
+
+#include <coro/task.hpp>
 
 namespace rapidsmpf::streaming {
-
 
 /**
  * @brief A unit of table data in a streaming pipeline.
@@ -170,9 +173,54 @@ class TableChunk {
      * @return A new TableChunk with data available on device.
      *
      * @note After this call, the current object is in a moved-from state;
-     *       only reassignment, movement, or destruction are valid.
+     * only reassignment, movement, or destruction are valid.
      */
     [[nodiscard]] TableChunk make_available(MemoryReservation& reservation);
+
+    /**
+     * @brief Moves this table chunk into a new one with its cudf table made available.
+     *
+     * Takes ownership of the memory reservation and consumes it entirely as part
+     * of making the data available on device. The full reservation is considered
+     * used, even if the actual allocation requires fewer bytes.
+     *
+     * @param reservation Memory reservation to be consumed for allocations.
+     * @return A new TableChunk with data available on device.
+     *
+     * @note After this call, the current object is in a moved-from state; only
+     * reassignment, movement, or destruction are valid.
+     */
+    [[nodiscard]] TableChunk make_available(MemoryReservation&& reservation);
+
+    /**
+     * @brief Move this table chunk into a new one with its cudf table made available.
+     *
+     * If @p the chunk is not already device-resident, this coroutine reserves device
+     * memory via `streaming::reserve_memory()` and then materializes the chunk on device
+     * using `TableChunk::make_available()`.
+     *
+     * @note After this call, the current object is in a moved-from state; only
+     * reassignment, movement, or destruction are valid.
+     *
+     * This helper does not take an explicit overbooking parameter. When no progress can
+     * be made within the configured `"memory_reserve_timeout"`, the behavior is
+     * determined the configuration option `"allow_overbooking_by_default"`.
+     *
+     * @param ctx Streaming context used to access the memory reservation mechanism.
+     * @param net_memory_delta Estimated change in memory usage after reservation is
+     * granted and operation using the `TableChunk` has completed. See
+     * `MemoryReserveOrWait::reserve_or_wait` for details.
+     * @return A new `TableChunk` that is available on device.
+     *
+     * @throws std::runtime_error If shutdown occurs before the reservation can be
+     * processed.
+     * @throws std::overflow_error If no progress is possible within the timeout and
+     * overbooking is disabled.
+     */
+    [[nodiscard]] coro::task<TableChunk> make_available(
+        std::shared_ptr<Context> ctx,
+        std::int64_t net_memory_delta = MemoryReserveOrWait::missing_net_memory_delta
+    );
 
     /**
      * @brief Returns a view of the underlying table.
@@ -221,8 +269,8 @@ class TableChunk {
      * @param reservation Memory reservation used to track and limit allocations.
      * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
-     * @throws std::overflow_error If the total allocation size exceeds the available
-     * reservation.
+     * @throws rapidsmpf::reservation_error If the total allocation size exceeds the
+     * available reservation.
      */
     [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 

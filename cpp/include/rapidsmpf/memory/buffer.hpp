@@ -202,6 +202,32 @@ class Buffer {
     }
 
     /**
+     * @brief Rebind the buffer to a new CUDA stream.
+     *
+     * Changes the buffer's associated stream to @p new_stream and ensures proper
+     * synchronization: @p new_stream will wait for any pending work on the current
+     * stream before proceeding. The underlying storage stream (e.g., the stream of
+     * an `rmm::device_buffer` or `HostBuffer`) is also updated.
+     *
+     * @param new_stream The new CUDA stream.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     *
+     * @code{.cpp}
+     * // Example: merge buffers from different streams onto a single stream.
+     * Buffer buffer_a = ...;  // associated with stream_a
+     * Buffer buffer_b = ...;  // associated with stream_b
+     *
+     * buffer_a.rebind_stream(merged_stream);
+     * buffer_b.rebind_stream(merged_stream);
+     *
+     * // Both buffers now use merged_stream with proper synchronization
+     * buffer_copy(buffer_a, buffer_b, size);
+     * @endcode
+     */
+    void rebind_stream(rmm::cuda_stream_view new_stream);
+
+    /**
      * @brief Check whether the buffer's most recent write has completed.
      *
      * Returns whether the CUDA event that tracks the most recent write into this

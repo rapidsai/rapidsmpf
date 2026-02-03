@@ -14,7 +14,12 @@ from rapidsmpf.config import get_environment_variables
 from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
+from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
+    MemoryReserveOrWait
+
+from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 
 cdef class Context:
@@ -60,8 +65,8 @@ cdef class Context:
     """
     def __cinit__(
         self,
-        Communicator comm,
-        BufferResource br,
+        Communicator comm not None,
+        BufferResource br not None,
         Options options = None,
         Statistics statistics = None,
     ):
@@ -88,6 +93,25 @@ cdef class Context:
 
         self._spillable_messages = SpillableMessages.from_handle(
             deref(self._handle).spillable_messages()
+        )
+        self._memory = {}
+        for mem_type in py_MemoryType:
+            self._memory[mem_type] = MemoryReserveOrWait.from_handle(
+                deref(self._handle).memory(mem_type), self._br
+            )
+
+    @classmethod
+    def from_options(
+        cls,
+        Communicator comm not None,
+        RmmResourceAdaptor mr not None,
+        Options options not None
+    ):
+        return cls(
+            comm=comm,
+            br=BufferResource.from_options(mr, options),
+            options=options,
+            statistics=Statistics.from_options(mr, options),
         )
 
     def __enter__(self):
@@ -208,3 +232,27 @@ cdef class Context:
         The spillable messages associated with this context.
         """
         return self._spillable_messages
+
+    def memory(self, MemoryType mem_type):
+        """
+        Get the memory reservation handle for a given memory type.
+
+        Returns an object that coordinates asynchronous memory reservation requests
+        for the specified memory type. The returned instance provides backpressure
+        and global progress guarantees and should be used to reserve memory before
+        performing operations that require memory.
+
+        A recommended usage pattern is to reserve all required memory up front as a
+        single atomic reservation. This allows callers to await the reservation and
+        only start executing the operation once all required memory is available.
+
+        Parameters
+        ----------
+        mem_type
+            Memory type for which reservations are requested.
+
+        Returns
+        -------
+        Handle that coordinates memory reservation requests for the given memory type.
+        """
+        return self._memory[mem_type]

@@ -1,9 +1,8 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <any>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -18,7 +17,6 @@
 #include <cudf/context.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
-#include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
@@ -49,13 +47,14 @@ rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    std::string const& input_directory
+    std::string const& input_directory,
+    bool use_date32
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({
+                       .column_names({
                            "l_returnflag",  // 0
                            "l_linestatus",  // 1
                            "l_quantity",  // 2
@@ -64,49 +63,20 @@ rapidsmpf::streaming::Node read_lineitem(
                            "l_tax"  // 5
                        })
                        .build();
-    // TODO: utility to get logical types from parquet.
-    using timestamp_type = cudf::timestamp_ms;
-    auto filter_expr = [&]() -> std::unique_ptr<rapidsmpf::streaming::Filter> {
-        auto stream = ctx->br()->stream_pool().get_stream();
-        auto owner = new std::vector<std::any>;
-        constexpr auto date = cuda::std::chrono::year_month_day(
-            cuda::std::chrono::year(1998),
-            cuda::std::chrono::month(9),
-            cuda::std::chrono::day(2)
-        );
-        auto sys_days = cuda::std::chrono::sys_days(date);
-        owner->push_back(
-            std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
-                sys_days.time_since_epoch(), true, stream
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::literal>(
-                *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
-                    owner->at(0)
-                )
-            )
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::column_name_reference>("l_shipdate")
-        );
-        owner->push_back(
-            std::make_shared<cudf::ast::operation>(
-                cudf::ast::ast_operator::LESS_EQUAL,
-                *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
-                    owner->at(2)
-                ),
-                *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
-            )
-        );
-        return std::make_unique<rapidsmpf::streaming::Filter>(
-            stream,
-            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
-            rapidsmpf::OwningWrapper(static_cast<void*>(owner), [](void* p) {
-                delete static_cast<std::vector<std::any>*>(p);
-            })
-        );
-    }();
+    auto stream = ctx->br()->stream_pool().get_stream();
+    // l_shipdate <= DATE '1998-09-02'
+    constexpr auto date = cuda::std::chrono::year_month_day(
+        cuda::std::chrono::year(1998),
+        cuda::std::chrono::month(9),
+        cuda::std::chrono::day(2)
+    );
+    auto filter_expr =
+        use_date32 ? rapidsmpf::ndsh::make_date_filter<cudf::timestamp_D>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
+                     )
+                   : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
+                         stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
+                     );
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
@@ -155,7 +125,7 @@ rapidsmpf::streaming::Node postprocess_group_by(
         (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
     );
     auto chunk =
-        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto columns =
         cudf::table{chunk.table_view(), stream, ctx->br()->device_mr()}.release();
@@ -217,9 +187,8 @@ rapidsmpf::streaming::Node select_columns_for_groupby(
         if (msg.empty()) {
             break;
         }
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
+        auto chunk =
+            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
@@ -327,6 +296,13 @@ int main(int argc, char** argv) {
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
     auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
+
+    // Detect date column type from parquet metadata before timed section
+    auto const column_types =
+        rapidsmpf::ndsh::detail::get_column_types(arguments.input_directory, "lineitem");
+    bool const use_date32 =
+        column_types.at("l_shipdate").id() == cudf::type_id::TIMESTAMP_DAYS;
+
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id = 0;
@@ -344,7 +320,8 @@ int main(int argc, char** argv) {
                 lineitem,
                 /* num_tickets */ 4,
                 arguments.num_rows_per_chunk,
-                arguments.input_directory
+                arguments.input_directory,
+                use_date32
             ));
 
             auto chunkwise_groupby_input = ctx->create_channel();

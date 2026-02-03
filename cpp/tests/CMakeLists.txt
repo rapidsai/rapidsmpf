@@ -71,6 +71,9 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
+          test_allreduce.cpp
+          test_allreduce_custom_kernels.cu
+          test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
           test_communicator.cpp
@@ -98,6 +101,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
     PRIVATE streaming/test_allgather.cpp
+            streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
             streaming/test_leaf_node.cpp
@@ -105,6 +109,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
+            streaming/test_channel_metadata.cpp
             streaming/test_read_parquet.cpp
             streaming/test_shuffler.cpp
             streaming/test_spillable_messages.cpp
@@ -199,8 +204,8 @@ target_compile_options(
 )
 target_link_libraries(
   rrun_tests
-  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
-          maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE rapidsmpf::rapidsmpf cuCascade::cucascade GTest::gmock GTest::gtest
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
 

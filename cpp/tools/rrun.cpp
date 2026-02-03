@@ -44,7 +44,7 @@
 #include <numa.h>
 #endif
 
-#include <rapidsmpf/topology_discovery.hpp>
+#include <cucascade/memory/topology_discovery.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <pmix.h>
@@ -145,9 +145,9 @@ struct Config {
     BindToState bind_state{
         BindToState::NotSpecified
     };  // State of --bind-to specification
-    std::optional<rapidsmpf::SystemTopologyInfo>
+    std::optional<cucascade::memory::system_topology_info>
         topology;  // Discovered topology information
-    std::map<int, rapidsmpf::GpuTopologyInfo const*>
+    std::map<int, cucascade::memory::gpu_topology_info const*>
         gpu_topology_map;  // Map GPU ID to topology info
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
     int slurm_local_id{-1};  // Local rank within node (SLURM_LOCALID)
@@ -319,7 +319,7 @@ bool parse_cpu_list_to_mask(std::string const& cpulist, cpu_set_t* cpuset) {
  * @brief Set CPU affinity for the current process.
  *
  * @param cpu_affinity_list CPU affinity list string (e.g., "0-31,128-159"), as in the
- * format of `TopologyDiscovery::GpuTopologyInfo::cpu_affinity_list`.
+ * format of `cucascade::memory::gpu_topology_info::cpu_affinity_list`.
  * @return true on success, false on failure.
  */
 bool set_cpu_affinity(std::string const& cpu_affinity_list) {
@@ -703,7 +703,7 @@ Config parse_args(int argc, char* argv[]) {
     }
 
     // Discover system topology
-    rapidsmpf::TopologyDiscovery discovery;
+    cucascade::memory::topology_discovery discovery;
     if (discovery.discover()) {
         cfg.topology = discovery.get_topology();
         // Build GPU ID to topology info mapping
