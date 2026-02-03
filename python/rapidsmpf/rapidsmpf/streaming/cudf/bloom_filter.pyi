@@ -11,6 +11,9 @@ from rapidsmpf.streaming.core.node import CppNode
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class BloomFilterChunk:
+    # Note: if you go looking for this type in the cython bindings, you
+    # won't find it. This is purely to provide for better type-checking of
+    # the generic Channel argument to BloomFilter.build/apply below.
     @classmethod
     def from_message(cls: type[Self], message: Message[Self]) -> Self: ...
     def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...

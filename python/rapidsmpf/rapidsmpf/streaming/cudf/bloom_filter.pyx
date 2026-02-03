@@ -4,40 +4,14 @@
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
-from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
-from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+from rapidsmpf.streaming.core.channel cimport Channel
+from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
-
-
-cdef extern from "<rapidsmpf/streaming/cudf/bloom_filter.hpp>" nogil:
-    cdef cppclass cpp_BloomFilter "rapidsmpf::streaming::BloomFilter":
-        cpp_BloomFilter(
-            shared_ptr[cpp_Context] ctx,
-            uint64_t seed,
-            size_t num_filter_blocks,
-        ) noexcept
-        cpp_Node build(
-            shared_ptr[cpp_Channel] ch_in,
-            shared_ptr[cpp_Channel] ch_out,
-            int32_t tag,
-        ) except +ex_handler
-        cpp_Node apply(
-            shared_ptr[cpp_Channel] bloom_filter,
-            shared_ptr[cpp_Channel] ch_in,
-            shared_ptr[cpp_Channel] ch_out,
-            vector[size_type] keys,
-        ) except +ex_handler
-
-
-cdef extern from "<rapidsmpf/integrations/cudf/bloom_filter.hpp>" nogil:
-    size_t cpp_fitting_num_blocks \
-        "rapidsmpf::BloomFilter::fitting_num_blocks"(size_t l2size) noexcept
 
 
 cdef class BloomFilter:
@@ -54,7 +28,6 @@ cdef class BloomFilter:
     num_filter_blocks
         Number of blocks used to size the filter.
     """
-    cdef unique_ptr[cpp_BloomFilter] _handle
 
     def __init__(
         self,
@@ -150,15 +123,15 @@ cdef class BloomFilter:
         -------
         A streaming node representing the asynchronous filter application.
         """
-        cdef vector[size_type] _keys = tuple(keys)
-        cdef cpp_Node _ret
+        cdef vector[size_type] c_keys = tuple(keys)
+        cdef cpp_Node c_ret
         with nogil:
-            _ret = deref(self._handle).apply(
+            c_ret = deref(self._handle).apply(
                 bloom_filter._handle,
                 ch_in._handle,
                 ch_out._handle,
-                _keys,
+                c_keys,
             )
         return CppNode.from_handle(
-            make_unique[cpp_Node](move(_ret)), owner=None
+            make_unique[cpp_Node](move(c_ret)), owner=None
         )
