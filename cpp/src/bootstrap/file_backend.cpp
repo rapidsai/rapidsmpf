@@ -1,9 +1,8 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -22,13 +21,6 @@
 // Prefer throwing standard exceptions instead.
 
 namespace rapidsmpf::bootstrap::detail {
-
-namespace {
-// Process-wide flag to track if alive file has been created for this process
-// Since FileBackend is created/destroyed multiple times for put/get/barrier,
-// we only want to create the alive file once and never remove it until process exit
-std::atomic<bool> alive_file_created{false};
-}  // namespace
 
 FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
     if (!ctx_.coord_dir.has_value()) {
@@ -50,26 +42,25 @@ FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
         );
     }
 
-    // Create rank alive file only once per process
-    // FileBackend is created/destroyed for each bootstrap operation (put/get/barrier),
-    // but the alive file should persist until process exit
-    bool expected = false;
-    if (alive_file_created.compare_exchange_strong(expected, true)) {
-        write_file(get_rank_alive_path(ctx_.rank), std::to_string(getpid()));
-    }
+    // Create rank alive file
+    write_file(get_rank_alive_path(ctx_.rank), std::to_string(getpid()));
 
     // Note: Do not block in the constructor. Ranks only create their alive file
     // and continue. Synchronization occurs where needed (e.g., get/put/barrier).
 }
 
 FileBackend::~FileBackend() {
-    // Don't clean up in destructor since FileBackend is used as a temporary object
-    // for each bootstrap operation (put/get/barrier). The coordination directory
-    // and alive files should persist across operations and be cleaned up by the
-    // launcher (rrun) after all ranks complete.
-    //
-    // Note: The alive file was created in the constructor and should remain
-    // until the process exits or the launcher cleans it up.
+    // Clean up rank alive file
+    try {
+        std::error_code ec;
+        if (!std::filesystem::remove(get_rank_alive_path(ctx_.rank), ec) && ec) {
+            std::cerr << "Error removing rank alive file: " << ec.message() << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during rank alive file cleanup: " << e.what()
+                  << std::endl;
+    }
+    cleanup_coordination_directory();
 }
 
 void FileBackend::put(std::string const& key, std::string const& value) {
@@ -112,13 +103,9 @@ void FileBackend::barrier() {
         }
     }
 
-    // Don't delete barrier files here - they should persist until process exit
-    // or until cleaned up by the launcher (rrun). Deleting them immediately
-    // creates a race condition where faster ranks delete their files before
-    // slower ranks can check for them.
-    //
-    // The barrier files are small (1 byte each) and will be cleaned up when
-    // rrun removes the coordination directory.
+    // Clean up our barrier file
+    std::error_code ec;
+    std::filesystem::remove(my_barrier_file, ec);
 }
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {

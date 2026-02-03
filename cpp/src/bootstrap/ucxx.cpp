@@ -134,10 +134,13 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
         }
 
         if (!early_address_mode) {
-            // All ranks must barrier to make PMIx put() data visible.
-            // For file backend this is a no-op synchronization.
-            // For PMIx/Slurm backend this executes PMIx_Fence to exchange data.
-            barrier(ctx);
+            // For PMIx/Slurm backend, barrier is needed to execute PMIx_Fence
+            // which makes put() data visible across nodes.
+            // For FILE backend, barrier is not needed since put/get already
+            // provide implicit synchronization via filesystem operations.
+            if (ctx.backend == Backend::SLURM) {
+                barrier(ctx);
+            }
 
             if (ctx.rank != 0) {
                 // Worker ranks retrieve the root address and connect
