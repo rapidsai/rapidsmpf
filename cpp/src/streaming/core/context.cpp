@@ -55,9 +55,8 @@ std::size_t spill_messages(
 
 std::size_t get_new_uid() noexcept {
     static std::atomic<std::size_t> uid_counter{0};
-    return uid_counter.fetch_add(1, std::memory_order_acquire);
+    return uid_counter.fetch_add(1, std::memory_order_relaxed);
 }
-
 
 }  // namespace
 

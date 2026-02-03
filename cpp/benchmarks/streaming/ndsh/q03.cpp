@@ -34,6 +34,7 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -49,7 +50,6 @@
 #include "groupby.hpp"
 #include "join.hpp"
 #include "parquet_writer.hpp"
-#include "rapidsmpf/integrations/cudf/bloom_filter.hpp"
 #include "utils.hpp"
 
 namespace {

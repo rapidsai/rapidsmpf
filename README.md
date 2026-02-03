@@ -360,6 +360,26 @@ Each configuration option includes:
     between checks and supports time units, e.g. `us` or `ms`. If no unit is specified,
     seconds are assumed. Use `"disabled"` to disable periodic spill checks.
 
+- **`unbounded_file_read_cache`**
+  - **Environment Variable**: `RAPIDSMPF_UNBOUNDED_FILE_READ_CACHE`
+  - **Default**: `false`
+  - **Description**:
+    Enable caching of file read results in host memory. When enabled, the first
+    read of a specific file slice is cached by storing a copy of the data in the
+    associated Context's message storage. Subsequent reads of the exact same slice
+    reuse the cached host-memory copy instead of re-reading from disk.
+
+    This option is primarily intended for benchmarking and performance analysis.
+    After an initial warm-up run, subsequent runs can avoid most disk I/O (metadata
+    access and file listing will still occur).
+
+    Cached data is scoped to the Context that performed the read, and its lifetime
+    matches the lifetime of that Context. The cache is unbounded, and entries are
+    only released when the Context is destroyed.
+
+    **Warning:** This feature assumes that each file slice is always read with
+    identical read parameters, such as filters and schemas. No validation is performed.
+    If these parameters differ, incorrect data may be returned.
 
 #### Dask Integration
 
