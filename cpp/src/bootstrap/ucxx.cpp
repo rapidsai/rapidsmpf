@@ -65,23 +65,18 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
     // Check if root address was provided by parent process (rrun hybrid mode)
     char const* precomputed_address_encoded = std::getenv("RAPIDSMPF_ROOT_ADDRESS");
 
-    if (precomputed_address_encoded != nullptr) {
+    if (precomputed_address_encoded != nullptr && ctx.rank != 0) {
         // Parent process already coordinated the root address via PMIx
         // Address is hex-encoded to avoid issues with binary data in env vars
+        // Note: Only non-root ranks use this path. Rank 0 should always create the
+        // listener.
         std::string precomputed_address = hex_decode(precomputed_address_encoded);
 
-        // Children skip bootstrap coordination and use the provided address directly
-        if (ctx.rank == 0) {
-            throw std::runtime_error("The root rank was already created.");
-        } else {
-            // Worker children connect using provided address
-            auto root_worker_address =
-                ::ucxx::createAddressFromString(precomputed_address);
-            auto ucxx_initialized_rank =
-                ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
-            comm =
-                std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
-        }
+        // Worker children connect using provided address
+        auto root_worker_address = ::ucxx::createAddressFromString(precomputed_address);
+        auto ucxx_initialized_rank =
+            ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
+        comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
     } else {
         // Standard bootstrap coordination via put/get/barrier
 

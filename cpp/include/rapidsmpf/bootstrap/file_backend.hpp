@@ -1,10 +1,11 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <string>
 
@@ -78,7 +79,9 @@ class FileBackend {
     std::string coord_dir_;
     std::string kv_dir_;
     std::string barrier_dir_;
-    std::size_t barrier_count_{0};
+    // Note: barrier_count_ must be static to persist across FileBackend instances
+    // since FileBackend is created as a temporary for each put/get/barrier operation
+    static inline std::atomic<std::size_t> barrier_count_{0};
 
     /**
      * @brief Get path for a key-value file.

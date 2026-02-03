@@ -64,6 +64,7 @@ std::string hex_encode(std::string const& input) {
     return result;
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
 std::string hex_decode(std::string const& input) {
     std::string result;
     result.reserve(input.size() / 2);
@@ -78,10 +79,14 @@ std::string hex_decode(std::string const& input) {
     }
     return result;
 }
+#endif
 
-// Forward declarations of helper functions
+// Forward declarations of mode execution functions (defined later, outside namespace)
 struct Config;
+int execute_slurm_passthrough_mode(Config const& cfg);
+int execute_single_node_mode(Config& cfg);
 #ifdef RAPIDSMPF_HAVE_SLURM
+int execute_slurm_hybrid_mode(Config& cfg);
 std::string launch_rank0_and_get_address(
     Config const& cfg, std::string const& address_file, int total_ranks
 );
@@ -106,13 +111,10 @@ pid_t launch_rank_local(
     int* out_fd_stdout,
     int* out_fd_stderr
 );
-}  // namespace
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
 // Prefer throwing standard exceptions instead.
-
-namespace {
 
 static std::mutex output_mutex;
 
