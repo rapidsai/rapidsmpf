@@ -267,25 +267,20 @@ memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
     return {
         {MemoryType::DEVICE,
          LimitAvailableMemory{
-             mr,
-             options.get<std::int64_t>(
-                 "spill_device_limit",
-                 [](auto const& s) {
-                     auto const [_, total_mem] = rmm::available_device_memory();
-                     return rmm::align_down(
-                         parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
-                         rmm::CUDA_ALLOCATION_ALIGNMENT
-                     );
-                 }
-             )
+             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
+                 auto const [_, total_mem] = rmm::available_device_memory();
+                 return rmm::align_down(
+                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                     rmm::CUDA_ALLOCATION_ALIGNMENT
+                 );
+             })
          }}
     };
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
     return options.get<std::optional<Duration>>(
-        "periodic_spill_check",
-        [](auto const& s) -> std::optional<Duration> {
+        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
                 return parse_duration("1ms");
             }

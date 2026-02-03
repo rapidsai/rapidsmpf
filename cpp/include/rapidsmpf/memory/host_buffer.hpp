@@ -209,7 +209,7 @@ class HostBuffer {
     static HostBuffer from_rmm_device_buffer(
         std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
         rmm::cuda_stream_view stream,
-        PinnedMemoryResource& mr
+        rmm::host_async_resource_ref mr
     );
 
   private:
