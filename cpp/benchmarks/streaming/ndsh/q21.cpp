@@ -26,6 +26,7 @@
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
@@ -35,11 +36,10 @@
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "bloom_filter.hpp"
-#include "bloom_filter_impl.hpp"
 #include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
@@ -92,7 +92,11 @@ rapidsmpf::streaming::Node read_nation(
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
         constexpr auto name = "SAUDI ARABIA";
-        owner->push_back(std::make_shared<cudf::string_scalar>(name, true, stream));
+        owner->push_back(
+            std::make_shared<cudf::string_scalar>(
+                name, /* is_valid = */ true, stream, ctx->br()->device_mr()
+            )
+        );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(0))
@@ -139,7 +143,11 @@ rapidsmpf::streaming::Node read_orders(
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
         constexpr auto status = "F";
-        owner->push_back(std::make_shared<cudf::string_scalar>(status, true, stream));
+        owner->push_back(
+            std::make_shared<cudf::string_scalar>(
+                status, /* is_valid = */ true, stream, ctx->br()->device_mr()
+            )
+        );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
                 *std::any_cast<std::shared_ptr<cudf::string_scalar>>(owner->at(0))
@@ -172,9 +180,10 @@ rapidsmpf::streaming::Node read_orders(
 
 rapidsmpf::streaming::Node read_orders_with_bloom_filter(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> bloom_filter,
+    std::shared_ptr<rapidsmpf::streaming::Channel> bloom_filter_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::vector<cudf::size_type> filter_keys,
+    rapidsmpf::streaming::BloomFilter bloom_filter,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
     std::string const input_directory
@@ -182,16 +191,20 @@ rapidsmpf::streaming::Node read_orders_with_bloom_filter(
     auto filter_passthrough = ctx->create_channel();
     auto orders_passthrough = ctx->create_channel();
     rapidsmpf::streaming::ShutdownAtExit c{
-        bloom_filter, ch_out, filter_passthrough, orders_passthrough
+        bloom_filter_in, ch_out, filter_passthrough, orders_passthrough
     };
     co_await ctx->executor()->schedule();
     // We want to await the bloom_filter being ready before kicking off the tasks to read
     // orders and apply the filter. This way, the read won't start until the bloom filter
     // is ready and we won't stack up num_producers chunks waiting for ages.
-    auto filter = co_await bloom_filter->receive();
+    auto filter = co_await bloom_filter_in->receive();
+    auto passthrough = [&]() -> coro::task<void> {
+        co_await filter_passthrough->send(std::move(filter));
+        co_await filter_passthrough->drain(ctx->executor());
+    };
     rapidsmpf::streaming::coro_results(
         co_await coro::when_all(
-            filter_passthrough->send(std::move(filter)),
+            passthrough(),
             read_orders(
                 ctx,
                 orders_passthrough,
@@ -199,8 +212,8 @@ rapidsmpf::streaming::Node read_orders_with_bloom_filter(
                 num_rows_per_chunk,
                 input_directory
             ),
-            rapidsmpf::ndsh::apply_bloom_filter(
-                ctx, filter_passthrough, orders_passthrough, ch_out, filter_keys
+            bloom_filter.apply(
+                filter_passthrough, orders_passthrough, ch_out, filter_keys
             )
         )
     );
@@ -285,7 +298,7 @@ rapidsmpf::streaming::Node filter_grouped_greater(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, chunk.stream(), ctx->br()->device_mr()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -329,7 +342,7 @@ rapidsmpf::streaming::Node filter_grouped_equal(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, chunk.stream(), ctx->br()->device_mr()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -515,14 +528,13 @@ std::vector<rapidsmpf::ndsh::groupby_request> sum_groupby_request(
     return requests;
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node populate_bloom_filter(
+rapidsmpf::streaming::Node populate_bloom_filter(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::vector<cudf::size_type> keys,
     rapidsmpf::OpID tag,
-    std::uint64_t seed,
-    std::size_t num_blocks
+    rapidsmpf::streaming::BloomFilter bloom_filter
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto passthrough = ctx->create_channel();
@@ -556,12 +568,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> sum_groupby_request(
         co_await passthrough->drain(ctx->executor());
     };
     rapidsmpf::streaming::coro_results(
-        co_await coro::when_all(
-            selector(),
-            rapidsmpf::ndsh::build_bloom_filter(
-                ctx, passthrough, ch_out, tag, seed, num_blocks
-            )
-        )
+        co_await coro::when_all(selector(), bloom_filter.build(passthrough, ch_out, tag))
     );
     co_await ch_out->drain(ctx->executor());
 }
@@ -628,10 +635,8 @@ int main(int argc, char** argv) {
     int device;
     RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
     RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
-    [[maybe_unused]] auto const num_filter_blocks =
-        rapidsmpf::ndsh::BloomFilter::fitting_num_blocks(
-            static_cast<std::size_t>(l2size)
-        );
+    auto const num_filter_blocks =
+        rapidsmpf::BloomFilter::fitting_num_blocks(static_cast<std::size_t>(l2size));
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
         std::vector<rapidsmpf::streaming::Node> nodes;
@@ -814,6 +819,9 @@ int main(int argc, char** argv) {
                 )
             );
             auto bloom_output = ctx->create_channel();
+            auto bloom_filter = rapidsmpf::streaming::BloomFilter(
+                ctx, cudf::DEFAULT_HASH_SEED, num_filter_blocks
+            );
             // Select the relevant key column(s) and build filter.
             nodes.push_back(populate_bloom_filter(
                 ctx,
@@ -821,8 +829,7 @@ int main(int argc, char** argv) {
                 bloom_output,
                 {1},
                 static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                cudf::DEFAULT_HASH_SEED,
-                num_filter_blocks
+                bloom_filter
             ));
             auto orders = ctx->create_channel();
             auto shuffled_orders = ctx->create_channel();
@@ -833,6 +840,7 @@ int main(int argc, char** argv) {
                 bloom_output,
                 orders,
                 {0},
+                bloom_filter,
                 2,
                 arguments.num_rows_per_chunk,
                 arguments.input_directory
