@@ -52,7 +52,7 @@ rapidsmpf::streaming::Node read_parquet(
     auto options =
         cudf::io::parquet_reader_options::builder(cudf::io::source_info(files)).build();
     if (columns.has_value()) {
-        options.set_columns(*columns);
+        options.set_column_names(*columns);
     }
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
