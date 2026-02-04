@@ -117,6 +117,11 @@ struct ReserveLog {
         log.emplace_back(uid, std::move(res));
     }
 
+    std::size_t size() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return log.size();
+    }
+
     std::mutex mutex;
     std::vector<std::pair<uint64_t, MemoryReservation>> log;
 };
@@ -166,17 +171,24 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     set_mem_avail(10);
 
     // Wait until at least one reservation completes.
-    while (log.log.size() < 1) {
+    while (log.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    // Smaller `net_memory_delta` has higher priority, so request 1 should complete first.
-    EXPECT_EQ(log.log.at(0).first, 1);
+    {
+        std::lock_guard lk{log.mutex};
+        // Smaller `net_memory_delta` has higher priority, so request 1 should complete
+        // first.
+        EXPECT_EQ(log.log.at(0).first, 1);
+    }
 
     // Now allow the second request to complete.
     set_mem_avail(20);
     thd.join();
-    EXPECT_EQ(log.log.at(1).first, 2);
+    {
+        std::lock_guard lk{log.mutex};
+        EXPECT_EQ(log.log.at(1).first, 2);
+    }
 }
 
 TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {

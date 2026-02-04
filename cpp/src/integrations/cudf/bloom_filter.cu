@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,7 +9,6 @@
 #include <cstdio>
 
 #include <cuda_runtime_api.h>
-#include <driver_types.h>
 
 #include <cuco/bloom_filter_policies.cuh>
 #include <cuco/bloom_filter_ref.cuh>
@@ -17,32 +16,27 @@
 #include <cuco/utility/cuda_thread_scope.cuh>
 
 #include <cub/device/device_transform.cuh>
-#include <cuda/std/atomic>
 #include <cuda/std/tuple>
 
-#include <cudf/column/column.hpp>
 #include <cudf/hashing.hpp>
 #include <cudf/table/table_view.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/mr/polymorphic_allocator.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
 
-#include "bloom_filter_impl.hpp"
-
-namespace rapidsmpf::ndsh {
+namespace rapidsmpf {
 
 namespace {
 using KeyType = std::uint64_t;
 
-using PolicyType = cuco::arrow_filter_policy<KeyType, cuco::identity_hash>;
 using BloomFilterRefType = cuco::bloom_filter_ref<
     KeyType,
     cuco::extent<std::size_t>,
     cuco::thread_scope_device,
-    PolicyType>;
+    cuco::arrow_filter_policy<KeyType, cuco::identity_hash>>;
 using StorageType = BloomFilterRefType::filter_block_type;
 
 }  // namespace
@@ -55,10 +49,19 @@ BloomFilter::BloomFilter(
 )
     : num_blocks_{num_blocks},
       seed_{seed},
-      storage_{
-          num_blocks * sizeof(StorageType), std::alignment_of_v<StorageType>, stream, mr
-      } {
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage_.data, 0, storage_.size, stream));
+      storage_{num_blocks * sizeof(StorageType), stream, mr} {
+    // TODO: use an aligned allocator adaptor to ensure this holds.
+    // Today all RMM device allocators guarantee at least 256 byte alignment, but that is
+    // an implementation detail.
+    RAPIDSMPF_EXPECTS(
+        reinterpret_cast<std::uintptr_t>(storage_.data())
+                % std::alignment_of_v<StorageType>
+            == 0,
+        "Allocation for bloom filter is not aligned."
+    );
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemsetAsync(storage_.data(), 0, storage_.size(), storage_.stream())
+    );
 }
 
 void BloomFilter::add(
@@ -68,47 +71,38 @@ void BloomFilter::add(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
-        PolicyType{}
+        {}
     };
     auto hashes = cudf::hashing::xxhash_64(values_to_hash, seed_, stream, mr);
-    auto view = hashes->view();
+    auto hash_view = hashes->view();
     RAPIDSMPF_EXPECTS(
-        view.type().id() == cudf::type_to_id<KeyType>(),
+        hash_view.type().id() == cudf::type_to_id<KeyType>(),
         "Hash values do not have correct type"
     );
-    filter_ref.add_async(view.begin<KeyType>(), view.end<KeyType>(), stream);
+    filter_ref.add_async(hash_view.begin<KeyType>(), hash_view.end<KeyType>(), stream);
 }
 
-void BloomFilter::merge(BloomFilter const& other, rmm::cuda_stream_view stream) {
+void BloomFilter::merge(BloomFilter& other, rmm::cuda_stream_view stream) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_EXPECTS(
         num_blocks_ == other.num_blocks_, "Mismatching number of blocks in filters"
     );
     auto ref_this = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
-        PolicyType{}
+        {}
     };
     auto ref_other = BloomFilterRefType{
-        static_cast<StorageType*>(other.storage_.data),
+        static_cast<StorageType*>(other.storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
-        PolicyType{}
+        {}
     };
-    using word_type = BloomFilterRefType::word_type;
-    RAPIDSMPF_CUDA_TRY(
-        cub::DeviceTransform::Transform(
-            cuda::std::tuple{ref_this.data(), ref_other.data()},
-            ref_this.data(),
-            num_blocks_ * BloomFilterRefType::words_per_block,
-            [] __device__(word_type left, word_type right) { return left | right; },
-            stream.value()
-        )
-    );
+    ref_this.merge_async(ref_other, stream);
 }
 
 rmm::device_uvector<bool> BloomFilter::contains(
@@ -118,10 +112,10 @@ rmm::device_uvector<bool> BloomFilter::contains(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data),
+        static_cast<StorageType*>(storage_.data()),
         num_blocks_,
         cuco::thread_scope_device,
-        PolicyType{}
+        {}
     };
     auto hashes = cudf::hashing::xxhash_64(values, seed_, stream, mr);
     auto view = hashes->view();
@@ -132,20 +126,20 @@ rmm::device_uvector<bool> BloomFilter::contains(
     return result;
 }
 
-std::size_t BloomFilter::fitting_num_blocks(std::size_t l2size) {
+std::size_t BloomFilter::fitting_num_blocks(std::size_t l2size) noexcept {
     return (l2size * 2) / (3 * sizeof(StorageType));
 }
 
 rmm::cuda_stream_view BloomFilter::stream() const noexcept {
-    return storage_.stream;
+    return storage_.stream();
 }
 
-void* BloomFilter::data() const noexcept {
-    return storage_.data;
+void* BloomFilter::data() noexcept {
+    return storage_.data();
 }
 
 std::size_t BloomFilter::size() const noexcept {
-    return storage_.size;
+    return storage_.size();
 }
 
-}  // namespace rapidsmpf::ndsh
+}  // namespace rapidsmpf
