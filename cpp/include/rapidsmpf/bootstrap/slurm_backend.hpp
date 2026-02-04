@@ -137,6 +137,20 @@ class SlurmBackend {
      */
     void broadcast(void* data, std::size_t size, Rank root);
 
+    /**
+     * @brief Explicitly finalize the global PMIx session.
+     *
+     * This is useful for scenarios like rrun parent coordination where PMIx
+     * needs to be finalized before process exit (e.g., after child processes
+     * complete). If not called explicitly, PMIx will be finalized when the
+     * process exits via the PmixGlobalState destructor.
+     *
+     * This function is safe to call multiple times, subsequent calls are no-ops.
+     *
+     * @throws std::runtime_error if PMIx_Finalize fails.
+     */
+    static void finalize_pmix();
+
   private:
     Context ctx_;
     std::size_t barrier_count_{0};

@@ -5,7 +5,12 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>")
+add_executable(
+  rrun
+  "rrun.cpp"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>>"
+)
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"

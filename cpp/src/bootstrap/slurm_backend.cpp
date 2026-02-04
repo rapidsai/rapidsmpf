@@ -46,6 +46,19 @@ class PmixGlobalState {
         return state;
     }
 
+    /**
+     * @brief Explicitly finalize PMIx session.
+     *
+     * Safe to call multiple times, subsequent calls are no-ops.
+     */
+    void finalize() {
+        std::lock_guard<std::mutex> lock{mutex};
+        if (initialized) {
+            PMIx_Finalize(nullptr, 0);
+            initialized = false;
+        }
+    }
+
     PmixGlobalState(PmixGlobalState const&) = delete;
     PmixGlobalState& operator=(PmixGlobalState const&) = delete;
     PmixGlobalState(PmixGlobalState&&) = delete;
@@ -285,6 +298,10 @@ void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
     }
 
     barrier();
+}
+
+void SlurmBackend::finalize_pmix() {
+    PmixGlobalState::instance().finalize();
 }
 
 }  // namespace rapidsmpf::bootstrap::detail

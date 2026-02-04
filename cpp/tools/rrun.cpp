@@ -48,6 +48,8 @@
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <pmix.h>
+
+#include <rapidsmpf/bootstrap/slurm_backend.hpp>
 #endif
 
 namespace {
@@ -980,11 +982,12 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         coord_hint
     );
 
+    // Finalize PMIx session used for parent coordination
     if (!coordinated_root_address.empty()) {
         if (cfg.verbose) {
             std::cout << "[rrun] Finalizing PMIx in parent" << std::endl;
         }
-        PMIx_Finalize(nullptr, 0);
+        rapidsmpf::bootstrap::detail::SlurmBackend::finalize_pmix();
     }
 
     return exit_status;
@@ -1115,51 +1118,11 @@ std::string launch_rank0_and_get_address(
 }
 
 /**
- * @brief Helper function to handle PMIx errors consistently.
- *
- * Checks the PMIx status code and throws an exception with proper cleanup if it indicates
- * failure. Optionally allows partial success for operations like PMIx_Fence.
- *
- * @param rc PMIx status code to check.
- * @param operation Description of the PMIx operation (e.g., "PMIx_Init").
- * @param allow_partial_success If true, PMIX_ERR_PARTIAL_SUCCESS is treated as success.
- *
- * @throws std::runtime_error if the operation failed (after calling PMIx_Finalize).
- */
-void handle_pmix_error(
-    pmix_status_t rc, std::string const& operation, bool allow_partial_success = false
-) {
-    if (rc == PMIX_SUCCESS || (allow_partial_success && rc == PMIX_ERR_PARTIAL_SUCCESS)) {
-        return;
-    }
-    PMIx_Finalize(nullptr, 0);
-    throw std::runtime_error(
-        operation + " failed: " + std::string{PMIx_Error_string(rc)}
-    );
-}
-
-/**
- * @brief Helper function to throw an error with PMIx cleanup.
- *
- * Calls PMIx_Finalize and throws a runtime_error with the given message.
- * Use this for validation errors or other non-PMIx-status failures that occur
- * after PMIx has been initialized.
- *
- * @param error_message The error message to include in the exception.
- *
- * @throws std::runtime_error Always throws after calling PMIx_Finalize.
- */
-[[noreturn]] void pmix_fatal_error(std::string const& error_message) {
-    PMIx_Finalize(nullptr, 0);
-    throw std::runtime_error(error_message);
-}
-
-/**
- * @brief Coordinate root address between parent processes using PMIx.
+ * @brief Coordinate root address between parent processes using SlurmBackend.
  *
  * This function is called by parent rrun processes in Slurm hybrid mode.
- * The root parent (PMIX_RANK=0) publishes the root address, and non-root
- * parents retrieve it. This avoids file-based coordination.
+ * The root parent (SLURM_PROCID=0) publishes the root address, and non-root
+ * parents retrieve it.
  *
  * @param root_address_to_publish Root address to publish. If set (has_value()), this is
  *                                the root parent and it will publish. If empty (nullopt),
@@ -1167,19 +1130,34 @@ void handle_pmix_error(
  * @param verbose Whether to print debug messages.
  * @return Root address (either published or retrieved).
  *
- * @throws std::runtime_error on PMIx errors.
+ * @throws std::runtime_error on coordination errors.
  */
 std::string coordinate_root_address_via_pmix(
     std::optional<std::string> const& root_address_to_publish, bool verbose
 ) {
-    // Initialize PMIx for parent process
-    pmix_proc_t proc;
-    pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
-    handle_pmix_error(rc, "PMIx_Init in rrun parent");
+    // Get Slurm rank information for parent coordination
+    char const* slurm_procid = std::getenv("SLURM_PROCID");
+    char const* slurm_ntasks = std::getenv("SLURM_NTASKS");
+
+    if (!slurm_procid || !slurm_ntasks) {
+        throw std::runtime_error(
+            "SLURM_PROCID and SLURM_NTASKS must be set for parent coordination"
+        );
+    }
+
+    int parent_rank = std::stoi(slurm_procid);
+    int parent_nranks = std::stoi(slurm_ntasks);
+
+    // Create SlurmBackend for parent-level coordination
+    rapidsmpf::bootstrap::Context parent_ctx{
+        parent_rank, parent_nranks, rapidsmpf::bootstrap::Backend::SLURM, std::nullopt
+    };
+
+    rapidsmpf::bootstrap::detail::SlurmBackend backend{parent_ctx};
 
     if (verbose) {
-        std::cout << "[rrun] Parent PMIx initialized: rank " << proc.rank
-                  << ", namespace " << proc.nspace << std::endl;
+        std::cout << "[rrun] Parent coordination initialized: rank " << parent_rank
+                  << " of " << parent_nranks << std::endl;
     }
 
     std::string root_address;
@@ -1187,76 +1165,29 @@ std::string coordinate_root_address_via_pmix(
     if (root_address_to_publish.has_value()) {
         // Root parent publishes the address (already hex-encoded for binary safety)
         if (verbose) {
-            std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
+            std::cout << "[rrun] Publishing root address via SlurmBackend (hex-encoded, "
                       << root_address_to_publish.value().size() << " chars)" << std::endl;
         }
 
-        // Use PMIx_Put with GLOBAL scope
-        pmix_value_t value;
-        PMIX_VALUE_CONSTRUCT(&value);
-        value.type = PMIX_STRING;
-        value.data.string = strdup(root_address_to_publish.value().c_str());
-
-        rc = PMIx_Put(PMIX_GLOBAL, "rapidsmpf_root_address", &value);
-        PMIX_VALUE_DESTRUCT(&value);
-        handle_pmix_error(rc, "PMIx_Put");
-
-        // Commit the data
-        rc = PMIx_Commit();
-        handle_pmix_error(rc, "PMIx_Commit");
-
+        backend.put("rapidsmpf_root_address", root_address_to_publish.value());
         root_address = root_address_to_publish.value();
     }
 
-    // Barrier with PMIX_COLLECT_DATA to ensure data exchange
-    pmix_info_t info;
-    PMIX_INFO_CONSTRUCT(&info);
-    bool collect_data = true;
-    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect_data, PMIX_BOOL);
-
-    pmix_proc_t proc_wildcard;
-    PMIX_PROC_CONSTRUCT(&proc_wildcard);
-    std::memcpy(proc_wildcard.nspace, proc.nspace, PMIX_MAX_NSLEN + 1);
-    proc_wildcard.rank = PMIX_RANK_WILDCARD;
-
-    rc = PMIx_Fence(&proc_wildcard, 1, &info, 1);
-    PMIX_INFO_DESTRUCT(&info);
-    handle_pmix_error(rc, "PMIx_Fence", true);
+    // Barrier to ensure data exchange
+    backend.barrier();
 
     if (!root_address_to_publish.has_value()) {
         // Non-root parents retrieve the address
-        pmix_proc_t source_proc;
-        PMIX_PROC_CONSTRUCT(&source_proc);
-        std::memcpy(source_proc.nspace, proc.nspace, PMIX_MAX_NSLEN + 1);
-        source_proc.rank = 0;  // Get from rank 0
-
-        pmix_value_t* value = nullptr;
-        rc = PMIx_Get(&source_proc, "rapidsmpf_root_address", nullptr, 0, &value);
-        handle_pmix_error(rc, "PMIx_Get");
-
-        if (value == nullptr) {
-            pmix_fatal_error("PMIx_Get returned null value");
-        }
-
-        if (value->type != PMIX_STRING) {
-            PMIX_VALUE_RELEASE(value);
-            pmix_fatal_error("PMIx_Get returned non-string value");
-        }
-
-        std::string encoded_address = value->data.string;
-        PMIX_VALUE_RELEASE(value);
-
-        root_address = encoded_address;
+        root_address = backend.get("rapidsmpf_root_address", std::chrono::seconds{30});
 
         if (verbose) {
-            std::cout << "[rrun] Retrieved root address via PMIx (hex-encoded, "
-                      << encoded_address.size() << " chars)" << std::endl;
+            std::cout << "[rrun] Retrieved root address via SlurmBackend (hex-encoded, "
+                      << root_address.size() << " chars)" << std::endl;
         }
     }
 
-    // Keep PMIx session alive - will finalize after children complete
-    // Note: We don't call PMIx_Finalize here because we want the session
-    // to stay alive while children are running
+    // Note: PMIx session will be explicitly finalized after children complete
+    // (see execute_slurm_hybrid_mode where finalize_pmix() is called)
 
     return root_address;
 }
