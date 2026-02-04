@@ -1155,6 +1155,46 @@ std::string launch_rank0_and_get_address(
 }
 
 /**
+ * @brief Helper function to handle PMIx errors consistently.
+ *
+ * Checks the PMIx status code and throws an exception with proper cleanup if it indicates
+ * failure. Optionally allows partial success for operations like PMIx_Fence.
+ *
+ * @param rc PMIx status code to check.
+ * @param operation Description of the PMIx operation (e.g., "PMIx_Init").
+ * @param allow_partial_success If true, PMIX_ERR_PARTIAL_SUCCESS is treated as success.
+ *
+ * @throws std::runtime_error if the operation failed (after calling PMIx_Finalize).
+ */
+void handle_pmix_error(
+    pmix_status_t rc, std::string const& operation, bool allow_partial_success = false
+) {
+    if (rc == PMIX_SUCCESS || (allow_partial_success && rc == PMIX_ERR_PARTIAL_SUCCESS)) {
+        return;
+    }
+    PMIx_Finalize(nullptr, 0);
+    throw std::runtime_error(
+        operation + " failed: " + std::string{PMIx_Error_string(rc)}
+    );
+}
+
+/**
+ * @brief Helper function to throw an error with PMIx cleanup.
+ *
+ * Calls PMIx_Finalize and throws a runtime_error with the given message.
+ * Use this for validation errors or other non-PMIx-status failures that occur
+ * after PMIx has been initialized.
+ *
+ * @param error_message The error message to include in the exception.
+ *
+ * @throws std::runtime_error Always throws after calling PMIx_Finalize.
+ */
+[[noreturn]] void pmix_fatal_error(std::string const& error_message) {
+    PMIx_Finalize(nullptr, 0);
+    throw std::runtime_error(error_message);
+}
+
+/**
  * @brief Coordinate root address between parent processes using PMIx.
  *
  * This function is called by parent rrun processes in Slurm hybrid mode.
@@ -1175,11 +1215,7 @@ std::string coordinate_root_address_via_pmix(
     // Initialize PMIx for parent process
     pmix_proc_t proc;
     pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
-    if (rc != PMIX_SUCCESS) {
-        throw std::runtime_error(
-            "PMIx_Init failed in rrun parent: " + std::string{PMIx_Error_string(rc)}
-        );
-    }
+    handle_pmix_error(rc, "PMIx_Init in rrun parent");
 
     if (verbose) {
         std::cout << "[rrun] Parent PMIx initialized: rank " << proc.rank
@@ -1206,22 +1242,11 @@ std::string coordinate_root_address_via_pmix(
 
         rc = PMIx_Put(PMIX_GLOBAL, "rapidsmpf_root_address", &value);
         PMIX_VALUE_DESTRUCT(&value);
-
-        if (rc != PMIX_SUCCESS) {
-            PMIx_Finalize(nullptr, 0);
-            throw std::runtime_error(
-                "PMIx_Put failed: " + std::string{PMIx_Error_string(rc)}
-            );
-        }
+        handle_pmix_error(rc, "PMIx_Put");
 
         // Commit the data
         rc = PMIx_Commit();
-        if (rc != PMIX_SUCCESS) {
-            PMIx_Finalize(nullptr, 0);
-            throw std::runtime_error(
-                "PMIx_Commit failed: " + std::string{PMIx_Error_string(rc)}
-            );
-        }
+        handle_pmix_error(rc, "PMIx_Commit");
 
         root_address = root_address_to_publish.value();
     }
@@ -1239,14 +1264,7 @@ std::string coordinate_root_address_via_pmix(
 
     rc = PMIx_Fence(&proc_wildcard, 1, &info, 1);
     PMIX_INFO_DESTRUCT(&info);
-
-    // Accept partial success (some PMIx implementations return this for fences)
-    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
-        PMIx_Finalize(nullptr, 0);
-        throw std::runtime_error(
-            "PMIx_Fence failed: " + std::string{PMIx_Error_string(rc)}
-        );
-    }
+    handle_pmix_error(rc, "PMIx_Fence", true);
 
     if (!root_address_to_publish.has_value()) {
         // Non-root parents retrieve the address
@@ -1257,18 +1275,15 @@ std::string coordinate_root_address_via_pmix(
 
         pmix_value_t* value = nullptr;
         rc = PMIx_Get(&source_proc, "rapidsmpf_root_address", nullptr, 0, &value);
+        handle_pmix_error(rc, "PMIx_Get");
 
-        if (rc != PMIX_SUCCESS || value == nullptr) {
-            PMIx_Finalize(nullptr, 0);
-            throw std::runtime_error(
-                "PMIx_Get failed: " + std::string{PMIx_Error_string(rc)}
-            );
+        if (value == nullptr) {
+            pmix_fatal_error("PMIx_Get returned null value");
         }
 
         if (value->type != PMIX_STRING) {
             PMIX_VALUE_RELEASE(value);
-            PMIx_Finalize(nullptr, 0);
-            throw std::runtime_error("PMIx_Get returned non-string value");
+            pmix_fatal_error("PMIx_Get returned non-string value");
         }
 
         std::string encoded_address = value->data.string;
