@@ -208,6 +208,27 @@ void barrier(Context const& ctx) {
     }
 }
 
+void sync(Context const& ctx) {
+    switch (ctx.backend) {
+    case Backend::FILE:
+        {
+            detail::FileBackend backend{ctx};
+            backend.sync();
+            break;
+        }
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case Backend::SLURM:
+        {
+            detail::SlurmBackend backend{ctx};
+            backend.sync();
+            break;
+        }
+#endif
+    default:
+        throw std::runtime_error("sync not implemented for this backend");
+    }
+}
+
 void put(Context const& ctx, std::string const& key, std::string const& value) {
     switch (ctx.backend) {
     case Backend::FILE:

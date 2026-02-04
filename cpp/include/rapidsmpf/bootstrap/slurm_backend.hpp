@@ -100,6 +100,18 @@ class SlurmBackend {
     void barrier();
 
     /**
+     * @brief Ensure all previous put() operations are globally visible.
+     *
+     * For Slurm/PMIx backend, this executes PMIx_Fence to make all committed
+     * key-value pairs visible across all nodes. This is required because
+     * PMIx_Put + PMIx_Commit only makes data locally visible; PMIx_Fence
+     * performs the global synchronization and data exchange.
+     *
+     * @throws std::runtime_error if PMIx_Fence fails.
+     */
+    void sync();
+
+    /**
      * @brief Broadcast data from root to all ranks.
      *
      * Root rank publishes data via put(), then all ranks synchronize

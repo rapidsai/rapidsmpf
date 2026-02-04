@@ -218,6 +218,25 @@ void SlurmBackend::barrier() {
     }
 }
 
+void SlurmBackend::sync() {
+    pmix_proc_t proc;
+    PMIX_PROC_CONSTRUCT(&proc);
+    std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
+    proc.rank = PMIX_RANK_WILDCARD;
+
+    pmix_info_t info;
+    bool collect = true;
+    PMIX_INFO_CONSTRUCT(&info);
+    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
+
+    pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
+    PMIX_INFO_DESTRUCT(&info);
+
+    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
+        throw std::runtime_error("PMIx_Fence (sync) failed: " + pmix_error_string(rc));
+    }
+}
+
 void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
     // Use unique key for each broadcast to avoid collisions
     std::string bcast_key =

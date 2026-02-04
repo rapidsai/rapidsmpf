@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -107,6 +107,8 @@ void FileBackend::barrier() {
     std::error_code ec;
     std::filesystem::remove(my_barrier_file, ec);
 }
+
+void FileBackend::sync() {}
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
     if (ctx_.rank == root) {

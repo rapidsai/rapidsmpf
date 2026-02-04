@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -63,6 +63,15 @@ class FileBackend {
      * All ranks must call this before any rank proceeds.
      */
     void barrier();
+
+    /**
+     * @brief Ensure all previous put() operations are globally visible.
+     *
+     * For FileBackend, this is a no-op since put() operations use atomic
+     * file writes that are immediately visible to all processes via the
+     * shared filesystem.
+     */
+    void sync();
 
     /**
      * @brief Broadcast data from root to all ranks.

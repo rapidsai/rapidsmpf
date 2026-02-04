@@ -111,7 +111,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
         comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
     }
     // Path 3: Normal bootstrap mode for root rank.
-    // Create listener and publish address via PMIx put() for non-root ranks to retrieve.
+    // Create listener and publish address via put() for non-root ranks to retrieve.
     else if (ctx.rank == 0)
     {
         auto ucxx_initialized_rank =
@@ -124,24 +124,13 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
                 ->getString();
 
         put(ctx, "ucxx_root_address", root_worker_address_str);
-
-        // For PMIx/Slurm backend, barrier is needed to execute PMIx_Fence
-        // which makes put() data visible across nodes.
-        // For FILE backend, barrier is not needed since put/get already
-        // provide implicit synchronization via filesystem operations.
-        if (ctx.backend == Backend::SLURM) {
-            barrier(ctx);
-        }
+        sync(ctx);
     }
     // Path 4: Normal bootstrap mode for non-root ranks.
     // Retrieve root address via get() and connect.
     else
     {
-        // For PMIx/Slurm backend, barrier is needed to execute PMIx_Fence
-        // which makes put() data visible across nodes.
-        if (ctx.backend == Backend::SLURM) {
-            barrier(ctx);
-        }
+        sync(ctx);
 
         auto root_worker_address_str =
             get(ctx, "ucxx_root_address", std::chrono::seconds{30});

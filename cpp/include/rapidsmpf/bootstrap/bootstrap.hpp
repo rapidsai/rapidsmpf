@@ -119,6 +119,20 @@ void broadcast(Context const& ctx, void* data, std::size_t size, Rank root = 0);
 void barrier(Context const& ctx);
 
 /**
+ * @brief Ensure all previous put() operations are globally visible.
+ *
+ * Different backends have different visibility semantics for put() operations:
+ * - Slurm/PMIx: Requires explicit fence (PMIx_Fence) to make data visible across nodes.
+ * - FILE: put() operations are immediately visible via atomic filesystem operations.
+ *
+ * This function abstracts these differences. Call sync() after put() operations
+ * to ensure data is visible to other ranks before they attempt get().
+ *
+ * @param ctx Bootstrap context.
+ */
+void sync(Context const& ctx);
+
+/**
  * @brief Store a key-value pair in the coordination backend.
  *
  * This is useful for custom coordination beyond UCXX address exchange.
