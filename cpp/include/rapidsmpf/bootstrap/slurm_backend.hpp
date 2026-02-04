@@ -27,18 +27,27 @@ namespace rapidsmpf::bootstrap::detail {
  * a shared filesystem. It is designed for Slurm clusters and supports multi-node
  * deployments.
  *
- * PMIx operations:
- * - PMIx_Put/PMIx_Get: Key-value store operations
- * - PMIx_Commit: Make local puts visible
- * - PMIx_Fence: Global synchronization and data exchange
- *
  * Usage:
  * ```bash
- * # Single node
- * srun --mpi=pmix -n 4 ./my_program
+ * # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.
+ * srun \
+ *     --mpi=pmix \
+ *     --nodes=2 \
+ *     --ntasks-per-node=4 \
+ *     --cpus-per-task=36 \
+ *     --gpus-per-task=1 \
+ *     --gres=gpu:4 \
+ *     rrun ./benchmarks/bench_shuffle -C ucxx
  *
- * # Multi-node
- * srun --mpi=pmix -N 2 -n 8 ./my_program
+ * # Hybrid mode: one task per node, 4 GPUs per task, two nodes.
+ * srun \
+ *     --mpi=pmix \
+ *     --nodes=2 \
+ *     --ntasks-per-node=1 \
+ *     --cpus-per-task=144 \
+ *     --gpus-per-task=4 \
+ *     --gres=gpu:4 \
+ *     rrun -n 4 ./benchmarks/bench_shuffle -C ucxx
  * ```
  */
 class SlurmBackend {
