@@ -46,7 +46,7 @@ Backend detect_backend() {
     // Important: This path should only be taken by Slurm parent processes that are
     // NOT launched by rrun. Child processes launched by rrun will have RAPIDSMPF_*
     // variables set and will use FILE backend above.
-    if (getenv_optional("SLURM_JOB_ID") && getenv_optional("SLURM_PROCID")) {
+    if (is_running_with_slurm()) {
         return Backend::SLURM;
     }
 #endif
