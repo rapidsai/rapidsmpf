@@ -604,7 +604,7 @@ int main(int argc, char** argv) {
         if (use_bootstrap) {
             std::cerr
                 << "Error: MPI communicator requires MPI initialization. Don't use with "
-                   "rrun/srun bootstrap mode."
+                   "rrun bootstrap mode."
                 << std::endl;
             return 1;
         }
@@ -612,7 +612,7 @@ int main(int argc, char** argv) {
         comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
-            // Launched with rrun or srun --mpi=pmix - use bootstrap backend
+            // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
                 rapidsmpf::bootstrap::Backend::AUTO, options
             );

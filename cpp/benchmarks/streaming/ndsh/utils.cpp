@@ -187,7 +187,7 @@ std::shared_ptr<streaming::Context> create_context(
     case CommType::MPI:
         RAPIDSMPF_EXPECTS(
             !bootstrap::is_running_with_bootstrap(),
-            "Can't use MPI communicator with rrun/srun bootstrap mode"
+            "Can't use MPI communicator with rrun"
         );
         mpi::init(nullptr, nullptr);
 
