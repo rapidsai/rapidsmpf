@@ -88,6 +88,43 @@ void check_pmix_status(pmix_status_t status, std::string const& operation) {
     }
 }
 
+/**
+ * @brief Perform PMIx fence operation across all ranks.
+ *
+ * Executes PMIx_Fence with PMIX_COLLECT_DATA to synchronize all ranks
+ * in the namespace and exchange data. Accepts both PMIX_SUCCESS and
+ * PMIX_ERR_PARTIAL_SUCCESS as success conditions, since PARTIAL_SUCCESS
+ * can occur in some PMIx implementations when not all processes have
+ * data to contribute, but the synchronization succeeded.
+ *
+ * @param nspace The PMIx namespace to fence across.
+ * @param operation_name Name of the operation for error messages (e.g., "barrier",
+ * "sync").
+ * @throws std::runtime_error if the fence operation fails.
+ */
+void pmix_fence_all(
+    std::array<char, PMIX_MAX_NSLEN + 1> const& nspace, std::string const& operation_name
+) {
+    pmix_proc_t proc;
+    PMIX_PROC_CONSTRUCT(&proc);
+    std::memcpy(proc.nspace, nspace.data(), nspace.size());
+    proc.rank = PMIX_RANK_WILDCARD;
+
+    pmix_info_t info;
+    bool collect = true;
+    PMIX_INFO_CONSTRUCT(&info);
+    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
+
+    pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
+    PMIX_INFO_DESTRUCT(&info);
+
+    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
+        throw std::runtime_error(
+            "PMIx_Fence (" + operation_name + ") failed: " + pmix_error_string(rc)
+        );
+    }
+}
+
 }  // namespace
 
 SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
@@ -215,44 +252,11 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
 }
 
 void SlurmBackend::barrier() {
-    pmix_proc_t proc;
-    PMIX_PROC_CONSTRUCT(&proc);
-    std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
-    proc.rank = PMIX_RANK_WILDCARD;
-
-    pmix_info_t info;
-    bool collect = true;
-    PMIX_INFO_CONSTRUCT(&info);
-    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
-
-    pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
-    PMIX_INFO_DESTRUCT(&info);
-
-    // Accept both SUCCESS and PARTIAL_SUCCESS for the fence.
-    // PARTIAL_SUCCESS can occur in some PMIx implementations when not all
-    // processes have data to contribute, but the synchronization succeeded.
-    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
-        throw std::runtime_error("PMIx_Fence (barrier) failed: " + pmix_error_string(rc));
-    }
+    pmix_fence_all(nspace_, "barrier");
 }
 
 void SlurmBackend::sync() {
-    pmix_proc_t proc;
-    PMIX_PROC_CONSTRUCT(&proc);
-    std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
-    proc.rank = PMIX_RANK_WILDCARD;
-
-    pmix_info_t info;
-    bool collect = true;
-    PMIX_INFO_CONSTRUCT(&info);
-    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
-
-    pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
-    PMIX_INFO_DESTRUCT(&info);
-
-    if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
-        throw std::runtime_error("PMIx_Fence (sync) failed: " + pmix_error_string(rc));
-    }
+    pmix_fence_all(nspace_, "sync");
 }
 
 void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
