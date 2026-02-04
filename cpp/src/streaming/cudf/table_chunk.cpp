@@ -118,7 +118,6 @@ TableChunk TableChunk::make_available(MemoryReservation& reservation) {
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "packed data pointer cannot be null");
     auto packed_data = std::move(packed_data_);
     packed_data->data = reservation.br()->move(std::move(packed_data->data), reservation);
-    table_view_.reset();  // table_view_ is no longer valid, so we reset it.
     return TableChunk{std::move(packed_data)};
 }
 
