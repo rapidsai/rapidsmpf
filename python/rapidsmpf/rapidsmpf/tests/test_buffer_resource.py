@@ -243,5 +243,8 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     with opaque_memory_usage(res):
         br.release(res, KiB(30))
         assert res.size == KiB(50)
+    assert res.size == 0
 
+    with opaque_memory_usage(res):
+        assert res.size == 0
     assert res.size == 0
