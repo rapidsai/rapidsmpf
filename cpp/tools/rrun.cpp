@@ -657,12 +657,11 @@ Config parse_args(int argc, char* argv[]) {
 
         // In Slurm mode:
         // - If -n is specified: launch N ranks per Slurm task (hybrid mode)
-        // - If -n is not specified: just apply bindings and exec (passthrough mode)
+        // - If -n is not specified: just apply bindings and exec (passthrough mode,
+        //                           one rank per task)
         if (cfg.nranks <= 0) {
-            // Passthrough mode: one rank per Slurm task
             cfg.nranks = 1;
         }
-        // else: hybrid mode with cfg.nranks children per Slurm task
     } else {
         // Single-node mode validation
         if (cfg.nranks <= 0) {
@@ -811,6 +810,9 @@ pid_t fork_with_piped_stdio(
  * and single-node mode: create coordination directory, launch ranks via fork,
  * cleanup, and report results.
  *
+ * A task here denotes a Slurm unit of execution, e.g., a single instance of a
+ * program or process, e.g., an instance of the `rrun` executable itself.
+ *
  * @param cfg Configuration (will modify coord_dir if empty).
  * @param rank_offset Starting global rank for this task.
  * @param ranks_per_task Number of ranks to launch locally.
@@ -844,7 +846,6 @@ int setup_launch_and_cleanup(
         cfg, rank_offset, ranks_per_task, total_ranks, root_address, is_root_parent
     );
 
-    // Cleanup
     if (cfg.cleanup) {
         if (cfg.verbose) {
             std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
@@ -888,11 +889,6 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
     setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
     setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
 
-    // Set custom environment variables
-    for (auto const& env_pair : cfg.env_vars) {
-        setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
-    }
-
     // Determine GPU for this Slurm task
     int gpu_id = -1;
     if (!cfg.gpus.empty()) {
@@ -900,9 +896,14 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
         setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
 
         if (cfg.verbose) {
-            std::cerr << "[rrun] Slurm task (passthrough) local_id=" << cfg.slurm_local_id
+            std::cout << "[rrun] Slurm task (passthrough) local_id=" << cfg.slurm_local_id
                       << " assigned to GPU " << gpu_id << std::endl;
         }
+    }
+
+    // Set custom environment variables
+    for (auto const& env_pair : cfg.env_vars) {
+        setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
     }
 
     apply_topology_bindings(cfg, gpu_id, cfg.verbose);
@@ -931,7 +932,7 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
  * on all nodes launch their remaining ranks. Uses fork-based execution.
  *
  * @param cfg Configuration.
- * @return Exit status (0 for success)
+ * @return Exit status (0 for success).
  */
 int execute_slurm_hybrid_mode(Config& cfg) {
     if (cfg.verbose) {
@@ -1012,12 +1013,12 @@ int execute_slurm_hybrid_mode(Config& cfg) {
 #endif  // RAPIDSMPF_HAVE_SLURM
 
 /**
- * @brief Execute application in single-node mode with FILE backend
+ * @brief Execute application in single-node mode with FILE backend.
  *
  * Uses fork-based execution with file-based coordination.
  *
- * @param cfg Configuration
- * @return Exit status (0 for success)
+ * @param cfg Configuration.
+ * @return Exit status (0 for success).
  */
 int execute_single_node_mode(Config& cfg) {
     if (cfg.verbose) {
@@ -1033,13 +1034,14 @@ int execute_single_node_mode(Config& cfg) {
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
- * @brief Launch rank 0 first to obtain its UCXX root address
+ * @brief Launch rank 0 first to obtain its UCXX root address.
  *
- * @param cfg Configuration
- * @param address_file Path to file where rank 0 will write its address
- * @param total_ranks Total number of ranks across all tasks
- * @return Hex-encoded root address
- * @throws std::runtime_error on timeout or launch failure
+ * @param cfg Configuration.
+ * @param address_file Path to file where rank 0 will write its address.
+ * @param total_ranks Total number of ranks across all tasks.
+ * @return Hex-encoded root address.
+ *
+ * @throws std::runtime_error on timeout or launch failure.
  */
 std::string launch_rank0_and_get_address(
     Config const& cfg, std::string const& address_file, int total_ranks
@@ -1149,6 +1151,7 @@ std::string launch_rank0_and_get_address(
  *                                this is a non-root parent and it will retrieve.
  * @param verbose Whether to print debug messages.
  * @return Root address (either published or retrieved).
+ *
  * @throws std::runtime_error on PMIx errors.
  */
 std::string coordinate_root_address_via_pmix(
@@ -1275,6 +1278,9 @@ std::string coordinate_root_address_via_pmix(
 
 /**
  * @brief Launch multiple ranks locally using fork.
+ *
+ * A task here denotes a Slurm unit of execution, e.g., a single instance of a
+ * program or process, e.g., an instance of the `rrun` executable itself.
  *
  * @param cfg Configuration.
  * @param rank_offset Starting global rank for this task.
