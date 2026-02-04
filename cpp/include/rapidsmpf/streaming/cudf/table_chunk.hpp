@@ -31,7 +31,7 @@ namespace rapidsmpf::streaming {
  * @brief A unit of table data in a streaming pipeline.
  *
  * Represents either an unpacked `cudf::table`, a `cudf::packed_columns`, or a
- * `PackedData`.
+* Represents either an unpacked `cudf::table` or a `PackedData`.
  *
  * TableChunks may be initially unavailable (e.g., if the data is packed or spilled),
  * and can be made available (i.e., materialized to device memory) on demand.
