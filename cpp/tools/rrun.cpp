@@ -83,7 +83,7 @@ std::string hex_decode(std::string const& input) {
 
 // Forward declarations of mode execution functions (defined later, outside namespace)
 struct Config;
-int execute_slurm_passthrough_mode(Config const& cfg);
+[[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg);
 int execute_single_node_mode(Config& cfg);
 #ifdef RAPIDSMPF_HAVE_SLURM
 int execute_slurm_hybrid_mode(Config& cfg);
@@ -102,6 +102,7 @@ int launch_ranks_fork_based(
     std::string const& root_address,
     bool is_root_parent
 );
+[[noreturn]] void exec_application(Config const& cfg);
 pid_t launch_rank_local(
     Config const& cfg,
     int global_rank,
@@ -869,16 +870,43 @@ int setup_launch_and_cleanup(
     return exit_status;
 }
 
+/**
+ * @brief Execute application via execvp (never returns).
+ *
+ * Prepares arguments and calls execvp. On failure, prints error and exits.
+ * This function never returns - it either replaces the current process
+ * or calls _exit(1) on error.
+ *
+ * @param cfg Configuration containing application binary and arguments.
+ */
+[[noreturn]] void exec_application(Config const& cfg) {
+    // Prepare arguments for execvp
+    std::vector<char*> exec_args;
+    exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
+    for (auto const& arg : cfg.app_args) {
+        exec_args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    exec_args.push_back(nullptr);
+
+    // Exec the application (this replaces the current process)
+    execvp(cfg.app_binary.c_str(), exec_args.data());
+
+    // If we get here, execvp failed
+    std::cerr << "[rrun] Failed to execute " << cfg.app_binary << ": "
+              << std::strerror(errno) << std::endl;
+    _exit(1);
+}
+
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Execute application in Slurm passthrough mode (single rank per task).
  *
  * Applies topology bindings and executes the application directly without forking.
+ * This function never returns - it either replaces the current process or exits on error.
  *
  * @param cfg Configuration.
- * @return Exit status. Does not return on success, only on error.
  */
-int execute_slurm_passthrough_mode(Config const& cfg) {
+[[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg) {
     if (cfg.verbose) {
         std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
                   << std::endl;
@@ -908,21 +936,7 @@ int execute_slurm_passthrough_mode(Config const& cfg) {
 
     apply_topology_bindings(cfg, gpu_id, cfg.verbose);
 
-    // Prepare arguments for execvp
-    std::vector<char*> exec_args;
-    exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
-    for (auto const& arg : cfg.app_args) {
-        exec_args.push_back(const_cast<char*>(arg.c_str()));
-    }
-    exec_args.push_back(nullptr);
-
-    // Exec the application (this replaces the current process)
-    execvp(cfg.app_binary.c_str(), exec_args.data());
-
-    // If we get here, execvp failed
-    std::cerr << "[rrun] Failed to execute " << cfg.app_binary << ": "
-              << std::strerror(errno) << std::endl;
-    return 1;
+    exec_application(cfg);
 }
 
 /**
@@ -1512,18 +1526,7 @@ pid_t launch_rank_local(
 
             apply_topology_bindings(cfg, gpu_id, cfg.verbose);
 
-            // Prepare arguments for execvp
-            std::vector<char*> exec_args;
-            exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
-            for (auto const& arg : cfg.app_args) {
-                exec_args.push_back(const_cast<char*>(arg.c_str()));
-            }
-            exec_args.push_back(nullptr);
-
-            execvp(cfg.app_binary.c_str(), exec_args.data());
-            std::cerr << "[rrun] Failed to execute " << cfg.app_binary << ": "
-                      << std::strerror(errno) << std::endl;
-            _exit(1);
+            exec_application(cfg);
         }
     );
 }
@@ -1597,20 +1600,19 @@ int main(int argc, char* argv[]) {
         if (cfg.slurm_mode) {
             if (cfg.nranks == 1) {
                 // Slurm passthrough mode: single rank per task, no forking
-                return execute_slurm_passthrough_mode(cfg);
-            } else {
-                // Slurm hybrid mode: multiple ranks per task with PMIx coordination
-#ifdef RAPIDSMPF_HAVE_SLURM
-                return execute_slurm_hybrid_mode(cfg);
-#else
-                std::cerr << "[rrun] Error: Slurm hybrid mode requires PMIx support but "
-                          << "rapidsmpf was not built with PMIx." << std::endl;
-                std::cerr << "[rrun] Rebuild with -DBUILD_SLURM_SUPPORT=ON or use "
-                             "passthrough mode "
-                          << "(without -n flag)." << std::endl;
-                return 1;
-#endif
+                execute_slurm_passthrough_mode(cfg);
             }
+            // Slurm hybrid mode: multiple ranks per task with PMIx coordination
+#ifdef RAPIDSMPF_HAVE_SLURM
+            return execute_slurm_hybrid_mode(cfg);
+#else
+            std::cerr << "[rrun] Error: Slurm hybrid mode requires PMIx support but "
+                      << "rapidsmpf was not built with PMIx." << std::endl;
+            std::cerr << "[rrun] Rebuild with -DBUILD_SLURM_SUPPORT=ON or use "
+                         "passthrough mode "
+                      << "(without -n flag)." << std::endl;
+            return 1;
+#endif
         } else {
             // Single-node mode with FILE backend
             return execute_single_node_mode(cfg);
