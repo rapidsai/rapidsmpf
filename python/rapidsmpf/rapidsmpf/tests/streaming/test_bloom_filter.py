@@ -44,14 +44,8 @@ def run_bloom_filter_pipeline(
         num_filter_blocks=BloomFilter.fitting_num_blocks(l2size),
     )
 
-    build_msg = Message(
-        0,
-        build_table,
-    )
-    probe_msg = Message(
-        0,
-        probe_table,
-    )
+    build_msg = Message(0, build_table)
+    probe_msg = Message(0, probe_table)
 
     ch_build: Channel[TableChunk] = context.create_channel()
     ch_probe: Channel[TableChunk] = context.create_channel()
