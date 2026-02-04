@@ -122,10 +122,6 @@ bool is_running_with_slurm() {
            && getenv_optional("SLURM_PROCID").has_value();
 }
 
-bool is_running_with_bootstrap() {
-    return is_running_with_rrun();
-}
-
 Rank get_rank() {
     if (auto rank_opt = getenv_int("RAPIDSMPF_RANK")) {
         return *rank_opt;

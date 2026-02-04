@@ -302,7 +302,7 @@ rapidsmpf::Duration run(
 }
 
 int main(int argc, char** argv) {
-    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_bootstrap();
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
     // Explicitly initialize MPI with thread support, as this is needed for both mpi
     // and ucxx communicators when not using bootstrap mode.

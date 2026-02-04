@@ -89,17 +89,6 @@ bool is_running_with_rrun();
 bool is_running_with_slurm();
 
 /**
- * @brief Check if the current process is running with any bootstrap launcher.
- *
- * This helper detects bootstrap mode by checking for either `rrun` or Slurm/PMIx
- * environment. Use this function when you need to determine whether to use
- * bootstrap-based initialization vs MPI-based initialization.
- *
- * @return true if running under any bootstrap mode (rrun or Slurm), false otherwise.
- */
-bool is_running_with_bootstrap();
-
-/**
  * @brief Get the current bootstrap rank.
  *
  * This helper retrieves the rank of the current process when running with a

@@ -186,8 +186,7 @@ std::shared_ptr<streaming::Context> create_context(
     switch (arguments.comm_type) {
     case CommType::MPI:
         RAPIDSMPF_EXPECTS(
-            !bootstrap::is_running_with_bootstrap(),
-            "Can't use MPI communicator with rrun"
+            !bootstrap::is_running_with_rrun(), "Can't use MPI communicator with rrun"
         );
         mpi::init(nullptr, nullptr);
 
@@ -197,7 +196,7 @@ std::shared_ptr<streaming::Context> create_context(
         comm = std::make_shared<Single>(options);
         break;
     case CommType::UCXX:
-        if (bootstrap::is_running_with_bootstrap()) {
+        if (bootstrap::is_running_with_rrun()) {
             comm = bootstrap::create_ucxx_comm(bootstrap::Backend::AUTO, options);
         } else {
             mpi::init(nullptr, nullptr);

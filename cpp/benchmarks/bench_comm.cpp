@@ -258,7 +258,7 @@ Duration run(
 }
 
 int main(int argc, char** argv) {
-    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_bootstrap();
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
     int provided = 0;
     if (!use_bootstrap) {
