@@ -26,6 +26,31 @@
 
 namespace rapidsmpf::bootstrap {
 
+std::optional<std::string> getenv_optional(std::string_view name) {
+    // std::getenv requires a null-terminated string; construct a std::string
+    // to ensure this even when called with a non-literal std::string_view.
+    char const* value = std::getenv(std::string{name}.c_str());
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    return std::string{value};
+}
+
+std::optional<int> getenv_int(std::string_view name) {
+    auto value = getenv_optional(name);
+    if (!value) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoi(*value);
+    } catch (...) {
+        throw std::runtime_error(
+            std::string{"Failed to parse integer from environment variable "}
+            + std::string{name} + ": " + *value
+        );
+    }
+}
+
 std::string get_current_cpu_affinity() {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -73,67 +98,46 @@ std::string get_current_cpu_affinity() {
 }
 
 std::string get_ucx_net_devices() {
-    char* env = std::getenv("UCX_NET_DEVICES");
-    return env ? std::string(env) : std::string();
+    return getenv_optional("UCX_NET_DEVICES").value_or("");
 }
 
 int get_gpu_id() {
-    char* cuda_visible = std::getenv("CUDA_VISIBLE_DEVICES");
+    auto cuda_visible = getenv_optional("CUDA_VISIBLE_DEVICES");
     if (cuda_visible) {
         try {
-            return std::stoi(cuda_visible);
+            return std::stoi(*cuda_visible);
         } catch (...) {
             // Ignore parse errors
         }
     }
-
     return -1;
 }
 
 bool is_running_with_rrun() {
-    return std::getenv("RAPIDSMPF_RANK") != nullptr;
+    return getenv_optional("RAPIDSMPF_RANK").has_value();
 }
 
 bool is_running_with_slurm() {
-    if (std::getenv("SLURM_JOB_ID") != nullptr && std::getenv("SLURM_PROCID") != nullptr)
-    {
-        return true;
-    }
-    return false;
+    return getenv_optional("SLURM_JOB_ID").has_value()
+           && getenv_optional("SLURM_PROCID").has_value();
 }
 
 bool is_running_with_bootstrap() {
-    // Only return true if rrun is coordinating (i.e., RAPIDSMPF_RANK is set).
-    // Even if Slurm environment variables are present, the user may want to use
-    // MPI directly with `srun --mpi=pmix`, so we shouldn't force bootstrap mode
-    // unless rrun is explicitly managing the launch.
     return is_running_with_rrun();
 }
 
 Rank get_rank() {
     // Check rrun first (explicit configuration takes priority)
-    if (char* rank_env = std::getenv("RAPIDSMPF_RANK")) {
-        try {
-            return std::stoi(rank_env);
-        } catch (...) {
-            // Ignore parse errors, try next source
-        }
+    if (auto rank_opt = getenv_int("RAPIDSMPF_RANK")) {
+        return *rank_opt;
     }
     // Check PMIx rank
-    if (char* rank_env = std::getenv("PMIX_RANK")) {
-        try {
-            return std::stoi(rank_env);
-        } catch (...) {
-            // Ignore parse errors, try next source
-        }
+    if (auto rank_opt = getenv_int("PMIX_RANK")) {
+        return *rank_opt;
     }
     // Check Slurm process ID
-    if (char* rank_env = std::getenv("SLURM_PROCID")) {
-        try {
-            return std::stoi(rank_env);
-        } catch (...) {
-            // Ignore parse errors
-        }
+    if (auto rank_opt = getenv_int("SLURM_PROCID")) {
+        return *rank_opt;
     }
     return -1;
 }
@@ -147,36 +151,18 @@ Rank get_nranks() {
     }
 
     // Check rrun first (explicit configuration takes priority)
-    if (char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS")) {
-        try {
-            return std::stoi(nranks_str);
-        } catch (...) {
-            throw std::runtime_error(
-                "Failed to parse integer from RAPIDSMPF_NRANKS: "
-                + std::string(nranks_str)
-            );
-        }
+    // getenv_int will throw if the variable is set but cannot be parsed
+    if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
+        return *nranks_opt;
     }
 
     // Check Slurm environment variables
-    if (char const* nranks_str = std::getenv("SLURM_NPROCS")) {
-        try {
-            return std::stoi(nranks_str);
-        } catch (...) {
-            throw std::runtime_error(
-                "Failed to parse integer from SLURM_NPROCS: " + std::string(nranks_str)
-            );
-        }
+    if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
+        return *nranks_opt;
     }
 
-    if (char const* nranks_str = std::getenv("SLURM_NTASKS")) {
-        try {
-            return std::stoi(nranks_str);
-        } catch (...) {
-            throw std::runtime_error(
-                "Failed to parse integer from SLURM_NTASKS: " + std::string(nranks_str)
-            );
-        }
+    if (auto nranks_opt = getenv_int("SLURM_NTASKS")) {
+        return *nranks_opt;
     }
 
     throw std::runtime_error(

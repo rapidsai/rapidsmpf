@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/file_backend.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/config.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
@@ -21,37 +22,6 @@
 
 namespace rapidsmpf::bootstrap {
 namespace {
-
-/**
- * @brief Get environment variable as string.
- */
-std::optional<std::string> getenv_optional(std::string_view name) {
-    // std::getenv requires a null-terminated string; construct a std::string
-    // to ensure this even when called with a non-literal std::string_view.
-    char const* value = std::getenv(std::string{name}.c_str());
-    if (value == nullptr) {
-        return std::nullopt;
-    }
-    return std::string{value};
-}
-
-/**
- * @brief Parse integer from environment variable.
- */
-std::optional<int> getenv_int(std::string_view name) {
-    auto value = getenv_optional(name);
-    if (!value) {
-        return std::nullopt;
-    }
-    try {
-        return std::stoi(*value);
-    } catch (...) {
-        throw std::runtime_error(
-            std::string{"Failed to parse integer from environment variable "}
-            + std::string{name} + ": " + *value
-        );
-    }
-}
 
 /**
  * @brief Detect backend from environment variables.

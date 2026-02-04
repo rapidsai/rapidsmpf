@@ -5,12 +5,36 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
+
+/**
+ * @brief Get environment variable as optional string.
+ *
+ * Retrieves the value of an environment variable by name, returning it as
+ * std::optional<std::string>. Returns std::nullopt if the variable is not set.
+ *
+ * @param name Name of the environment variable to retrieve.
+ * @return Value of the environment variable, or std::nullopt if not set.
+ */
+std::optional<std::string> getenv_optional(std::string_view name);
+
+/**
+ * @brief Parse integer from environment variable.
+ *
+ * Retrieves an environment variable and parses it as an integer.
+ *
+ * @param name Name of the environment variable to retrieve.
+ * @return Parsed integer value, or std::nullopt if not set.
+ * @throws std::runtime_error if the variable is set but cannot be parsed as an integer.
+ */
+std::optional<int> getenv_int(std::string_view name);
 
 /**
  * @brief Get current CPU affinity as a string.
