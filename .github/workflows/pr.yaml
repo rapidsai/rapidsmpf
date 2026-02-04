@@ -99,6 +99,7 @@ jobs:
           - '!ci/test_wheel.sh'
           - '!ci/validate_wheel.sh'
           - '!cpp/.clang-format'
+          - '!cpp/doxygen/**'
           - '!docs/**'
         test_python_wheels:
           - '**'
@@ -123,6 +124,7 @@ jobs:
           - '!ci/test_python.sh'
           - '!conda/**'
           - '!cpp/.clang-format'
+          - '!cpp/doxygen/**'
           - '!docs/**''
   checks:
     secrets: inherit
