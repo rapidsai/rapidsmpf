@@ -228,15 +228,14 @@ void print_usage(std::string_view prog_name) {
         << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
            "./bench_comm\n\n"
         << "Slurm Examples:\n"
-        << "  # Passthrough mode (1 rank per Slurm task, 8 tasks total):\n"
-        << "  srun --mpi=pmix -N 2 --ntasks-per-node=4 --gres=gpu:4 rrun "
-           "./bench_shuffle -C ucxx\n\n"
-        << "  # Hybrid mode (2 Slurm tasks × 4 ranks/task = 8 total ranks):\n"
-        << "  srun --mpi=pmix -N 2 --ntasks-per-node=1 --gres=gpu:4 rrun -n 4 "
-           "./bench_shuffle -C ucxx\n\n"
-        << "  # Hybrid mode with --gpus-per-task:\n"
-        << "  srun --mpi=pmix --ntasks-per-node=2 --gpus-per-task=4 rrun -n 4 "
-           "./bench_shuffle -C ucxx\n\n"
+        << "  # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.\n"
+        << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=4 --cpus-per-task=36 \\\n"
+        << "      --gpus-per-task=1 --gres=gpu:4 \\\n"
+        << "      rrun ./benchmarks/bench_shuffle -C ucxx\n\n"
+        << "  # Hybrid mode: one task per node, 4 GPUs per task, two nodes.\n"
+        << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=1 --cpus-per-task=144 \\\n"
+        << "      --gpus-per-task=4 --gres=gpu:4 \\\n"
+        << "      rrun -n 4 ./benchmarks/bench_shuffle -C ucxx\n\n"
         << std::endl;
 }
 
