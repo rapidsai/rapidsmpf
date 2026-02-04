@@ -99,7 +99,7 @@ int launch_ranks_fork_based(
     int rank_offset,
     int ranks_per_task,
     int total_ranks,
-    std::string const& root_address,
+    std::optional<std::string> const& root_address,
     bool is_root_parent
 );
 [[noreturn]] void exec_application(Config const& cfg);
@@ -108,7 +108,7 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
-    std::string const& root_address,
+    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 );
@@ -828,7 +828,7 @@ int setup_launch_and_cleanup(
     int rank_offset,
     int ranks_per_task,
     int total_ranks,
-    std::string const& root_address,
+    std::optional<std::string> const& root_address,
     bool is_root_parent,
     std::string const& coord_dir_hint = ""
 ) {
@@ -973,16 +973,16 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     // Coordinate root address with other nodes via PMIx
     int slurm_ntasks = cfg.slurm_ntasks > 0 ? cfg.slurm_ntasks : 1;
     int total_ranks = slurm_ntasks * cfg.nranks;
-    std::string coordinated_root_address;
+    std::string encoded_root_address, coordinated_root_address;
 
     if (is_root_parent) {
         // Root parent: Launch rank 0, get address, coordinate via PMIx
         std::string address_file =
             "/tmp/rapidsmpf_root_address_" + std::string{job_id ? job_id : "unknown"};
-        coordinated_root_address =
+        encoded_root_address =
             launch_rank0_and_get_address(cfg, address_file, total_ranks);
         coordinated_root_address =
-            coordinate_root_address_via_pmix(coordinated_root_address, cfg.verbose);
+            coordinate_root_address_via_pmix(encoded_root_address, cfg.verbose);
     } else {
         // Non-root parent: Get address from root via PMIx
         coordinated_root_address =
@@ -1043,7 +1043,7 @@ int execute_single_node_mode(Config& cfg) {
     // Use common helper for launch and cleanup
     // rank_offset=0, ranks_per_task=nranks, total_ranks=nranks, no root_address, not
     // root_parent
-    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, "", false);
+    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt, false);
 }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
@@ -1068,7 +1068,8 @@ std::string launch_rank0_and_get_address(
     setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
 
     int fd_out = -1, fd_err = -1;
-    pid_t rank0_pid = launch_rank_local(cfg, 0, 0, total_ranks, "", &fd_out, &fd_err);
+    pid_t rank0_pid =
+        launch_rank_local(cfg, 0, 0, total_ranks, std::nullopt, &fd_out, &fd_err);
 
     // Start forwarders for rank 0 output
     std::thread rank0_stdout_forwarder;
@@ -1150,7 +1151,7 @@ std::string launch_rank0_and_get_address(
     if (rank0_stderr_forwarder.joinable())
         rank0_stderr_forwarder.detach();
 
-    return root_address;
+    return encoded_address;
 }
 
 /**
@@ -1189,19 +1190,19 @@ std::string coordinate_root_address_via_pmix(
 
     if (root_address_to_publish.has_value()) {
         // Root parent publishes the address (hex-encoded for binary safety)
-        std::string encoded_address = hex_encode(root_address_to_publish.value());
+        std::string decoded_address = hex_encode(root_address_to_publish.value());
 
         if (verbose) {
             std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
-                      << root_address_to_publish.value().size() << " bytes -> "
-                      << encoded_address.size() << " chars)" << std::endl;
+                      << decoded_address.size() << " bytes -> "
+                      << root_address_to_publish.value().size() << " chars)" << std::endl;
         }
 
         // Use PMIx_Put with GLOBAL scope
         pmix_value_t value;
         PMIX_VALUE_CONSTRUCT(&value);
         value.type = PMIX_STRING;
-        value.data.string = strdup(encoded_address.c_str());
+        value.data.string = strdup(root_address_to_publish.value().c_str());
 
         rc = PMIx_Put(PMIX_GLOBAL, "rapidsmpf_root_address", &value);
         PMIX_VALUE_DESTRUCT(&value);
@@ -1309,7 +1310,7 @@ int launch_ranks_fork_based(
     int rank_offset,
     int ranks_per_task,
     int total_ranks,
-    std::string const& root_address,
+    std::optional<std::string> const& root_address,
     bool is_root_parent
 ) {
     std::vector<pid_t> pids;
@@ -1360,7 +1361,7 @@ int launch_ranks_fork_based(
     };
 
     // Launch ranks (skip rank 0 if root parent already launched it)
-    int start_local_rank = (is_root_parent && !root_address.empty()) ? 1 : 0;
+    int start_local_rank = (is_root_parent && root_address.has_value()) ? 1 : 0;
 
     for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
         int global_rank = rank_offset + local_rank;
@@ -1423,7 +1424,7 @@ int launch_ranks_fork_based(
             if (code != 0) {
                 std::cerr << "[rrun] Rank "
                           << (static_cast<size_t>(rank_offset)
-                              + (is_root_parent && !root_address.empty() ? i + 1 : i))
+                              + (is_root_parent && root_address.has_value() ? i + 1 : i))
                           << " (PID " << pid << ") exited with code " << code
                           << std::endl;
                 exit_status = code;
@@ -1432,7 +1433,7 @@ int launch_ranks_fork_based(
             int sig = WTERMSIG(status);
             std::cerr << "[rrun] Rank "
                       << (static_cast<size_t>(rank_offset)
-                          + (is_root_parent && !root_address.empty() ? i + 1 : i))
+                          + (is_root_parent && root_address.has_value() ? i + 1 : i))
                       << " (PID " << pid << ") terminated by signal " << sig << std::endl;
             exit_status = 128 + sig;
         }
@@ -1465,7 +1466,7 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
-    std::string const& root_address,
+    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 ) {
@@ -1473,7 +1474,7 @@ pid_t launch_rank_local(
     int captured_global_rank = global_rank;
     int captured_local_rank = local_rank;
     int captured_total_ranks = total_ranks;
-    std::string captured_root_address = root_address;
+    std::optional<std::string> captured_root_address = root_address;
 
     return fork_with_piped_stdio(
         out_fd_stdout,
@@ -1501,8 +1502,8 @@ pid_t launch_rank_local(
 
             // If root address was pre-coordinated by parent, set it (hex-encoded)
             // This allows children to skip bootstrap coordination entirely
-            if (!captured_root_address.empty()) {
-                std::string encoded_address = hex_encode(captured_root_address);
+            if (captured_root_address.has_value()) {
+                std::string encoded_address = hex_encode(*captured_root_address);
                 setenv("RAPIDSMPF_ROOT_ADDRESS", encoded_address.c_str(), 1);
             }
 
