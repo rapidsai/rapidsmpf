@@ -202,9 +202,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         br->move(std::move(packed_data->data), reservation);
 
                     return TableChunk(std::move(packed_data));
-                } else {  // use buffer_copy
-                    break;
                 }
+                break;  // use buffer_copy
             }
         default:
             RAPIDSMPF_FAIL("MemoryType: unknown");
