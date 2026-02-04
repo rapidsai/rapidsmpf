@@ -96,19 +96,23 @@ class FileCache {
      * @return The cached message, or std::nullopt if the key is not present.
      */
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
+        auto& stats = *ctx->statistics();
         SpillableMessages::MessageId mid;
         {
             std::lock_guard lock(mutex_);
             auto it = cache_.find(key);
             if (it == cache_.end()) {
+                stats.add_stat("unbounded_file_read_cache misses", 1);
                 return std::nullopt;
             }
             mid = it->second;
         }
-        auto reservation = ctx->br()->reserve_or_fail(
-            ctx->spillable_messages()->get_content_description(mid).content_size(),
-            MEMORY_TYPES
-        );
+        auto const size =
+            ctx->spillable_messages()->get_content_description(mid).content_size();
+
+        stats.add_stat("unbounded_file_read_cache hits", 1);
+        stats.add_bytes_stat("unbounded_file_read_cache saved", size);
+        auto reservation = ctx->br()->reserve_or_fail(size, MEMORY_TYPES);
         return ctx->spillable_messages()->copy(mid, reservation);
     }
 
