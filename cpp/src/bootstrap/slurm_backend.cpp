@@ -67,7 +67,6 @@ SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
     std::lock_guard<std::mutex> lock{g_pmix_mutex};
 
     if (!g_pmix_initialized) {
-        // First instance - initialize PMIx (will stay initialized for process lifetime)
         pmix_proc_t proc;
         pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
         if (rc != PMIX_SUCCESS) {
@@ -91,7 +90,7 @@ SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
     nspace_ = g_pmix_nspace;
 
     // Verify rank matches what we expect (if context has a valid rank)
-    // Note: For SLURM backend, ctx_.rank may be set from environment variables
+    // Note: For Slurm backend, ctx_.rank may be set from environment variables
     // before PMIx_Init, so we verify they match
     if (ctx_.rank >= 0 && std::cmp_not_equal(g_pmix_proc.rank, ctx_.rank)) {
         throw std::runtime_error(
