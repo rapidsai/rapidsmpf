@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
         if (use_bootstrap) {
             std::cerr
                 << "Error: MPI communicator requires MPI initialization. Don't use with "
-                   "rrun bootstrap mode."
+                   "rrun or unset RAPIDSMPF_RANK."
                 << std::endl;
             return 1;
         }
