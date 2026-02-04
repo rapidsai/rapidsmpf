@@ -134,17 +134,15 @@ Rank get_rank() {
     } else if (auto rank_opt = getenv_int("SLURM_PROCID")) {
         return *rank_opt;
     } else {
-        return -1;
+        throw std::runtime_error(
+            "Could not determine number of ranks. "
+            "Ensure RAPIDSMPF_RANK, PMIX_RANK, or SLURM_PROCID is set."
+        );
     }
 }
 
 Rank get_nranks() {
-    if (!is_running_with_bootstrap()) {
-        throw std::runtime_error(
-            "get_nranks() can only be called when running with a bootstrap launcher. "
-            "Use 'rrun' or 'srun --mpi=pmix' to launch the application."
-        );
-    } else if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
+    if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
         return *nranks_opt;
     } else if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
         return *nranks_opt;

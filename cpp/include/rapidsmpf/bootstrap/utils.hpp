@@ -108,7 +108,10 @@ bool is_running_with_bootstrap();
  * 2. PMIX_RANK (set by PMIx)
  * 3. SLURM_PROCID (set by Slurm)
  *
- * @return Rank of the current process (>= 0) if found, -1 otherwise.
+ * @return Rank of the current process.
+ *
+ * @throws std::runtime_error if not running with a bootstrap launcher or if
+ * the environment variable cannot be parsed.
  */
 Rank get_rank();
 
@@ -122,6 +125,7 @@ Rank get_rank();
  * 3. SLURM_NTASKS (set by Slurm)
  *
  * @return Number of ranks.
+ *
  * @throws std::runtime_error if not running with a bootstrap launcher or if
  * the environment variable cannot be parsed.
  */

@@ -27,9 +27,9 @@ namespace {
  * @brief Detect backend from environment variables.
  */
 Backend detect_backend() {
-    // Check for rrun coordination first (explicit configuration takes priority)
+    // Check for rrun coordination first (explicit configuration takes priority).
     // If RAPIDSMPF_COORD_DIR or RAPIDSMPF_ROOT_ADDRESS is set, rrun is coordinating
-    // and we should use FILE backend (with or without pre-coordinated address)
+    // and we should use FILE backend (with or without pre-coordinated address).
     if (getenv_optional("RAPIDSMPF_COORD_DIR")
         || getenv_optional("RAPIDSMPF_ROOT_ADDRESS"))
     {
@@ -105,43 +105,23 @@ Context init(Backend backend) {
     case Backend::SLURM:
         {
 #ifdef RAPIDSMPF_HAVE_SLURM
-            // For SLURM backend, we can get rank/nranks from multiple sources:
-            // 1. Explicit RAPIDSMPF_* variables (override)
-            // 2. PMIx environment variables (set by pmix-enabled srun)
-            // 3. Slurm environment variables (fallback)
-            auto rank_opt = getenv_int("RAPIDSMPF_RANK");
-            if (!rank_opt) {
-                rank_opt = getenv_int("PMIX_RANK");
-            }
-            if (!rank_opt) {
-                rank_opt = getenv_int("SLURM_PROCID");
-            }
-
-            auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
-            if (!nranks_opt) {
-                nranks_opt = getenv_int("SLURM_NPROCS");
-            }
-            if (!nranks_opt) {
-                nranks_opt = getenv_int("SLURM_NTASKS");
-            }
-
-            if (!rank_opt.has_value()) {
+            try {
+                ctx.rank = get_rank();
+            } catch (const std::runtime_error& e) {
                 throw std::runtime_error(
-                    "Could not determine rank for SLURM backend. "
-                    "Ensure you're running with 'srun --mpi=pmix' or set RAPIDSMPF_RANK."
+                    "Could not determine rank for Slurm backend. "
+                    "Ensure you're running with 'srun --mpi=pmix'."
                 );
             }
 
-            if (!nranks_opt.has_value()) {
+            try {
+                ctx.nranks = get_nranks();
+            } catch (const std::runtime_error& e) {
                 throw std::runtime_error(
-                    "Could not determine nranks for SLURM backend. "
-                    "Ensure you're running with 'srun --mpi=pmix' or set "
-                    "RAPIDSMPF_NRANKS."
+                    "Could not determine nranks for Slurm backend. "
+                    "Ensure you're running with 'srun --mpi=pmix'."
                 );
             }
-
-            ctx.rank = static_cast<Rank>(*rank_opt);
-            ctx.nranks = static_cast<Rank>(*nranks_opt);
 
             if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
                 throw std::runtime_error(
