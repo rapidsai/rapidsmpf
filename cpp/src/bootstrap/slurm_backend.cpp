@@ -26,9 +26,8 @@ namespace {
 
 // PMIx initialization is process-global and must only happen once.
 // Once initialized, PMIx stays active for the lifetime of the process.
-// We track initialization state but do NOT finalize PMIx in the destructor,
-// as multiple SlurmBackend instances may be created/destroyed during the
-// bootstrap process. PMIx will be cleaned up when the process exits.
+// We register an atexit handler to finalize PMIx when the process exits,
+// ensuring proper cleanup without breaking ongoing collective operations.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::mutex g_pmix_mutex;
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -37,6 +36,22 @@ bool g_pmix_initialized = false;
 pmix_proc_t g_pmix_proc{};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::array<char, PMIX_MAX_NSLEN + 1> g_pmix_nspace{};
+
+/**
+ * @brief Finalize PMIx at process exit.
+ *
+ * This function is registered via atexit() to ensure PMIx is properly
+ * finalized when the process terminates. It runs after all destructors,
+ * so PMIx remains available for the entire process lifetime.
+ */
+void finalize_pmix_at_exit() {
+    // Note: This runs at process exit after all destructors.
+    // No need for mutex as other threads should be done by now.
+    if (g_pmix_initialized) {
+        PMIx_Finalize(nullptr, 0);
+        g_pmix_initialized = false;
+    }
+}
 
 /**
  * @brief Convert PMIx status to string for error messages.
@@ -81,6 +96,9 @@ SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
         static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
         std::memcpy(g_pmix_nspace.data(), proc.nspace, g_pmix_nspace.size());
         g_pmix_initialized = true;
+
+        // Register cleanup handler to finalize PMIx at process exit
+        std::atexit(finalize_pmix_at_exit);
     }
 
     pmix_initialized_ = true;
@@ -106,14 +124,13 @@ SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
 }
 
 SlurmBackend::~SlurmBackend() {
-    // Intentionally do NOT call PMIx_Finalize here.
     // PMIx must stay initialized for the lifetime of the process because
     // multiple SlurmBackend instances may be created and destroyed during
-    // bootstrap operations (put, barrier, get each create a new instance).
+    // bootstrap operations, and finalizing PMIx while other processes are
+    // still in collective operations (fence/barrier) will cause errors.
     //
-    // TODO: Check whether it's safe to let PMIx clean itself up when the
-    // process exits, and potentially come up with a better solution. Maybe
-    // refcounting?
+    // PMIx_Finalize is called via the atexit handler registered during
+    // initialization, ensuring proper cleanup when the process exits.
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
