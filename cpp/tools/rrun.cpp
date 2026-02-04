@@ -50,36 +50,7 @@
 #include <pmix.h>
 #endif
 
-// Hex encoding for binary-safe address transmission
 namespace {
-std::string hex_encode(std::string const& input) {
-    static constexpr const char* hex_chars = "0123456789abcdef";
-    std::string result;
-    result.reserve(input.size() * 2);
-    for (char ch : input) {
-        auto c = static_cast<unsigned char>(ch);
-        result.push_back(hex_chars[c >> 4]);
-        result.push_back(hex_chars[c & 0x0F]);
-    }
-    return result;
-}
-
-#ifdef RAPIDSMPF_HAVE_SLURM
-std::string hex_decode(std::string const& input) {
-    std::string result;
-    result.reserve(input.size() / 2);
-    for (size_t i = 0; i < input.size(); i += 2) {
-        auto high = static_cast<unsigned char>(
-            (input[i] >= 'a') ? (input[i] - 'a' + 10) : (input[i] - '0')
-        );
-        auto low = static_cast<unsigned char>(
-            (input[i + 1] >= 'a') ? (input[i + 1] - 'a' + 10) : (input[i + 1] - '0')
-        );
-        result.push_back(static_cast<char>((high << 4) | low));
-    }
-    return result;
-}
-#endif
 
 // Forward declarations of mode execution functions (defined later, outside namespace)
 struct Config;
@@ -1123,18 +1094,16 @@ std::string launch_rank0_and_get_address(
         }
     }
 
-    // Read the hex-encoded address, decode and remove file
+    // Read the hex-encoded address and remove file
     std::string encoded_address;
     std::ifstream addr_stream(address_file);
     std::getline(addr_stream, encoded_address);
     addr_stream.close();
-    std::string root_address = hex_decode(encoded_address);
     std::filesystem::remove(address_file);
 
     if (cfg.verbose) {
         std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
-                  << encoded_address.size() << " chars -> " << root_address.size()
-                  << " bytes)" << std::endl;
+                  << encoded_address.size() << " chars)" << std::endl;
     }
 
     // Rank 0 is already running - detach forwarders
@@ -1217,12 +1186,9 @@ std::string coordinate_root_address_via_pmix(
     std::string root_address;
 
     if (root_address_to_publish.has_value()) {
-        // Root parent publishes the address (hex-encoded for binary safety)
-        std::string decoded_address = hex_encode(root_address_to_publish.value());
-
+        // Root parent publishes the address (already hex-encoded for binary safety)
         if (verbose) {
             std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
-                      << decoded_address.size() << " bytes -> "
                       << root_address_to_publish.value().size() << " chars)" << std::endl;
         }
 
@@ -1281,12 +1247,11 @@ std::string coordinate_root_address_via_pmix(
         std::string encoded_address = value->data.string;
         PMIX_VALUE_RELEASE(value);
 
-        root_address = hex_decode(encoded_address);
+        root_address = encoded_address;
 
         if (verbose) {
             std::cout << "[rrun] Retrieved root address via PMIx (hex-encoded, "
-                      << encoded_address.size() << " chars -> " << root_address.size()
-                      << " bytes)" << std::endl;
+                      << encoded_address.size() << " chars)" << std::endl;
         }
     }
 
@@ -1506,11 +1471,10 @@ pid_t launch_rank_local(
                 setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
             }
 
-            // If root address was pre-coordinated by parent, set it (hex-encoded)
+            // If root address was pre-coordinated by parent, set it (already hex-encoded)
             // This allows children to skip bootstrap coordination entirely
             if (captured_root_address.has_value()) {
-                std::string encoded_address = hex_encode(*captured_root_address);
-                setenv("RAPIDSMPF_ROOT_ADDRESS", encoded_address.c_str(), 1);
+                setenv("RAPIDSMPF_ROOT_ADDRESS", captured_root_address->c_str(), 1);
             }
 
             // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion
