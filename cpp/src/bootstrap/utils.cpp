@@ -127,19 +127,15 @@ bool is_running_with_bootstrap() {
 }
 
 Rank get_rank() {
-    // Check rrun first (explicit configuration takes priority)
     if (auto rank_opt = getenv_int("RAPIDSMPF_RANK")) {
         return *rank_opt;
-    }
-    // Check PMIx rank
-    if (auto rank_opt = getenv_int("PMIX_RANK")) {
+    } else if (auto rank_opt = getenv_int("PMIX_RANK")) {
         return *rank_opt;
-    }
-    // Check Slurm process ID
-    if (auto rank_opt = getenv_int("SLURM_PROCID")) {
+    } else if (auto rank_opt = getenv_int("SLURM_PROCID")) {
         return *rank_opt;
+    } else {
+        return -1;
     }
-    return -1;
 }
 
 Rank get_nranks() {
@@ -148,27 +144,18 @@ Rank get_nranks() {
             "get_nranks() can only be called when running with a bootstrap launcher. "
             "Use 'rrun' or 'srun --mpi=pmix' to launch the application."
         );
-    }
-
-    // Check rrun first (explicit configuration takes priority)
-    // getenv_int will throw if the variable is set but cannot be parsed
-    if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
+    } else if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
         return *nranks_opt;
-    }
-
-    // Check Slurm environment variables
-    if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
+    } else if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
         return *nranks_opt;
-    }
-
-    if (auto nranks_opt = getenv_int("SLURM_NTASKS")) {
+    } else if (auto nranks_opt = getenv_int("SLURM_NTASKS")) {
         return *nranks_opt;
+    } else {
+        throw std::runtime_error(
+            "Could not determine number of ranks. "
+            "Ensure RAPIDSMPF_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
+        );
     }
-
-    throw std::runtime_error(
-        "Could not determine number of ranks. "
-        "Ensure RAPIDSMPF_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
-    );
 }
 
 std::vector<int> parse_cpu_list(std::string const& cpulist) {
