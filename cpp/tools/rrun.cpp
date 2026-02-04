@@ -871,47 +871,6 @@ int setup_launch_and_cleanup(
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
- * @brief Execute application in Slurm passthrough mode (single rank per task).
- *
- * Applies topology bindings and executes the application directly without forking.
- * This function never returns - it either replaces the current process or exits on error.
- *
- * @param cfg Configuration.
- */
-[[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg) {
-    if (cfg.verbose) {
-        std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
-                  << std::endl;
-    }
-
-    // Set rrun coordination environment variables so the application knows
-    // it's being launched by rrun and should use bootstrap mode
-    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
-    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
-
-    // Determine GPU for this Slurm task
-    int gpu_id = -1;
-    if (!cfg.gpus.empty()) {
-        gpu_id = cfg.gpus[static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
-        setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
-
-        if (cfg.verbose) {
-            std::cout << "[rrun] Slurm task (passthrough) local_id=" << cfg.slurm_local_id
-                      << " assigned to GPU " << gpu_id << std::endl;
-        }
-    }
-
-    // Set custom environment variables
-    for (auto const& env_pair : cfg.env_vars) {
-        setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
-    }
-
-    apply_topology_bindings(cfg, gpu_id, cfg.verbose);
-
-    exec_application(cfg);
-}
-
-/**
  * @brief Execute application in Slurm hybrid mode with PMIx coordination.
  *
  * Root parent launches rank 0 first to get address, coordinates via PMIx, then parents
@@ -1009,6 +968,47 @@ int execute_single_node_mode(Config& cfg) {
     }
 
     return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt, false);
+}
+
+/**
+ * @brief Execute application in Slurm passthrough mode (single rank per task).
+ *
+ * Applies topology bindings and executes the application directly without forking.
+ * This function never returns - it either replaces the current process or exits on error.
+ *
+ * @param cfg Configuration.
+ */
+[[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
+                  << std::endl;
+    }
+
+    // Set rrun coordination environment variables so the application knows
+    // it's being launched by rrun and should use bootstrap mode
+    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
+    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
+
+    // Determine GPU for this Slurm task
+    int gpu_id = -1;
+    if (!cfg.gpus.empty()) {
+        gpu_id = cfg.gpus[static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
+        setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
+
+        if (cfg.verbose) {
+            std::cout << "[rrun] Slurm task (passthrough) local_id=" << cfg.slurm_local_id
+                      << " assigned to GPU " << gpu_id << std::endl;
+        }
+    }
+
+    // Set custom environment variables
+    for (auto const& env_pair : cfg.env_vars) {
+        setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+    }
+
+    apply_topology_bindings(cfg, gpu_id, cfg.verbose);
+
+    exec_application(cfg);
 }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
