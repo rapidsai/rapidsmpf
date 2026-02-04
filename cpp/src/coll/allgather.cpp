@@ -36,10 +36,6 @@ Chunk::Chunk(
         "Non-finish chunk must have metadata and data",
         std::invalid_argument
     );
-    RAPIDSMPF_EXPECTS_FATAL(
-        (metadata_ != nullptr) == (data_ != nullptr),
-        "Non-finish chunk must have both metadata and data, but one of them is null"
-    );
 }
 
 Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
