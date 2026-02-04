@@ -30,11 +30,6 @@ namespace {
  * PMIx initialization is process-global and must only happen once.
  * This singleton encapsulates all PMIx state and ensures proper cleanup
  * when the process exits, without breaking ongoing collective operations.
- *
- * Uses Meyer's Singleton pattern (function-local static) which provides:
- * - Thread-safe initialization (guaranteed by C++11)
- * - Automatic destruction at program exit (after all other destructors)
- * - Clean encapsulation of related state
  */
 class PmixGlobalState {
   public:
@@ -45,16 +40,12 @@ class PmixGlobalState {
 
     /**
      * @brief Get the singleton instance.
-     *
-     * Thread-safe initialization guaranteed by C++11 (function-local static).
-     * The instance is destroyed automatically at program exit.
      */
     static PmixGlobalState& instance() {
         static PmixGlobalState state;
         return state;
     }
 
-    // Non-copyable, non-movable
     PmixGlobalState(PmixGlobalState const&) = delete;
     PmixGlobalState& operator=(PmixGlobalState const&) = delete;
     PmixGlobalState(PmixGlobalState&&) = delete;
@@ -63,10 +54,10 @@ class PmixGlobalState {
   private:
     PmixGlobalState() = default;
 
+    /**
+     * @brief Destructor ensuring PMIx finalization only at program exit.
+     */
     ~PmixGlobalState() {
-        // Finalize PMIx when the singleton is destroyed at program exit.
-        // This happens after all other destructors, so PMIx remains available
-        // for the entire process lifetime.
         if (initialized) {
             PMIx_Finalize(nullptr, 0);
             initialized = false;
@@ -147,9 +138,6 @@ SlurmBackend::~SlurmBackend() {
     // multiple SlurmBackend instances may be created and destroyed during
     // bootstrap operations, and finalizing PMIx while other processes are
     // still in collective operations (fence/barrier) will cause errors.
-    //
-    // PMIx_Finalize is called via the atexit handler registered during
-    // initialization, ensuring proper cleanup when the process exits.
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
@@ -184,7 +172,7 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     pmix_proc_t proc;
     PMIX_PROC_CONSTRUCT(&proc);
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
-    proc.rank = 0;  // Get from rank 0 specifically
+    proc.rank = 0;
 
     while (true) {
         pmix_value_t* val = nullptr;
@@ -211,7 +199,6 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             return result;
         }
 
-        // Check timeout
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed >= timeout) {
             throw std::runtime_error(
@@ -223,31 +210,27 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             );
         }
 
-        // Sleep before retry
         std::this_thread::sleep_for(poll_interval);
     }
 }
 
 void SlurmBackend::barrier() {
-    // Create proc array for all ranks (wildcard) in our namespace
     pmix_proc_t proc;
     PMIX_PROC_CONSTRUCT(&proc);
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
     proc.rank = PMIX_RANK_WILDCARD;
 
-    // Set up info to collect data during fence
     pmix_info_t info;
     bool collect = true;
     PMIX_INFO_CONSTRUCT(&info);
     PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
 
-    // PMIx_Fence performs synchronization barrier and data exchange
     pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
     PMIX_INFO_DESTRUCT(&info);
 
-    // Accept both SUCCESS and PARTIAL_SUCCESS for the fence
+    // Accept both SUCCESS and PARTIAL_SUCCESS for the fence.
     // PARTIAL_SUCCESS can occur in some PMIx implementations when not all
-    // processes have data to contribute, but the synchronization succeeded
+    // processes have data to contribute, but the synchronization succeeded.
     if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
         throw std::runtime_error("PMIx_Fence (barrier) failed: " + pmix_error_string(rc));
     }

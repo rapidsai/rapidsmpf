@@ -58,6 +58,7 @@ class SlurmBackend {
      * Initializes PMIx and retrieves process information from the runtime.
      *
      * @param ctx Bootstrap context containing rank information.
+     *
      * @throws std::runtime_error if PMIx initialization fails.
      */
     explicit SlurmBackend(Context ctx);
@@ -81,6 +82,7 @@ class SlurmBackend {
      *
      * @param key Key name.
      * @param value Value to store.
+     *
      * @throws std::runtime_error if PMIx operation fails.
      */
     void put(std::string const& key, std::string const& value);
@@ -94,6 +96,7 @@ class SlurmBackend {
      * @param key Key name.
      * @param timeout Timeout duration.
      * @return Value associated with key.
+     *
      * @throws std::runtime_error if key not found within timeout.
      */
     std::string get(std::string const& key, Duration timeout);
@@ -129,6 +132,7 @@ class SlurmBackend {
      * @param data Data buffer (input on root, output on others).
      * @param size Size in bytes.
      * @param root Root rank.
+     *
      * @throws std::runtime_error if broadcast fails or size mismatch occurs.
      */
     void broadcast(void* data, std::size_t size, Rank root);
