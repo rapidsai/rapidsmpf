@@ -24,34 +24,55 @@ namespace rapidsmpf::bootstrap::detail {
 
 namespace {
 
-// PMIx initialization is process-global and must only happen once.
-// Once initialized, PMIx stays active for the lifetime of the process.
-// We register an atexit handler to finalize PMIx when the process exits,
-// ensuring proper cleanup without breaking ongoing collective operations.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::mutex g_pmix_mutex;
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-bool g_pmix_initialized = false;
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-pmix_proc_t g_pmix_proc{};
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::array<char, PMIX_MAX_NSLEN + 1> g_pmix_nspace{};
-
 /**
- * @brief Finalize PMIx at process exit.
+ * @brief Process-global PMIx state and lifecycle management.
  *
- * This function is registered via atexit() to ensure PMIx is properly
- * finalized when the process terminates. It runs after all destructors,
- * so PMIx remains available for the entire process lifetime.
+ * PMIx initialization is process-global and must only happen once.
+ * This singleton encapsulates all PMIx state and ensures proper cleanup
+ * when the process exits, without breaking ongoing collective operations.
+ *
+ * Uses Meyer's Singleton pattern (function-local static) which provides:
+ * - Thread-safe initialization (guaranteed by C++11)
+ * - Automatic destruction at program exit (after all other destructors)
+ * - Clean encapsulation of related state
  */
-void finalize_pmix_at_exit() {
-    // Note: This runs at process exit after all destructors.
-    // No need for mutex as other threads should be done by now.
-    if (g_pmix_initialized) {
-        PMIx_Finalize(nullptr, 0);
-        g_pmix_initialized = false;
+class PmixGlobalState {
+  public:
+    std::mutex mutex;
+    bool initialized{false};
+    pmix_proc_t proc{};
+    std::array<char, PMIX_MAX_NSLEN + 1> nspace{};
+
+    /**
+     * @brief Get the singleton instance.
+     *
+     * Thread-safe initialization guaranteed by C++11 (function-local static).
+     * The instance is destroyed automatically at program exit.
+     */
+    static PmixGlobalState& instance() {
+        static PmixGlobalState state;
+        return state;
     }
-}
+
+    // Non-copyable, non-movable
+    PmixGlobalState(PmixGlobalState const&) = delete;
+    PmixGlobalState& operator=(PmixGlobalState const&) = delete;
+    PmixGlobalState(PmixGlobalState&&) = delete;
+    PmixGlobalState& operator=(PmixGlobalState&&) = delete;
+
+  private:
+    PmixGlobalState() = default;
+
+    ~PmixGlobalState() {
+        // Finalize PMIx when the singleton is destroyed at program exit.
+        // This happens after all other destructors, so PMIx remains available
+        // for the entire process lifetime.
+        if (initialized) {
+            PMIx_Finalize(nullptr, 0);
+            initialized = false;
+        }
+    }
+};
 
 /**
  * @brief Convert PMIx status to string for error messages.
@@ -79,9 +100,10 @@ void check_pmix_status(pmix_status_t status, std::string const& operation) {
 }  // namespace
 
 SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
-    std::lock_guard<std::mutex> lock{g_pmix_mutex};
+    auto& pmix_state = PmixGlobalState::instance();
+    std::lock_guard<std::mutex> lock{pmix_state.mutex};
 
-    if (!g_pmix_initialized) {
+    if (!pmix_state.initialized) {
         pmix_proc_t proc;
         pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
         if (rc != PMIX_SUCCESS) {
@@ -91,35 +113,32 @@ SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
             );
         }
 
-        g_pmix_proc = proc;
+        pmix_state.proc = proc;
         // Copy full nspace buffer (both are PMIX_MAX_NSLEN + 1 in size)
         static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
-        std::memcpy(g_pmix_nspace.data(), proc.nspace, g_pmix_nspace.size());
-        g_pmix_initialized = true;
-
-        // Register cleanup handler to finalize PMIx at process exit
-        std::atexit(finalize_pmix_at_exit);
+        std::memcpy(pmix_state.nspace.data(), proc.nspace, pmix_state.nspace.size());
+        pmix_state.initialized = true;
     }
 
     pmix_initialized_ = true;
 
     // Copy global state to instance members
-    proc_ = g_pmix_proc;
-    nspace_ = g_pmix_nspace;
+    proc_ = pmix_state.proc;
+    nspace_ = pmix_state.nspace;
 
     // Verify rank matches what we expect (if context has a valid rank)
     // Note: For Slurm backend, ctx_.rank may be set from environment variables
     // before PMIx_Init, so we verify they match
-    if (ctx_.rank >= 0 && std::cmp_not_equal(g_pmix_proc.rank, ctx_.rank)) {
+    if (ctx_.rank >= 0 && std::cmp_not_equal(pmix_state.proc.rank, ctx_.rank)) {
         throw std::runtime_error(
-            "PMIx rank (" + std::to_string(g_pmix_proc.rank)
+            "PMIx rank (" + std::to_string(pmix_state.proc.rank)
             + ") doesn't match context rank (" + std::to_string(ctx_.rank) + ")"
         );
     }
 
     // Update context rank from PMIx if not already set
     if (ctx_.rank < 0) {
-        ctx_.rank = static_cast<Rank>(g_pmix_proc.rank);
+        ctx_.rank = static_cast<Rank>(pmix_state.proc.rank);
     }
 }
 
