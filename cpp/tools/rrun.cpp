@@ -989,11 +989,8 @@ int execute_slurm_hybrid_mode(Config& cfg) {
             coordinate_root_address_via_pmix(std::nullopt, cfg.verbose);
     }
 
-    // Now all parents have the coordinated_root_address
-    // Continue to fork-based launch below with this address
     unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
 
-    // Calculate rank offsets
     int rank_offset = cfg.slurm_global_rank * cfg.nranks;
 
     if (cfg.verbose) {
@@ -1002,7 +999,6 @@ int execute_slurm_hybrid_mode(Config& cfg) {
                   << " (total: " << total_ranks << " ranks)" << std::endl;
     }
 
-    // Use common helper for launch and cleanup
     std::string coord_hint = job_id ? ("slurm_" + std::string{job_id}) : "";
     int exit_status = setup_launch_and_cleanup(
         cfg,
@@ -1014,7 +1010,6 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         coord_hint
     );
 
-    // Finalize PMIx
     if (!coordinated_root_address.empty()) {
         if (cfg.verbose) {
             std::cout << "[rrun] Finalizing PMIx in parent" << std::endl;
@@ -1040,9 +1035,6 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    // Use common helper for launch and cleanup
-    // rank_offset=0, ranks_per_task=nranks, total_ranks=nranks, no root_address, not
-    // root_parent
     return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt, false);
 }
 
@@ -1505,7 +1497,6 @@ pid_t launch_rank_local(
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
             }
 
-            // Set environment variables
             setenv("RAPIDSMPF_RANK", std::to_string(captured_global_rank).c_str(), 1);
             setenv("RAPIDSMPF_NRANKS", std::to_string(captured_total_ranks).c_str(), 1);
 
@@ -1630,7 +1621,7 @@ int main(int argc, char* argv[]) {
             return 1;
 #endif
         } else {
-            // Single-node mode with FILE backend
+            // Single-node mode with file backend
             return execute_single_node_mode(cfg);
         }
 
