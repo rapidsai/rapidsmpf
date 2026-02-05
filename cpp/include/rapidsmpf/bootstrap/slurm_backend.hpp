@@ -15,6 +15,7 @@
 
 #include <pmix.h>
 
+#include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 
 namespace rapidsmpf::bootstrap::detail {
@@ -50,7 +51,7 @@ namespace rapidsmpf::bootstrap::detail {
  *     rrun -n 4 ./benchmarks/bench_shuffle -C ucxx
  * ```
  */
-class SlurmBackend {
+class SlurmBackend : public Backend {
   public:
     /**
      * @brief Construct a Slurm backend using PMIx.
@@ -64,9 +65,9 @@ class SlurmBackend {
     explicit SlurmBackend(Context ctx);
 
     /**
-     * @brief Destructor - finalizes PMIx.
+     * @brief Destructor that finalizes PMIx.
      */
-    ~SlurmBackend();
+    ~SlurmBackend() override;
 
     // Non-copyable, non-movable (PMIx state is process-global)
     SlurmBackend(SlurmBackend const&) = delete;
@@ -85,7 +86,7 @@ class SlurmBackend {
      *
      * @throws std::runtime_error if PMIx operation fails.
      */
-    void put(std::string const& key, std::string const& value);
+    void put(std::string const& key, std::string const& value) override;
 
     /**
      * @brief Retrieve a value from the PMIx KVS.
@@ -99,7 +100,7 @@ class SlurmBackend {
      *
      * @throws std::runtime_error if key not found within timeout.
      */
-    std::string get(std::string const& key, Duration timeout);
+    std::string get(std::string const& key, Duration timeout) override;
 
     /**
      * @brief Perform a barrier synchronization using PMIx_Fence.
@@ -109,7 +110,7 @@ class SlurmBackend {
      *
      * @throws std::runtime_error if PMIx_Fence fails.
      */
-    void barrier();
+    void barrier() override;
 
     /**
      * @brief Ensure all previous put() operations are globally visible.
@@ -121,7 +122,7 @@ class SlurmBackend {
      *
      * @throws std::runtime_error if PMIx_Fence fails.
      */
-    void sync();
+    void sync() override;
 
     /**
      * @brief Broadcast data from root to all ranks.
@@ -135,7 +136,7 @@ class SlurmBackend {
      *
      * @throws std::runtime_error if broadcast fails or size mismatch occurs.
      */
-    void broadcast(void* data, std::size_t size, Rank root);
+    void broadcast(void* data, std::size_t size, Rank root) override;
 
     /**
      * @brief Explicitly finalize the global PMIx session.

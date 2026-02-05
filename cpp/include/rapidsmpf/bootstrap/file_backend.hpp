@@ -8,6 +8,7 @@
 #include <chrono>
 #include <string>
 
+#include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 
 namespace rapidsmpf::bootstrap::detail {
@@ -29,7 +30,7 @@ namespace rapidsmpf::bootstrap::detail {
  *       └── barrier_<N>       # Barrier synchronization
  * ```
  */
-class FileBackend {
+class FileBackend : public Backend {
   public:
     /**
      * @brief Construct a file backend.
@@ -38,7 +39,7 @@ class FileBackend {
      */
     explicit FileBackend(Context ctx);
 
-    ~FileBackend();
+    ~FileBackend() override;
 
     /**
      * @brief Store a key-value pair.
@@ -46,7 +47,7 @@ class FileBackend {
      * @param key Key name.
      * @param value Value to store.
      */
-    void put(std::string const& key, std::string const& value);
+    void put(std::string const& key, std::string const& value) override;
 
     /**
      * @brief Retrieve a value, blocking until available or timeout occurs.
@@ -55,14 +56,14 @@ class FileBackend {
      * @param timeout Timeout duration.
      * @return Value associated with key.
      */
-    std::string get(std::string const& key, Duration timeout);
+    std::string get(std::string const& key, Duration timeout) override;
 
     /**
      * @brief Perform a barrier synchronization.
      *
      * All ranks must call this before any rank proceeds.
      */
-    void barrier();
+    void barrier() override;
 
     /**
      * @brief Ensure all previous put() operations are globally visible.
@@ -71,7 +72,7 @@ class FileBackend {
      * file writes that are immediately visible to all processes via the
      * shared filesystem.
      */
-    void sync();
+    void sync() override;
 
     /**
      * @brief Broadcast data from root to all ranks.
@@ -80,7 +81,7 @@ class FileBackend {
      * @param size Size in bytes.
      * @param root Root rank.
      */
-    void broadcast(void* data, std::size_t size, Rank root);
+    void broadcast(void* data, std::size_t size, Rank root) override;
 
   private:
     Context ctx_;

@@ -55,8 +55,8 @@ std::string hex_decode(std::string const& input) {
 }
 }  // namespace
 
-std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options options) {
-    auto ctx = init(backend);
+std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options options) {
+    auto ctx = init(type);
 
     // Ensure CUDA context is created before UCX is initialized
     cudaFree(nullptr);

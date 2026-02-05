@@ -11,49 +11,10 @@
 #include <optional>
 #include <string>
 
+#include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
-
-/**
- * @brief Backend types for process coordination and bootstrapping.
- */
-enum class Backend {
-    /**
-     * @brief Automatically detect the best backend based on environment.
-     *
-     * Detection order:
-     * 1. File-based (if RAPIDSMPF_COORD_DIR or RAPIDSMPF_ROOT_ADDRESS set by rrun)
-     * 2. Slurm/PMIx (if SLURM environment detected)
-     * 3. File-based (default fallback)
-     */
-    AUTO,
-
-    /**
-     * @brief File-based coordination using a shared directory.
-     *
-     * Uses filesystem for rank coordination and address exchange.  Works on single-node
-     * and multi-node with shared storage (e.g., NFS) via SSH. Requires RAPIDSMPF_RANK,
-     * RAPIDSMPF_NRANKS, RAPIDSMPF_COORD_DIR environment variables.
-     */
-    FILE,
-
-    /**
-     * @brief Slurm-based coordination using PMIx.
-     *
-     * Uses PMIx (Process Management Interface for Exascale) for scalable process
-     * coordination without requiring a shared filesystem. Designed for Slurm clusters
-     * and supports multi-node deployments.
-     *
-     * Run with: `srun --mpi=pmix -n <nranks> ./program`
-     *
-     * Environment variables (automatically set by Slurm):
-     * - PMIX_NAMESPACE: PMIx namespace identifier
-     * - SLURM_PROCID: Process rank
-     * - SLURM_NPROCS/SLURM_NTASKS: Total number of processes
-     */
-    SLURM,
-};
 
 /**
  * @brief Context information for the current process/rank.
@@ -68,11 +29,14 @@ struct Context {
     /** @brief Total number of ranks in the job. */
     Rank nranks;
 
-    /** @brief Backend used for coordination. */
-    Backend backend;
+    /** @brief Backend type used for coordination. */
+    BackendType type;
 
     /** @brief Coordination directory (for FILE backend). */
     std::optional<std::string> coord_dir;
+
+    /** @brief Backend implementation (internal, do not access directly). */
+    std::shared_ptr<detail::Backend> backend;
 };
 
 /**
@@ -86,7 +50,7 @@ struct Context {
  * - RAPIDSMPF_NRANKS: Explicitly set total rank count
  * - RAPIDSMPF_COORD_DIR: File-based coordination directory
  *
- * @param backend Backend to use (default: AUTO for auto-detection).
+ * @param type Backend type to use (default: AUTO for auto-detection).
  * @return Context object containing rank and coordination information.
  * @throws std::runtime_error if environment is not properly configured.
  *
@@ -95,7 +59,7 @@ struct Context {
  * std::cout << "I am rank " << ctx.rank << " of " << ctx.nranks << std::endl;
  * @endcode
  */
-Context init(Backend backend = Backend::AUTO);
+Context init(BackendType type = BackendType::AUTO);
 
 /**
  * @brief Broadcast data from root rank to all other ranks.

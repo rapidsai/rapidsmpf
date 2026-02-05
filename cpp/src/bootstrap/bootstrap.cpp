@@ -26,14 +26,14 @@ namespace {
 /**
  * @brief Detect backend from environment variables.
  */
-Backend detect_backend() {
+BackendType detect_backend() {
     // Check for rrun coordination first (explicit configuration takes priority).
     // If RAPIDSMPF_COORD_DIR or RAPIDSMPF_ROOT_ADDRESS is set, rrun is coordinating
     // and we should use FILE backend (with or without pre-coordinated address).
     if (getenv_optional("RAPIDSMPF_COORD_DIR")
         || getenv_optional("RAPIDSMPF_ROOT_ADDRESS"))
     {
-        return Backend::FILE;
+        return BackendType::FILE;
     }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
@@ -47,12 +47,12 @@ Backend detect_backend() {
     // NOT launched by rrun. Child processes launched by rrun will have RAPIDSMPF_*
     // variables set and will use FILE backend above.
     if (is_running_with_slurm()) {
-        return Backend::SLURM;
+        return BackendType::SLURM;
     }
 #endif
 
     // Default to file-based
-    return Backend::FILE;
+    return BackendType::FILE;
 }
 
 /**
@@ -60,7 +60,7 @@ Backend detect_backend() {
  */
 Context file_backend_init() {
     Context ctx;
-    ctx.backend = Backend::FILE;
+    ctx.type = BackendType::FILE;
 
     // Require explicit RAPIDSMPF_RANK and RAPIDSMPF_NRANKS
     auto rank_opt = getenv_int("RAPIDSMPF_RANK");
@@ -102,13 +102,13 @@ Context file_backend_init() {
     return ctx;
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Initialize context for SLURM backend.
  */
 Context slurm_backend_init() {
-#ifdef RAPIDSMPF_HAVE_SLURM
     Context ctx;
-    ctx.backend = Backend::SLURM;
+    ctx.type = BackendType::SLURM;
 
     try {
         ctx.rank = get_rank();
@@ -136,133 +136,76 @@ Context slurm_backend_init() {
     }
 
     return ctx;
-#else
-    throw std::runtime_error(
-        "SLURM backend requested but rapidsmpf was not built with PMIx support. "
-        "Rebuild with RAPIDSMPF_ENABLE_SLURM=ON and ensure PMIx is available."
-    );
-#endif
 }
+#endif
 }  // namespace
 
-Context init(Backend backend) {
-    if (backend == Backend::AUTO) {
-        backend = detect_backend();
+Context init(BackendType type) {
+    if (type == BackendType::AUTO) {
+        type = detect_backend();
     }
 
-    // Get rank and nranks based on backend
-    switch (backend) {
-    case Backend::FILE:
-        return file_backend_init();
-    case Backend::SLURM:
-        return slurm_backend_init();
-    case Backend::AUTO:
+    Context ctx;
+
+    // Get rank and nranks based on backend, then create backend instance
+    switch (type) {
+    case BackendType::FILE:
+        ctx = file_backend_init();
+        ctx.backend = std::make_shared<detail::FileBackend>(ctx);
+        break;
+#ifdef RAPIDSMPF_HAVE_SLURM
+    case BackendType::SLURM:
+        ctx = slurm_backend_init();
+        ctx.backend = std::make_shared<detail::SlurmBackend>(ctx);
+        break;
+#else
+    case BackendType::SLURM:
+        throw std::runtime_error(
+            "SLURM backend requested but rapidsmpf was not built with PMIx support. "
+            "Rebuild with RAPIDSMPF_ENABLE_SLURM=ON and ensure PMIx is available."
+        );
+#endif
+    case BackendType::AUTO:
         // Should have been resolved above
-        throw std::logic_error("Backend::AUTO should have been resolved");
+        throw std::logic_error("BackendType::AUTO should have been resolved");
     }
+
+    return ctx;
 }
 
 void broadcast(Context const& ctx, void* data, std::size_t size, Rank root) {
-    switch (ctx.backend) {
-    case Backend::FILE:
-        {
-            detail::FileBackend backend{ctx};
-            backend.broadcast(data, size, root);
-            break;
-        }
-#ifdef RAPIDSMPF_HAVE_SLURM
-    case Backend::SLURM:
-        {
-            detail::SlurmBackend backend{ctx};
-            backend.broadcast(data, size, root);
-            break;
-        }
-#endif
-    default:
-        throw std::runtime_error("broadcast not implemented for this backend");
+    if (!ctx.backend) {
+        throw std::runtime_error("Context not properly initialized - backend is null");
     }
+    ctx.backend->broadcast(data, size, root);
 }
 
 void barrier(Context const& ctx) {
-    switch (ctx.backend) {
-    case Backend::FILE:
-        {
-            detail::FileBackend backend{ctx};
-            backend.barrier();
-            break;
-        }
-#ifdef RAPIDSMPF_HAVE_SLURM
-    case Backend::SLURM:
-        {
-            detail::SlurmBackend backend{ctx};
-            backend.barrier();
-            break;
-        }
-#endif
-    default:
-        throw std::runtime_error("barrier not implemented for this backend");
+    if (!ctx.backend) {
+        throw std::runtime_error("Context not properly initialized - backend is null");
     }
+    ctx.backend->barrier();
 }
 
 void sync(Context const& ctx) {
-    switch (ctx.backend) {
-    case Backend::FILE:
-        {
-            detail::FileBackend backend{ctx};
-            backend.sync();
-            break;
-        }
-#ifdef RAPIDSMPF_HAVE_SLURM
-    case Backend::SLURM:
-        {
-            detail::SlurmBackend backend{ctx};
-            backend.sync();
-            break;
-        }
-#endif
-    default:
-        throw std::runtime_error("sync not implemented for this backend");
+    if (!ctx.backend) {
+        throw std::runtime_error("Context not properly initialized - backend is null");
     }
+    ctx.backend->sync();
 }
 
 void put(Context const& ctx, std::string const& key, std::string const& value) {
-    switch (ctx.backend) {
-    case Backend::FILE:
-        {
-            detail::FileBackend backend{ctx};
-            backend.put(key, value);
-            break;
-        }
-#ifdef RAPIDSMPF_HAVE_SLURM
-    case Backend::SLURM:
-        {
-            detail::SlurmBackend backend{ctx};
-            backend.put(key, value);
-            break;
-        }
-#endif
-    default:
-        throw std::runtime_error("put not implemented for this backend");
+    if (!ctx.backend) {
+        throw std::runtime_error("Context not properly initialized - backend is null");
     }
+    ctx.backend->put(key, value);
 }
 
 std::string get(Context const& ctx, std::string const& key, Duration timeout) {
-    switch (ctx.backend) {
-    case Backend::FILE:
-        {
-            detail::FileBackend backend{ctx};
-            return backend.get(key, timeout);
-        }
-#ifdef RAPIDSMPF_HAVE_SLURM
-    case Backend::SLURM:
-        {
-            detail::SlurmBackend backend{ctx};
-            return backend.get(key, timeout);
-        }
-#endif
-    default:
-        throw std::runtime_error("get not implemented for this backend");
+    if (!ctx.backend) {
+        throw std::runtime_error("Context not properly initialized - backend is null");
     }
+    return ctx.backend->get(key, timeout);
 }
 
 }  // namespace rapidsmpf::bootstrap

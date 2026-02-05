@@ -1150,10 +1150,15 @@ std::string coordinate_root_address_via_pmix(
 
     // Create SlurmBackend for parent-level coordination
     rapidsmpf::bootstrap::Context parent_ctx{
-        parent_rank, parent_nranks, rapidsmpf::bootstrap::Backend::SLURM, std::nullopt
+        parent_rank,
+        parent_nranks,
+        rapidsmpf::bootstrap::BackendType::SLURM,
+        std::nullopt,
+        nullptr
     };
 
-    rapidsmpf::bootstrap::detail::SlurmBackend backend{parent_ctx};
+    auto backend =
+        std::make_shared<rapidsmpf::bootstrap::detail::SlurmBackend>(parent_ctx);
 
     if (verbose) {
         std::cout << "[rrun] Parent coordination initialized: rank " << parent_rank
@@ -1169,16 +1174,16 @@ std::string coordinate_root_address_via_pmix(
                       << root_address_to_publish.value().size() << " chars)" << std::endl;
         }
 
-        backend.put("rapidsmpf_root_address", root_address_to_publish.value());
+        backend->put("rapidsmpf_root_address", root_address_to_publish.value());
         root_address = root_address_to_publish.value();
     }
 
     // Barrier to ensure data exchange
-    backend.barrier();
+    backend->barrier();
 
     if (!root_address_to_publish.has_value()) {
         // Non-root parents retrieve the address
-        root_address = backend.get("rapidsmpf_root_address", std::chrono::seconds{30});
+        root_address = backend->get("rapidsmpf_root_address", std::chrono::seconds{30});
 
         if (verbose) {
             std::cout << "[rrun] Retrieved root address via SlurmBackend (hex-encoded, "
