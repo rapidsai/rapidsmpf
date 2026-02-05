@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -106,6 +106,12 @@ void FileBackend::barrier() {
     // Clean up our barrier file
     std::error_code ec;
     std::filesystem::remove(my_barrier_file, ec);
+}
+
+void FileBackend::sync() {
+    // For FileBackend, this is a no-op since put() operations use atomic
+    // file writes that are immediately visible to all processes via the
+    // shared filesystem.
 }
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
