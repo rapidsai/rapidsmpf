@@ -1,8 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
+
+from contextlib import contextmanager
 
 
 cdef class MemoryReservation:
@@ -82,3 +84,53 @@ cdef class MemoryReservation:
         The buffer resource associated with this reservation.
         """
         return self._br
+
+    def clear(self):
+        """
+        Clear the remaining size of the reservation.
+
+        Resets the reservation so that any remaining, unconsumed bytes are released
+        back to the underlying memory resource. After this call, the reservation
+        has a remaining size of zero and cannot be used to satisfy further
+        allocations.
+        """
+        with nogil:
+            deref(self._handle).clear()
+
+
+@contextmanager
+def opaque_memory_usage(MemoryReservation reservation not None):
+    """
+    Associate untracked memory usage with an existing reservation.
+
+    This context manager is intended for code paths that use memory outside of
+    RapidsMPF's memory reservation system, for example internal allocations in
+    libcudf or other third-party libraries. The memory may be of any type covered
+    by a :class:`MemoryReservation`, most commonly device memory.
+
+    While the context is active, the provided memory reservation is considered
+    consumed by the enclosed code block. On exit, the reservation is cleared,
+    releasing any remaining, unconsumed bytes back to the underlying memory
+    resource.
+
+    Parameters
+    ----------
+    reservation
+        Memory reservation that accounts for the untracked memory usage.
+
+    Yields
+    ------
+    The same reservation, which may be passed to APIs that require an explicit
+    reservation object.
+
+    Examples
+    --------
+    Account for allocations outside RapidsMPF:
+    >>> with opaque_memory_usage(ctx, reservation):
+    ...     # library call that allocates memory unknown to RapidsMPF.
+    ...     result = library_op(...)
+    """
+    try:
+        yield reservation
+    finally:
+        reservation.clear()
