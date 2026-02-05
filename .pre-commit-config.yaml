@@ -85,7 +85,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: 623e513e1d407aa24c3b2c344c6670683b1627a3  # frozen: v1.3.3
+    rev: be37aaed37d910d88ff39aff4c0de2d4c1e1568c  # frozen: v1.4.3
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]
@@ -110,6 +110,7 @@ repos:
         exclude: |
           (?x)
             ^pyproject[.]toml$
+      - id: verify-hardcoded-version
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: 43302d278c4215036b7fe4b4af0a85f6fad39d2c  # frozen: v1.20.2
     hooks:
