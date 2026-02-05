@@ -13,15 +13,15 @@
 
 namespace rapidsmpf {
 
-std::string trim(std::string const& str) {
+std::string trim(std::string_view text) {
     std::stringstream trimmer;
-    trimmer << str;
+    trimmer << text;
     std::string ret;
     trimmer >> ret;
     return ret;
 }
 
-std::string to_lower(std::string str) {
+std::string to_lower(std::string_view text) {
     // Special considerations regarding the case conversion:
     // - std::tolower() is not an addressable function. Passing it to std::transform()
     //   as a function pointer, if the compile turns out successful, causes the program
@@ -29,18 +29,20 @@ std::string to_lower(std::string str) {
     //   addressable and does not have this problem, but the following item still applies.
     // - To avoid UB in std::tolower() or ::tolower(), the character must be cast to
     // unsigned char.
-    std::ranges::transform(str, str.begin(), [](unsigned char c) {
+    std::string ret(text);
+    std::ranges::transform(ret, ret.begin(), [](unsigned char c) {
         return std::tolower(c);
     });
-    return str;
+    return ret;
 }
 
-std::string to_upper(std::string str) {
+std::string to_upper(std::string_view text) {
     // Special considerations regarding the case conversion, see to_lower().
-    std::ranges::transform(str, str.begin(), [](unsigned char c) {
+    std::string ret(text);
+    std::ranges::transform(ret, ret.begin(), [](unsigned char c) {
         return std::toupper(c);
     });
-    return str;
+    return ret;
 }
 
 namespace {
