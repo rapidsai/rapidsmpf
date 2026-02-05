@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -17,26 +18,26 @@ namespace rapidsmpf {
 /**
  * @brief Trims whitespace from both ends of the specified string.
  *
- * @param str The input string to be processed.
+ * @param text The input string to be processed.
  * @return The trimmed string.
  */
-std::string trim(std::string const& str);
+std::string trim(std::string_view text);
 
 /**
  * @brief Converts the specified string to lowercase.
  *
- * @param str The input string to be processed.
+ * @param text The input string to be processed.
  * @return The trimmed string.
  */
-std::string to_lower(std::string str);
+std::string to_lower(std::string_view text);
 
 /**
  * @brief Converts the specified string to uppercase.
  *
- * @param str The input string to be processed.
+ * @param text The input string to be processed.
  * @return The trimmed string.
  */
-std::string to_upper(std::string str);
+std::string to_upper(std::string_view text);
 
 /// @brief Control whether a zero fractional part is omitted when formatting values.
 enum class TrimZeroFraction {
@@ -279,5 +280,20 @@ bool parse_string(std::string const& text);
  * @return std::optional<std::string> Parsed optional string.
  */
 std::optional<std::string> parse_optional(std::string text);
+
+/**
+ * @brief Parse a delimited string into a list of trimmed substrings.
+ *
+ * Splits the input string by the specified delimiter and returns a vector of
+ * trimmed tokens. Leading and trailing whitespace is removed from each token.
+ *
+ * If the input string is empty or contains only whitespace, an empty vector
+ * is returned.
+ *
+ * @param text Input string to parse.
+ * @param delimiter Character to use as the delimiter. Defaults to comma.
+ * @return Vector of trimmed strings.
+ */
+std::vector<std::string> parse_string_list(std::string_view text, char delimiter = ',');
 
 }  // namespace rapidsmpf
