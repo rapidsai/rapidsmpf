@@ -195,20 +195,15 @@ class TableChunk {
     /**
      * @brief Move this table chunk into a new one with its cudf table made available.
      *
-     * If @p the chunk is not already device-resident, this coroutine reserves device
-     * memory via `streaming::reserve_memory()` and then materializes the chunk on device
-     * using `TableChunk::make_available()`.
+     * This variant of make_available() is a coroutine that may suspend if device
+     * memory is not immediately available.
      *
      * @note After this call, the current object is in a moved-from state; only
      * reassignment, movement, or destruction are valid.
      *
-     * This helper does not take an explicit overbooking parameter. When no progress can
-     * be made within the configured `"memory_reserve_timeout"`, the behavior is
-     * determined the configuration option `"allow_overbooking_by_default"`.
-     *
      * @param ctx Streaming context used to access the memory reservation mechanism.
-     * @param net_memory_delta Estimated change in memory usage after reservation is
-     * granted and operation using the `TableChunk` has completed. See
+     * @param net_memory_delta Estimated change in memory usage after the reservation
+     * is granted and all work using the returned `TableChunk` has completed. See
      * `MemoryReserveOrWait::reserve_or_wait` for details.
      * @return A new `TableChunk` that is available on device.
      *
