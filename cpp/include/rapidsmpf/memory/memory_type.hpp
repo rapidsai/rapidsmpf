@@ -9,7 +9,6 @@
 #include <iostream>
 #include <ranges>
 #include <span>
-#include <string>
 
 namespace rapidsmpf {
 

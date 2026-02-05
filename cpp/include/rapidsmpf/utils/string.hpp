@@ -281,4 +281,19 @@ bool parse_string(std::string const& text);
  */
 std::optional<std::string> parse_optional(std::string text);
 
+/**
+ * @brief Parse a delimited string into a list of trimmed substrings.
+ *
+ * Splits the input string by the specified delimiter and returns a vector of
+ * trimmed tokens. Leading and trailing whitespace is removed from each token.
+ *
+ * If the input string is empty or contains only whitespace, an empty vector
+ * is returned.
+ *
+ * @param text Input string to parse.
+ * @param delimiter Character to use as the delimiter. Defaults to comma.
+ * @return Vector of trimmed strings.
+ */
+std::vector<std::string> parse_string_list(std::string_view text, char delimiter = ',');
+
 }  // namespace rapidsmpf

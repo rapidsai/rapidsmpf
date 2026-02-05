@@ -393,4 +393,26 @@ std::optional<std::string> parse_optional(std::string text) {
     return text;
 }
 
+std::vector<std::string> parse_string_list(std::string_view text, char delimiter) {
+    // We use simple string search rather than regex to avoid needing to escape
+    // special regex characters in the delimiter (e.g., '.', '*', '+', '?', etc.).
+    std::vector<std::string> ret;
+    if (trim(text).empty()) {
+        return ret;
+    }
+    std::size_t start = 0;
+    while (true) {
+        std::size_t pos = text.find(delimiter, start);
+        std::string_view token = (pos == std::string_view::npos)
+                                     ? text.substr(start)
+                                     : text.substr(start, pos - start);
+        ret.emplace_back(trim(token));
+        if (pos == std::string_view::npos) {
+            break;
+        }
+        start = pos + 1;
+    }
+    return ret;
+}
+
 }  // namespace rapidsmpf

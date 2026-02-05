@@ -356,3 +356,53 @@ TEST(UtilsTest, ParseStringMemoryType) {
     EXPECT_THROW(parse_string<MemoryType>(""), std::invalid_argument);
     EXPECT_THROW(parse_string<MemoryType>("   "), std::invalid_argument);
 }
+
+TEST(UtilsTest, ParseStringList) {
+    using ::testing::ElementsAre;
+
+    EXPECT_THAT(parse_string_list("a,b,c"), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("  a  ,  b  ,  c  "), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("single"), ElementsAre("single"));
+    EXPECT_THAT(parse_string_list(""), ElementsAre());
+    EXPECT_THAT(parse_string_list("a,,c"), ElementsAre("a", "", "c"));
+    EXPECT_THAT(parse_string_list(",a,b,"), ElementsAre("", "a", "b", ""));
+    EXPECT_THAT(parse_string_list("a:b:c", ':'), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("  a : b : c  ", ':'), ElementsAre("a", "b", "c"));
+}
+
+TEST(UtilsTest, ParseStringListMemoryTypes) {
+    using ::testing::ElementsAre;
+
+    {
+        std::vector<MemoryType> types;
+        for (const auto& token : parse_string_list("DEVICE, PINNED_HOST, HOST")) {
+            types.push_back(parse_string<MemoryType>(token));
+        }
+        EXPECT_THAT(
+            types,
+            ElementsAre(MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST)
+        );
+    }
+
+    {
+        std::vector<MemoryType> types;
+        for (const auto& token : parse_string_list("device, pinned, host")) {
+            types.push_back(parse_string<MemoryType>(token));
+        }
+        EXPECT_THAT(
+            types,
+            ElementsAre(MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST)
+        );
+    }
+
+    // List with empty item should fail
+    EXPECT_THROW(
+        {
+            std::vector<MemoryType> types;
+            for (const auto& token : parse_string_list("DEVICE, , HOST")) {
+                types.push_back(parse_string<MemoryType>(token));
+            }
+        },
+        std::invalid_argument
+    );
+}
