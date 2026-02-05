@@ -70,8 +70,8 @@ class FileCache {
     /**
      * @brief Insert a message into the cache.
      *
-     * The message is copied into host memory and stored in the associated
-     * Context's SpillableMessages instance.
+     * The message is copied into the memory type configured for this cache
+     * and stored in the associated Context's SpillableMessages instance.
      *
      * @param ctx Streaming context.
      * @param key Cache key identifying the message.
@@ -96,7 +96,8 @@ class FileCache {
      * @brief Retrieve a cached message.
      *
      * If the key exists, the cached message is copied out of spillable storage
-     * using newly reserved memory.
+     * using newly reserved memory, prioritizing memory types in `MEMORY_TYPES`
+     * order.
      *
      * @param ctx Streaming context.
      * @param key Cache key to look up.
