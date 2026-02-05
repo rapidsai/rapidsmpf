@@ -61,6 +61,13 @@ class FileCache {
     };
 
     /**
+     * @brief Construct a FileCache.
+     *
+     * @param mem_type Memory type used for cache storage.
+     */
+    FileCache(MemoryType mem_type = MemoryType::HOST) : mem_type_{mem_type} {}
+
+    /**
      * @brief Insert a message into the cache.
      *
      * The message is copied into host memory and stored in the associated
@@ -72,7 +79,7 @@ class FileCache {
      * @return True if the message was inserted, false if the key already existed.
      */
     bool insert(std::shared_ptr<Context> ctx, Key key, Message const& msg) {
-        auto reservation = ctx->br()->reserve_or_fail(msg.copy_cost(), MemoryType::HOST);
+        auto reservation = ctx->br()->reserve_or_fail(msg.copy_cost(), mem_type_);
         auto msg_copy = msg.copy(reservation);
 
         std::lock_guard lock(mutex_);
@@ -144,11 +151,19 @@ class FileCache {
             return it->second;
         }
 
-        if (ctx->options().get<bool>("unbounded_file_read_cache", [](auto const& s) {
-                return s.empty() ? false : parse_string<bool>(s);
-            }))
-        {
-            auto ret = std::make_shared<FileCache>();
+        // Get the memory type of the file cache, if enabled.
+        auto const mem_type = ctx->options().get<std::optional<MemoryType>>(
+            "unbounded_file_read_cache", [](auto const& s) -> std::optional<MemoryType> {
+                auto val = parse_optional(s);
+                if (!val.has_value() || val->empty()) {
+                    return std::nullopt;
+                }
+                return parse_string<MemoryType>(s);
+            }
+        );
+
+        if (mem_type.has_value()) {
+            auto ret = std::make_shared<FileCache>(*mem_type);
             instances.emplace(id, ret);
             return ret;
         }
@@ -158,6 +173,7 @@ class FileCache {
   private:
     mutable std::mutex mutex_;
     std::map<Key, SpillableMessages::MessageId> cache_;
+    MemoryType mem_type_;
 };
 
 /**
