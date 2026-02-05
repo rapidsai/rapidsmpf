@@ -1178,8 +1178,7 @@ std::string coordinate_root_address_via_pmix(
         root_address = root_address_to_publish.value();
     }
 
-    // Barrier to ensure data exchange
-    backend->barrier();
+    backend->sync();
 
     if (!root_address_to_publish.has_value()) {
         // Non-root parents retrieve the address
