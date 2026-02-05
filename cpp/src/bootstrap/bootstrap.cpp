@@ -54,96 +54,112 @@ Backend detect_backend() {
     // Default to file-based
     return Backend::FILE;
 }
+
+/**
+ * @brief Initialize context for FILE backend.
+ */
+Context file_backend_init() {
+    Context ctx;
+    ctx.backend = Backend::FILE;
+
+    // Require explicit RAPIDSMPF_RANK and RAPIDSMPF_NRANKS
+    auto rank_opt = getenv_int("RAPIDSMPF_RANK");
+    auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
+    auto coord_dir_opt = getenv_optional("RAPIDSMPF_COORD_DIR");
+
+    if (!rank_opt.has_value()) {
+        throw std::runtime_error(
+            "RAPIDSMPF_RANK environment variable not set. "
+            "Set it or use a launcher like 'rrun'."
+        );
+    }
+
+    if (!nranks_opt.has_value()) {
+        throw std::runtime_error(
+            "RAPIDSMPF_NRANKS environment variable not set. "
+            "Set it or use a launcher like 'rrun'."
+        );
+    }
+
+    if (!coord_dir_opt.has_value()) {
+        throw std::runtime_error(
+            "RAPIDSMPF_COORD_DIR environment variable not set. "
+            "Set it or use a launcher like 'rrun'."
+        );
+    }
+
+    ctx.rank = static_cast<Rank>(*rank_opt);
+    ctx.nranks = static_cast<Rank>(*nranks_opt);
+    ctx.coord_dir = *coord_dir_opt;
+
+    if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
+        throw std::runtime_error(
+            "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
+            + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
+        );
+    }
+
+    return ctx;
+}
+
+/**
+ * @brief Initialize context for SLURM backend.
+ */
+Context slurm_backend_init() {
+#ifdef RAPIDSMPF_HAVE_SLURM
+    Context ctx;
+    ctx.backend = Backend::SLURM;
+
+    try {
+        ctx.rank = get_rank();
+    } catch (const std::runtime_error& e) {
+        throw std::runtime_error(
+            "Could not determine rank for Slurm backend. "
+            "Ensure you're running with 'srun --mpi=pmix'."
+        );
+    }
+
+    try {
+        ctx.nranks = get_nranks();
+    } catch (const std::runtime_error& e) {
+        throw std::runtime_error(
+            "Could not determine nranks for Slurm backend. "
+            "Ensure you're running with 'srun --mpi=pmix'."
+        );
+    }
+
+    if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
+        throw std::runtime_error(
+            "Invalid rank: " + std::to_string(ctx.rank) + " must be in range [0, "
+            + std::to_string(ctx.nranks) + ")"
+        );
+    }
+
+    return ctx;
+#else
+    throw std::runtime_error(
+        "SLURM backend requested but rapidsmpf was not built with PMIx support. "
+        "Rebuild with RAPIDSMPF_ENABLE_SLURM=ON and ensure PMIx is available."
+    );
+#endif
+}
 }  // namespace
 
 Context init(Backend backend) {
-    Context ctx;
-    ctx.backend = (backend == Backend::AUTO) ? detect_backend() : backend;
+    if (backend == Backend::AUTO) {
+        backend = detect_backend();
+    }
 
     // Get rank and nranks based on backend
-    switch (ctx.backend) {
+    switch (backend) {
     case Backend::FILE:
-        {
-            // Require explicit RAPIDSMPF_RANK and RAPIDSMPF_NRANKS
-            auto rank_opt = getenv_int("RAPIDSMPF_RANK");
-            auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
-            auto coord_dir_opt = getenv_optional("RAPIDSMPF_COORD_DIR");
-
-            if (!rank_opt.has_value()) {
-                throw std::runtime_error(
-                    "RAPIDSMPF_RANK environment variable not set. "
-                    "Set it or use a launcher like 'rrun'."
-                );
-            }
-
-            if (!nranks_opt.has_value()) {
-                throw std::runtime_error(
-                    "RAPIDSMPF_NRANKS environment variable not set. "
-                    "Set it or use a launcher like 'rrun'."
-                );
-            }
-
-            if (!coord_dir_opt.has_value()) {
-                throw std::runtime_error(
-                    "RAPIDSMPF_COORD_DIR environment variable not set. "
-                    "Set it or use a launcher like 'rrun'."
-                );
-            }
-
-            ctx.rank = static_cast<Rank>(*rank_opt);
-            ctx.nranks = static_cast<Rank>(*nranks_opt);
-            ctx.coord_dir = *coord_dir_opt;
-
-            if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
-                throw std::runtime_error(
-                    "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
-                    + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
-                );
-            }
-            break;
-        }
+        return file_backend_init();
     case Backend::SLURM:
-        {
-#ifdef RAPIDSMPF_HAVE_SLURM
-            try {
-                ctx.rank = get_rank();
-            } catch (const std::runtime_error& e) {
-                throw std::runtime_error(
-                    "Could not determine rank for Slurm backend. "
-                    "Ensure you're running with 'srun --mpi=pmix'."
-                );
-            }
-
-            try {
-                ctx.nranks = get_nranks();
-            } catch (const std::runtime_error& e) {
-                throw std::runtime_error(
-                    "Could not determine nranks for Slurm backend. "
-                    "Ensure you're running with 'srun --mpi=pmix'."
-                );
-            }
-
-            if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
-                throw std::runtime_error(
-                    "Invalid rank: " + std::to_string(ctx.rank) + " must be in range [0, "
-                    + std::to_string(ctx.nranks) + ")"
-                );
-            }
-            break;
-#else
-            throw std::runtime_error(
-                "SLURM backend requested but rapidsmpf was not built with PMIx support. "
-                "Rebuild with RAPIDSMPF_ENABLE_SLURM=ON and ensure PMIx is available."
-            );
-#endif
-        }
+        return slurm_backend_init();
     case Backend::AUTO:
-        {
-            // Should have been resolved above
-            throw std::logic_error("Backend::AUTO should have been resolved");
-        }
+        // Should have been resolved above
+        throw std::logic_error("Backend::AUTO should have been resolved");
     }
-    return ctx;
 }
 
 void broadcast(Context const& ctx, void* data, std::size_t size, Rank root) {
