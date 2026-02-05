@@ -3,9 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <sstream>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 #include "utils.hpp"
@@ -287,4 +290,119 @@ TEST(UtilsTest, ParseOptional) {
     EXPECT_EQ(parse_optional("disabled_now"), std::optional<std::string>{"disabled_now"});
     EXPECT_EQ(parse_optional("n/a2"), std::optional<std::string>{"n/a2"});
     EXPECT_EQ(parse_optional("naive"), std::optional<std::string>{"naive"});
+}
+
+TEST(UtilsTest, ParseMemoryTypeFromStream) {
+    {
+        std::stringstream ss("DEVICE");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::DEVICE);
+    }
+    {
+        std::stringstream ss("pinned_host");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::PINNED_HOST);
+    }
+    {
+        std::stringstream ss("PINNED");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::PINNED_HOST);
+    }
+    {
+        std::stringstream ss("pinned-host");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::PINNED_HOST);
+    }
+    {
+        std::stringstream ss(" host ");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::HOST);
+    }
+}
+
+TEST(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
+    {
+        std::stringstream ss("GPU");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_TRUE(ss.fail());
+    }
+    {
+        std::stringstream ss("");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_TRUE(ss.fail());
+    }
+}
+
+TEST(UtilsTest, ParseStringMemoryType) {
+    EXPECT_EQ(parse_string<MemoryType>("DEVICE"), MemoryType::DEVICE);
+    EXPECT_EQ(parse_string<MemoryType>("device"), MemoryType::DEVICE);
+    EXPECT_EQ(parse_string<MemoryType>(" PINNED_HOST "), MemoryType::PINNED_HOST);
+    EXPECT_EQ(parse_string<MemoryType>("pinned"), MemoryType::PINNED_HOST);
+    EXPECT_EQ(parse_string<MemoryType>("pinned-host"), MemoryType::PINNED_HOST);
+    EXPECT_EQ(parse_string<MemoryType>("HOST"), MemoryType::HOST);
+    EXPECT_THROW(parse_string<MemoryType>("gpu"), std::invalid_argument);
+    EXPECT_THROW(parse_string<MemoryType>(""), std::invalid_argument);
+    EXPECT_THROW(parse_string<MemoryType>("   "), std::invalid_argument);
+}
+
+TEST(UtilsTest, ParseStringList) {
+    using ::testing::ElementsAre;
+
+    EXPECT_THAT(parse_string_list("a,b,c"), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("  a  ,  b  ,  c  "), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("single"), ElementsAre("single"));
+    EXPECT_THAT(parse_string_list(""), ElementsAre());
+    EXPECT_THAT(parse_string_list("a,,c"), ElementsAre("a", "", "c"));
+    EXPECT_THAT(parse_string_list(",a,b,"), ElementsAre("", "a", "b", ""));
+    EXPECT_THAT(parse_string_list("a:b:c", ':'), ElementsAre("a", "b", "c"));
+    EXPECT_THAT(parse_string_list("  a : b : c  ", ':'), ElementsAre("a", "b", "c"));
+}
+
+TEST(UtilsTest, ParseStringListMemoryTypes) {
+    using ::testing::ElementsAre;
+
+    {
+        std::vector<MemoryType> types;
+        for (const auto& token : parse_string_list("DEVICE, PINNED_HOST, HOST")) {
+            types.push_back(parse_string<MemoryType>(token));
+        }
+        EXPECT_THAT(
+            types,
+            ElementsAre(MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST)
+        );
+    }
+
+    {
+        std::vector<MemoryType> types;
+        for (const auto& token : parse_string_list("device, pinned, host")) {
+            types.push_back(parse_string<MemoryType>(token));
+        }
+        EXPECT_THAT(
+            types,
+            ElementsAre(MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST)
+        );
+    }
+
+    // List with empty item should fail
+    EXPECT_THROW(
+        {
+            std::vector<MemoryType> types;
+            for (const auto& token : parse_string_list("DEVICE, , HOST")) {
+                types.push_back(parse_string<MemoryType>(token));
+            }
+        },
+        std::invalid_argument
+    );
 }
