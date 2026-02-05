@@ -12,6 +12,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
@@ -63,6 +64,18 @@ std::unique_ptr<PackedData> pack<MemoryType::PINNED_HOST>(
     );
 }
 
+constexpr size_t cudf_chunked_pack_min_buffer_size = 1024 * 1024;  // 1MB
+
+/**
+ * @brief Packing to host memory follows,
+ * 1. estimate the size of the table (est_size)
+ * 2. try reserve device memory for the est_size with overbooking (ob)
+ * 3. if the available memory (ie. reservation - min(ob, est_size)) >= max(1MB, est_size),
+ * use chunked packing with device buffer for packing.
+ * If pinned memory is available,
+ * 4. Otherwise, retry with pinned memory (step 2 & 3)
+ * 5. If all fails, throw an error.
+ */
 template <>
 std::unique_ptr<PackedData> pack<MemoryType::HOST>(
     cudf::table_view const& table,
@@ -76,34 +89,64 @@ std::unique_ptr<PackedData> pack<MemoryType::HOST>(
     );
 
     auto br = reservation.br();
-    // We use libcudf's pack() to serialize `table` into a
-    // packed_columns and then we move the packed_columns' gpu_data to a
-    // new host buffer.
+    // special case for empty table
+    if (table.num_rows() == 0) {
+        cudf::chunked_pack cpack(
+            table, cudf_chunked_pack_min_buffer_size, stream, br->device_mr()
+        );
+        RAPIDSMPF_EXPECTS(
+            cpack.get_total_contiguous_size() == 0,
+            "empty table should have 0 contiguous size",
+            std::runtime_error
+        );
+        return std::make_unique<PackedData>(
+            cpack.build_metadata(), br->allocate(0, stream, reservation)
+        );
+    }
 
-    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
-    // `cudf::pack()` allocates device memory we haven't reserved.
-    auto packed_columns = cudf::pack(table, stream, br->device_mr());
-    auto packed_data = std::make_unique<PackedData>(
-        std::move(packed_columns.metadata),
-        br->move(std::move(packed_columns.gpu_data), stream)
+    // estimate the size of the table with a minimum of 1MiB
+    auto const est_size = std::max(
+        estimated_memory_usage(table, stream), cudf_chunked_pack_min_buffer_size
     );
 
-    // Handle the case where `cudf::pack` allocates slightly more than the
-    // input size. This can occur because cudf uses aligned allocations,
-    // which may exceed the requested size. To accommodate this, we
-    // allow some wiggle room.
-    if (packed_data->data->size > reservation.size()) {
-        auto const wiggle_room = 1024 * static_cast<std::size_t>(table.num_columns());
-        if (packed_data->data->size <= reservation.size() + wiggle_room) {
-            reservation =
-                br->reserve(
-                      MemoryType::HOST, packed_data->data->size, AllowOverbooking::YES
-                )
-                    .first;
+    // max available memory for bounce buffer
+    auto max_availble = [](size_t res_sz, size_t ob) -> size_t {
+        return res_sz > ob ? res_sz - ob : 0;
+    };
+
+    // try device memory first
+    auto [dev_res, dev_ob] =
+        br->reserve(MemoryType::DEVICE, est_size, AllowOverbooking::YES);
+
+    auto dev_avail = max_availble(dev_res.size(), dev_ob);
+    if (dev_avail >= cudf_chunked_pack_min_buffer_size) {
+        rmm::device_buffer bounce_buffer(dev_avail, stream, br->device_mr());
+        dev_res.clear();
+        return chunked_pack(table, stream, bounce_buffer, br->device_mr(), reservation);
+    }
+    dev_res.clear();  // Release unused device reservation.
+
+    if (br->is_pinned_memory_available()) {  // try pinned memory as fallback
+        auto [pinned_res, pinned_ob] =
+            br->reserve(MemoryType::PINNED_HOST, est_size, AllowOverbooking::YES);
+
+        auto pinned_avail = max_availble(pinned_res.size(), pinned_ob);
+        if (pinned_avail >= cudf_chunked_pack_min_buffer_size) {
+            rmm::device_buffer bounce_buffer(
+                pinned_avail, stream, br->pinned_mr_as_device()
+            );
+            pinned_res.clear();
+            return chunked_pack(
+                table, stream, bounce_buffer, br->pinned_mr_as_device(), reservation
+            );
         }
     }
-    packed_data->data = br->move(std::move(packed_data->data), reservation);
-    return packed_data;
+
+    // all attempts failed.
+    RAPIDSMPF_FAIL(
+        "Failed to allocate bounce buffer for chunked packing to host memory.",
+        std::runtime_error
+    );
 }
 
 }  // namespace detail
@@ -137,31 +180,46 @@ std::unique_ptr<PackedData> chunked_pack(
     cudf::chunked_pack cpack(table, bounce_buffer.size(), stream, pack_temp_mr);
     const auto packed_size = cpack.get_total_contiguous_size();
 
+    // Handle the case where packing allocates slightly more than the
+    // input size. This can occur because cudf uses aligned allocations,
+    // which may exceed the requested size. To accommodate this, we
+    // allow some wiggle room.
+    if (packed_size > reservation.size()) {
+        auto const wiggle_room = 1024 * static_cast<std::size_t>(table.num_columns());
+        if (packed_size <= reservation.size() + wiggle_room) {
+            reservation =
+                br->reserve(reservation.mem_type(), packed_size, AllowOverbooking::YES)
+                    .first;
+        }
+    }
+
     auto dest_buf = br->allocate(packed_size, stream, reservation);
 
-    dest_buf->write_access([&](std::byte* dest_ptr,
-                               rmm::cuda_stream_view dest_buf_stream) {
-        // join the destination stream with the bounce buffer stream so that the copies
-        // can be queued
-        cuda_stream_join(dest_buf_stream, bounce_buffer.stream());
-        bounce_buffer.set_stream(dest_buf_stream);
+    if (packed_size > 0) {
+        dest_buf->write_access([&](std::byte* dest_ptr,
+                                   rmm::cuda_stream_view dest_buf_stream) {
+            // join the destination stream with the bounce buffer stream so that the
+            // copies can be queued
+            cuda_stream_join(dest_buf_stream, bounce_buffer.stream());
+            bounce_buffer.set_stream(dest_buf_stream);
 
-        std::size_t off = 0;
-        cudf::device_span<uint8_t> bounce_buf_span(
-            static_cast<std::uint8_t*>(bounce_buffer.data()), bounce_buffer.size()
-        );
-        while (cpack.has_next()) {
-            auto const bytes_copied = cpack.next(bounce_buf_span);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                dest_ptr + off,
-                bounce_buf_span.data(),
-                bytes_copied,
-                cudaMemcpyDefault,
-                dest_buf_stream
-            ));
-            off += bytes_copied;
-        }
-    });
+            std::size_t off = 0;
+            cudf::device_span<uint8_t> bounce_buf_span(
+                static_cast<std::uint8_t*>(bounce_buffer.data()), bounce_buffer.size()
+            );
+            while (cpack.has_next()) {
+                auto const bytes_copied = cpack.next(bounce_buf_span);
+                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                    dest_ptr + off,
+                    bounce_buf_span.data(),
+                    bytes_copied,
+                    cudaMemcpyDefault,
+                    dest_buf_stream
+                ));
+                off += bytes_copied;
+            }
+        });
+    }
 
     return std::make_unique<PackedData>(cpack.build_metadata(), std::move(dest_buf));
 }

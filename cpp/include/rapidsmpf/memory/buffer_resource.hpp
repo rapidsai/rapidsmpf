@@ -144,6 +144,15 @@ class BufferResource {
     [[nodiscard]] rmm::device_async_resource_ref pinned_mr_as_device();
 
     /**
+     * @brief Check if pinned memory is available.
+     *
+     * @return true if pinned memory is available, false otherwise.
+     */
+    [[nodiscard]] bool is_pinned_memory_available() const noexcept {
+        return pinned_mr_ != PinnedMemoryResource::Disabled;
+    }
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
