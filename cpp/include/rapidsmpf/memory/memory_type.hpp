@@ -1,13 +1,15 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include <algorithm>
 #include <array>
-#include <ostream>
+#include <iostream>
 #include <ranges>
 #include <span>
+#include <string>
 
 namespace rapidsmpf {
 
@@ -82,8 +84,22 @@ constexpr char const* to_string(MemoryType mem_type) {
  * @param mem_type The memory type to write name of to the output stream.
  * @return The output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, MemoryType mem_type) {
-    return os << to_string(mem_type);
-}
+std::ostream& operator<<(std::ostream& os, MemoryType mem_type);
+
+/**
+ * @brief Overload to read a MemoryType value from an input stream.
+ *
+ * Parsing is case-insensitive. Supported values are: "DEVICE", "PINNED_HOST",
+ * "PINNED", "PINNED-HOST", and "HOST".
+ *
+ * If token extraction from the stream fails, the stream state is preserved.
+ * If extraction succeeds but the token does not represent a valid MemoryType,
+ * the stream failbit is set.
+ *
+ * @param is The input stream.
+ * @param out The memory type read from the input stream.
+ * @return The input stream.
+ */
+std::istream& operator>>(std::istream& is, MemoryType& out);
 
 }  // namespace rapidsmpf
