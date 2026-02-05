@@ -304,10 +304,6 @@ void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
     barrier();
 }
 
-void SlurmBackend::finalize_pmix() {
-    PmixGlobalState::instance().finalize();
-}
-
 }  // namespace rapidsmpf::bootstrap::detail
 
 #endif  // RAPIDSMPF_HAVE_SLURM

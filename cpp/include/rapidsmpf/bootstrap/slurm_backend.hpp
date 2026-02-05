@@ -30,7 +30,7 @@ namespace rapidsmpf::bootstrap::detail {
  *
  * Usage:
  * ```bash
- * # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.
+ * # Multiple (4) tasks per node, one task per GPU, two nodes.
  * srun \
  *     --mpi=pmix \
  *     --nodes=2 \
@@ -39,16 +39,6 @@ namespace rapidsmpf::bootstrap::detail {
  *     --gpus-per-task=1 \
  *     --gres=gpu:4 \
  *     rrun ./benchmarks/bench_shuffle -C ucxx
- *
- * # Hybrid mode: one task per node, 4 GPUs per task, two nodes.
- * srun \
- *     --mpi=pmix \
- *     --nodes=2 \
- *     --ntasks-per-node=1 \
- *     --cpus-per-task=144 \
- *     --gpus-per-task=4 \
- *     --gres=gpu:4 \
- *     rrun -n 4 ./benchmarks/bench_shuffle -C ucxx
  * ```
  */
 class SlurmBackend : public Backend {
@@ -107,20 +97,6 @@ class SlurmBackend : public Backend {
      * @throws std::runtime_error if PMIx operation fails.
      */
     void broadcast(void* data, std::size_t size, Rank root) override;
-
-    /**
-     * @brief Explicitly finalize the global PMIx session.
-     *
-     * This is useful for scenarios like rrun parent coordination where PMIx
-     * needs to be finalized before process exit (e.g., after child processes
-     * complete). If not called explicitly, PMIx will be finalized when the
-     * process exits via the PmixGlobalState destructor.
-     *
-     * This function is safe to call multiple times, subsequent calls are no-ops.
-     *
-     * @throws std::runtime_error if PMIx_Finalize fails.
-     */
-    static void finalize_pmix();
 
   private:
     Context ctx_;

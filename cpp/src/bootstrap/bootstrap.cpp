@@ -28,11 +28,8 @@ namespace {
  */
 BackendType detect_backend() {
     // Check for rrun coordination first (explicit configuration takes priority).
-    // If RAPIDSMPF_COORD_DIR or RAPIDSMPF_ROOT_ADDRESS is set, rrun is coordinating
-    // and we should use FILE backend (with or without pre-coordinated address).
-    if (getenv_optional("RAPIDSMPF_COORD_DIR")
-        || getenv_optional("RAPIDSMPF_ROOT_ADDRESS"))
-    {
+    // If RAPIDSMPF_COORD_DIR is set, rrun is coordinating and we should use FILE backend.
+    if (getenv_optional("RAPIDSMPF_COORD_DIR")) {
         return BackendType::FILE;
     }
 
