@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 # rapidsmpf version updater
@@ -99,6 +99,7 @@ function sed_runner() {
 # Centralized version file update
 echo "${NEXT_FULL_TAG}" | tr -d '"' >VERSION
 echo "${RAPIDS_BRANCH_NAME}" > RAPIDS_BRANCH
+echo "${NEXT_UCXX_SHORT_TAG}.00" > UCXX_VERSION
 
 # Bump testing dependencies
 sed_runner "s/ucxx==.*/ucxx==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" dependencies.yaml
@@ -136,31 +137,11 @@ for DEP in "${UCX_DEPENDENCIES[@]}"; do
   sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" python/rapidsmpf/pyproject.toml
 done
 
-# RAPIDS UCX version
-for FILE in conda/recipes/*/conda_build_config.yaml; do
-  sed_runner "/^ucx_py_version:$/ {n;s/.*/  - \"${NEXT_UCXX_SHORT_TAG_PEP440}.*\"/;}" "${FILE}"
-  sed_runner "/^ucxx_version:$/ {n;s/.*/  - \"${NEXT_UCXX_SHORT_TAG_PEP440}.*\"/;}" "${FILE}"
-done
-
-# rapids-cmake version
-sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
-
 # CI files - context-aware branch references
 for FILE in .github/workflows/*.yaml; do
   sed_runner "/shared-workflows/ s|@.*|@${RAPIDS_BRANCH_NAME}|g" "${FILE}"
   sed_runner "s/:[0-9]*\\.[0-9]*-/:${NEXT_SHORT_TAG}-/g" "${FILE}"
 done
-
-# Update CMake and CI dependencies based on context
-if [[ "${RUN_CONTEXT}" == "main" ]]; then
-  # In main context, keep dependencies on main (no changes needed)
-  :
-elif [[ "${RUN_CONTEXT}" == "release" ]]; then
-  # In release context, use release branch for external dependencies
-  sed_runner "s|\"main\"|\"release/${NEXT_SHORT_TAG}\"|g" cmake/thirdparty/get_cudf.cmake
-  # Update CI script URLs to use NEW release/ paradigm
-  sed_runner "s|/rapidsai/rapids-cmake/main/|/rapidsai/rapids-cmake/release/${NEXT_SHORT_TAG}/|g" ci/check_style.sh
-fi
 
 # .devcontainer files
 find .devcontainer/ -type f -name devcontainer.json -print0 | while IFS= read -r -d '' filename; do
