@@ -216,6 +216,15 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
     EXPECT_EQ(chunk.make_available_cost(), size);
+
+    auto chunk2 = chunk.make_available(
+        br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
+    );
+    EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk2.is_available());
+    EXPECT_TRUE(chunk2.is_spillable());
+    EXPECT_EQ(chunk2.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
 
 TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
