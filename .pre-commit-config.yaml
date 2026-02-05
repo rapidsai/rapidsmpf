@@ -111,6 +111,9 @@ repos:
           (?x)
             ^pyproject[.]toml$
       - id: verify-hardcoded-version
+      - id: verify-hardcoded-version
+        name: verify-hardcoded-version-ucxx
+        args: [--fix, --version-file=UCXX_VERSION]
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: 43302d278c4215036b7fe4b4af0a85f6fad39d2c  # frozen: v1.20.2
     hooks:
