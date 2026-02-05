@@ -6,6 +6,8 @@ from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.streaming.core.context import Context
 
+missing_net_memory_delta: int
+
 class MemoryReserveOrWait:
     def __init__(self, options: Options, mem_type: MemoryType, ctx: Context): ...
     async def shutdown(self) -> None: ...
