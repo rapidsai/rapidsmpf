@@ -56,8 +56,8 @@ namespace detail {
  * `HostBuffer`.
  *
  * - Host:
- * Uses cudf::chunked_pack() using a host memory reservation. Returns a `Buffer` with
- * a `HostBuffer`.
+ * Uses cudf::chunked_pack() with a device bounce buffer, if available, otherwise uses a
+ * pinned bounce buffer. Returns a `Buffer` with a `HostBuffer`.
  *
  * This function serializes the given table view into a `PackedData` object
  * with the data buffer residing in the memory type specified by the template parameter.

@@ -67,14 +67,16 @@ std::unique_ptr<PackedData> pack<MemoryType::PINNED_HOST>(
 constexpr size_t cudf_chunked_pack_min_buffer_size = 1024 * 1024;  // 1MB
 
 /**
- * @brief Packing to host memory follows,
- * 1. estimate the size of the table (est_size)
- * 2. try reserve device memory for the est_size with overbooking (ob)
- * 3. if the available memory (ie. reservation - min(ob, est_size)) >= max(1MB, est_size),
- * use chunked packing with device buffer for packing.
- * If pinned memory is available,
- * 4. Otherwise, retry with pinned memory (step 2 & 3)
- * 5. If all fails, throw an error.
+ * @brief Packing to host memory uses chunked packing with a bounce buffer.
+ *
+ * Algorithm:
+ * 1. Special case: empty tables return immediately with empty packed data.
+ * 2. Estimate the table size (est_size), with a minimum of 1MB.
+ * 3. Try to reserve device memory for est_size with overbooking allowed.
+ * 4. If available device memory (reservation - overbooking) >= 1MB,
+ *    use chunked packing with the device bounce buffer.
+ * 5. Otherwise, if pinned memory is available, retry with pinned memory (steps 3-4).
+ * 6. If all attempts fail, throw an error.
  */
 template <>
 std::unique_ptr<PackedData> pack<MemoryType::HOST>(

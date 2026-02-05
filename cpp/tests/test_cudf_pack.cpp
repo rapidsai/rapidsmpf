@@ -198,13 +198,11 @@ TEST(CudfPackHostTest, PackToHostWithZeroDeviceMemory) {
     auto reservation = br->reserve_or_fail(packed_size, MemoryType::HOST);
 
     if (is_pinned_memory_resources_supported()) {
-        // With pinned memory available, pack should succeed using pinned bounce buffer.
         auto packed_data = pack(expect.view(), stream, reservation);
         EXPECT_NO_FATAL_FAILURE(
             verify_packed_data(expect, packed_data, MemoryType::HOST, br.get(), stream)
         );
     } else {
-        // Without pinned memory, pack should throw.
         EXPECT_THROW(
             std::ignore = pack(expect.view(), stream, reservation), std::runtime_error
         );
