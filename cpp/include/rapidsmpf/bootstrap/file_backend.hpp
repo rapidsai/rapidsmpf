@@ -42,44 +42,27 @@ class FileBackend : public Backend {
     ~FileBackend() override;
 
     /**
-     * @brief Store a key-value pair.
-     *
-     * @param key Key name.
-     * @param value Value to store.
+     * @copydoc Backend::put
      */
     void put(std::string const& key, std::string const& value) override;
 
     /**
-     * @brief Retrieve a value, blocking until available or timeout occurs.
-     *
-     * @param key Key name.
-     * @param timeout Timeout duration.
-     * @return Value associated with key.
+     * @copydoc Backend::get
      */
     std::string get(std::string const& key, Duration timeout) override;
 
     /**
-     * @brief Perform a barrier synchronization.
-     *
-     * All ranks must call this before any rank proceeds.
+     * @copydoc Backend::barrier
      */
     void barrier() override;
 
     /**
-     * @brief Ensure all previous put() operations are globally visible.
-     *
-     * For FileBackend, this is a no-op since put() operations use atomic
-     * file writes that are immediately visible to all processes via the
-     * shared filesystem.
+     * @copydoc Backend::sync
      */
     void sync() override;
 
     /**
-     * @brief Broadcast data from root to all ranks.
-     *
-     * @param data Data buffer.
-     * @param size Size in bytes.
-     * @param root Root rank.
+     * @copydoc Backend::broadcast
      */
     void broadcast(void* data, std::size_t size, Rank root) override;
 

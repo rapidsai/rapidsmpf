@@ -269,6 +269,10 @@ void SlurmBackend::barrier() {
 }
 
 void SlurmBackend::sync() {
+    // For Slurm/PMIx backend, this executes PMIx_Fence to make all committed
+    // key-value pairs visible across all nodes. This is required because
+    // PMIx_Put + PMIx_Commit only makes data locally visible; PMIx_Fence
+    // performs the global synchronization and data exchange.
     pmix_fence_all(nspace_, "sync");
 }
 

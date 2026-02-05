@@ -108,7 +108,11 @@ void FileBackend::barrier() {
     std::filesystem::remove(my_barrier_file, ec);
 }
 
-void FileBackend::sync() {}
+void FileBackend::sync() {
+    // For FileBackend, this is a no-op since put() operations use atomic
+    // file writes that are immediately visible to all processes via the
+    // shared filesystem.
+}
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
     if (ctx_.rank == root) {

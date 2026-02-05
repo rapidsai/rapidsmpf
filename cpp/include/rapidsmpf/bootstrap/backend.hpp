@@ -68,6 +68,9 @@ class Backend {
     /**
      * @brief Store a key-value pair.
      *
+     * The key-value pair is committed immediately and made visible to other
+     * ranks after a collective `sync()`.
+     *
      * @param key Key name.
      * @param value Value to store.
      */
@@ -79,6 +82,8 @@ class Backend {
      * @param key Key name.
      * @param timeout Timeout duration.
      * @return Value associated with key.
+     *
+     * @throws std::runtime_error if key not found within timeout.
      */
     virtual std::string get(std::string const& key, Duration timeout) = 0;
 
@@ -97,9 +102,11 @@ class Backend {
     /**
      * @brief Broadcast data from root to all ranks.
      *
-     * @param data Data buffer.
+     * @param data Data buffer (input on root, output on other ranks).
      * @param size Size in bytes.
      * @param root Root rank.
+     *
+     * @throws std::runtime_error if broadcast fails or size mismatch occurs.
      */
     virtual void broadcast(void* data, std::size_t size, Rank root) = 0;
 
