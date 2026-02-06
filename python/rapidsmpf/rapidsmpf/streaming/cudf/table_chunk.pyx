@@ -582,7 +582,7 @@ async def make_table_chunks_available_or_wait(
         ctx,
         size + reserve_extra,
         net_memory_delta=net_memory_delta,
-        mem_type=MemoryType.DEVICE,
+        mem_type=py_MemoryType.DEVICE,
         allow_overbooking=allow_overbooking,
     )
     available_chunks = [chunk.make_available(res) for chunk in chunks]
