@@ -10,6 +10,8 @@
 #include <ranges>
 #include <span>
 
+#include <rapidsmpf/utils/misc.hpp>
+
 namespace rapidsmpf {
 
 /// @brief Enum representing the type of memory sorted in decreasing order of preference.
@@ -65,6 +67,53 @@ static_assert(std::ranges::equal(
 static_assert(std::ranges::equal(
     leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
 ));
+
+/**
+ * @brief Get the memory types that are device accessible.
+ *
+ * @return A span of memory types that are device accessible.
+ */
+constexpr std::span<MemoryType const> device_accessible_memory_types() noexcept {
+    return std::span{MEMORY_TYPES}.first<2>();
+}
+
+static_assert(std::ranges::equal(
+    device_accessible_memory_types(),
+    std::array{MemoryType::DEVICE, MemoryType::PINNED_HOST}
+));
+
+/**
+ * @brief Check if a memory type is device accessible.
+ *
+ * @param mem_type The memory type to check.
+ * @return true if the memory type is device accessible, false otherwise.
+ */
+constexpr bool is_device_accessible(MemoryType mem_type) noexcept {
+    return contains(device_accessible_memory_types(), mem_type);
+}
+
+/**
+ * @brief Get the memory types that are host accessible.
+ *
+ * @return A span of memory types that are host accessible.
+ */
+constexpr std::span<MemoryType const> host_accessible_memory_types() {
+    return std::span{MEMORY_TYPES}.last<2>();
+}
+
+static_assert(std::ranges::equal(
+    host_accessible_memory_types(), std::array{MemoryType::PINNED_HOST, MemoryType::HOST}
+));
+
+/**
+ * @brief Check if a memory type is host accessible.
+ *
+ * @param mem_type The memory type to check.
+ * @return true if the memory type is host accessible, false otherwise.
+ */
+constexpr bool is_host_accessible(MemoryType mem_type) noexcept {
+    return contains(host_accessible_memory_types(), mem_type);
+}
 
 /**
  * @brief Get the name of a MemoryType.

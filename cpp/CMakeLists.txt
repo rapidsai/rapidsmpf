@@ -180,6 +180,7 @@ add_library(
   src/config.cpp
   src/cuda_event.cpp
   src/integrations/cudf/bloom_filter.cu
+  src/integrations/cudf/pack.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
