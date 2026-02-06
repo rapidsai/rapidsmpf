@@ -66,17 +66,37 @@ std::unique_ptr<PackedData> pack<MemoryType::PINNED_HOST>(
 
 constexpr size_t cudf_chunked_pack_min_buffer_size = 1024 * 1024;  // 1MB
 
+// Handle the case where packing allocates slightly more than the input size. This can
+// occur because cudf uses aligned allocations, which may exceed the requested size. To
+// accommodate this, we allow some wiggle room.
+void handle_packed_size_overflow(
+    size_t packed_size,
+    cudf::size_type num_columns,
+    MemoryReservation& reservation,
+    BufferResource* br
+) {
+    if (packed_size > reservation.size()) {
+        auto const wiggle_room = 1024 * static_cast<std::size_t>(num_columns);
+        if (packed_size <= reservation.size() + wiggle_room) {
+            reservation =
+                br->reserve(reservation.mem_type(), packed_size, AllowOverbooking::YES)
+                    .first;
+        }
+    }
+}
+
 /**
  * @brief Packing to host memory uses chunked packing with a bounce buffer.
  *
  * Algorithm:
  * 1. Special case: empty tables return immediately with empty packed data.
- * 2. Estimate the table size (est_size), with a minimum of 1MB.
- * 3. Try to reserve device memory for est_size with overbooking allowed.
- * 4. If available device memory (reservation - overbooking) >= 1MB,
+ * 2. Fast path for small tables (< 1MB): pack directly on device and copy to host.
+ * 3. Estimate the table size (est_size), with a minimum of 1MB.
+ * 4. Try to reserve device memory for est_size with overbooking allowed.
+ * 5. If available device memory (reservation - overbooking) >= 1MB,
  *    use chunked packing with the device bounce buffer.
- * 5. Otherwise, if pinned memory is available, retry with pinned memory (steps 3-4).
- * 6. If all attempts fail, throw an error.
+ * 6. Otherwise, if pinned memory is available, retry with pinned memory (steps 4-5).
+ * 7. If all attempts fail, throw an error.
  */
 template <>
 std::unique_ptr<PackedData> pack<MemoryType::HOST>(
@@ -106,10 +126,36 @@ std::unique_ptr<PackedData> pack<MemoryType::HOST>(
         );
     }
 
+    // Fast path for small tables (< 1MB): pack directly on device and copy to host.
+    // This avoids the overhead of allocating a 1MB bounce buffer for chunked packing.
+    auto const raw_est_size = estimated_memory_usage(table, stream);
+    if (raw_est_size < cudf_chunked_pack_min_buffer_size) {
+        auto packed_columns = cudf::pack(table, stream, br->device_mr());
+        auto const packed_size = packed_columns.gpu_data->size();
+
+        // Allocate host buffer from the host reservation
+        handle_packed_size_overflow(packed_size, table.num_columns(), reservation, br);
+        auto dest_buf = br->allocate(packed_size, stream, reservation);
+
+        if (packed_size > 0) {
+            dest_buf->write_access([&](std::byte* dest_ptr, rmm::cuda_stream_view) {
+                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                    dest_ptr,
+                    packed_columns.gpu_data->data(),
+                    packed_size,
+                    cudaMemcpyDefault,
+                    stream
+                ));
+            });
+        }
+
+        return std::make_unique<PackedData>(
+            std::move(packed_columns.metadata), std::move(dest_buf)
+        );
+    }
+
     // estimate the size of the table with a minimum of 1MiB
-    auto const est_size = std::max(
-        estimated_memory_usage(table, stream), cudf_chunked_pack_min_buffer_size
-    );
+    auto const est_size = std::max(raw_est_size, cudf_chunked_pack_min_buffer_size);
 
     // max available memory for bounce buffer
     auto max_availble = [](size_t res_sz, size_t ob) -> size_t {
@@ -182,18 +228,9 @@ std::unique_ptr<PackedData> chunked_pack(
     cudf::chunked_pack cpack(table, bounce_buffer.size(), stream, pack_temp_mr);
     const auto packed_size = cpack.get_total_contiguous_size();
 
-    // Handle the case where packing allocates slightly more than the
-    // input size. This can occur because cudf uses aligned allocations,
-    // which may exceed the requested size. To accommodate this, we
-    // allow some wiggle room.
-    if (packed_size > reservation.size()) {
-        auto const wiggle_room = 1024 * static_cast<std::size_t>(table.num_columns());
-        if (packed_size <= reservation.size() + wiggle_room) {
-            reservation =
-                br->reserve(reservation.mem_type(), packed_size, AllowOverbooking::YES)
-                    .first;
-        }
-    }
+    detail::handle_packed_size_overflow(
+        packed_size, table.num_columns(), reservation, br
+    );
 
     auto dest_buf = br->allocate(packed_size, stream, reservation);
 
