@@ -7,12 +7,6 @@ set -euo pipefail
 package_name="rapidsmpf"
 package_dir="python/rapidsmpf"
 
-
-# Only use stable ABI package for Python >= 3.11
-if [[ "${RAPIDS_PY_VERSION}" != "3.10" ]]; then
-  source ./ci/use_upstream_sabi_wheels.sh
-fi
-
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
@@ -45,7 +39,12 @@ export SKBUILD_CMAKE_ARGS=""
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
 export SITE_PACKAGES
 
-./ci/build_wheel.sh "${package_name}" "${package_dir}"
+# TODO: move this variable into `ci-wheel`
+# Format Python limited API version string
+RAPIDS_PY_API="cp${RAPIDS_PY_VERSION//./}"
+export RAPIDS_PY_API
+
+./ci/build_wheel.sh "${package_name}" "${package_dir}" --stable
 
 python -m auditwheel repair \
     --exclude libcudf.so \
@@ -61,8 +60,5 @@ python -m auditwheel repair \
 
 ./ci/validate_wheel.sh "${package_dir}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"
 
-# Only use stable ABI package naming for Python >= 3.11
-if [[ "${RAPIDS_PY_VERSION}" != "3.10" ]]; then
-  RAPIDS_PACKAGE_NAME="$(rapids-package-name wheel_python rapidsmpf --stable --cuda)"
-  export RAPIDS_PACKAGE_NAME
-fi
+RAPIDS_PACKAGE_NAME="$(rapids-package-name wheel_python rapidsmpf --stable --cuda)"
+export RAPIDS_PACKAGE_NAME
