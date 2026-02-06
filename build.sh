@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 # rapidsmpf build script
@@ -44,7 +44,11 @@ BUILD_TYPE=Release
 BUILD_ALL_GPU_ARCH=0
 INSTALL_TARGET=install
 RAN_CMAKE=0
-PYTHON_ARGS_FOR_INSTALL=("-m" "pip" "install" "--no-build-isolation" "--no-deps" "--config-settings" "rapidsai.disable-cuda=true")
+PYTHON_ARGS_FOR_INSTALL=(
+    --no-build-isolation
+    --no-deps
+    --config-settings="rapidsai.disable-cuda=true"
+)
 
 # Set defaults for vars that may not have been defined externally
 # If INSTALL_PREFIX is not set, check PREFIX, then check
@@ -182,6 +186,12 @@ if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     fi
 fi
 
+# If `RAPIDS_PY_VERSION` is set, use that as the lower-bound for the stable ABI CPython version
+if [ -n "${RAPIDS_PY_VERSION:-}" ]; then
+    RAPIDS_PY_API="cp${RAPIDS_PY_VERSION//./}"
+    PYTHON_ARGS_FOR_INSTALL+=("--config-settings" "skbuild.wheel.py-api=${RAPIDS_PY_API}")
+fi
+
 # Build and install the rapidsmpf Python package
 if (( NUMARGS == 0 )) || hasArg rapidsmpf; then
     echo "building rapidsmpf..."
@@ -198,5 +208,5 @@ if (( NUMARGS == 0 )) || hasArg rapidsmpf; then
     fi
 
     SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS}" \
-        python "${PYTHON_ARGS_FOR_INSTALL[@]}" ${VERBOSE_FLAG} .
+        python -m pip install "${PYTHON_ARGS_FOR_INSTALL[@]}" ${VERBOSE_FLAG} .
 fi
