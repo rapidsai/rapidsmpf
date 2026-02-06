@@ -114,6 +114,9 @@ jobs:
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
+      # Build a wheel for each CUDA x ARCH x minimum supported Python version
+      matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
     secrets: inherit
@@ -125,6 +128,7 @@ jobs:
       date: ${{ inputs.date }}
       package-name: rapidsmpf
       package-type: python
+      publish-wheel-search-key: rapidsmpf_wheel_python_abi3
   wheel-build-rapidsmpf-singlecomm:
     needs: wheel-build-rapidsmpf
     secrets: inherit
