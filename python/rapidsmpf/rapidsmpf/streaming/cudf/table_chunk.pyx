@@ -301,7 +301,11 @@ cdef class TableChunk:
         Number of bytes allocated.
         """
         if mem_type is None:
-            return sum(self.data_alloc_size(m) for m in py_MemoryType)
+            return (
+                self.data_alloc_size(py_MemoryType.DEVICE)
+                + self.data_alloc_size(py_MemoryType.HOST)
+                + self.data_alloc_size(py_MemoryType.PINNED_HOST)
+            )
         return deref(self.handle_ptr()).data_alloc_size(mem_type)
 
     def is_available(self):
@@ -578,7 +582,7 @@ async def make_table_chunks_available_or_wait(
         ctx,
         size + reserve_extra,
         net_memory_delta=net_memory_delta,
-        mem_type=MemoryType.DEVICE,
+        mem_type=py_MemoryType.DEVICE,
         allow_overbooking=allow_overbooking,
     )
     available_chunks = [chunk.make_available(res) for chunk in chunks]
