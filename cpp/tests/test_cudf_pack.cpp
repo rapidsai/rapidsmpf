@@ -51,18 +51,16 @@ void verify_packed_data(
     EXPECT_EQ(packed_data->data->mem_type(), expected_mem_type);
     EXPECT_FALSE(packed_data->empty());
 
-    // if the destination memory type is host, we need to move the data to device
-    if (!is_device_accessible(expected_mem_type)) {
-        auto res = br->reserve_or_fail(packed_data->data->size, MemoryType::DEVICE);
-        packed_data->data = br->move(std::move(packed_data->data), res);
-    }
+    // copy to device to unpack
+    rmm::device_buffer copy_data_buffer(
+        packed_data->data->data(), packed_data->data->size, stream, br->device_mr()
+    );
+    stream.synchronize();
 
     auto unpacked = cudf::unpack(
         packed_data->metadata->data(),
-        reinterpret_cast<std::uint8_t const*>(packed_data->data->data())
+        reinterpret_cast<std::uint8_t const*>(copy_data_buffer.data())
     );
-
-    stream.synchronize();
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, unpacked);
 }
