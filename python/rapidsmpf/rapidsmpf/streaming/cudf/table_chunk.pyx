@@ -301,7 +301,11 @@ cdef class TableChunk:
         Number of bytes allocated.
         """
         if mem_type is None:
-            return sum(self.data_alloc_size(m) for m in py_MemoryType)
+            return (
+                self.data_alloc_size(py_MemoryType.DEVICE)
+                + self.data_alloc_size(py_MemoryType.HOST)
+                + self.data_alloc_size(py_MemoryType.PINNED_HOST)
+            )
         return deref(self.handle_ptr()).data_alloc_size(mem_type)
 
     def is_available(self):
