@@ -595,6 +595,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     return int(failed > 0)
 
 
+def cmd_run_and_validate(args: argparse.Namespace) -> int:
+    """Execute the 'run-and-validate' subcommand."""
+    # First run the benchmarks
+    run_result = cmd_run(args)
+    if run_result != 0:
+        print("\nRun phase failed, skipping validation.")
+        return run_result
+
+    # Set up paths for validation based on run output
+    args.results_path = args.output_dir / "output"
+    args.expected_path = args.output_dir / "expected"
+
+    return cmd_validate(args)
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Execute the 'validate' subcommand."""
     if not args.results_path.exists():
@@ -614,6 +629,17 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if not results_files:
         print(f"No qDD.parquet files found in results directory: {args.results_path}")
         return 1
+
+    # Filter to specific queries if requested
+    if args.queries:
+        results_files = {
+            name: path
+            for name, path in results_files.items()
+            if int(name.lstrip("q")) in args.queries
+        }
+        if not results_files:
+            print(f"No matching result files found for queries: {args.queries}")
+            return 1
 
     print(f"\nValidating {len(results_files)} query(ies):")
 
@@ -681,13 +707,9 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # 'run' subcommand
-    run_parser = subparsers.add_parser(
-        "run",
-        help="Run benchmarks and generate expected results",
-        description="Run C++ benchmark binaries and generate expected results via DuckDB.",
-    )
-    run_parser.add_argument(
+    # Parent parser for run-related arguments
+    run_parent = argparse.ArgumentParser(add_help=False)
+    run_parent.add_argument(
         "--benchmark-dir",
         type=Path,
         help="Directory containing benchmark binaries (q04, q09, etc.)",
@@ -695,7 +717,7 @@ def main():
             "cpp/build/benchmarks/ndsh"
         ),
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--sql-dir",
         type=Path,
         help="Directory containing SQL query files (q04.sql, q09.sql, etc.)",
@@ -703,50 +725,94 @@ def main():
             "cpp/benchmarks/streaming/ndsh/sql"
         ),
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--input-dir",
         type=Path,
         required=True,
         help="Directory containing TPC-H input parquet files",
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--output-dir",
         type=Path,
         required=True,
         help="Directory for output files",
     )
-    parser.add_argument(
+    run_parent.add_argument(
         "-q",
         "--queries",
         help="Comma-separated list of SQL query numbers to run or the string 'all'",
         type=query_type,
         default="all",
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--benchmark-args",
         type=str,
         default="",
         help="Additional arguments to pass to benchmark binaries (space-separated)",
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--reuse-expected",
         action="store_true",
         help="Skip generating expected results if the expected file already exists",
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--reuse-output",
         action="store_true",
         help="Skip running the benchmark if the output file already exists",
     )
-    run_parser.add_argument(
+    run_parent.add_argument(
         "--generate-data",
         action="store_true",
         help="Generate data for the benchmarks",
     )
 
-    # 'validate' subcommand
+    # Parent parser for validation comparison options (not the paths)
+    validate_options_parent = argparse.ArgumentParser(add_help=False)
+    validate_options_parent.add_argument(
+        "-d",
+        "--decimal",
+        type=int,
+        default=2,
+        help="Number of decimal places to compare for floating point values (default: 2)",
+    )
+    validate_options_parent.add_argument(
+        "--ignore-timezone",
+        action="store_true",
+        help="Ignore differences in timezone and precision for timestamp types",
+    )
+    validate_options_parent.add_argument(
+        "--ignore-string-type",
+        action="store_true",
+        help="Ignore differences between string and large_string types",
+    )
+    validate_options_parent.add_argument(
+        "--ignore-integer-sign",
+        action="store_true",
+        help="Ignore differences between signed and unsigned integer types",
+    )
+    validate_options_parent.add_argument(
+        "--ignore-integer-size",
+        action="store_true",
+        help="Ignore differences in integer bit width (e.g., int32 vs int64)",
+    )
+    validate_options_parent.add_argument(
+        "--ignore-decimal-int",
+        action="store_true",
+        help="Ignore differences between decimal and integer types",
+    )
+
+    # 'run' subcommand - inherits from run_parent
+    subparsers.add_parser(
+        "run",
+        parents=[run_parent],
+        help="Run benchmarks and generate expected results",
+        description="Run C++ benchmark binaries and generate expected results via DuckDB.",
+    )
+
+    # 'validate' subcommand - inherits comparison options, adds its own paths
     validate_parser = subparsers.add_parser(
         "validate",
+        parents=[validate_options_parent],
         help="Compare results against expected",
         description="Validate benchmark results by comparing parquet files against expected results.",
     )
@@ -763,36 +829,19 @@ def main():
         help="Directory containing expected parquet files (qDD.parquet)",
     )
     validate_parser.add_argument(
-        "-d",
-        "--decimal",
-        type=int,
-        default=2,
-        help="Number of decimal places to compare for floating point values (default: 2)",
+        "-q",
+        "--queries",
+        help="Comma-separated list of SQL query numbers to validate or the string 'all'",
+        type=query_type,
+        default="all",
     )
-    validate_parser.add_argument(
-        "--ignore-timezone",
-        action="store_true",
-        help="Ignore differences in timezone and precision for timestamp types",
-    )
-    validate_parser.add_argument(
-        "--ignore-string-type",
-        action="store_true",
-        help="Ignore differences between string and large_string types",
-    )
-    validate_parser.add_argument(
-        "--ignore-integer-sign",
-        action="store_true",
-        help="Ignore differences between signed and unsigned integer types",
-    )
-    validate_parser.add_argument(
-        "--ignore-integer-size",
-        action="store_true",
-        help="Ignore differences in integer bit width (e.g., int32 vs int64)",
-    )
-    validate_parser.add_argument(
-        "--ignore-decimal-int",
-        action="store_true",
-        help="Ignore differences between decimal and integer types",
+
+    # 'run-and-validate' subcommand - inherits from BOTH parents
+    subparsers.add_parser(
+        "run-and-validate",
+        parents=[run_parent, validate_options_parent],
+        help="Run benchmarks and validate results in one step",
+        description="Run C++ benchmark binaries, generate expected results via DuckDB, and validate.",
     )
 
     args = parser.parse_args()
@@ -801,6 +850,8 @@ def main():
         sys.exit(cmd_run(args))
     elif args.command == "validate":
         sys.exit(cmd_validate(args))
+    elif args.command == "run-and-validate":
+        sys.exit(cmd_run_and_validate(args))
 
 
 if __name__ == "__main__":

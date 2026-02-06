@@ -129,6 +129,101 @@ std::unique_ptr<streaming::Filter> make_date_filter(
 }
 
 /**
+ * @brief Create a date range filter expression.
+ *
+ * Creates a filter that checks if a date column falls within a half-open range.
+ * The operation will be equivalent to
+ * "<column_name> >= DATE '<start>' AND <column_name> < DATE '<end>'".
+ *
+ * @tparam timestamp_type The timestamp type to use for the filter scalars
+ * (e.g., cudf::timestamp_D or cudf::timestamp_ms)
+ * @param stream CUDA stream to use
+ * @param start_date The start date (inclusive) of the range
+ * @param end_date The end date (exclusive) of the range
+ * @param column_name The name of the column to compare
+ * @return Filter expression with proper lifetime management
+ */
+template <typename timestamp_type>
+std::unique_ptr<streaming::Filter> make_date_range_filter(
+    rmm::cuda_stream_view stream,
+    cuda::std::chrono::year_month_day start_date,
+    cuda::std::chrono::year_month_day end_date,
+    std::string const& column_name
+) {
+    auto owner = new std::vector<std::any>;
+
+    // 0: column_reference
+    owner->push_back(std::make_shared<cudf::ast::column_name_reference>(column_name));
+
+    // 1, 2: Scalars for start and end dates
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            cuda::std::chrono::sys_days(start_date).time_since_epoch(), true, stream
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::timestamp_scalar<timestamp_type>>(
+            cuda::std::chrono::sys_days(end_date).time_since_epoch(), true, stream
+        )
+    );
+
+    // 3, 4: Literals for start and end dates
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(1)
+            )
+        )
+    );
+    owner->push_back(
+        std::make_shared<cudf::ast::literal>(
+            *std::any_cast<std::shared_ptr<cudf::timestamp_scalar<timestamp_type>>>(
+                owner->at(2)
+            )
+        )
+    );
+
+    // 5: (GE, column, literal<start>)
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::GREATER_EQUAL,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(0)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(3))
+        )
+    );
+
+    // 6: (LT, column, literal<end>)
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LESS,
+            *std::any_cast<std::shared_ptr<cudf::ast::column_name_reference>>(
+                owner->at(0)
+            ),
+            *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(4))
+        )
+    );
+
+    // 7: (AND, GE, LT)
+    owner->push_back(
+        std::make_shared<cudf::ast::operation>(
+            cudf::ast::ast_operator::LOGICAL_AND,
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(5)),
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->at(6))
+        )
+    );
+
+    return std::make_unique<streaming::Filter>(
+        stream,
+        *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+        OwningWrapper(static_cast<void*>(owner), [](void* p) {
+            delete static_cast<std::vector<std::any>*>(p);
+        })
+    );
+}
+
+/**
  * @brief Sink messages into a channel and discard them.
  *
  * @param ctx Streaming context
