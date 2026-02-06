@@ -28,7 +28,9 @@ Buffer::Buffer(
       storage_{std::move(host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
-        std::get<HostBufferT>(storage_) != nullptr, "the host_buffer cannot be NULL"
+        std::get<HostBufferT>(storage_) != nullptr,
+        "the host_buffer cannot be NULL",
+        std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
         contains(host_buffer_types, mem_type_),
