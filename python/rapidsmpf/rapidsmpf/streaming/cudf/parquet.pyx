@@ -6,7 +6,9 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.string cimport string
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 from pylibcudf.expressions cimport Expression
 from pylibcudf.io.parquet cimport ParquetReaderOptions
 from pylibcudf.libcudf.expressions cimport expression
@@ -36,6 +38,23 @@ cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
             size_type num_rows_per_chunk,
             unique_ptr[cpp_Filter],
         ) except +ex_handler
+
+    cdef cpp_Node cpp_read_parquet_uniform \
+        "rapidsmpf::streaming::node::read_parquet_uniform"(
+            shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Channel] ch_out,
+            size_t num_producers,
+            parquet_reader_options options,
+            size_t target_num_chunks,
+            unique_ptr[cpp_Filter],
+        ) except +
+
+    cdef size_t cpp_estimate_target_num_chunks \
+        "rapidsmpf::streaming::node::estimate_target_num_chunks"(
+            const vector[string]& files,
+            size_type num_rows_per_chunk,
+            size_t max_samples,
+        ) except +
 
 
 cdef class Filter:
@@ -137,3 +156,99 @@ def read_parquet(
     return CppNode.from_handle(
         make_unique[cpp_Node](move(_ret)), owner=None
     )
+
+
+def read_parquet_uniform(
+    Context ctx not None,
+    Channel ch_out not None,
+    size_t num_producers,
+    ParquetReaderOptions options not None,
+    size_t target_num_chunks,
+    Filter filter = None,
+):
+    """
+    Create a streaming node to read from parquet with uniform chunk distribution.
+
+    Parameters
+    ----------
+    ctx
+        Streaming execution context
+    ch_out
+        Output channel to receive the TableChunks.
+    num_producers
+        Number of concurrent producers of output chunks.
+    options
+        Reader options
+    target_num_chunks
+        Target total number of chunks to create across all ranks.
+    filter
+        Optional filter object. If provided, is consumed by this function
+        and not subsequently usable.
+
+    Notes
+    -----
+    Unlike read_parquet which targets a specific number of rows per chunk,
+    this function targets a total number of chunks distributed uniformly.
+
+    When target_num_chunks <= num_files: Files are grouped and read completely.
+    When target_num_chunks > num_files: Files are split, aligned to row groups.
+
+    This is a collective operation, all ranks participating via the
+    execution context's communicator must call it with the same options.
+    """
+    cdef cpp_Node _ret
+    cdef unique_ptr[cpp_Filter] c_filter
+    if filter is not None:
+        c_filter = move(filter.release_handle())
+    with nogil:
+        _ret = cpp_read_parquet_uniform(
+            ctx._handle,
+            ch_out._handle,
+            num_producers,
+            options.c_obj,
+            target_num_chunks,
+            move(c_filter)
+        )
+    return CppNode.from_handle(
+        make_unique[cpp_Node](move(_ret)), owner=None
+    )
+
+
+def estimate_target_num_chunks(
+    files: list[str],
+    size_type num_rows_per_chunk,
+    size_t max_samples = 3,
+) -> int:
+    """
+    Estimate target chunk count from parquet file metadata.
+
+    Parameters
+    ----------
+    files
+        List of parquet file paths.
+    num_rows_per_chunk
+        Target number of rows per output chunk.
+    max_samples
+        Maximum number of files to sample for row estimation.
+
+    Returns
+    -------
+    Estimated target number of chunks.
+
+    Notes
+    -----
+    Samples metadata from up to `max_samples` files to estimate total rows,
+    then calculates how many chunks are needed to achieve the target rows per chunk.
+
+    This is useful for computing the `target_num_chunks` parameter for
+    `read_parquet_uniform` when you have a target `num_rows_per_chunk` instead.
+    """
+    cdef vector[string] c_files
+    for f in files:
+        c_files.push_back(f.encode())
+    cdef size_t result
+    with nogil:
+        result = cpp_estimate_target_num_chunks(
+            c_files, num_rows_per_chunk, max_samples
+        )
+    return result

@@ -279,3 +279,124 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     EXPECT_EQ(result->num_columns(), 1);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result->view(), expected->view());
 }
+
+// Test estimate_target_num_chunks utility function
+TEST_F(StreamingReadParquet, EstimateTargetNumChunks) {
+    // 10 files with 10 rows each = 100 total rows
+    // Verify: larger chunk size -> fewer chunks, always >= 1
+    EXPECT_EQ(node::estimate_target_num_chunks(source_files, 1), 100);
+    EXPECT_EQ(node::estimate_target_num_chunks(source_files, 10), 10);
+    EXPECT_EQ(node::estimate_target_num_chunks(source_files, 25), 4);
+    EXPECT_EQ(node::estimate_target_num_chunks(source_files, 1000000), 1);
+}
+
+// Test read_parquet_uniform using same parameterized cases as read_parquet
+// (only for cases where skip_rows and num_rows are not set)
+TEST_P(StreamingReadParquetParams, ReadParquetUniform) {
+    auto [skip_rows, num_rows, use_filter, truncate_file_list] = GetParam();
+
+    // read_parquet_uniform doesn't support skip_rows/num_rows
+    if (skip_rows.has_value() || num_rows.has_value()) {
+        GTEST_SKIP() << "read_parquet_uniform doesn't support skip_rows/num_rows";
+    }
+
+    auto source = get_source_info(truncate_file_list);
+    auto options = cudf::io::parquet_reader_options::builder(source).build();
+
+    auto filter_expr = [&]() -> std::unique_ptr<Filter> {
+        if (!use_filter) {
+            return nullptr;
+        }
+        auto stream = ctx->br()->stream_pool().get_stream();
+        auto owner = new std::vector<std::any>;
+        owner->push_back(
+            std::make_shared<cudf::numeric_scalar<int32_t>>(15, true, stream)
+        );
+        owner->push_back(
+            std::make_shared<cudf::ast::literal>(
+                *std::any_cast<std::shared_ptr<cudf::numeric_scalar<int32_t>>>(
+                    owner->at(0)
+                )
+            )
+        );
+        owner->push_back(std::make_shared<cudf::ast::column_reference>(0));
+        owner->push_back(
+            std::make_shared<cudf::ast::operation>(
+                cudf::ast::ast_operator::LESS,
+                *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(
+                    owner->at(2)
+                ),
+                *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+            )
+        );
+        return std::make_unique<Filter>(
+            stream,
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+            OwningWrapper(static_cast<void*>(owner), [](void* p) {
+                delete static_cast<std::vector<std::any>*>(p);
+            })
+        );
+    }();
+
+    auto expected = [&]() {
+        if (filter_expr != nullptr) {
+            auto expected_options = options;
+            expected_options.set_filter(filter_expr->filter);
+            filter_expr->stream.synchronize();
+            auto expected = cudf::io::read_parquet(expected_options).tbl;
+            filter_expr->stream.synchronize();
+            return expected;
+        } else {
+            return cudf::io::read_parquet(options).tbl;
+        }
+    }();
+
+    // Estimate target chunks and run read_parquet_uniform
+    auto target_chunks = node::estimate_target_num_chunks(source_files, 3);
+    auto ch = ctx->create_channel();
+    std::vector<Node> nodes;
+    nodes.push_back(
+        node::read_parquet_uniform(
+            ctx, ch, 4, options, target_chunks, std::move(filter_expr)
+        )
+    );
+
+    std::vector<Message> messages;
+    nodes.push_back(node::pull_from_channel(ctx, ch, messages));
+    run_streaming_pipeline(std::move(nodes));
+
+    allgather::AllGather allgather(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        /* op_id = */ 0,
+        br.get()
+    );
+
+    for (auto& msg : messages) {
+        auto chunk = msg.release<TableChunk>();
+        auto seq = msg.sequence_number();
+        auto [reservation, _] =
+            br->reserve(MemoryType::DEVICE, chunk.make_available_cost(), true);
+        chunk = chunk.make_available(reservation);
+        auto packed_columns =
+            cudf::pack(chunk.table_view(), chunk.stream(), br->device_mr());
+        auto packed_data = PackedData{
+            std::move(packed_columns.metadata),
+            br->move(std::move(packed_columns.gpu_data), chunk.stream())
+        };
+
+        allgather.insert(seq, std::move(packed_data));
+    }
+
+    allgather.insert_finished();
+
+    auto gathered_packed_data =
+        allgather.wait_and_extract(allgather::AllGather::Ordered::YES);
+    auto result = unpack_and_concat(
+        std::move(gathered_packed_data), rmm::cuda_stream_default, br.get()
+    );
+    EXPECT_EQ(result->num_rows(), expected->num_rows());
+    EXPECT_EQ(result->num_columns(), expected->num_columns());
+    EXPECT_EQ(result->num_columns(), 1);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result->view(), expected->view());
+}
