@@ -309,17 +309,14 @@ class BufferResource {
     );
 
     /**
-     * @brief Move rmm::device_buffer (resides in device or pinned host memory) into a
-     * Buffer.
+     * @brief Move device buffer data into a Buffer.
      *
      * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * device memory or pinned host memory.
+     * device memory.
      *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
-     *
-     * @note If the @p data is empty, the resulting Buffer will be DEVICE memory type.
      *
      * @param data Unique pointer to the device buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
@@ -328,6 +325,28 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    );
+
+    /**
+     * @brief Move host buffer data into a Buffer.
+     *
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * host memory.
+     *
+     * If @p stream differs from the device buffer's current stream:
+     *   - @p stream is synchronized with the device buffer's current stream, and
+     *   - the device buffer's current stream is updated to @p stream.
+     *
+     * @param data Unique pointer to the host buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * @param host_mem_type The memory type of the underlying @p host_buffer.
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
+     */
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<HostBuffer> data,
+        rmm::cuda_stream_view stream,
+        MemoryType host_mem_type
     );
 
     /**

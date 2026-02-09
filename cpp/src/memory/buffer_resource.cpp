@@ -32,6 +32,16 @@ auto add_missing_availability_functions(
     }
     return memory_available;
 }
+
+// Helper function to join the stream of a buffer with a new stream.
+void buffer_stream_join(auto& data, rmm::cuda_stream_view stream) {
+    auto const& upstream = data->stream();
+    if (upstream.value() != stream.value()) {
+        cuda_stream_join(stream, upstream);
+        data->set_stream(stream);
+    }
+}
+
 }  // namespace
 
 BufferResource::BufferResource(
@@ -189,23 +199,17 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
-    auto upstream = data->stream();
-    if (upstream.value() != stream.value()) {
-        cuda_stream_join(stream, upstream);
-        data->set_stream(stream);
-    }
-    // data() will be host accessible if data.data() is in pinned host memory
-    if (cuda::is_host_accessible(data->data())) {
-        return std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<HostBuffer>(
-                HostBuffer::from_rmm_device_buffer(std::move(data), stream, pinned_mr())
-            ),
-            stream,
-            MemoryType::PINNED_HOST
-        ));
-    } else {  // if data is in device memory OR empty
-        return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
-    }
+    buffer_stream_join(data, stream);
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+}
+
+std::unique_ptr<Buffer> BufferResource::move(
+    std::unique_ptr<HostBuffer> data,
+    rmm::cuda_stream_view stream,
+    MemoryType host_mem_type
+) {
+    buffer_stream_join(data, stream);
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, host_mem_type));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(

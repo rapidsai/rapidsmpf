@@ -181,18 +181,14 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             // if data is not in a packed format (cudf table, non-owning table_view,
             // etc), use packing; otherwise use buffer_copy below.
             if (packed_data_ == nullptr) {
-                return detail::pack<MemoryType::PINNED_HOST>(
-                    table_view(), stream(), reservation
-                );
+                return detail::pack_pinned_host(table_view(), stream(), reservation);
             }
             break;  // use buffer_copy below.
         case MemoryType::HOST:
             // if data is not in a packed format (cudf table, non-owning table_view,
             // etc), use packing; otherwise use buffer_copy below.
             if (packed_data_ == nullptr) {
-                return detail::pack<MemoryType::HOST>(
-                    table_view(), stream(), reservation
-                );
+                return detail::pack_host(table_view(), stream(), reservation);
             }
             break;  // use buffer_copy below.
         default:

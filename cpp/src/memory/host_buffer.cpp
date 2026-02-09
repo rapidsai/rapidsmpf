@@ -149,8 +149,10 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
         std::invalid_argument
     );
 
+    // if the buffer is not empty, it must be host accessible
     RAPIDSMPF_EXPECTS(
-        cuda::is_host_accessible(pinned_host_buffer->data()),
+        pinned_host_buffer->size() == 0
+            || cuda::is_host_accessible(pinned_host_buffer->data()),
         "pinned_host_buffer must be host accessible",
         std::invalid_argument
     );

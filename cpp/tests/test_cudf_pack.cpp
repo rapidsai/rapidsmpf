@@ -43,12 +43,9 @@ void verify_packed_data(
     EXPECT_NE(packed_data->metadata, nullptr);
     EXPECT_NE(packed_data->data, nullptr);
 
-    if (expect.num_rows() == 0) {  // Skip unpacking for empty tables
-        EXPECT_FALSE(packed_data->metadata->empty());
-        return;
+    if (expect.num_rows() > 0) {
+        EXPECT_EQ(packed_data->data->mem_type(), expected_mem_type);
     }
-
-    EXPECT_EQ(packed_data->data->mem_type(), expected_mem_type);
     EXPECT_FALSE(packed_data->empty());
 
     // copy to device to unpack

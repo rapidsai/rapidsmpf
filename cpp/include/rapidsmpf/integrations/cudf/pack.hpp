@@ -46,39 +46,78 @@ namespace rapidsmpf {
 namespace detail {
 
 /**
- * @brief Pack a cudf table view into a contiguous buffer of the specified memory type.
+ * @brief Pack a cudf table view into a contiguous device buffer.
  *
- * - Device:
- * Uses cudf::pack(). Returns a `Buffer` with a `rmm::device_buffer`.
+ * Uses cudf::pack(). Returns a `PackedData` with a `Buffer` backed by
+ * `rmm::device_buffer`. The memory is allocated using the provided reservation.
  *
- * - Pinned Host:
- * Uses cudf::pack() with a pinned mr as device mr. Returns a `Buffer` with a pinned
- * `HostBuffer`.
- *
- * - Host:
- * Uses cudf::chunked_pack() with a device bounce buffer, if available, otherwise uses a
- * pinned bounce buffer. Returns a `Buffer` with a `HostBuffer`.
- *
- * This function serializes the given table view into a `PackedData` object
- * with the data buffer residing in the memory type specified by the template parameter.
- * The memory for the packed data is allocated using the provided reservation.
- *
- * @tparam Destination The destination memory type for the packed data buffer.
  * @param table The table view to pack.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param reservation Memory reservation to use for allocating the packed data buffer.
- *                    Must match the destination memory type.
+ * @param reservation Device memory reservation. Must have memory type DEVICE.
  * @return A unique pointer to the packed data containing the serialized table.
  *
- * @throws std::invalid_argument If the reservation's memory type does not match
- * Destination.
+ * @throws std::invalid_argument If the reservation's memory type is not DEVICE.
  * @throws rapidsmpf::reservation_error If the allocation size exceeds the reservation.
  *
- * @see rapidsmpf::pack
  * @see cudf::pack
  */
-template <MemoryType Destination>
-[[nodiscard]] std::unique_ptr<PackedData> pack(
+[[nodiscard]] std::unique_ptr<PackedData> pack_device(
+    cudf::table_view const& table,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
+);
+
+/**
+ * @brief Pack a cudf table view into a contiguous pinned host buffer.
+ *
+ * Uses cudf::pack() with a pinned memory resource. Returns a `PackedData` with
+ * a `Buffer` backed by a pinned `HostBuffer`. The memory is allocated using
+ * the provided reservation.
+ *
+ * @param table The table view to pack.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param reservation Pinned host memory reservation. Must have memory type PINNED_HOST.
+ * @return A unique pointer to the packed data containing the serialized table.
+ *
+ * @throws std::invalid_argument If the reservation's memory type is not PINNED_HOST.
+ * @throws rapidsmpf::reservation_error If the allocation size exceeds the reservation.
+ *
+ * @see cudf::pack
+ */
+[[nodiscard]] std::unique_ptr<PackedData> pack_pinned_host(
+    cudf::table_view const& table,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
+);
+
+/**
+ * @brief Pack a cudf table view into a contiguous host buffer.
+ *
+ * Uses cudf::chunked_pack() with a device bounce buffer when available,
+ * otherwise a pinned bounce buffer. Returns a `PackedData` with a `Buffer`
+ * backed by a `HostBuffer`. The memory is allocated using the provided reservation.
+ *
+ * Algorithm:
+ * 1. Special case: empty tables return immediately with empty packed data.
+ * 2. Fast path for small tables (< 1MB): pack directly on device and copy to host.
+ * 3. Estimate the table size (est_size), with a minimum of 1MB.
+ * 4. Try to reserve device memory for est_size with overbooking allowed.
+ * 5. If available device memory (reservation - overbooking) >= 1MB,
+ *    use chunked packing with the device bounce buffer.
+ * 6. Otherwise, if pinned memory is available, retry with pinned memory (steps 4-5).
+ * 7. If all attempts fail, throw an error.
+ *
+ * @param table The table view to pack.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param reservation Host memory reservation. Must have memory type HOST.
+ * @return A unique pointer to the packed data containing the serialized table.
+ *
+ * @throws std::invalid_argument If the reservation's memory type is not HOST.
+ * @throws rapidsmpf::reservation_error If the allocation size exceeds the reservation.
+ *
+ * @see cudf::chunked_pack
+ */
+[[nodiscard]] std::unique_ptr<PackedData> pack_host(
     cudf::table_view const& table,
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
