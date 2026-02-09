@@ -156,6 +156,7 @@ streaming::Node broadcast(
  * @param right_on Key column indiecs in `right_chunk`.
  * @param build_stream Stream the `joiner` will be deallocated on.
  * @param build_event Event recording the creation of the `joiner`.
+ * @param tmp_event Preallocated event used for internal stream ordering.
  *
  * @return Message of `TableChunk` containing the result of the inner join.
  */
@@ -167,9 +168,10 @@ streaming::Message inner_join_chunk(
     cudf::table_view build_carrier,
     std::vector<cudf::size_type> right_on,
     rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
+    CudaEvent* build_event,
+    CudaEvent* tmp_event
+
 ) {
-    CudaEvent event;
     auto chunk_stream = right_chunk.stream();
     build_event->stream_wait(chunk_stream);
     auto probe_table = right_chunk.table_view();
@@ -212,7 +214,7 @@ streaming::Message inner_join_chunk(
     );
     // Deallocation of the join indices will happen on build_stream, so add stream dep
     // This also ensure deallocation of the hash_join object waits for completion.
-    cuda_stream_join(build_stream, chunk_stream, &event);
+    cuda_stream_join(build_stream, chunk_stream, tmp_event);
     return streaming::to_message(
         sequence,
         std::make_unique<streaming::TableChunk>(
@@ -250,6 +252,7 @@ streaming::Node inner_join_broadcast(
     );
     CudaEvent build_event;
     build_event.record(build_table.stream());
+    CudaEvent tmp_event;
     cudf::table_view build_carrier;
     if (keep_keys == KeepKeys::YES) {
         build_carrier = build_table.table_view();
@@ -275,7 +278,8 @@ streaming::Node inner_join_broadcast(
             build_carrier,
             right_on,
             build_table.stream(),
-            &build_event
+            &build_event,
+            &tmp_event
         ));
     }
 
@@ -295,6 +299,7 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
+    CudaEvent tmp_event;
     while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
@@ -339,7 +344,8 @@ streaming::Node inner_join_shuffle(
             build_carrier,
             right_on,
             build_stream,
-            &build_event
+            &build_event,
+            &tmp_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
