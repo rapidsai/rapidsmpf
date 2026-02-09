@@ -208,6 +208,9 @@ TEST(PinnedResourceMaxSize, max_pool_size_limit) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
 
+    // Ensure a current device context so driver APIs
+    RAPIDSMPF_CUDA_TRY(cudaSetDevice(rmm::get_current_cuda_device().value()));
+
     // Create a PinnedMemoryResource with max pool size of 1MiB
     auto pinned_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(
         rapidsmpf::get_current_numa_node(),
@@ -219,13 +222,15 @@ TEST(PinnedResourceMaxSize, max_pool_size_limit) {
     EXPECT_NE(nullptr, ptr);
     pinned_mr->deallocate(stream, ptr, 512_KiB);
 
+    // NOTE: currently cuda driver rounds up max size to 32MB. So we need to allocate 32MB
+    // + 1 byte.
     EXPECT_THROW(
         {
-            void* ptr2 = pinned_mr->allocate(stream, 2_MiB);
+            void* ptr2 = pinned_mr->allocate(stream, 32_MiB + 1);
             // If we get here, clean up
-            pinned_mr->deallocate(rmm::cuda_stream_view{}, ptr2, 2_MiB);
+            pinned_mr->deallocate(rmm::cuda_stream_view{}, ptr2, 32_MiB + 1);
         },
-        std::bad_alloc
+        cuda::cuda_error
     );
     stream.synchronize();
 }
