@@ -31,14 +31,15 @@ cuda::memory_pool_properties get_memory_pool_properties(
     PinnedPoolProperties const& props
 ) {
     return cuda::memory_pool_properties{
-        // It was observed that priming async pools have little effect for performance.
-        // See <https://github.com/rapidsai/rmm/issues/1931>.
+        // It was observed that priming async device pools have little effect on
+        // performance. See <https://github.com/rapidsai/rmm/issues/1931>. However,
+        // initial allocations and warming up the pool have a significant impact on
+        // pinned memory pool performance.
         .initial_pool_size = props.initial_pool_size,
         // Before <https://github.com/NVIDIA/cccl/pull/6718>, the default
         // `release_threshold` was 0, which defeats the purpose of having a pool. We
         // now set it so the pool never releases unused pinned memory.
-        .release_threshold = props.max_pool_size > 0 ? props.max_pool_size
-                                                     : std::numeric_limits<size_t>::max(),
+        .release_threshold = std::numeric_limits<size_t>::max(),
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone,
@@ -56,8 +57,7 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties(
         // Before <https://github.com/NVIDIA/cccl/pull/6718>, the default
         // `release_threshold` was 0, which defeats the purpose of having a pool. We
         // now set it so the pool never releases unused pinned memory.
-        .release_threshold = props.max_pool_size > 0 ? props.max_pool_size
-                                                     : std::numeric_limits<size_t>::max(),
+        .release_threshold = std::numeric_limits<size_t>::max(),
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type =
