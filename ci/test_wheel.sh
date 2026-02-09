@@ -7,8 +7,9 @@ set -eou pipefail
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
+
+PYTHON_WHEELHOUSE=$(rapids-download-from-github "$(rapids-package-name "wheel_python" rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")")
 CPP_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
-PYTHON_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="rapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
 
 # echo to expand wildcard before adding '[extra]' requires for pip
 rapids-pip-retry install \
