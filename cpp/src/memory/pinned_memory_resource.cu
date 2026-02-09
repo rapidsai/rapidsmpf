@@ -27,30 +27,37 @@ namespace rapidsmpf {
 
 namespace {
 #if CCCL_MAJOR_VERSION > 3 || (CCCL_MAJOR_VERSION == 3 && CCCL_MINOR_VERSION >= 2)
-cuda::memory_pool_properties get_memory_pool_properties() {
+cuda::memory_pool_properties get_memory_pool_properties(
+    PinnedPoolProperties const& props
+) {
     return cuda::memory_pool_properties{
         // It was observed that priming async pools have little effect for performance.
         // See <https://github.com/rapidsai/rmm/issues/1931>.
-        .initial_pool_size = 0,
+        .initial_pool_size = props.initial_pool_size,
         // Before <https://github.com/NVIDIA/cccl/pull/6718>, the default
         // `release_threshold` was 0, which defeats the purpose of having a pool. We
         // now set it so the pool never releases unused pinned memory.
-        .release_threshold = std::numeric_limits<size_t>::max(),
+        .release_threshold = props.max_pool_size > 0 ? props.max_pool_size
+                                                     : std::numeric_limits<size_t>::max(),
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
-        .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone
+        .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone,
+        .max_pool_size = props.max_pool_size
     };
 }
 #else
-cuda::experimental::memory_pool_properties get_memory_pool_properties() {
+cuda::experimental::memory_pool_properties get_memory_pool_properties(
+    PinnedPoolProperties const& props
+) {
     return cuda::experimental::memory_pool_properties{
         // It was observed that priming async pools have little effect for performance.
         // See <https://github.com/rapidsai/rmm/issues/1931>.
-        .initial_pool_size = 0,
+        .initial_pool_size = props.initial_pool_size,
         // Before <https://github.com/NVIDIA/cccl/pull/6718>, the default
         // `release_threshold` was 0, which defeats the purpose of having a pool. We
         // now set it so the pool never releases unused pinned memory.
-        .release_threshold = std::numeric_limits<size_t>::max(),
+        .release_threshold = props.max_pool_size > 0 ? props.max_pool_size
+                                                     : std::numeric_limits<size_t>::max(),
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type =
@@ -61,8 +68,8 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties() {
 }  // namespace
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(int numa_id)
-        : pool{numa_id, get_memory_pool_properties()}, resource{pool} {}
+    PinnedMemoryResourceImpl(int numa_id, PinnedPoolProperties const& props)
+        : pool{numa_id, get_memory_pool_properties(props)}, resource{pool} {}
 
     void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment) {
         return resource.allocate(stream, bytes, alignment);
@@ -85,7 +92,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 #else  // CUDA_VERSION < RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(int) {}
+    PinnedMemoryResourceImpl(int, PinnedPoolProperties const&) {}
 
     void* allocate(rmm::cuda_stream_view, size_t, size_t) {
         return nullptr;
@@ -95,7 +102,9 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 };
 #endif
 
-PinnedMemoryResource::PinnedMemoryResource(int numa_id) {
+PinnedMemoryResource::PinnedMemoryResource(
+    int numa_id, PinnedPoolProperties pool_properties
+) {
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "Pinned host memory is not supported on this system. "
@@ -105,14 +114,16 @@ PinnedMemoryResource::PinnedMemoryResource(int numa_id) {
         "memory, noting that this may significantly degrade spilling performance.",
         std::invalid_argument
     );
-    impl_ = std::make_unique<PinnedMemoryResourceImpl>(numa_id);
+    impl_ = std::make_unique<PinnedMemoryResourceImpl>(numa_id, pool_properties);
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
-    int numa_id
+    int numa_id, PinnedPoolProperties pool_properties
 ) {
     if (is_pinned_memory_resources_supported()) {
-        return std::make_shared<rapidsmpf::PinnedMemoryResource>(numa_id);
+        return std::make_shared<rapidsmpf::PinnedMemoryResource>(
+            numa_id, pool_properties
+        );
     }
     return PinnedMemoryResource::Disabled;
 }

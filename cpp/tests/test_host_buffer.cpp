@@ -202,3 +202,30 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
+
+TEST(PinnedResourceMaxSize, max_pool_size_limit) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+
+    // Create a PinnedMemoryResource with max pool size of 1MiB
+    auto pinned_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(
+        rapidsmpf::get_current_numa_node(),
+        rapidsmpf::PinnedPoolProperties{.initial_pool_size = 0, .max_pool_size = 1_MiB}
+    );
+    auto stream = cudf::get_default_stream();
+
+    void* ptr = pinned_mr->allocate(stream, 512_KiB);
+    EXPECT_NE(nullptr, ptr);
+    pinned_mr->deallocate(stream, ptr, 512_KiB);
+
+    EXPECT_THROW(
+        {
+            void* ptr2 = pinned_mr->allocate(stream, 2_MiB);
+            // If we get here, clean up
+            pinned_mr->deallocate(rmm::cuda_stream_view{}, ptr2, 2_MiB);
+        },
+        std::bad_alloc
+    );
+    stream.synchronize();
+}

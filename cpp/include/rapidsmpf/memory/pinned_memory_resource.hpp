@@ -68,6 +68,15 @@ inline bool is_pinned_memory_resources_supported() {
 class PinnedMemoryResource;
 
 /**
+ * @brief Properties for configuring a pinned memory pool.
+ */
+struct PinnedPoolProperties {
+    std::size_t initial_pool_size = 0;  ///< initial size of the pool. Initial size is
+                                        ///< important for pinned memory performance.
+    std::size_t max_pool_size = 0;  ///< maximum size of the pool. 0 means no limit.
+};
+
+/**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
  * This resource allocates and deallocates pinned host memory asynchronously through
@@ -87,17 +96,21 @@ class PinnedMemoryResource final : public HostMemoryResource {
      *
      * @param numa_id NUMA node from which memory should be allocated. By default,
      * the resource uses the NUMA node of the calling thread.
+     * @param pool_properties Properties for configuring the pinned memory pool.
      *
      * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
      * the current CUDA version or if CUDA initialization fails.
      */
-    PinnedMemoryResource(int numa_id = get_current_numa_node());
+    PinnedMemoryResource(
+        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
+    );
 
     /**
      * @brief Create a pinned memory resource if the system supports pinned memory.
      *
      * @param numa_id The NUMA node to associate with the resource. Defaults to the
      * current NUMA node.
+     * @param pool_properties Properties for configuring the pinned memory pool.
      *
      * @return A shared pointer to a new `PinnedMemoryResource` when supported,
      * otherwise `PinnedMemoryResource::Disabled`.
@@ -105,7 +118,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @see PinnedMemoryResource::PinnedMemoryResource
      */
     static std::shared_ptr<PinnedMemoryResource> make_if_available(
-        int numa_id = get_current_numa_node()
+        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
     );
 
     /**
