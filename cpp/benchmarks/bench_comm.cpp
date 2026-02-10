@@ -221,7 +221,7 @@ Duration run(
     }
 
     // Sync before we start the timer.
-    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
+    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize()); 
 
     auto const t0_elapsed = Clock::now();
 
