@@ -836,7 +836,7 @@ static void BM_ChunkedPack_pinned_to_fixed_sized_host(benchmark::State& state) {
  * @param b The benchmark to configure with arguments.
  */
 void PackArguments(benchmark::internal::Benchmark* b) {
-    // Test different table sizes in MB (minimum 1MB as requested)
+    // Test different table sizes in MB
     for (auto size_mb : {1, 10, 100, 500, 1000, 2000, 4000}) {
         b->Args({size_mb});
     }
