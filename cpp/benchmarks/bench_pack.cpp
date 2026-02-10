@@ -974,6 +974,46 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
 }
 
 /**
+ * @brief Benchmark for cudf::chunked_pack in host memory with device bounce buffer
+ * varying the bounce buffer size and keeping table size fixed at 1GB
+ */
+static void BM_ChunkedPack_fixed_table_host_device(benchmark::State& state) {
+    auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
+    constexpr std::size_t table_size_bytes = 1024 * MB;
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rapidsmpf::HostMemoryResource host_mr;
+
+    run_chunked_pack(
+        state, bounce_buffer_size, table_size_bytes, cuda_mr, cuda_mr, host_mr, stream
+    );
+}
+
+/**
+ * @brief Benchmark for cudf::chunked_pack in host memory with pinned bounce buffer
+ * varying the bounce buffer size and keeping table size fixed at 1GB
+ */
+static void BM_ChunkedPack_fixed_table_host_pinned(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    auto const bounce_buffer_size = static_cast<std::size_t>(state.range(0)) * MB;
+    constexpr std::size_t table_size_bytes = 1024 * MB;
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+    rapidsmpf::HostMemoryResource host_mr;
+
+    run_chunked_pack(
+        state, bounce_buffer_size, table_size_bytes, cuda_mr, pinned_mr, host_mr, stream
+    );
+}
+
+/**
  * @brief Benchmark for cudf::chunked_pack in device memory varying the bounce buffer size
  * and keeping table size fixed at 1GB
  */
@@ -1031,6 +1071,16 @@ BENCHMARK(BM_ChunkedPack_fixed_table_device)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_ChunkedPack_fixed_table_pinned)
+    ->Apply(ChunkedPackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_fixed_table_host_device)
+    ->Apply(ChunkedPackArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_fixed_table_host_pinned)
     ->Apply(ChunkedPackArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
