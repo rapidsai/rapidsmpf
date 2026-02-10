@@ -107,6 +107,7 @@ static void BM_Pack_pinned_host(benchmark::State& state) {
  * @param table_size_mb The size of the table in MB
  * @param table_mr The memory resource for the table
  * @param pack_mr The memory resource for the packed data
+ * @param dest_mr The memory resource for the destination data
  * @param stream The CUDA stream to use
  */
 void run_pack_and_copy(
