@@ -200,7 +200,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         1024 * static_cast<std::size_t>(table_view().num_columns());
                     if (packed_data->data->size <= reservation.size() + wiggle_room) {
                         reservation = br->reserve(
-                                            MemoryType::HOST,
+                                            reservation.mem_type(),
                                             packed_data->data->size,
                                             AllowOverbooking::YES
                         )
