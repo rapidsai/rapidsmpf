@@ -51,7 +51,8 @@ std::shared_ptr<cuda::pinned_memory_pool> make_pinned_memory_pool(
 PinnedMemoryResource::PinnedMemoryResource(int numa_id)
     : pool_{make_pinned_memory_pool(numa_id, get_memory_pool_properties())} {}
 
-std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(int numa_id
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
+    int numa_id
 ) {
     if (is_pinned_memory_resources_supported()) {
         return std::make_shared<rapidsmpf::PinnedMemoryResource>(numa_id);
