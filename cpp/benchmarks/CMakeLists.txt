@@ -164,10 +164,15 @@ target_compile_options(
 )
 target_link_libraries(
   bench_fixed_sized_pool
-  PRIVATE benchmark::benchmark benchmark::benchmark_main rapidsmpf::rapidsmpf rmm::rmm
+  PRIVATE benchmark::benchmark
+          benchmark::benchmark_main
+          rapidsmpf::rapidsmpf
+          rmm::rmm
           $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
           $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          bench_utils
 )
 install(
   TARGETS bench_fixed_sized_pool

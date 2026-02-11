@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,12 +17,15 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <rmm/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 #include "utils/random_data.hpp"
 
@@ -32,6 +35,47 @@ using namespace cucascade::memory;
 
 constexpr std::size_t MB = 1024 * 1024;
 constexpr std::size_t GB = 1024 * MB;
+
+/**
+ * @brief Benchmark packing a single 1GB table with rapidsmpf::PinnedMemoryResource
+ */
+static void BM_Pack_1GB_pinned_rapidsmpf(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    constexpr std::size_t table_size_bytes = 1 * GB;
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+
+    auto const nrows =
+        static_cast<cudf::size_type>(table_size_bytes / sizeof(random_data_t));
+    auto table = random_table(1, nrows, 0, 1000, stream, cuda_mr);
+
+    auto warm_up = cudf::pack(table.view(), stream, pinned_mr);
+    stream.synchronize();
+
+    for (auto _ : state) {
+        auto packed = cudf::pack(table.view(), stream, pinned_mr);
+        benchmark::DoNotOptimize(packed);
+        stream.synchronize();
+    }
+
+    state.SetBytesProcessed(
+        static_cast<std::int64_t>(state.iterations())
+        * static_cast<std::int64_t>(table_size_bytes)
+    );
+    state.counters["table_size_mb"] =
+        static_cast<double>(table_size_bytes) / static_cast<double>(MB);
+    state.counters["num_rows"] = nrows;
+    state.counters["bounce_buffer_mb"] = 0;
+    state.counters["fixed_buffer_size_mb"] = 0;
+    state.counters["num_blocks"] = 0;
+    state.counters["batch_size"] = 0;
+}
 
 /**
  * @brief Benchmark chunked pack with fixed sized host buffers using cudaMemcpyAsync
@@ -129,6 +173,7 @@ void run_chunked_pack_with_fixed_sized_pool_memcpy_async(
         static_cast<std::int64_t>(state.iterations())
         * static_cast<std::int64_t>(table_size)
     );
+    auto const batch_size = bounce_buffer_size / fixed_buffer_size;
     state.counters["table_size_mb"] =
         static_cast<double>(table_size) / static_cast<double>(MB);
     state.counters["num_rows"] = nrows;
@@ -137,6 +182,7 @@ void run_chunked_pack_with_fixed_sized_pool_memcpy_async(
     state.counters["fixed_buffer_size_mb"] =
         static_cast<double>(fixed_buffer_size) / static_cast<double>(MB);
     state.counters["num_blocks"] = n_buffers;
+    state.counters["batch_size"] = batch_size;
 }
 
 /**
@@ -183,10 +229,6 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
     );
 
     // Allocate fixed sized host buffers for the destination
-    std::cout << "n_buffers: " << n_buffers << std::endl;
-    std::cout << "fixed_buffer_size: " << fixed_buffer_size << std::endl;
-    std::cout << "n_buffers * fixed_buffer_size: " << n_buffers * fixed_buffer_size
-              << std::endl;
     auto fixed_host_buffers =
         host_mr.allocate_multiple_blocks(n_buffers * fixed_buffer_size);
 
@@ -206,39 +248,34 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
         auto blocks_span = fixed_host_buffers->get_blocks();
         auto block_it = blocks_span.begin();
 
-        // Prepare batch copy arrays: one copy per fixed buffer that fits in bounce buffer
+        // Prepare batch copy arrays. Source pointers are fixed (bounce buffer layout);
+        // destinations are taken from the blocks span (&*block_it). Only sizes vary per
+        // chunk.
+        auto const bounce_ptr = static_cast<std::uint8_t*>(bounce_buffer.data());
         std::vector<const void*> srcs(n_copies_per_batch);
-        std::vector<void*> dsts(n_copies_per_batch);
+        for (size_t i = 0; i < n_copies_per_batch; ++i) {
+            srcs[i] = bounce_ptr + i * fixed_buffer_size;
+        }
         std::vector<size_t> sizes(n_copies_per_batch);
 
-        // Create attributes for batch copy (reused)
-        cudaMemcpyAttributes attrs;
+        cudaMemcpyAttributes attrs{};
         attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
-        
         std::array<size_t, 1> attrsIdxs{0};
 
         while (packer.has_next()) {
             auto const bytes_copied = packer.next(bounce_buffer_span);
 
-            // Number of fixed buffers filled by this chunk
             size_t const n_copies =
                 (bytes_copied + fixed_buffer_size - 1) / fixed_buffer_size;
 
-            // Set batch copy parameters: split bounce buffer into fixed_buffer_size
-            // chunks
-            for (size_t i = 0; i < n_copies; ++i) {
-                auto const offset = i * fixed_buffer_size;
-                auto const copy_size =
-                    (i == n_copies - 1) ? (bytes_copied - offset) : fixed_buffer_size;
-                srcs[i] = static_cast<std::uint8_t*>(bounce_buffer.data()) + offset;
-                dsts[i] = *block_it;
-                sizes[i] = copy_size;
-                ++block_it;
-            }
-
             if (n_copies > 0) {
+                // Only sizes change per iteration: first n_copies-1 full, last is
+                // remainder.
+                std::fill_n(sizes.begin(), n_copies - 1, fixed_buffer_size);
+                sizes[n_copies - 1] = bytes_copied - (n_copies - 1) * fixed_buffer_size;
+
                 RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
-                    dsts.data(),
+                    reinterpret_cast<void* const*>(&*block_it),
                     srcs.data(),
                     sizes.data(),
                     n_copies,
@@ -247,6 +284,7 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
                     attrsIdxs.size(),
                     stream.value()
                 ));
+                block_it += static_cast<std::ptrdiff_t>(n_copies);
             }
         }
 
@@ -310,7 +348,9 @@ static void BM_ChunkedPack_FixedPool_BatchAsync(benchmark::State& state) {
     auto const fixed_buffer_size = 1 * MB;
     constexpr std::size_t table_size_bytes = 1 * GB;  // 1GB table
 
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    // cudaMemcpyBatchAsync requires a non-legacy stream (not the default NULL stream)
+    rmm::cuda_stream stream_obj;
+    rmm::cuda_stream_view stream(stream_obj);
     rmm::mr::cuda_async_memory_resource cuda_mr;
 
     run_chunked_pack_with_fixed_sized_pool_batch_async(
@@ -333,6 +373,8 @@ void FixedPoolArguments(benchmark::internal::Benchmark* b) {
         b->Args({bounce_buf_sz_mb});
     }
 }
+
+BENCHMARK(BM_Pack_1GB_pinned_rapidsmpf)->UseRealTime()->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_ChunkedPack_FixedPool_MemcpyAsync)
     ->Apply(FixedPoolArguments)
