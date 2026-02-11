@@ -36,30 +36,22 @@ using namespace cucascade::memory;
 constexpr std::size_t MB = 1024 * 1024;
 constexpr std::size_t GB = 1024 * MB;
 
-/**
- * @brief Benchmark packing a single 1GB table with rapidsmpf::PinnedMemoryResource
- */
-static void BM_Pack_1GB_pinned_rapidsmpf(benchmark::State& state) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-        state.SkipWithMessage("Pinned memory resources are not supported");
-        return;
-    }
-
-    constexpr std::size_t table_size_bytes = 1 * GB;
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-
-    rmm::mr::cuda_async_memory_resource cuda_mr;
-    rapidsmpf::PinnedMemoryResource pinned_mr;
-
+void run_pack_pinned(
+    benchmark::State& state,
+    std::size_t table_size_bytes,
+    rmm::device_async_resource_ref table_mr,
+    rmm::device_async_resource_ref pack_mr,
+    rmm::cuda_stream_view stream
+) {
     auto const nrows =
         static_cast<cudf::size_type>(table_size_bytes / sizeof(random_data_t));
-    auto table = random_table(1, nrows, 0, 1000, stream, cuda_mr);
+    auto table = random_table(1, nrows, 0, 1000, stream, table_mr);
 
-    auto warm_up = cudf::pack(table.view(), stream, pinned_mr);
+    auto warm_up = cudf::pack(table.view(), stream, pack_mr);
     stream.synchronize();
 
     for (auto _ : state) {
-        auto packed = cudf::pack(table.view(), stream, pinned_mr);
+        auto packed = cudf::pack(table.view(), stream, pack_mr);
         benchmark::DoNotOptimize(packed);
         stream.synchronize();
     }
@@ -75,6 +67,42 @@ static void BM_Pack_1GB_pinned_rapidsmpf(benchmark::State& state) {
     state.counters["fixed_buffer_size_mb"] = 0;
     state.counters["num_blocks"] = 0;
     state.counters["batch_size"] = 0;
+}
+
+/**
+ * @brief Benchmark packing a single 1GB table with rapidsmpf::PinnedMemoryResource
+ */
+static void BM_Pack_1GB_pinned_rapidsmpf(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    constexpr std::size_t table_size_bytes = 1 * GB;
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rapidsmpf::PinnedMemoryResource pinned_mr;
+
+    run_pack_pinned(state, table_size_bytes, cuda_mr, pinned_mr, stream);
+}
+
+/**
+ * @brief Benchmark packing a single 1GB table with rmm::mr::pinned_host_memory_resource
+ */
+static void BM_Pack_1GB_pinned_rmm(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("Pinned memory resources are not supported");
+        return;
+    }
+
+    constexpr std::size_t table_size_bytes = 1 * GB;
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+    rmm::mr::pinned_host_memory_resource pinned_mr;
+
+    run_pack_pinned(state, table_size_bytes, cuda_mr, pinned_mr, stream);
 }
 
 /**
@@ -375,6 +403,8 @@ void FixedPoolArguments(benchmark::internal::Benchmark* b) {
 }
 
 BENCHMARK(BM_Pack_1GB_pinned_rapidsmpf)->UseRealTime()->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_Pack_1GB_pinned_rmm)->UseRealTime()->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_ChunkedPack_FixedPool_MemcpyAsync)
     ->Apply(FixedPoolArguments)
