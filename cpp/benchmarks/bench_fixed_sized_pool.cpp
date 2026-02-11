@@ -454,7 +454,8 @@ void run_unpack_pinned_to_device_with_fixed_sized_pool(
         (packed_device.gpu_data->size() + fixed_buffer_size - 1) / fixed_buffer_size;
     size_t const trailing_size = packed_device.gpu_data->size() % fixed_buffer_size;
     std::vector<size_t> sizes(num_blocks, fixed_buffer_size);
-    // Last block: use trailing size, or full block when size divides evenly (avoid 0-byte copy)
+    // Last block: use trailing size, or full block when size divides evenly (avoid 0-byte
+    // copy)
     if (trailing_size > 0) {
         sizes[num_blocks - 1] = trailing_size;
     }
@@ -532,7 +533,7 @@ static void BM_Unpack_1GB_pinned_rmm(benchmark::State& state) {
  * rmm::mr::pinned_host_memory_resource with fixed sized pool
  */
 static void BM_Unpack_1GB_pinned_rmm_fixed_sized_pool(benchmark::State& state) {
-    rmm::cuda_stream stream_obj; // new stream 
+    rmm::cuda_stream stream_obj;  // new stream
     rmm::mr::cuda_async_memory_resource cuda_mr;
     run_unpack_pinned_to_device_with_fixed_sized_pool(
         state, table_size_bytes, 1 * MB, cuda_mr, stream_obj
