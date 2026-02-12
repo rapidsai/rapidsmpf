@@ -223,159 +223,6 @@ streaming::Message inner_join_chunk(
     );
 }
 
-<<<<<<< HEAD
-/**
- * @brief Join a table chunk against a build hash table returning a message of the result.
- *
- * @param ctx Streaming context
- * @param right_chunk Chunk to join
- * @param sequence Sequence number of the output
- * @param joiner hash_join object, representing the build table.
- * @param build_carrier Columns from the build-side table to be included in the output.
- * @param right_on Key column indiecs in `right_chunk`.
- * @param build_stream Stream the `joiner` will be deallocated on.
- * @param build_event Event recording the creation of the `joiner`.
- *
- * @return Message of `TableChunk` containing the result of the inner join.
- */
-streaming::Message left_join_chunk(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& left_chunk,
-    std::uint64_t sequence,
-    cudf::hash_join& joiner,
-    cudf::table_view build_carrier,
-    std::vector<cudf::size_type> left_on,
-    rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
-) {
-    CudaEvent event;
-    left_chunk = to_device(ctx, std::move(left_chunk));
-    auto chunk_stream = left_chunk.stream();
-    build_event->stream_wait(chunk_stream);
-    auto probe_table = left_chunk.table_view();
-    auto probe_keys = probe_table.select(left_on);
-    auto [probe_match, build_match] =
-        joiner.left_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
-
-    cudf::column_view build_indices =  // right
-        cudf::device_span<cudf::size_type const>(*build_match);
-    cudf::column_view probe_indices =  // left
-        cudf::device_span<cudf::size_type const>(*probe_match);
-    // build_carrier is valid on build_stream, but chunk_stream is
-    // waiting for build_stream work to be done, so running this on
-    // chunk_stream is fine.
-
-    // For LEFT join, keep all columns from the probe (left) table including keys,
-    // since they're always valid (unlike right-side keys which may be NULL).
-    auto result_columns = cudf::gather(
-                              probe_table,
-                              probe_indices,
-                              cudf::out_of_bounds_policy::DONT_CHECK,
-                              chunk_stream,
-                              ctx->br()->device_mr()
-    )
-                              ->release();
-
-    // left join build indices could have sentinel values (INT_MIN), so they will be OOB.
-    std::ranges::move(
-        cudf::gather(
-            build_carrier,
-            build_indices,
-            cudf::out_of_bounds_policy::NULLIFY,
-            chunk_stream,
-            ctx->br()->device_mr()
-        )
-            ->release(),
-        std::back_inserter(result_columns)
-    );
-    // Deallocation of the join indices will happen on build_stream, so add stream dep
-    // This also ensure deallocation of the hash_join object waits for completion.
-    cuda_stream_join(build_stream, chunk_stream, &event);
-    return streaming::to_message(
-        sequence,
-        std::make_unique<streaming::TableChunk>(
-            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
-        )
-    );
-}
-
-/**
- * @brief Join a table chunk against a build hash table returning a message of the result.
- *
- * @param ctx Streaming context
- * @param right_chunk Chunk to join
- * @param sequence Sequence number of the output
- * @param joiner hash_join object, representing the build table.
- * @param build_carrier Columns from the build-side table to be included in the output.
- * @param right_on Key column indiecs in `right_chunk`.
- * @param build_stream Stream the `joiner` will be deallocated on.
- * @param build_event Event recording the creation of the `joiner`.
- *
- * @return Message of `TableChunk` containing the result of the inner join.
- */
-streaming::Message left_join_chunk(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& left_chunk,
-    std::uint64_t sequence,
-    cudf::hash_join& joiner,
-    cudf::table_view build_carrier,
-    std::vector<cudf::size_type> left_on,
-    rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
-) {
-    CudaEvent event;
-    left_chunk = to_device(ctx, std::move(left_chunk));
-    auto chunk_stream = left_chunk.stream();
-    build_event->stream_wait(chunk_stream);
-    auto probe_table = left_chunk.table_view();
-    auto probe_keys = probe_table.select(left_on);
-    auto [probe_match, build_match] =
-        joiner.left_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
-
-    cudf::column_view build_indices =  // right
-        cudf::device_span<cudf::size_type const>(*build_match);
-    cudf::column_view probe_indices =  // left
-        cudf::device_span<cudf::size_type const>(*probe_match);
-    // build_carrier is valid on build_stream, but chunk_stream is
-    // waiting for build_stream work to be done, so running this on
-    // chunk_stream is fine.
-
-    // For LEFT join, keep all columns from the probe (left) table including keys,
-    // since they're always valid (unlike right-side keys which may be NULL).
-    auto result_columns = cudf::gather(
-                              probe_table,
-                              probe_indices,
-                              cudf::out_of_bounds_policy::DONT_CHECK,
-                              chunk_stream,
-                              ctx->br()->device_mr()
-    )
-                              ->release();
-
-    // left join build indices could have sentinel values (INT_MIN), so they will be OOB.
-    std::ranges::move(
-        cudf::gather(
-            build_carrier,
-            build_indices,
-            cudf::out_of_bounds_policy::NULLIFY,
-            chunk_stream,
-            ctx->br()->device_mr()
-        )
-            ->release(),
-        std::back_inserter(result_columns)
-    );
-    // Deallocation of the join indices will happen on build_stream, so add stream dep
-    // This also ensure deallocation of the hash_join object waits for completion.
-    cuda_stream_join(build_stream, chunk_stream, &event);
-    return streaming::to_message(
-        sequence,
-        std::make_unique<streaming::TableChunk>(
-            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
-        )
-    );
-}
-
-=======
->>>>>>> 42eca8b1cfaf2d6338ae5b8cda9adf8ed7aef787
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
@@ -504,6 +351,81 @@ streaming::Node inner_join_shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
+/**
+ * @brief Left join a table chunk against a build hash table, returning a message of the
+ * result.
+ *
+ * @param ctx Streaming context
+ * @param left_chunk Chunk to join (probe side)
+ * @param sequence Sequence number of the output
+ * @param joiner hash_join object representing the build table
+ * @param build_carrier Columns from the build-side table to be included in the output
+ * @param left_on Key column indices in `left_chunk`
+ * @param build_stream Stream the `joiner` will be deallocated on
+ * @param build_event Event recording the creation of the `joiner`
+ *
+ * @return Message of `TableChunk` containing the result of the left join
+ */
+streaming::Message left_join_chunk(
+    std::shared_ptr<streaming::Context> ctx,
+    streaming::TableChunk&& left_chunk,
+    std::uint64_t sequence,
+    cudf::hash_join& joiner,
+    cudf::table_view build_carrier,
+    std::vector<cudf::size_type> left_on,
+    rmm::cuda_stream_view build_stream,
+    CudaEvent* build_event
+) {
+    CudaEvent event;
+    auto chunk_stream = left_chunk.stream();
+    build_event->stream_wait(chunk_stream);
+    auto probe_table = left_chunk.table_view();
+    auto probe_keys = probe_table.select(left_on);
+    auto [probe_match, build_match] =
+        joiner.left_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
+
+    cudf::column_view build_indices =  // right
+        cudf::device_span<cudf::size_type const>(*build_match);
+    cudf::column_view probe_indices =  // left
+        cudf::device_span<cudf::size_type const>(*probe_match);
+    // build_carrier is valid on build_stream, but chunk_stream is
+    // waiting for build_stream work to be done, so running this on
+    // chunk_stream is fine.
+
+    // For LEFT join, keep all columns from the probe (left) table including keys,
+    // since they're always valid (unlike right-side keys which may be NULL).
+    auto result_columns = cudf::gather(
+                              probe_table,
+                              probe_indices,
+                              cudf::out_of_bounds_policy::DONT_CHECK,
+                              chunk_stream,
+                              ctx->br()->device_mr()
+    )
+                              ->release();
+
+    // left join build indices could have sentinel values (INT_MIN), so they will be OOB.
+    std::ranges::move(
+        cudf::gather(
+            build_carrier,
+            build_indices,
+            cudf::out_of_bounds_policy::NULLIFY,
+            chunk_stream,
+            ctx->br()->device_mr()
+        )
+            ->release(),
+        std::back_inserter(result_columns)
+    );
+    // Deallocation of the join indices will happen on build_stream, so add stream dep
+    // This also ensure deallocation of the hash_join object waits for completion.
+    cuda_stream_join(build_stream, chunk_stream, &event);
+    return streaming::to_message(
+        sequence,
+        std::make_unique<streaming::TableChunk>(
+            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
+        )
+    );
+}
+
 streaming::Node left_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
@@ -532,7 +454,8 @@ streaming::Node left_join_shuffle(
         );
 
         // use right as build table
-        auto build_chunk = to_device(ctx, right_msg.release<streaming::TableChunk>());
+        auto build_chunk =
+            co_await right_msg.release<streaming::TableChunk>().make_available(ctx);
         auto build_stream = build_chunk.stream();
         auto joiner = cudf::hash_join(
             build_chunk.table_view().select(right_on),
@@ -553,14 +476,13 @@ streaming::Node left_join_shuffle(
         auto sequence = left_msg.sequence_number();
         co_await ch_out->send(left_join_chunk(
             ctx,
-            left_msg.release<streaming::TableChunk>(),
+            co_await left_msg.release<streaming::TableChunk>().make_available(ctx),
             sequence,
             joiner,
             build_carrier,
             left_on,
             build_stream,
-            &build_event,
-            &tmp_event
+            &build_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
