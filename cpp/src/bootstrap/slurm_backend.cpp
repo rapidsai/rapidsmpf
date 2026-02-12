@@ -205,7 +205,6 @@ void SlurmBackend::put(std::string const& key, std::string const& value) {
         );
     }
 
-    // Commit to make the data available
     commit();
 }
 
