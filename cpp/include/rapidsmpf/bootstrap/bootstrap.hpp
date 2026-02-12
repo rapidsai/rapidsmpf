@@ -85,20 +85,26 @@ void barrier(Context const& ctx);
 void sync(Context const& ctx);
 
 /**
- * @brief Store a key-value pair in the coordination backend.
+ * @brief Store a key-value pair in the coordination backend (rank 0 only).
  *
- * This is useful for custom coordination beyond UCXX address exchange.
+ * Only rank 0 should call this function. The key-value pair is made visible
+ * to all ranks after a `sync()` call. Use this for custom coordination such
+ * as UCXX address exchange.
  *
  * @param ctx Bootstrap context.
  * @param key Key name.
  * @param value Value to store.
+ *
+ * @throws std::runtime_error if called by non-zero rank.
  */
 void put(Context const& ctx, std::string const& key, std::string const& value);
 
 /**
  * @brief Retrieve a value from the coordination backend.
  *
- * This function blocks until the key is available or timeout occurs.
+ * Any rank (including rank 0) can call this function to retrieve values
+ * published by rank 0. This function blocks until the key is available
+ * or timeout occurs.
  *
  * @param ctx Bootstrap context.
  * @param key Key name to retrieve.

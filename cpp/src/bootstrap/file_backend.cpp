@@ -64,6 +64,13 @@ FileBackend::~FileBackend() {
 }
 
 void FileBackend::put(std::string const& key, std::string const& value) {
+    if (ctx_.rank != 0) {
+        throw std::runtime_error(
+            "put() can only be called by rank 0, but was called by rank "
+            + std::to_string(ctx_.rank)
+        );
+    }
+
     std::string path = get_kv_path(key);
     write_file(get_kv_path(key), value);
 }

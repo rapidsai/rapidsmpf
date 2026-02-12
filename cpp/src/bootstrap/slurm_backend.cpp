@@ -196,6 +196,13 @@ SlurmBackend::~SlurmBackend() {
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
+    if (ctx_.rank != 0) {
+        throw std::runtime_error(
+            "put() can only be called by rank 0, but was called by rank "
+            + std::to_string(ctx_.rank)
+        );
+    }
+
     // PMIx_Put stores the key-value pair in the LOCAL PMIx cache of the
     // calling rank. PMIX_GLOBAL is a scope indicator meaning "intended to
     // be globally accessible", but the data is stored locally on this rank.

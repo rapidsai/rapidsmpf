@@ -66,18 +66,25 @@ class Backend {
     virtual ~Backend() = default;
 
     /**
-     * @brief Store a key-value pair.
+     * @brief Store a key-value pair (rank 0 only).
      *
-     * The key-value pair is committed immediately and made visible to other
-     * ranks after a collective `sync()`.
+     * Only rank 0 should call this method. The key-value pair is committed
+     * immediately and made visible to all ranks (including rank 0) after a
+     * collective `sync()`. Non-root ranks should only use `get()` to retrieve
+     * values published by rank 0.
      *
      * @param key Key name.
      * @param value Value to store.
+     *
+     * @throws std::runtime_error if called by non-zero rank.
      */
     virtual void put(std::string const& key, std::string const& value) = 0;
 
     /**
      * @brief Retrieve a value, blocking until available or timeout occurs.
+     *
+     * Any rank (including rank 0) can call this method to retrieve values
+     * that were published by rank 0 via `put()` and synchronized with `sync()`.
      *
      * @param key Key name.
      * @param timeout Timeout duration.
