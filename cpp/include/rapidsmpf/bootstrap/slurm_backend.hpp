@@ -96,7 +96,7 @@ class SlurmBackend : public Backend {
      *
      * @throws std::runtime_error if PMIx operation fails.
      */
-    void broadcast(void* data, std::size_t size, Rank root) override;
+    void broadcast(void* data, std::size_t size) override;
 
   private:
     Context ctx_;

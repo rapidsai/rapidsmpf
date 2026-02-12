@@ -192,6 +192,9 @@ SlurmBackend::~SlurmBackend() {
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
+    // PMIx_Put stores the key-value pair in the LOCAL PMIx cache of the
+    // calling rank. PMIX_GLOBAL is a scope indicator meaning "intended to
+    // be globally accessible", but the data is stored locally on this rank.
     pmix_value_t pmix_value;
     PMIx_Value_construct(&pmix_value);
     pmix_value.type = PMIX_BYTE_OBJECT;
@@ -217,8 +220,11 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{100};
 
-    // Get from rank 0 specifically (since that's where the key is stored)
-    // Using PMIX_RANK_WILDCARD doesn't seem to work reliably
+    // PMIx_Get retrieves a key-value pair that was stored by a specific rank
+    // via PMIx_Put and exchanged via PMIx_Fence. The proc.rank field specifies
+    // which rank's local cache to retrieve from, here retrieval always occurs
+    // from rank 0 (root), which is the only rank to put a value, via a
+    // broadcast() call.
     pmix_proc_t proc;
     PMIx_Proc_construct(&proc);
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
@@ -279,21 +285,21 @@ void SlurmBackend::sync() {
     pmix_fence_all(nspace_, "sync");
 }
 
-void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
-    // Use unique key for each broadcast to avoid collisions
-    std::string bcast_key =
-        "bcast_" + std::to_string(root) + "_" + std::to_string(barrier_count_++);
+void SlurmBackend::broadcast(void* data, std::size_t size) {
+    // Use unique key for each broadcast to avoid collisions between multiple
+    // broadcast operations.
+    std::string bcast_key = "bcast_" + std::to_string(barrier_count_++);
 
-    if (ctx_.rank == root) {
-        // Root publishes data
+    if (ctx_.rank == 0) {
+        // Rank 0 publishes data to its local PMIx cache
         std::string bcast_data{static_cast<char const*>(data), size};
         put(bcast_key, bcast_data);
     }
 
-    barrier();
+    sync();
 
-    if (ctx_.rank != root) {
-        // Non-root ranks retrieve data
+    if (ctx_.rank != 0) {
+        // Non-root ranks retrieve data from rank 0's local PMIx cache
         std::string bcast_data = get(bcast_key, std::chrono::seconds{30});
         if (bcast_data.size() != size) {
             throw std::runtime_error(
@@ -304,6 +310,8 @@ void SlurmBackend::broadcast(void* data, std::size_t size, Rank root) {
         std::memcpy(data, bcast_data.data(), size);
     }
 
+    // Final barrier to ensure all ranks have completed the broadcast before
+    // proceeding, preventing race conditions with subsequent operations.
     barrier();
 }
 

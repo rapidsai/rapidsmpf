@@ -64,7 +64,7 @@ class FileBackend : public Backend {
     /**
      * @copydoc Backend::broadcast
      */
-    void broadcast(void* data, std::size_t size, Rank root) override;
+    void broadcast(void* data, std::size_t size) override;
 
   private:
     Context ctx_;

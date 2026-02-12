@@ -114,15 +114,12 @@ void FileBackend::sync() {
     // shared filesystem.
 }
 
-void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
-    if (ctx_.rank == root) {
-        // Root writes data
+void FileBackend::broadcast(void* data, std::size_t size) {
+    if (ctx_.rank == 0) {
         std::string bcast_data{static_cast<char const*>(data), size};
-        put("broadcast_" + std::to_string(root), bcast_data);
+        put("broadcast_0", bcast_data);
     } else {
-        // Non-root reads data
-        std::string bcast_data =
-            get("broadcast_" + std::to_string(root), std::chrono::seconds{30});
+        std::string bcast_data = get("broadcast_0", std::chrono::seconds{30});
         if (bcast_data.size() != size) {
             throw std::runtime_error(
                 "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
