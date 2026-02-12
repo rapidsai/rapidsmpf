@@ -23,7 +23,6 @@
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 // NOLINTBEGIN(modernize-macro-to-enum)
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
@@ -64,8 +63,6 @@ inline bool is_pinned_memory_resources_supported() {
     }();
     return supported;
 }
-
-class PinnedMemoryResource;
 
 /**
  * @brief Properties for configuring a pinned memory pool.
@@ -185,10 +182,13 @@ class PinnedMemoryResource final : public HostMemoryResource {
     ) noexcept {}
 
   private:
-    // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
-    // only be used by the impl in .cu file.
-    struct PinnedMemoryResourceImpl;
-    std::shared_ptr<PinnedMemoryResourceImpl> impl_;
+    // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /
+    // host_async_resource_ref: the ref only stores a pointer, but its constructor
+    // requires the referenced type to be copyable and movable (CCCL __basic_any_ref
+    // constraint). pinned_memory_pool is neither, so we wrap it in PinnedMemoryResource,
+    // which holds the pool in a shared_ptr and is copyable and movable. Copies share
+    // the same pool (is_equal compares pool_ pointers).
+    std::shared_ptr<cuda::pinned_memory_pool> pool_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);
