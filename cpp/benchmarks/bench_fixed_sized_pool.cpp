@@ -572,8 +572,16 @@ BENCHMARK(BM_ChunkedPack_FixedPool_BatchAsync)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
 
+// CUDA version 13.0 encoded as major*1000 + minor*10
+constexpr int kMinCudaVersion = 13000;
+
 int main(int argc, char** argv) {
     benchmark::Initialize(&argc, argv);
+    int cuda_runtime_version{};
+    if (cudaRuntimeGetVersion(&cuda_runtime_version) != cudaSuccess
+        || cuda_runtime_version < kMinCudaVersion) {
+        return 0;  // Skip if CUDA version is less than 13.
+    }
     // All benchmarks in this file require pinned memory; skip running.
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         return 0;
