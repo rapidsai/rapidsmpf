@@ -579,7 +579,8 @@ int main(int argc, char** argv) {
     benchmark::Initialize(&argc, argv);
     int cuda_runtime_version{};
     if (cudaRuntimeGetVersion(&cuda_runtime_version) != cudaSuccess
-        || cuda_runtime_version < kMinCudaVersion) {
+        || cuda_runtime_version < kMinCudaVersion)
+    {
         return 0;  // Skip if CUDA version is less than 13.
     }
     // All benchmarks in this file require pinned memory; skip running.
