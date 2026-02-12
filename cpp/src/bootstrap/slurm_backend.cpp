@@ -9,7 +9,6 @@
 
 #include <chrono>
 #include <cstring>
-#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -23,60 +22,6 @@
 namespace rapidsmpf::bootstrap::detail {
 
 namespace {
-
-/**
- * @brief Process-global PMIx state and lifecycle management.
- *
- * PMIx initialization is process-global and must only happen once.
- * This singleton encapsulates all PMIx state and ensures proper cleanup
- * when the process exits, without breaking ongoing collective operations.
- */
-class PmixGlobalState {
-  public:
-    std::mutex mutex;
-    bool initialized{false};
-    pmix_proc_t proc{};
-    std::array<char, PMIX_MAX_NSLEN + 1> nspace{};
-
-    /**
-     * @brief Get the singleton instance.
-     */
-    static PmixGlobalState& instance() {
-        static PmixGlobalState state;
-        return state;
-    }
-
-    /**
-     * @brief Explicitly finalize PMIx session.
-     *
-     * Safe to call multiple times, subsequent calls are no-ops.
-     */
-    void finalize() {
-        std::lock_guard<std::mutex> lock{mutex};
-        if (initialized) {
-            PMIx_Finalize(nullptr, 0);
-            initialized = false;
-        }
-    }
-
-    PmixGlobalState(PmixGlobalState const&) = delete;
-    PmixGlobalState& operator=(PmixGlobalState const&) = delete;
-    PmixGlobalState(PmixGlobalState&&) = delete;
-    PmixGlobalState& operator=(PmixGlobalState&&) = delete;
-
-  private:
-    PmixGlobalState() = default;
-
-    /**
-     * @brief Destructor ensuring PMIx finalization only at program exit.
-     */
-    ~PmixGlobalState() {
-        if (initialized) {
-            PMIx_Finalize(nullptr, 0);
-            initialized = false;
-        }
-    }
-};
 
 /**
  * @brief Convert PMIx status to string for error messages.
@@ -146,53 +91,38 @@ void pmix_fence_all(
 }  // namespace
 
 SlurmBackend::SlurmBackend(Context ctx) : ctx_{std::move(ctx)} {
-    auto& pmix_state = PmixGlobalState::instance();
-    std::lock_guard<std::mutex> lock{pmix_state.mutex};
-
-    if (!pmix_state.initialized) {
-        pmix_proc_t proc;
-        pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
-        if (rc != PMIX_SUCCESS) {
-            throw std::runtime_error(
-                "PMIx_Init failed: " + pmix_error_string(rc)
-                + ". Ensure you're running under Slurm with --mpi=pmix"
-            );
-        }
-
-        pmix_state.proc = proc;
-        // Copy full nspace buffer (both are PMIX_MAX_NSLEN + 1 in size)
-        static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
-        std::memcpy(pmix_state.nspace.data(), proc.nspace, pmix_state.nspace.size());
-        pmix_state.initialized = true;
+    pmix_proc_t proc;
+    pmix_status_t rc = PMIx_Init(&proc, nullptr, 0);
+    if (rc != PMIX_SUCCESS) {
+        throw std::runtime_error(
+            "PMIx_Init failed: " + pmix_error_string(rc)
+            + ". Ensure you're running under Slurm with --mpi=pmix"
+        );
     }
 
-    pmix_initialized_ = true;
-
-    // Copy global state to instance members
-    proc_ = pmix_state.proc;
-    nspace_ = pmix_state.nspace;
+    proc_ = proc;
+    // Copy full nspace buffer (both are PMIX_MAX_NSLEN + 1 in size)
+    static_assert(sizeof(proc.nspace) == PMIX_MAX_NSLEN + 1);
+    std::memcpy(nspace_.data(), proc.nspace, nspace_.size());
 
     // Verify rank matches what we expect (if context has a valid rank)
     // Note: For Slurm backend, ctx_.rank may be set from environment variables
     // before PMIx_Init, so we verify they match
-    if (ctx_.rank >= 0 && std::cmp_not_equal(pmix_state.proc.rank, ctx_.rank)) {
+    if (ctx_.rank >= 0 && std::cmp_not_equal(proc.rank, ctx_.rank)) {
         throw std::runtime_error(
-            "PMIx rank (" + std::to_string(pmix_state.proc.rank)
-            + ") doesn't match context rank (" + std::to_string(ctx_.rank) + ")"
+            "PMIx rank (" + std::to_string(proc.rank) + ") doesn't match context rank ("
+            + std::to_string(ctx_.rank) + ")"
         );
     }
 
     // Update context rank from PMIx if not already set
     if (ctx_.rank < 0) {
-        ctx_.rank = static_cast<Rank>(pmix_state.proc.rank);
+        ctx_.rank = static_cast<Rank>(proc.rank);
     }
 }
 
 SlurmBackend::~SlurmBackend() {
-    // PMIx must stay initialized for the lifetime of the process because
-    // multiple SlurmBackend instances may be created and destroyed during
-    // bootstrap operations, and finalizing PMIx while other processes are
-    // still in collective operations (fence/barrier) will cause errors.
+    PMIx_Finalize(nullptr, 0);
 }
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {

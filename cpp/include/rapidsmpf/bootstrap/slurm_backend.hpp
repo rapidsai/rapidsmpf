@@ -59,7 +59,7 @@ class SlurmBackend : public Backend {
      */
     ~SlurmBackend() override;
 
-    // Non-copyable, non-movable (PMIx state is process-global)
+    // Non-copyable, non-movable
     SlurmBackend(SlurmBackend const&) = delete;
     SlurmBackend& operator=(SlurmBackend const&) = delete;
     SlurmBackend(SlurmBackend&&) = delete;
@@ -93,7 +93,6 @@ class SlurmBackend : public Backend {
 
   private:
     Context ctx_;
-    bool pmix_initialized_{false};
     pmix_proc_t proc_{};  ///< PMIx process identifier
     std::array<char, PMIX_MAX_NSLEN + 1> nspace_{};  ///< PMIx namespace (job identifier)
 
