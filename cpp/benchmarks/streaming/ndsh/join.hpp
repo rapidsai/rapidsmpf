@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -118,6 +118,32 @@ enum class KeepKeys : bool {
     std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     KeepKeys keep_keys = KeepKeys::YES
+);
+
+/**
+ * @brief Perform a streaming inner join between two tables.
+ *
+ * @note This performs a shuffle join, the left and right channels are required to provide
+ * hash-partitioned data in-order.
+ *
+ * @param ctx Streaming context.
+ * @param left Channel of `TableChunk`s in hash-partitioned order.
+ * @param right Channel of `TableChunk`s in matching hash-partitioned order.
+ * @param ch_out Output channel of `TableChunk`s.
+ * @param left_on Column indices of the keys in the left table.
+ * @param right_on Column indices of the keys in the right table.
+ * @param keep_keys Does the result contain the key columns, or only "carrier" value
+ * columns
+ *
+ * @return Coroutine representing the completion of the join.
+ */
+streaming::Node left_join_shuffle(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> left,
+    std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> ch_out,
+    std::vector<cudf::size_type> left_on,
+    std::vector<cudf::size_type> right_on
 );
 
 /**
