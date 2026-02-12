@@ -119,18 +119,18 @@ void pmix_fence_all(
     std::array<char, PMIX_MAX_NSLEN + 1> const& nspace, std::string const& operation_name
 ) {
     pmix_proc_t proc;
-    PMIX_PROC_CONSTRUCT(&proc);
+    PMIx_Proc_construct(&proc);
     std::memcpy(proc.nspace, nspace.data(), nspace.size());
     proc.rank = PMIX_RANK_WILDCARD;
 
     pmix_info_t info;
     bool collect = true;
-    PMIX_INFO_CONSTRUCT(&info);
+    PMIx_Info_construct(&info);
     PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
 
     pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
-    PMIX_INFO_DESTRUCT(&info);
-    PMIX_PROC_DESTRUCT(&proc);
+    PMIx_Info_destruct(&info);
+    PMIx_Proc_destruct(&proc);
 
     if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
         throw std::runtime_error(
@@ -193,7 +193,7 @@ SlurmBackend::~SlurmBackend() {
 
 void SlurmBackend::put(std::string const& key, std::string const& value) {
     pmix_value_t pmix_value;
-    PMIX_VALUE_CONSTRUCT(&pmix_value);
+    PMIx_Value_construct(&pmix_value);
     pmix_value.type = PMIX_BYTE_OBJECT;
     pmix_value.data.bo.bytes = const_cast<char*>(value.data());
     pmix_value.data.bo.size = value.size();
@@ -221,7 +221,7 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
     // Get from rank 0 specifically (since that's where the key is stored)
     // Using PMIX_RANK_WILDCARD doesn't seem to work reliably
     pmix_proc_t proc;
-    PMIX_PROC_CONSTRUCT(&proc);
+    PMIx_Proc_construct(&proc);
     std::memcpy(proc.nspace, nspace_.data(), nspace_.size());
     proc.rank = 0;
 
@@ -239,22 +239,22 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             } else if (val->type == PMIX_STRING) {
                 result = std::string{val->data.string};
             } else {
-                PMIX_VALUE_RELEASE(val);
-                PMIX_PROC_DESTRUCT(&proc);
+                PMIx_Value_free(val, 1);
+                PMIx_Proc_destruct(&proc);
                 throw std::runtime_error(
                     "Unexpected PMIx value type for key '" + key
                     + "': " + std::to_string(static_cast<int>(val->type))
                 );
             }
 
-            PMIX_VALUE_RELEASE(val);
-            PMIX_PROC_DESTRUCT(&proc);
+            PMIx_Value_free(val, 1);
+            PMIx_Proc_destruct(&proc);
             return result;
         }
 
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed >= timeout) {
-            PMIX_PROC_DESTRUCT(&proc);
+            PMIx_Proc_destruct(&proc);
             throw std::runtime_error(
                 "Key '" + key + "' not available within "
                 + std::to_string(
