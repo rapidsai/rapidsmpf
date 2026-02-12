@@ -104,19 +104,24 @@ void check_pmix_status(pmix_status_t status, std::string const& operation) {
 /**
  * @brief Perform PMIx fence operation across all ranks.
  *
- * Executes PMIx_Fence with PMIX_COLLECT_DATA to synchronize all ranks
- * in the namespace and exchange data. Accepts both PMIX_SUCCESS and
- * PMIX_ERR_PARTIAL_SUCCESS as success conditions, since PARTIAL_SUCCESS
- * can occur in some PMIx implementations when not all processes have
- * data to contribute, but the synchronization succeeded.
+ * Executes PMIx_Fence to synchronize all ranks in the namespace.
+ * When collect_data is true, also exchanges all committed key-value data.
+ * When collect_data is false, only performs synchronization barrier.
+ *
+ * Accepts both PMIX_SUCCESS and PMIX_ERR_PARTIAL_SUCCESS as success conditions,
+ * since PARTIAL_SUCCESS can occur in some PMIx implementations when not all
+ * processes have data to contribute, but the synchronization succeeded.
  *
  * @param nspace The PMIx namespace to fence across.
  * @param operation_name Name of the operation for error messages (e.g., "barrier",
  * "sync").
+ * @param collect_data Whether to exchange data (true) or just synchronize (false).
  * @throws std::runtime_error if the fence operation fails.
  */
 void pmix_fence_all(
-    std::array<char, PMIX_MAX_NSLEN + 1> const& nspace, std::string const& operation_name
+    std::array<char, PMIX_MAX_NSLEN + 1> const& nspace,
+    std::string const& operation_name,
+    bool collect_data
 ) {
     pmix_proc_t proc;
     PMIx_Proc_construct(&proc);
@@ -124,9 +129,8 @@ void pmix_fence_all(
     proc.rank = PMIX_RANK_WILDCARD;
 
     pmix_info_t info;
-    bool collect = true;
     PMIx_Info_construct(&info);
-    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect, PMIX_BOOL);
+    PMIX_INFO_LOAD(&info, PMIX_COLLECT_DATA, &collect_data, PMIX_BOOL);
 
     pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
     PMIx_Info_destruct(&info);
@@ -274,15 +278,16 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
 }
 
 void SlurmBackend::barrier() {
-    pmix_fence_all(nspace_, "barrier");
+    pmix_fence_all(nspace_, "barrier", false);
 }
 
 void SlurmBackend::sync() {
-    // For Slurm/PMIx backend, this executes PMIx_Fence to make all committed
-    // key-value pairs visible across all nodes. This is required because
-    // PMIx_Put + PMIx_Commit only makes data locally visible; PMIx_Fence
-    // performs the global synchronization and data exchange.
-    pmix_fence_all(nspace_, "sync");
+    // For Slurm/PMIx backend, this executes PMIx_Fence with data collection
+    // to make all committed key-value pairs visible across all nodes.
+    // This is required because PMIx_Put + PMIx_Commit only makes data locally
+    // visible; PMIx_Fence with PMIX_COLLECT_DATA performs the global
+    // synchronization and data exchange.
+    pmix_fence_all(nspace_, "sync", true);
 }
 
 void SlurmBackend::broadcast(void* data, std::size_t size) {
@@ -310,8 +315,6 @@ void SlurmBackend::broadcast(void* data, std::size_t size) {
         std::memcpy(data, bcast_data.data(), size);
     }
 
-    // Final barrier to ensure all ranks have completed the broadcast before
-    // proceeding, preventing race conditions with subsequent operations.
     barrier();
 }
 
