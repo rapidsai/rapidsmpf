@@ -68,9 +68,13 @@ inline bool is_pinned_memory_resources_supported() {
  * @brief Properties for configuring a pinned memory pool.
  */
 struct PinnedPoolProperties {
-    std::size_t initial_pool_size = 0;  ///< initial size of the pool. Initial size is
-                                        ///< important for pinned memory performance.
-    std::size_t max_pool_size = 0;  ///< maximum size of the pool. 0 means no limit.
+    /// @brief Initial size of the pool. Initial size is important for pinned memory
+    /// performance, especially for the first allocation. (See
+    /// `BM_PinnedFirstAlloc_InitialPoolSize` benchmark.)
+    std::size_t initial_pool_size = 0;
+
+    /// @brief Maximum size of the pool. 0 means no limit.
+    std::size_t max_pool_size = 0;
 };
 
 /**

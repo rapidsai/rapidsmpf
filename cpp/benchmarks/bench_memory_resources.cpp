@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -338,6 +338,55 @@ BENCHMARK(BM_HostToHostCopy)
 
 BENCHMARK(BM_DeviceToDeviceCopy)
     ->Apply(CustomArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+// First large allocation: impact of initial_pool_size (with vs without initial size).
+void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
+    // Ensure CUDA device context is initialized (required for pinned memory pools).
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    auto const allocation_size = static_cast<std::size_t>(state.range(0)) << 20;
+    auto const primed = static_cast<bool>(state.range(1));
+
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
+    // set initial pool size to allocation size if primed, 0 otherwise
+    rapidsmpf::PinnedPoolProperties props{
+        .initial_pool_size = primed ? allocation_size : 0
+    };
+
+    for (auto _ : state) {
+        state.PauseTiming();
+        auto mr = std::make_unique<rapidsmpf::PinnedMemoryResource>(
+            rapidsmpf::get_current_numa_node(), props
+        );
+        state.ResumeTiming();
+        void* ptr = mr->allocate(stream, allocation_size);
+        stream.synchronize();
+        state.PauseTiming();
+        mr->deallocate(stream, ptr, allocation_size);
+        stream.synchronize();
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(allocation_size));
+    state.counters["initial_pool_size"] =
+        static_cast<double>(primed ? allocation_size : 0);
+}
+
+void PinnedFirstAlloc_InitialPoolSize_Args(benchmark::internal::Benchmark* b) {
+    for (auto size : {1, 256, 1024}) {  // in MB
+        b->Args({size, 1});  // primed
+        b->Args({size, 0});  // no priming
+    }
+}
+
+BENCHMARK(BM_PinnedFirstAlloc_InitialPoolSize)
+    ->Apply(PinnedFirstAlloc_InitialPoolSize_Args)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
