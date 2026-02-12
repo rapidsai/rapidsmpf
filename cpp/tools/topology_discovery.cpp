@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,7 @@
 #include <sstream>
 #include <string>
 
-#include <rapidsmpf/topology_discovery.hpp>
+#include <cucascade/memory/topology_discovery.hpp>
 
 /**
  * @brief Simple JSON builder to avoid external dependencies.
@@ -75,7 +75,7 @@ class JsonBuilder {
 /**
  * @brief Output topology information as JSON
  */
-void output_json(rapidsmpf::SystemTopologyInfo const& topology) {
+void output_json(cucascade::memory::system_topology_info const& topology) {
     std::cout << "{\n";
     std::cout << "  \"system\": {\n";
     std::cout << "    \"hostname\": \"" << JsonBuilder::escape_string(topology.hostname)
@@ -135,7 +135,7 @@ void output_json(rapidsmpf::SystemTopologyInfo const& topology) {
 }
 
 int main(int /* argc */, char** /* argv */) {
-    rapidsmpf::TopologyDiscovery discovery;
+    cucascade::memory::topology_discovery discovery;
 
     if (!discovery.discover()) {
         std::cerr << "Failed to discover system topology" << std::endl;

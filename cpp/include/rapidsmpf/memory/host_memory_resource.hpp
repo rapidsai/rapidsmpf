@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -19,9 +19,15 @@ namespace rapidsmpf {
 /**
  * @brief Host memory resource using standard CPU allocation.
  *
- * This resource allocates host memory using the ``new`` and ``delete`` operator. It is
- * intended for use with `cuda::mr::resource` and related facilities, and advertises the
- * `cuda::mr::host_accessible` property.
+ * This resource allocates pageable host memory using the ``new`` and ``delete``
+ * operators. It is intended for use with `cuda::mr::resource` and related
+ * facilities, and advertises the `cuda::mr::host_accessible` property.
+ *
+ * For sufficiently large allocations (>4 MiB), this resource also issues a
+ * best-effort request to enable Transparent Huge Pages (THP) on the allocated
+ * region. THP can improve device-host memory transfer performance for large
+ * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
+ * by the kernel depending on system configuration or resource availability.
  */
 class HostMemoryResource {
   public:
@@ -60,126 +66,87 @@ class HostMemoryResource {
 
     /**
      * @brief Synchronously deallocates host memory is disabled.
+     *
+     * @throw std::invalid_argument Always.
      */
-    void deallocate_sync(void*, std::size_t, std::size_t) noexcept {}
+    void deallocate_sync(void*, std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL(
+            "only async stream-ordered allocation must be used in RapidsMPF",
+            std::invalid_argument
+        );
+    }
 
     /**
      * @brief Allocates host memory associated with a CUDA stream.
      *
+     * Derived classes may override this to provide custom host allocation strategies.
+     *
      * @param stream CUDA stream associated with the allocation.
-     * @param bytes Number of bytes to allocate.
+     * @param size Number of bytes to at least allocate.
      * @param alignment Required alignment.
      * @return Pointer to the allocated memory.
      *
      * @throw std::bad_alloc If the allocation fails.
      * @throw std::invalid_argument If @p alignment is not a valid alignment.
      */
-    void* allocate(
+    virtual void* allocate(
         rmm::cuda_stream_view stream,
-        std::size_t bytes,
+        std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) {
-        return do_allocate(bytes, stream, alignment);
-    }
+    );
 
     /**
      * @brief Deallocates host memory associated with a CUDA stream.
+     *
+     * The default implementation synchronizes @p stream before deallocating the
+     * memory with the ``delete`` operator. This ensures that any in-flight CUDA
+     * operations using the memory complete before it is freed.
+     *
+     * Derived classes may override this to provide custom host deallocation strategies.
      *
      * @param stream CUDA stream associated with operations that used @p ptr.
      * @param ptr Pointer to the memory to deallocate. May be nullptr.
      * @param size Number of bytes previously allocated at @p ptr.
      * @param alignment Alignment originally used for the allocation.
      */
-    void deallocate(
+    virtual void deallocate(
         rmm::cuda_stream_view stream,
         void* ptr,
         std::size_t size,
-        [[maybe_unused]] std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept {
-        do_deallocate(ptr, size, stream, alignment);
-    }
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept;
 
     /**
-     * @brief Compare this resource to another.
+     * @brief Compares this resource to another resource.
      *
      * Two resources are considered equal if memory allocated by one may be
      * deallocated by the other. The default implementation compares object identity.
      *
-     * @param other Resource to compare with.
-     * @return true if the two resources are equal, false otherwise.
+     * The base class is stateless, and all instances behave identically. Any
+     * instance can deallocate memory allocated by any other instance of this
+     * base class, so the comparison always returns true.
+     *
+     * Derived classes that use different allocation or deallocation strategies
+     * must override this function. Such classes should return true only when
+     * the other resource is compatible with their allocation and free methods.
+     *
+     * @param other The resource to compare with.
+     * @return true because all instances of this base class are considered equal.
      */
-    [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept {
-        return do_is_equal(other);
+    [[nodiscard]] virtual bool is_equal(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
+        return true;
     }
 
     /// @copydoc is_equal()
     [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
-        return do_is_equal(other);
+        return is_equal(other);
     }
 
     /// @copydoc is_equal()
     [[nodiscard]] bool operator!=(HostMemoryResource const& other) const noexcept {
-        return !do_is_equal(other);
-    }
-
-  private:
-    /**
-     * @brief Allocates memory of size at least @p size with the given alignment.
-     *
-     * Derived classes may override this to provide custom host allocation strategies.
-     *
-     * @param size Number of bytes to allocate.
-     * @param stream CUDA stream associated with the allocation.
-     * @param alignment Required alignment.
-     *
-     * @return Pointer to the allocated memory.
-     *
-     * @throw std::bad_alloc If the allocation fails.
-     */
-    virtual void* do_allocate(
-        std::size_t size,
-        [[maybe_unused]] rmm::cuda_stream_view stream,
-        std::size_t alignment
-    ) {
-        return ::operator new(size, std::align_val_t{alignment});
-    }
-
-    /**
-     * @brief Deallocates memory using the given alignment.
-     *
-     * The default implementation synchronizes @p stream before deallocating the
-     * memory with the ``delete`` operator. This ensures that any in-flight CUDA
-     * operations using the memory complete before it is freed.
-     *
-     * @param ptr Pointer to the memory to deallocate.
-     * @param size Number of bytes previously allocated.
-     * @param stream CUDA stream associated with operations using @p ptr.
-     * @param alignment Alignment used when allocating @p ptr.
-     */
-    virtual void do_deallocate(
-        void* ptr,
-        [[maybe_unused]] std::size_t size,
-        rmm::cuda_stream_view stream,
-        std::size_t alignment
-    ) noexcept {
-        stream.synchronize();
-        ::operator delete(ptr, std::align_val_t{alignment});
-    }
-
-    /**
-     * @brief Compares this resource to another.
-     *
-     * The default implementation considers resources equal only if they are
-     * the same object. Derived implementations may override this to permit
-     * equivalence between different instances.
-     *
-     * @param other Resource to compare with.
-     * @return true if the resources are considered equal, false otherwise.
-     */
-    [[nodiscard]] virtual bool do_is_equal(
-        HostMemoryResource const& other
-    ) const noexcept {
-        return this == &other;
+        return !is_equal(other);
     }
 
     /**

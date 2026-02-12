@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -8,6 +8,7 @@ from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -15,15 +16,15 @@ from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
-        cpp_Statistics() except +
-        bool enabled() except +
-        string report() except +
+        bool enabled() except +ex_handler
+        string report() except +ex_handler
         double add_stat(
             string name,
             double value
-        ) except +
-        bool is_memory_profiling_enabled() except +
-        unordered_map[string, cpp_MemoryRecord] get_memory_records() except +
+        ) except +ex_handler
+        bool is_memory_profiling_enabled() except +ex_handler
+        unordered_map[string, cpp_MemoryRecord] get_memory_records() \
+            except +ex_handler
 
     cdef struct cpp_MemoryRecord "rapidsmpf::Statistics::MemoryRecord":
         cpp_ScopedMemoryRecord scoped
@@ -35,7 +36,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
             cpp_Statistics* stats,
             cpp_RmmResourceAdaptor* mr,
             string name
-        ) except +
+        ) except +ex_handler
 
 
 cdef class Statistics:

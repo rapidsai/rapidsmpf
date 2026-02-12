@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -68,6 +69,28 @@ class SpillableMessages {
     [[nodiscard]] Message extract(MessageId mid);
 
     /**
+     * @brief Create a deep copy of a message without removing it.
+     *
+     * This method duplicates the message identified by `mid` while leaving the
+     * original message intact inside the container. The returned message is a
+     * full deep copy of the payload. If the message is currently being spilled
+     * by another thread, this call waits until spilling completes.
+     *
+     * @param mid Message identifier.
+     * @param reservation Memory reservation used for allocating buffers during
+     * the deep copy. The reservation also determines the memory type of the
+     * returned message.
+     *
+     * @return A deep copy of the referenced `Message`.
+     *
+     * @throws std::out_of_range If the message has already been extracted or
+     * the message identifier is invalid.
+     * @throws std::runtime_error If required memory cannot be allocated using
+     * the provided reservation.
+     */
+    [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
+
+    /**
      * @brief Spill a message's device memory to host memory.
      *
      * Performs an in-place deep copy of the message's payload from device to
@@ -99,6 +122,16 @@ class SpillableMessages {
      * @return Copy of a map from `MessageId` to `ContentDescription`.
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
+
+    /**
+     * @brief Get the content description of a message by ID.
+     *
+     * @param mid Message identifier.
+     * @return Content description of the message.
+     *
+     * @throws std::out_of_range If the message does not exist.
+     */
+    ContentDescription get_content_description(MessageId mid) const;
 
   private:
     /**

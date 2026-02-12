@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 
@@ -22,7 +23,7 @@ namespace {
 // arrives and, if the shuffle has N local partitions, is guaranteed to fire exactly N
 // times. To wrap an async interface around this we use the following scheme:
 // We attach a callback to the shuffle object that spawns a background coroutine task
-// that we track in a `coro::task_container`. This task inserts the id of the ready
+// that we track in a `coro::task_group`. This task inserts the id of the ready
 // partition into a set of `ready_pids_`. Consumers move received ids from `ready_pids_`
 // to `extracted_pids_` and extract the partition. Insertion to, and extraction from, the
 // ready and extracted sets is protected by a std::mutex (the manipulation of these
@@ -43,7 +44,7 @@ namespace {
 // waiters arriving. See https://github.com/jbaldwin/libcoro/issues/398 for details.
 //
 // So, in sum, the latch is required so that we do not have dangling references to the
-// shuffle in the notification callback, the task_container allows us to wait until all
+// shuffle in the notification callback, the task_group allows us to wait until all
 // notifications have truly finished firing, and a semaphore is used to release the
 // "resource" of arrived partitions as they appear.
 
@@ -66,7 +67,7 @@ coro::task<void> insert_and_notify(
     shuffler::PartID pid
 ) {
     // Note: this coroutine does not need to be scheduled, because it is offloaded to the
-    // thread pool using a task_container.
+    // thread pool using a task_group.
     {
         std::unique_lock lock(mtx);
         RAPIDSMPF_EXPECTS(
@@ -89,7 +90,7 @@ ShufflerAsync::ShufflerAsync(
     shuffler::Shuffler::PartitionOwner partition_owner
 )
     : ctx_(std::move(ctx)),
-      notifications_(ctx_->executor()),
+      notifications_(ctx_->executor()->get()),
       latch_{[&]() {
           // Need to initialise before shuffler_, so need to determine number of local
           // partitions sui generis.
@@ -106,7 +107,7 @@ ShufflerAsync::ShufflerAsync(
           ctx_->progress_thread(),
           op_id,
           total_num_partitions,
-          ctx_->br(),
+          ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
               // Libcoro may resume suspended coroutines during cv notification, using the
@@ -129,12 +130,11 @@ ShufflerAsync::ShufflerAsync(
 }
 
 ShufflerAsync::~ShufflerAsync() noexcept {
-    if (!notifications_.empty()) {
-        std::cerr << "~ShufflerAsync: not all notification tasks complete, remember to "
-                     "await the finish token from this->insert_finished()"
-                  << std::endl;
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS_FATAL(
+        notifications_.empty(),
+        "~ShufflerAsync: not all notification tasks complete, remember to await the "
+        "finish token from this->insert_finished()"
+    );
     if (!ready_pids_.empty()) {
         ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
     }
@@ -226,12 +226,19 @@ ShufflerAsync::extract_any_async() {
 }
 
 Node ShufflerAsync::finished_drain() {
-    // Wait for all notifications to have fired
+    // Wait for all notifications to have fired.
     co_await latch_;
+
     // Now wait for them to complete, otherwise coroutine frame unwinding can reach the
     // shuffler's destructor while the notification callback still references members.
-    co_await notifications_.yield_until_empty();
+    // If there are no local partitions, these coroutines were never started, and
+    // awaiting them would deadlock.
+    if (!local_partitions().empty()) {
+        co_await notifications_;
+    }
+
     // And wake up any pending extraction tasks.
+    co_await ctx_->executor()->yield();
     co_await semaphore_.shutdown();
 }
 

@@ -82,7 +82,7 @@ requirements:
     - cuda-cudart-dev
     - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
-    - cython >=3.0.3,<3.2.0a0
+    - cython >=3.0.3,<3.2.0
     - librapidsmpf =${{ version }}
     - libnuma
     - mpi4py
@@ -90,20 +90,20 @@ requirements:
     - pip
     - pylibcudf =${{ minor_version }}
     - python =${{ py_version }}
-    - rapids-build-backend >=0.4.0,<0.5.0.dev0
+    - rapids-build-backend >=0.4.0,<0.5.0
     - rmm =${{ minor_version }}
-    - scikit-build-core >=0.10.0
+    - scikit-build-core>=0.11.0
   run:
     - cuda-cupti
     - if: cuda_major == "12"
-      then: cuda-python >=12.9.2,<13.0a0
-      else: cuda-python >=13.0.1,<14.0a0
+      then: cuda-python >=12.9.2,<13.0
+      else: cuda-python >=13.0.1,<14.0
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
     - cudf =${{ minor_version }}
     - cupy >=13.6.0
     - librapidsmpf =${{ version }}
     - mpi4py
-    - numpy >=1.23,<3.0a0
+    - numpy >=1.23,<3.0
     - openmpi >=5.0
     - pylibcudf =${{ minor_version }}
     - python =${{ py_version }}
@@ -127,5 +127,5 @@ requirements:
 
 about:
   homepage: ${{ load_from_file("python/rapidsmpf/pyproject.toml").project.urls.Homepage }}
-  license: ${{ load_from_file("python/rapidsmpf/pyproject.toml").project.license.text }}
+  license: ${{ load_from_file("python/rapidsmpf/pyproject.toml").project.license }}
   summary: ${{ load_from_file("python/rapidsmpf/pyproject.toml").project.description }}

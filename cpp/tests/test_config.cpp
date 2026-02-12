@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,11 +8,24 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cudf/utilities/memory_resource.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
+
+#include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+
+#include "utils.hpp"
 
 using namespace rapidsmpf::config;
+using namespace rapidsmpf;
 
-TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
+TEST(OptionsTest, EnvReturnsMatchingVariables) {
     // Set environment variables for testing
     setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
     setenv("RAPIDSMPF_TEST_VAR2", "value2", 1);
@@ -30,7 +43,7 @@ TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
     ASSERT_TRUE(env_vars.find("OTHER_VAR") == env_vars.end());
 }
 
-TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
+TEST(OptionsTest, EnvOutputMapIsPopulated) {
     setenv("RAPIDSMPF_ANOTHER_VAR", "another_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -40,7 +53,7 @@ TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
     EXPECT_EQ(output["ANOTHER_VAR"], "another_value");
 }
 
-TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
+TEST(OptionsTest, EnvDoesNotOverwriteExistingKey) {
     setenv("RAPIDSMPF_EXISTING_VAR", "env_value", 1);
 
     std::unordered_map<std::string, std::string> output;
@@ -52,7 +65,7 @@ TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
     EXPECT_EQ(output["EXISTING_VAR"], "original_value");
 }
 
-TEST(ConfigEnvironmentVariables, ThrowsIfNoCaptureGroup) {
+TEST(OptionsTest, EnvThrowsIfNoCaptureGroup) {
     setenv("RAPIDSMPF_NOCAPTURE", "should_fail", 1);
 
     // Should throw because there is no capture group in the regex
@@ -169,6 +182,80 @@ TEST(OptionsTest, InsertIfAbsentMapInsertsNewKeysOnly) {
     EXPECT_EQ(value, 444);
 }
 
+TEST(OptionsTest, InsertIfAbsentTypedInsertsAndGetReturnsValue) {
+    Options opts;
+
+    bool inserted = opts.insert_if_absent<int>("  SomeKey  ", 42);
+    EXPECT_TRUE(inserted);
+
+    // Factory should not be used because the value is already set.
+    auto value = opts.get<int>("somekey", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 42);
+
+    // Typed values have no string representation.
+    auto strings = opts.get_strings();
+    EXPECT_TRUE(strings.at("somekey").empty());
+
+    // Typed insertion makes the instance unserializable.
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedDoesNotOverwriteExistingKey) {
+    Options opts;
+    EXPECT_TRUE(opts.insert_if_absent<int>("k", 1));
+
+    // Should not overwrite.
+    EXPECT_FALSE(opts.insert_if_absent<int>("K", 2));
+
+    auto value = opts.get<int>("k", make_factory<int>(0, [](auto) {
+                                   ADD_FAILURE() << "factory should not be called";
+                                   return 0;
+                               }));
+    EXPECT_EQ(value, 1);
+}
+
+TEST(OptionsTest, InsertIfAbsentTypedThrowsOnTypeMismatch) {
+    Options opts;
+
+    // Insert as int
+    EXPECT_TRUE(opts.insert_if_absent<int>("value", 42));
+
+    // Attempting to retrieve as a different type should throw std::bad_any_cast
+    EXPECT_THROW(
+        std::ignore = opts.get<double>(
+            "value",
+            make_factory<double>(
+                0,
+                [](auto) {
+                    ADD_FAILURE() << "factory should not be called";
+                    return 0.0;
+                }
+            )
+        );
+        , std::invalid_argument
+    );
+}
+
+TEST(OptionsTest, InsertIfAbsentStringViewUsesStringOverloadAndRemainsSerializable) {
+    Options opts;
+
+    std::string_view sv = "5";
+    bool inserted = opts.insert_if_absent("level", sv);
+    EXPECT_TRUE(inserted);
+
+    // Should store the string representation.
+    auto strings = opts.get_strings();
+    ASSERT_TRUE(strings.find("level") != strings.end());
+    EXPECT_EQ(strings["level"], "5");
+
+    // Should remain serializable, since no typed value was inserted and we have not
+    // accessed options via get().
+    EXPECT_NO_THROW(static_cast<void>(opts.serialize()));
+}
+
 TEST(OptionsTest, GetStringsReturnsAllStoredOptions) {
     std::unordered_map<std::string, std::string> strings = {
         {"option1", "value1"}, {"option2", "value2"}, {"Option3", "value3"}
@@ -188,6 +275,32 @@ TEST(OptionsTest, GetStringsReturnsEmptyMapIfNoOptions) {
     auto result = opts.get_strings();
 
     EXPECT_TRUE(result.empty());
+}
+
+TEST(OptionValueTest, TypedCtorStoresValue) {
+    OptionValue ov(123);
+
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+    EXPECT_EQ(std::any_cast<int>(ov.get_value()), 123);
+}
+
+TEST(OptionValueTest, TypedCtorMovesValue) {
+    std::vector<int> v{1, 2, 3};
+    auto* data_before = v.data();
+
+    OptionValue ov(std::move(v));
+    EXPECT_TRUE(ov.get_value().has_value());
+    EXPECT_TRUE(ov.get_value_as_string().empty());
+
+    auto const& stored = std::any_cast<std::vector<int> const&>(ov.get_value());
+    EXPECT_EQ(stored, (std::vector<int>{1, 2, 3}));
+    EXPECT_TRUE(v.empty() || v.data() != data_before);
+}
+
+TEST(OptionValueTest, TypedCtorDoesNotAllowSetValueAgain) {
+    OptionValue ov(1);
+    EXPECT_THROW(ov.set_value(std::make_any<int>(2)), std::invalid_argument);
 }
 
 TEST(OptionsTest, SerializeDeserializeRoundTripPreservesData) {
@@ -324,4 +437,356 @@ TEST(SerializationLimits, ExceedMaxTotalSize) {
     opts.insert_if_absent(std::move(many_options));
 
     EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(OptionsTest, StatisticsFromOptionsEnabledWhenSetToTrue) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "True"}};
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto stats = Statistics::from_options(&mr, opts);
+
+    ASSERT_NE(stats, nullptr);
+    EXPECT_TRUE(stats->enabled());
+}
+
+TEST(OptionsTest, StatisticsFromOptionsEnabledWhenSetToOne) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto stats = Statistics::from_options(&mr, opts);
+
+    ASSERT_NE(stats, nullptr);
+    EXPECT_TRUE(stats->enabled());
+}
+
+TEST(OptionsTest, StatisticsFromOptionsDisabledWhenSetToFalse) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "False"}};
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto stats = Statistics::from_options(&mr, opts);
+
+    ASSERT_NE(stats, nullptr);
+    EXPECT_FALSE(stats->enabled());
+}
+
+TEST(OptionsTest, StatisticsFromOptionsDisabledByDefault) {
+    Options opts;  // Empty options
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto stats = Statistics::from_options(&mr, opts);
+    EXPECT_TRUE(stats == Statistics::disabled());
+    EXPECT_FALSE(stats->enabled());
+}
+
+TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledWhenSetToTrue) {
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
+    Options opts(strings);
+
+    auto pmr = PinnedMemoryResource::from_options(opts);
+
+    // Should be enabled if system supports it, or Disabled (nullptr) if not
+    if (is_pinned_memory_resources_supported()) {
+        EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
+        EXPECT_NE(pmr, nullptr);
+    } else {
+        EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
+        EXPECT_EQ(pmr, nullptr);
+    }
+}
+
+TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledWhenSetToFalse) {
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "False"}};
+    Options opts(strings);
+
+    auto pmr = PinnedMemoryResource::from_options(opts);
+
+    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
+    EXPECT_EQ(pmr, nullptr);
+}
+
+TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledByDefault) {
+    Options opts;  // Empty options
+
+    auto pmr = PinnedMemoryResource::from_options(opts);
+
+    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
+    EXPECT_EQ(pmr, nullptr);
+}
+
+TEST(OptionsTest, MemoryAvailableFromOptionsCreatesMapWithDeviceLimit) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_device_limit", "1GiB"}
+    };
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto mem_available = memory_available_from_options(&mr, opts);
+
+    // Should contain a DEVICE entry
+    ASSERT_TRUE(mem_available.find(MemoryType::DEVICE) != mem_available.end());
+
+    // Should return the configured limit (1 GiB)
+    auto available = mem_available[MemoryType::DEVICE]();
+    EXPECT_EQ(available, 1_GiB);
+}
+
+TEST(OptionsTest, MemoryAvailableFromOptionsUsesPercentageOfTotalMemory) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_device_limit", "50%"}
+    };
+    Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto mem_available = memory_available_from_options(&mr, opts);
+
+    ASSERT_TRUE(mem_available.find(MemoryType::DEVICE) != mem_available.end());
+
+    // Should return 50% of total device memory
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem / 2, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto available = mem_available[MemoryType::DEVICE]();
+    EXPECT_EQ(available, expected);
+}
+
+TEST(OptionsTest, MemoryAvailableFromOptionsUsesDefaultWhenNotSet) {
+    Options opts;  // Empty options
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto mem_available = memory_available_from_options(&mr, opts);
+
+    ASSERT_TRUE(mem_available.find(MemoryType::DEVICE) != mem_available.end());
+
+    // Should use default of 80%
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem * 4 / 5, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto available = mem_available[MemoryType::DEVICE]();
+    EXPECT_EQ(available, expected);
+}
+
+TEST(OptionsTest, PeriodicSpillCheckFromOptionsParsesMilliseconds) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"periodic_spill_check", "5ms"}
+    };
+    Options opts(strings);
+
+    auto duration = periodic_spill_check_from_options(opts);
+
+    ASSERT_TRUE(duration.has_value());
+    EXPECT_EQ(duration.value().count(), 0.005);  // 5ms = 0.005s
+}
+
+TEST(OptionsTest, PeriodicSpillCheckFromOptionsParsesSeconds) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"periodic_spill_check", "2"}
+    };
+    Options opts(strings);
+
+    auto duration = periodic_spill_check_from_options(opts);
+
+    ASSERT_TRUE(duration.has_value());
+    EXPECT_EQ(duration.value().count(), 2.0);
+}
+
+TEST(OptionsTest, PeriodicSpillCheckFromOptionsDisabledWhenSetToDisabled) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"periodic_spill_check", "disabled"}
+    };
+    Options opts(strings);
+
+    auto duration = periodic_spill_check_from_options(opts);
+
+    EXPECT_FALSE(duration.has_value());
+}
+
+TEST(OptionsTest, PeriodicSpillCheckFromOptionsUsesDefaultWhenNotSet) {
+    Options opts;  // Empty options
+
+    auto duration = periodic_spill_check_from_options(opts);
+
+    ASSERT_TRUE(duration.has_value());
+    EXPECT_EQ(duration.value().count(), 0.001);  // Default: 1ms
+}
+
+TEST(OptionsTest, StreamPoolFromOptionsCreatesPoolWithSpecifiedSize) {
+    std::unordered_map<std::string, std::string> strings = {{"num_streams", "32"}};
+    Options opts(strings);
+
+    auto pool = stream_pool_from_options(opts);
+
+    ASSERT_NE(pool, nullptr);
+    EXPECT_EQ(pool->get_pool_size(), 32);
+}
+
+TEST(OptionsTest, StreamPoolFromOptionsUsesDefaultWhenNotSet) {
+    Options opts;  // Empty options
+
+    auto pool = stream_pool_from_options(opts);
+
+    ASSERT_NE(pool, nullptr);
+    EXPECT_EQ(pool->get_pool_size(), 16);  // Default: 16
+}
+
+TEST(OptionsTest, StreamPoolFromOptionsThrowsOnZeroStreams) {
+    std::unordered_map<std::string, std::string> strings = {{"num_streams", "0"}};
+    Options opts(strings);
+
+    EXPECT_THROW(stream_pool_from_options(opts), std::invalid_argument);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsCreatesInstanceWithExplicitOptions) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"statistics", "True"},
+        {"pinned_memory", "False"},
+        {"spill_device_limit", "1GiB"},
+        {"periodic_spill_check", "5ms"},
+        {"num_streams", "8"}
+    };
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    EXPECT_TRUE(br->statistics()->enabled());
+    EXPECT_EQ(br->stream_pool().get_pool_size(), 8);
+    auto mem_avail = br->memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), 1_GiB);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsUsesDefaultWhenOptionsEmpty) {
+    config::Options opts;  // Empty options
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+    EXPECT_FALSE(br->statistics()->enabled());
+    EXPECT_EQ(br->stream_pool().get_pool_size(), 16);
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem * 4 / 5, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto mem_avail = br->memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), expected);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsEnablesStatisticsWhenRequested) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    EXPECT_TRUE(br->statistics()->enabled());
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsAcceptsPercentageForDeviceLimit) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_device_limit", "50%"}
+    };
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    // Verify device memory limit is 50% of total
+    auto [_, total_mem] = rmm::available_device_memory();
+    auto expected = rmm::align_down(total_mem / 2, rmm::CUDA_ALLOCATION_ALIGNMENT);
+    auto mem_avail = br->memory_available(MemoryType::DEVICE);
+    EXPECT_EQ(mem_avail(), expected);
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsEnablesPinnedMemoryWhenSupported) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto br = BufferResource::from_options(&mr, opts);
+
+    // Should not throw when accessing pinned_mr
+    EXPECT_NO_THROW(std::ignore = br->pinned_mr());
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"statistics", "True"},
+        {"num_streams", "8"},
+        {"spill_device_limit", "1GiB"},
+    };
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_TRUE(ctx->statistics()->enabled());
+    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 8);
+    EXPECT_EQ(ctx->comm(), comm);
+}
+
+TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_FALSE(ctx->statistics()->enabled());
+    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 16);  // Default
+    EXPECT_EQ(ctx->comm(), comm);
+}
+
+TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
+    std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
+    config::Options opts(strings);
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_TRUE(ctx->statistics()->enabled());
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_NE(ctx->progress_thread(), nullptr);
+}
+
+TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
+    config::Options opts;
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{&cuda_mr};
+    auto comm = std::make_shared<Single>(opts);
+    auto ctx = streaming::Context::from_options(&mr, comm, opts);
+
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_NE(ctx->executor(), nullptr);
 }

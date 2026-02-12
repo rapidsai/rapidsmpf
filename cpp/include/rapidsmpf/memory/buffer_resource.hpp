@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,18 +13,33 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+/**
+ * @brief Policy controlling whether a memory reservation is allowed to overbook.
+ *
+ * This enum is used throughout RapidsMPF to specify the overbooking behavior of
+ * a memory reservation request. The exact semantics depend on the specific API
+ * and execution context in which it is used.
+ */
+enum class AllowOverbooking : bool {
+    NO,  ///< Overbooking is not allowed.
+    YES,  ///< Overbooking is allowed.
+};
 
 /**
  * @brief Class managing buffer resources.
@@ -55,9 +70,14 @@ class BufferResource {
      *
      * @param device_mr Reference to the RMM device memory resource used for device
      * allocations.
-     * @param memory_available Optional memory availability functions mapping memory types
-     * to available memory checkers. Memory types without availability functions are
-     * assumed to have unlimited memory.
+     * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
+     * allocations. If null, pinned host allocations are disabled. In that case, any
+     * attempt to allocate pinned memory will fail regardless of what @p memory_available
+     * reports.
+     * @param memory_available Optional functions that report available memory for each
+     * memory type. If a memory type is not present in this map, it is treated as having
+     * unlimited available memory. The only exception is `MemoryType::PINNED_HOST`, which
+     * is always assigned a zero-capacity function when `pinned_mr` is disabled.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
@@ -68,11 +88,29 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    );
+
+    /**
+     * @brief Construct a BufferResource from configuration options.
+     *
+     * This factory method creates a BufferResource using configuration options to
+     * initialize all components.
+     *
+     * @param mr Pointer to the RMM resource adaptor, which must outlive the
+     * returned BufferResource.
+     * @param options Configuration options.
+     *
+     * @return A shared pointer to a BufferResource instance configured according to the
+     * options.
+     */
+    static std::shared_ptr<BufferResource> from_options(
+        RmmResourceAdaptor* mr, config::Options options
     );
 
     ~BufferResource() noexcept = default;
@@ -82,18 +120,21 @@ class BufferResource {
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
-        return device_mr_;
-    }
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
-        return host_mr_;
-    }
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
+
+    /**
+     * @brief Get the RMM pinned host memory resource.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -138,7 +179,7 @@ class BufferResource {
      * equals zero (a zero-sized reservation never fails).
      */
     std::pair<MemoryReservation, std::size_t> reserve(
-        MemoryType mem_type, size_t size, bool allow_overbooking
+        MemoryType mem_type, size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -155,15 +196,19 @@ class BufferResource {
      * if spilling was insufficient.
      * @return The memory reservation.
      *
-     * @throws std::overflow_error if allow_overbooking is false and the buffer resource
-     * cannot reserve and spill enough device memory.
+     * @throws rapidsmpf::reservation_error if allow_overbooking is false and the buffer
+     * resource cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
-        size_t size, bool allow_overbooking
+        size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
+     *
+     * The function attempts to reserve memory by iterating over @p mem_types in the given
+     * order of preference. For each memory type, it requests a reservation without
+     * overbooking. If no memory type can satisfy the request, the function throws.
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
@@ -176,7 +221,14 @@ class BufferResource {
     [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            auto [res, _] = reserve(mem_type, size, false);
+            if (mem_type == MemoryType::PINNED_HOST
+                && pinned_mr_ == PinnedMemoryResource::Disabled)
+            {
+                // Pinned host memory is only available if the memory resource is
+                // available.
+                continue;
+            }
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
             if (res.size() == size) {
                 return std::move(res);
             }
@@ -206,7 +258,7 @@ class BufferResource {
      * @param size The size to consume in bytes.
      * @return The remaining size of the reserved memory after consumption.
      *
-     * @throws std::overflow_error if the released size exceeds the size of the
+     * @throws rapidsmpf::reservation_error if the released size exceeds the size of the
      * reservation.
      */
     std::size_t release(MemoryReservation& reservation, std::size_t size);
@@ -220,7 +272,7 @@ class BufferResource {
      * @return A unique pointer to the allocated Buffer.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if `size` exceeds the size of the reservation.
+     * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> allocate(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
@@ -269,7 +321,8 @@ class BufferResource {
      * @param reservation Memory reservation used if a copy is required.
      * @return Unique pointer to the resulting Buffer.
      *
-     * @throws std::overflow_error If the allocation size exceeds the reservation.
+     * @throws rapidsmpf::reservation_error If the allocation size exceeds the
+     * reservation.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -286,7 +339,8 @@ class BufferResource {
      * @return A unique pointer to the resulting device buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't device memory.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws rapidsmpf::reservation_error if the memory requirement exceeds the
+     * reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -303,7 +357,8 @@ class BufferResource {
      * @return Unique pointer to the resulting host buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
-     * @throws std::overflow_error If the allocation size exceeds the reservation.
+     * @throws rapidsmpf::reservation_error If the allocation size exceeds the
+     * reservation.
      */
     std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -336,6 +391,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+    std::shared_ptr<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
@@ -392,5 +448,36 @@ class LimitAvailableMemory {
   private:
     RmmResourceAdaptor const* mr_;
 };
+
+/**
+ * @brief Construct a map of memory-available functions from configuration options.
+ *
+ * @param mr Pointer to a memory resource adaptor.
+ * @param options Configuration options.
+ *
+ * @return The map of memory-available functions.
+ */
+std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
+memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
+
+/**
+ * @brief Get the `periodic_spill_check` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ *
+ * @return The duration of the pause between spill checks or std::nullopt if no dedicated
+ * thread should check for spilling.
+ */
+std::optional<Duration> periodic_spill_check_from_options(config::Options options);
+
+/**
+ * @brief Get a new CUDA stream pool from configuration options.
+ *
+ * @param options Configuration options.
+ * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
+ * not take an explicit CUDA stream.
+ */
+std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+
 
 }  // namespace rapidsmpf

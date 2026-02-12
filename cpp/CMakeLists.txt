@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -14,6 +14,7 @@ include(rapids-cuda)
 include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
 include(rapids-export)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(RAPIDSMPF)
 
@@ -99,6 +100,15 @@ endif()
 rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
 
 # ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+endif()
+
+# ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
 rapids_find_package(
   CUDAToolkit REQUIRED
@@ -124,6 +134,8 @@ include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cuco.cmake)
+include(../cmake/thirdparty/get_cucascade.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -156,21 +168,26 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/allgather/allgather.cpp
+  src/coll/allgather.cpp
+  src/coll/allreduce.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
+  src/bootstrap/utils.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
+  src/integrations/cudf/bloom_filter.cu
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
+  src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
+  src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cu
   src/memory/scoped_memory_record.cpp
   src/memory/spill_manager.cpp
@@ -182,9 +199,11 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
-  src/topology_discovery.cpp
-  src/utils.cpp
+  src/system_info.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
+
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
@@ -193,13 +212,17 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/coro_executor.cpp
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
+            src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
+            src/streaming/cudf/bloom_filter.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
+            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -272,7 +295,10 @@ target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE cuco::cuco
+          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
+          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:conda_env>
@@ -280,6 +306,8 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
           ${CMAKE_DL_LIBS}
 )
+
+target_link_options(rapidsmpf PUBLIC "$<BUILD_LOCAL_INTERFACE:-Wl,--allow-shlib-undefined>")
 
 target_compile_definitions(
   rapidsmpf
@@ -348,6 +376,12 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
+  # Set BUILD_TESTING to ON. It may be set to OFF by libcoro's CMake code and is needed for CTest to
+  # generate test lists.
+  set(BUILD_TESTING
+      ON
+      CACHE BOOL "Build the testing tree." FORCE
+  )
   include(CTest)
   add_subdirectory(tests)
 endif()
@@ -370,11 +404,6 @@ endif()
 # * add tools
 # -------------------------------------------------------------------------------------
 add_subdirectory(tools)
-
-# Ensure NVML include directory is also available to the topology_discovery tool
-if(NVML_INCLUDE_DIR AND TARGET topology_discovery)
-  target_include_directories(topology_discovery PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------

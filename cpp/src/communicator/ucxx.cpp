@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@
 
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -579,9 +579,8 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
         decode_(&rank, sizeof(rank));
 
         return ListenerAddress{std::make_pair(host, port), rank};
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Wrong type");
     }
+    RAPIDSMPF_FAIL("Wrong type");
 }
 
 /**
@@ -633,9 +632,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         encode_(packed_listener_address->data(), packed_listener_address_size);
 
         return packed;
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Invalid control type");
     }
+    RAPIDSMPF_FAIL("Invalid control type");
 };
 
 /**
@@ -1045,11 +1043,23 @@ UCXX::UCXX(
 constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // The rapidsmpf::ucxx::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
-    // 64-bit tags as aid in identifying the sender of a message. Since we're
-    // currently limited to 26-bits for ranks (see
-    // `rapidsmpf::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
-    // 58-bits for the tags and the remaining 6-bits may be used in the future,
-    // such as to identify groups.
+    // 64-bit tags as aid in identifying the sender of a message.
+    // Note that there is an implementation-defined limit on the maximum number of ranks
+    // in an MPI communicator (often 2^20). In rapidsmpf, due to our chunk identification
+    // scheme in `rapidsmpf::shuffler::Shuffler::get_new_cid()` we have a "soft" limit of
+    // 2^26 distinct ranks. Consequently, the 64 bit `ucxx::Tag` is split into (from low
+    // to high):
+    //
+    // clang-format off
+    // bits   | 01234567 01234567 01234567 01234567 | 01234567 01234567 01234567 01 | 234567
+    //        |                                     |                               |
+    // value  |          user tag (32)              |           rank (26)           | empty (6)
+    //        |                                     |                               |
+    // clang-format on
+    //
+    // If we want to support duplicating communicators (which could be done by using the
+    // empty 6 bits to disambiguate message), we could reduce the number of bits required
+    // for ranks since we are unlikely to need 2^26 ranks.
     return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
 }
 

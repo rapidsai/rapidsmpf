@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -126,8 +126,19 @@ bool RmmResourceAdaptor::do_is_equal(
     if (cast == nullptr) {
         return false;
     }
-    return get_upstream_resource() == cast->get_upstream_resource()
-           && get_fallback_resource() == cast->get_fallback_resource();
+    // Manual comparison of optionals to avoid recursive constraint satisfaction in
+    // CCCL 3.2. std::optional::operator== triggers infinite concept checking when the
+    // wrapped type (rmm::device_async_resource_ref) inherits from CCCL's concept-based
+    // resource_ref.
+    // TODO: Revert this after the RMM resource ref types are replaced with
+    // plain cuda::mr ref types. This depends on
+    // https://github.com/rapidsai/rmm/issues/2011.
+    auto this_fallback = get_fallback_resource();
+    auto other_fallback = cast->get_fallback_resource();
+    bool fallbacks_equal =
+        (this_fallback.has_value() == other_fallback.has_value())
+        && (!this_fallback.has_value() || (*this_fallback == *other_fallback));
+    return get_upstream_resource() == cast->get_upstream_resource() && fallbacks_equal;
 }
 
 }  // namespace rapidsmpf

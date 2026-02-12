@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
@@ -102,6 +103,30 @@ class ContentDescription {
      */
     [[nodiscard]] constexpr std::size_t content_size(MemoryType mem_type) const noexcept {
         return content_sizes_[static_cast<std::size_t>(mem_type)];
+    }
+
+    /**
+     * @brief Returns the principal memory type of the content.
+     *
+     * The principal memory type is the first memory type with non-zero content, evaluated
+     * in the preference order defined by `MEMORY_TYPES`.
+     *
+     * If all content sizes are zero, the method returns `MemoryType::DEVICE`. Zero-sized
+     * content usually means the Message contains only metadata, or that the content size
+     * is unknown or irrelevant. In such cases the choice of memory type has no practical
+     * effect. We default to `MemoryType::DEVICE` because, when `spillable() == false`, it
+     * is the only memory type that meaningfully applies.
+     *
+     * @return The first memory type with non-zero content, or `MemoryType::DEVICE`
+     * if none contain content.
+     */
+    [[nodiscard]] constexpr MemoryType principal_memory_type() const noexcept {
+        for (auto mem_type : MEMORY_TYPES) {
+            if (content_size(mem_type) > 0) {
+                return mem_type;
+            }
+        }
+        return MemoryType::DEVICE;
     }
 
     /**

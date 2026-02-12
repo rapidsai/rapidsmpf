@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <iostream>
@@ -11,6 +11,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
@@ -43,6 +44,47 @@ std::vector<Message> make_int_inputs(int n) {
 
     for (int i = 0; i < n; ++i) {
         inputs.emplace_back(i, std::make_unique<int>(i), ContentDescription{}, copy_cb);
+    }
+    return inputs;
+}
+
+/**
+ * @brief Helper to make a sequence of Message<Buffer>s where each buffer contains 1024
+ * values of int [i, i + 1024).
+ */
+std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
+    std::vector<Message> inputs;
+    inputs.reserve(n);
+
+    Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
+        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        auto const cd = msg.content_description();
+        auto buf_cpy = br.allocate(cd.content_size(), stream, res);
+        // cd needs to be updated to reflect the new buffer
+        ContentDescription new_cd{
+            {{buf_cpy->mem_type(), buf_cpy->size}}, ContentDescription::Spillable::YES
+        };
+        rapidsmpf::buffer_copy(*buf_cpy, msg.get<Buffer>(), cd.content_size());
+        return Message{
+            msg.sequence_number(), std::move(buf_cpy), std::move(new_cd), msg.copy_cb()
+        };
+    };
+    for (int i = 0; i < n; ++i) {
+        std::vector<int> values(1024, 0);
+        std::iota(values.begin(), values.end(), i);
+        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        // allocate outside of buffer resource
+        auto buffer = br.move(
+            std::make_unique<rmm::device_buffer>(
+                values.data(), values.size() * sizeof(int), stream
+            ),
+            stream
+        );
+        ContentDescription cd{
+            std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
+            ContentDescription::Spillable::YES
+        };
+        inputs.emplace_back(i, std::move(buffer), cd, copy_cb);
     }
     return inputs;
 }
@@ -139,7 +181,53 @@ TEST_P(StreamingFanout, SinkPerChannel) {
         // object
         for (int i = 0; i < num_msgs; ++i) {
             SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
-            EXPECT_EQ(outs[c][i].get<int>(), i);
+            EXPECT_EQ(i, outs[c][i].get<int>());
+        }
+    }
+}
+
+TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
+    auto inputs = make_buffer_inputs(num_msgs, *ctx->br());
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Node> nodes;
+
+        auto in = ctx->create_channel();
+        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+        for (int i = 0; i < num_out_chs; ++i) {
+            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+        }
+
+        run_streaming_pipeline(std::move(nodes));
+    }
+
+    for (int c = 0; c < num_out_chs; ++c) {
+        // Validate sizes
+        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
+
+        // Validate ordering/content and that shallow copies share the same underlying
+        // object
+        for (int i = 0; i < num_msgs; ++i) {
+            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
+            auto const& buf = outs[c][i].get<Buffer>();
+            EXPECT_EQ(1024 * sizeof(int), buf.size);
+
+            std::vector<int> recv(1024);
+            buf.stream().synchronize();
+            RAPIDSMPF_CUDA_TRY(
+                cudaMemcpy(recv.data(), buf.data(), 1024 * sizeof(int), cudaMemcpyDefault)
+            );
+
+            EXPECT_TRUE(std::ranges::equal(std::ranges::views::iota(i, i + 1024), recv));
         }
     }
 }
@@ -446,4 +534,59 @@ TEST_P(ManyInputSinkStreamingFanout, ChannelOrder) {
 
 TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
     EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::MESSAGE_ORDER));
+}
+
+class SpillingStreamingFanout : public BaseStreamingFixture {
+    void SetUp() override {
+        SetUpWithThreads(4);
+
+        // override br and context with no device memory
+        std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available =
+            {
+                {MemoryType::DEVICE, []() -> std::int64_t { return 0; }},
+            };
+        br = std::make_shared<rapidsmpf::BufferResource>(
+            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+        );
+        auto options = ctx->options();
+        ctx = std::make_shared<rapidsmpf::streaming::Context>(
+            options, GlobalEnvironment->comm_, br
+        );
+    }
+};
+
+TEST_F(SpillingStreamingFanout, Spilling) {
+    auto inputs = make_buffer_inputs(100, *ctx->br());
+    constexpr int num_out_chs = 4;
+    constexpr FanoutPolicy policy = FanoutPolicy::UNBOUNDED;
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Node> nodes;
+
+        auto in = ctx->create_channel();
+        nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        nodes.push_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.push_back(
+            many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
+        );
+
+        run_streaming_pipeline(std::move(nodes));
+    }
+
+    for (int c = 0; c < num_out_chs; ++c) {
+        SCOPED_TRACE("channel " + std::to_string(c));
+        // all messages should be in host memory
+        EXPECT_TRUE(std::ranges::all_of(outs[c], [](const Message& m) {
+            auto const cd = m.content_description();
+            return cd.principal_memory_type() == MemoryType::HOST
+                   && cd.content_size() == 1024 * sizeof(int);
+        }));
+    }
 }

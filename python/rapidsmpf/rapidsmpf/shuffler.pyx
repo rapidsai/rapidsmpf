@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """The Shuffler interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport UINT8_MAX, uint32_t
+from libc.stdint cimport uint32_t
 from libcpp.memory cimport make_unique
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -55,13 +55,13 @@ cdef class Shuffler:
     their own stream, and extracted buffers are likewise guaranteed to be stream-
     ordered with respect to their own stream.
     """
-    max_concurrent_shuffles = UINT8_MAX + 1  # match the type of the `op_id` argument.
+    max_concurrent_shuffles = 1 << 20  # See docs in communicator.hpp
 
     def __init__(
         self,
         Communicator comm not None,
         ProgressThread progress_thread not None,
-        uint8_t op_id,
+        int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
         Statistics statistics = None,

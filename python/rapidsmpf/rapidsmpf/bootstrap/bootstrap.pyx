@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport dynamic_pointer_cast, shared_ptr
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 
@@ -20,18 +21,19 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace \
         pass
 
 
-cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
+cdef extern from "<rapidsmpf/bootstrap/utils.hpp>" nogil:
     bint cpp_is_running_with_rrun \
-        "rapidsmpf::bootstrap::is_running_with_rrun"() except +
+        "rapidsmpf::bootstrap::is_running_with_rrun"() except +ex_handler
 
     int cpp_get_nranks \
-        "rapidsmpf::bootstrap::get_nranks"() except +
+        "rapidsmpf::bootstrap::get_nranks"() except +ex_handler
 
+cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
     shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
         "rapidsmpf::bootstrap::create_ucxx_comm"(
             Backend backend,
             cpp_Options options,
-        ) except +
+        ) except +ex_handler
 
 
 def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,12 +23,39 @@ coro::task<Message> Channel::receive() {
     }
 }
 
-Node Channel::drain(std::unique_ptr<coro::thread_pool>& executor) {
-    return rb_.shutdown_drain(executor);
+coro::task<bool> Channel::send_metadata(Message msg) {
+    RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
+    auto result = co_await metadata_.push(std::move(msg));
+    co_return result == coro::queue_produce_result::produced;
+}
+
+Node Channel::drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor) {
+    return metadata_.shutdown_drain(executor->get());
+}
+
+coro::task<Message> Channel::receive_metadata() {
+    auto msg = co_await metadata_.pop();
+    if (msg.has_value()) {
+        co_return std::move(*msg);
+    } else {
+        co_return Message{};
+    }
+}
+
+Node Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
+    coro_results(
+        co_await coro::when_all(
+            rb_.shutdown_drain(executor->get()), drain_metadata(executor)
+        )
+    );
 }
 
 Node Channel::shutdown() {
-    return rb_.shutdown();
+    coro_results(co_await coro::when_all(metadata_.shutdown(), rb_.shutdown()));
+}
+
+Node Channel::shutdown_metadata() {
+    return metadata_.shutdown();
 }
 
 bool Channel::empty() const noexcept {

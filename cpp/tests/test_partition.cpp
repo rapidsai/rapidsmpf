@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,7 +20,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
 
@@ -116,7 +116,7 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     input.push_back(create_packed_data(metadata, payload, stream, br.get()));
 
     // Device -> Device (moves data)
-    auto on_gpu = unspill_partitions(std::move(input), br.get(), true);
+    auto on_gpu = unspill_partitions(std::move(input), br.get(), AllowOverbooking::YES);
     ASSERT_EQ(on_gpu.size(), 1);
     EXPECT_EQ(on_gpu[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
     EXPECT_EQ(*on_gpu[0].metadata, metadata);

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <numeric>
 #include <vector>
 
 #include <cudf/column/column_view.hpp>
@@ -35,31 +34,13 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utils.hpp"
-
 namespace rapidsmpf::ndsh {
 
-namespace {
-
-/**
- * @brief Broadcast the concatenation of all input messages to all ranks.
- *
- * @note Receives all input chunks, gathers from all ranks, and then provides concatenated
- * output.
- *
- * @note Since this is used for unordered joins, the input order of `ch_in` across ranks
- * is not preserved in the output.
- *
- * @param ctx Streaming context
- * @param ch_in Input channel of `TableChunk`s
- * @param tag Disambiguating tag for allgather
- *
- * @return Message containing the concatenation of all the input table chunks.
- */
 coro::task<streaming::Message> broadcast(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
-    OpID tag
+    OpID tag,
+    streaming::AllGather::Ordered ordered
 ) {
     streaming::ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
@@ -74,7 +55,8 @@ coro::task<streaming::Message> broadcast(
             if (msg.empty()) {
                 break;
             }
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             cuda_stream_join(gather_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
@@ -107,7 +89,8 @@ coro::task<streaming::Message> broadcast(
                 break;
             }
             // TODO: If this chunk is already in pack form, this is unnecessary.
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             auto pack =
                 cudf::pack(chunk.table_view(), chunk.stream(), ctx->br()->device_mr());
             auto packed_data = PackedData(
@@ -117,7 +100,7 @@ coro::task<streaming::Message> broadcast(
             gatherer.insert(msg.sequence_number(), {std::move(packed_data)});
         }
         gatherer.insert_finished();
-        auto result = co_await gatherer.extract_all(streaming::AllGather::Ordered::NO);
+        auto result = co_await gatherer.extract_all(ordered);
         if (result.size() == 1) {
             co_return streaming::to_message(
                 0,
@@ -132,10 +115,13 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result), ctx->br(), true, ctx->statistics()
+                            std::move(result),
+                            ctx->br().get(),
+                            AllowOverbooking::YES,
+                            ctx->statistics()
                         ),
                         stream,
-                        ctx->br(),
+                        ctx->br().get(),
                         ctx->statistics()
                     ),
                     stream
@@ -145,17 +131,32 @@ coro::task<streaming::Message> broadcast(
     }
 }
 
+streaming::Node broadcast(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> ch_in,
+    std::shared_ptr<streaming::Channel> ch_out,
+    OpID tag,
+    streaming::AllGather::Ordered ordered
+) {
+    streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    co_await ch_out->send(co_await broadcast(ctx, ch_in, tag, ordered));
+    co_await ch_out->drain(ctx->executor());
+}
+
 /**
  * @brief Join a table chunk against a build hash table returning a message of the result.
  *
- * @param ctx Streaming context
- * @param right_chunk Chunk to join
+ * @param ctx Streaming context.
+ * @param right_chunk Chunk to join. Must be on device e.g. use make_available() on the
+ * chunk.
  * @param sequence Sequence number of the output
  * @param joiner hash_join object, representing the build table.
  * @param build_carrier Columns from the build-side table to be included in the output.
  * @param right_on Key column indiecs in `right_chunk`.
  * @param build_stream Stream the `joiner` will be deallocated on.
  * @param build_event Event recording the creation of the `joiner`.
+ * @param tmp_event Preallocated event used for internal stream ordering.
  *
  * @return Message of `TableChunk` containing the result of the inner join.
  */
@@ -167,10 +168,10 @@ streaming::Message inner_join_chunk(
     cudf::table_view build_carrier,
     std::vector<cudf::size_type> right_on,
     rmm::cuda_stream_view build_stream,
-    CudaEvent* build_event
+    CudaEvent* build_event,
+    CudaEvent* tmp_event
+
 ) {
-    CudaEvent event;
-    right_chunk = to_device(ctx, std::move(right_chunk));
     auto chunk_stream = right_chunk.stream();
     build_event->stream_wait(chunk_stream);
     auto probe_table = right_chunk.table_view();
@@ -205,6 +206,82 @@ streaming::Message inner_join_chunk(
             probe_table.select(to_keep),
             probe_indices,
             cudf::out_of_bounds_policy::DONT_CHECK,
+            chunk_stream,
+            ctx->br()->device_mr()
+        )
+            ->release(),
+        std::back_inserter(result_columns)
+    );
+    // Deallocation of the join indices will happen on build_stream, so add stream dep
+    // This also ensure deallocation of the hash_join object waits for completion.
+    cuda_stream_join(build_stream, chunk_stream, tmp_event);
+    return streaming::to_message(
+        sequence,
+        std::make_unique<streaming::TableChunk>(
+            std::make_unique<cudf::table>(std::move(result_columns)), chunk_stream
+        )
+    );
+}
+
+<<<<<<< HEAD
+/**
+ * @brief Join a table chunk against a build hash table returning a message of the result.
+ *
+ * @param ctx Streaming context
+ * @param right_chunk Chunk to join
+ * @param sequence Sequence number of the output
+ * @param joiner hash_join object, representing the build table.
+ * @param build_carrier Columns from the build-side table to be included in the output.
+ * @param right_on Key column indiecs in `right_chunk`.
+ * @param build_stream Stream the `joiner` will be deallocated on.
+ * @param build_event Event recording the creation of the `joiner`.
+ *
+ * @return Message of `TableChunk` containing the result of the inner join.
+ */
+streaming::Message left_join_chunk(
+    std::shared_ptr<streaming::Context> ctx,
+    streaming::TableChunk&& left_chunk,
+    std::uint64_t sequence,
+    cudf::hash_join& joiner,
+    cudf::table_view build_carrier,
+    std::vector<cudf::size_type> left_on,
+    rmm::cuda_stream_view build_stream,
+    CudaEvent* build_event
+) {
+    CudaEvent event;
+    left_chunk = to_device(ctx, std::move(left_chunk));
+    auto chunk_stream = left_chunk.stream();
+    build_event->stream_wait(chunk_stream);
+    auto probe_table = left_chunk.table_view();
+    auto probe_keys = probe_table.select(left_on);
+    auto [probe_match, build_match] =
+        joiner.left_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
+
+    cudf::column_view build_indices =  // right
+        cudf::device_span<cudf::size_type const>(*build_match);
+    cudf::column_view probe_indices =  // left
+        cudf::device_span<cudf::size_type const>(*probe_match);
+    // build_carrier is valid on build_stream, but chunk_stream is
+    // waiting for build_stream work to be done, so running this on
+    // chunk_stream is fine.
+
+    // For LEFT join, keep all columns from the probe (left) table including keys,
+    // since they're always valid (unlike right-side keys which may be NULL).
+    auto result_columns = cudf::gather(
+                              probe_table,
+                              probe_indices,
+                              cudf::out_of_bounds_policy::DONT_CHECK,
+                              chunk_stream,
+                              ctx->br()->device_mr()
+    )
+                              ->release();
+
+    // left join build indices could have sentinel values (INT_MIN), so they will be OOB.
+    std::ranges::move(
+        cudf::gather(
+            build_carrier,
+            build_indices,
+            cudf::out_of_bounds_policy::NULLIFY,
             chunk_stream,
             ctx->br()->device_mr()
         )
@@ -297,8 +374,8 @@ streaming::Message left_join_chunk(
     );
 }
 
-}  // namespace
-
+=======
+>>>>>>> 42eca8b1cfaf2d6338ae5b8cda9adf8ed7aef787
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
@@ -313,9 +390,10 @@ streaming::Node inner_join_broadcast(
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto build_table = to_device(
-        ctx, (co_await broadcast(ctx, left, tag)).release<streaming::TableChunk>()
-    );
+    auto build_table =
+        co_await ((co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
+                      .release<streaming::TableChunk>()
+                      .make_available(ctx));
     ctx->comm()->logger().print(
         "Build table has ", build_table.table_view().num_rows(), " rows"
     );
@@ -327,6 +405,7 @@ streaming::Node inner_join_broadcast(
     );
     CudaEvent build_event;
     build_event.record(build_table.stream());
+    CudaEvent tmp_event;
     cudf::table_view build_carrier;
     if (keep_keys == KeepKeys::YES) {
         build_carrier = build_table.table_view();
@@ -339,8 +418,7 @@ streaming::Node inner_join_broadcast(
         );
         build_carrier = build_table.table_view().select(to_keep);
     }
-    std::size_t sequence = 0;
-    while (true) {
+    while (!ch_out->is_shutdown()) {
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
             break;
@@ -348,12 +426,13 @@ streaming::Node inner_join_broadcast(
         co_await ch_out->send(inner_join_chunk(
             ctx,
             right_msg.release<streaming::TableChunk>(),
-            sequence++,
+            right_msg.sequence_number(),
             joiner,
             build_carrier,
             right_on,
             build_table.stream(),
-            &build_event
+            &build_event,
+            &tmp_event
         ));
     }
 
@@ -373,7 +452,8 @@ streaming::Node inner_join_shuffle(
     ctx->comm()->logger().print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
-    while (true) {
+    CudaEvent tmp_event;
+    while (!ch_out->is_shutdown()) {
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();
@@ -388,7 +468,8 @@ streaming::Node inner_join_shuffle(
             "Mismatching sequence numbers"
         );
         // TODO: currently always using left as build table.
-        auto build_chunk = to_device(ctx, left_msg.release<streaming::TableChunk>());
+        auto build_chunk =
+            co_await left_msg.release<streaming::TableChunk>().make_available(ctx);
         auto build_stream = build_chunk.stream();
         auto joiner = cudf::hash_join(
             build_chunk.table_view().select(left_on),
@@ -416,7 +497,8 @@ streaming::Node inner_join_shuffle(
             build_carrier,
             right_on,
             build_stream,
-            &build_event
+            &build_event,
+            &tmp_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
@@ -477,7 +559,8 @@ streaming::Node left_join_shuffle(
             build_carrier,
             left_on,
             build_stream,
-            &build_event
+            &build_event,
+            &tmp_event
         ));
     }
     co_await ch_out->drain(ctx->executor());
@@ -500,7 +583,7 @@ streaming::Node shuffle(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
         auto packed = partition_and_pack(
             chunk.table_view(),
             keys,
@@ -508,7 +591,7 @@ streaming::Node shuffle(
             cudf::hash_id::HASH_MURMUR3,
             0,
             chunk.stream(),
-            ctx->br(),
+            ctx->br().get(),
             ctx->statistics()
         );
         shuffler.insert(std::move(packed));
@@ -524,10 +607,13 @@ streaming::Node shuffle(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(*packed_data), ctx->br(), true, ctx->statistics()
+                            std::move(*packed_data),
+                            ctx->br().get(),
+                            AllowOverbooking::YES,
+                            ctx->statistics()
                         ),
                         stream,
-                        ctx->br(),
+                        ctx->br().get(),
                         ctx->statistics()
                     ),
                     stream

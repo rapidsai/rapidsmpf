@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
@@ -27,7 +28,7 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
 #include "../utils/rmm_stack.hpp"
@@ -52,7 +53,7 @@ class ArgumentParser {
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:xh")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:Lxh")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -70,10 +71,11 @@ class ArgumentParser {
                            << "  -o <num>   Number of output partitions per rank "
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
-                              "managed} "
-                              "(default: pool)\n"
+                              "managed} (default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
-                              "disabled)\n"
+                              "unlimited)\n"
+                           << "  -L         Disable Pinned host memory (default: "
+                              " unlimited)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
@@ -138,6 +140,9 @@ class ArgumentParser {
                 case 'l':
                     parse_integer(device_mem_limit_mb, optarg);
                     break;
+                case 'L':
+                    pinned_mem_disable = true;
+                    break;
                 case 'x':
                     enable_memory_profiler = true;
                     break;
@@ -199,6 +204,9 @@ class ArgumentParser {
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
+        if (pinned_mem_disable) {
+            ss << "  -L (disable pinned host memory)\n";
+        }
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
@@ -219,6 +227,7 @@ class ArgumentParser {
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
     std::int64_t device_mem_limit_mb{-1};
+    bool pinned_mem_disable{false};
 };
 
 rapidsmpf::streaming::Node consumer(
@@ -342,11 +351,7 @@ int main(int argc, char** argv) {
     RAPIDSMPF_EXPECTS(comm->nranks() == 1, "only single-rank runs are supported");
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<rapidsmpf::RmmResourceAdaptor> stat_enabled_mr;
-    if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
-        stat_enabled_mr = set_device_mem_resource_with_stats();
-    }
-
+    auto stat_enabled_mr = set_device_mem_resource_with_stats();
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
     if (args.device_mem_limit_mb >= 0) {
@@ -356,8 +361,12 @@ int main(int argc, char** argv) {
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    auto br =
-        std::make_shared<rapidsmpf::BufferResource>(mr, std::move(memory_available));
+    auto br = std::make_shared<rapidsmpf::BufferResource>(
+        mr,
+        args.pinned_mem_disable ? nullptr
+                                : rapidsmpf::PinnedMemoryResource::make_if_available(),
+        std::move(memory_available)
+    );
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -400,8 +409,8 @@ int main(int argc, char** argv) {
         }
         double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -423,8 +432,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"

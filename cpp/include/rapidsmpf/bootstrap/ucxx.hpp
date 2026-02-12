@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -20,28 +20,6 @@ class UCXX;
 }
 
 namespace bootstrap {
-
-/**
- * @brief Check if the current process was launched via `rrun`.
- *
- * This helper detects bootstrap mode by checking for the presence of the
- * `RAPIDSMPF_RANK` environment variable, which is set by `rrun`.
- *
- * @return true if running under `rrun` bootstrap mode, false otherwise.
- */
-bool is_running_with_rrun();
-
-/**
- * @brief Get the number of `rrun` ranks.
- *
- * This helper retrieves the number of ranks when running with `rrun`.
- * The number of ranks is fetched from the `RAPIDSMPF_NRANKS` environment variable.
- *
- * @return Number of ranks.
- * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not
- * set or cannot be parsed.
- */
-Rank get_nranks();
 
 /**
  * @brief Create a UCXX communicator using the bootstrap backend.

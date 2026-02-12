@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -50,7 +50,6 @@ def test_single_rank_shuffler(
     num_chunks = 5
     chunk_size = num_rows // num_chunks
     op_id = 0
-
     # We start a full dataframe.
     df = cudf.DataFrame(
         {

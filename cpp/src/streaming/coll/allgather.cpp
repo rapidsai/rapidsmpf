@@ -1,8 +1,9 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
@@ -12,27 +13,26 @@ namespace rapidsmpf::streaming {
 
 AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
     : ctx_{std::move(ctx)},
-      gatherer_{allgather::AllGather(
+      gatherer_{coll::AllGather(
           ctx_->comm(),
           ctx_->progress_thread(),
           op_id,
-          ctx_->br(),
+          ctx_->br().get(),
           ctx_->statistics(),
           [this]() {
               // Schedule waiters to resume on the executor.
               // This doesn't resume the frame immediately so we don't have to track
-              // completion of this callback with a task_container.
-              event_.set(ctx_->executor());
+              // completion of this callback with a task_group.
+              event_.set(ctx_->executor()->get());
           }
       )} {}
 
-AllGather::~AllGather() {
-    if (!event_.is_set()) {
-        std::cerr << "~AllGather: not all notification tasks complete, did you forget to "
-                     "await this->extract_all() or to this->insert_finished()?"
-                  << std::endl;
-        std::terminate();
-    }
+AllGather::~AllGather() noexcept {
+    RAPIDSMPF_EXPECTS_FATAL(
+        event_.is_set(),
+        "~AllGather: not all notification tasks complete, did you forget to await "
+        "this->extract_all() or to this->insert_finished()?"
+    );
 }
 
 [[nodiscard]] std::shared_ptr<Context> AllGather::ctx() const noexcept {

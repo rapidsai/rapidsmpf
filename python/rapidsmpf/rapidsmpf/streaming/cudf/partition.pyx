@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -8,6 +8,7 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
@@ -25,13 +26,13 @@ cdef extern from "<rapidsmpf/streaming/cudf/partition.hpp>" nogil:
             int num_partitions,
             int hash_function,
             uint32_t seed,
-        ) except +
+        ) except +ex_handler
     cdef cpp_Node cpp_unpack_and_concat \
         "rapidsmpf::streaming::node::unpack_and_concat"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,
-        ) except +
+        ) except +ex_handler
 
 
 def partition_and_pack(

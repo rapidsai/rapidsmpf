@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -9,6 +9,7 @@ context:
   cuda_major: '${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[0] }}'
   date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
   head_rev: ${{ git.head_rev(".")[:8] }}
+  ucxx_version: ${{ env.get("UCXX_PACKAGE_DEPENDENCY") }}
 
 recipe:
   name: librapidsmpf-split
@@ -28,7 +29,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" librapidsmpf
+        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" --no-clang-tidy librapidsmpf
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -65,10 +66,11 @@ cache:
       - ${{ compiler("c") }}
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
+      - cmake ${{ cmake_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
       - cuda-version =${{ cuda_version }}
-      - cmake ${{ cmake_version }}
+      - libnuma
       - ninja
       - ${{ stdlib("c") }}
     host:
@@ -76,8 +78,9 @@ cache:
       - cuda-cudart-dev
       - cuda-cupti-dev
       - cuda-nvml-dev
-      - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
+      - libnuma
+      - librmm =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - ucxx ${{ ucxx_version }}
 

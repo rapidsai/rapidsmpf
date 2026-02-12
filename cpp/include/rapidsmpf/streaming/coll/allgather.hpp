@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -21,7 +21,7 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Asynchronous (coroutine) interface to `allgather::AllGather`.
+ * @brief Asynchronous (coroutine) interface to `coll::AllGather`.
  *
  * Once the AllGather is created, many tasks may insert data into it. If multiple tasks
  * insert data, the user is responsible for arranging that `insert_finished` is only
@@ -30,8 +30,8 @@ namespace rapidsmpf::streaming {
  */
 class AllGather {
   public:
-    /// @copydoc allgather::AllGather::Ordered
-    using Ordered = rapidsmpf::allgather::AllGather::Ordered;
+    /// @copydoc coll::AllGather::Ordered
+    using Ordered = rapidsmpf::coll::AllGather::Ordered;
     /**
      * @brief Construct an asynchronous allgather.
      *
@@ -45,7 +45,7 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     AllGather& operator=(AllGather&&) = delete;
 
-    ~AllGather();
+    ~AllGather() noexcept;
 
     /**
      * @brief Gets the streaming context associated with this AllGather object.
@@ -62,7 +62,7 @@ class AllGather {
      */
     void insert(std::uint64_t sequence_number, PackedData&& chunk);
 
-    /// @copydoc rapidsmpf::allgather::AllGather::insert_finished()
+    /// @copydoc rapidsmpf::coll::AllGather::insert_finished()
     void insert_finished();
 
     /**
@@ -81,7 +81,7 @@ class AllGather {
     coro::event
         event_{};  ///< Event tracking whether all data has arrived and can be extracted.
     std::shared_ptr<Context> ctx_;  ///< Streaming context.
-    allgather::AllGather gatherer_;  ///< Underlying collective allgather.
+    coll::AllGather gatherer_;  ///< Underlying collective allgather.
 };
 
 namespace node {
@@ -89,7 +89,7 @@ namespace node {
 /**
  * @brief Create an allgather node for a single allgather operation.
  *
- * This is a streaming version of `rapidsmpf::allgather::AllGather` that operates on
+ * This is a streaming version of `rapidsmpf::coll::AllGather` that operates on
  * packed data received through `Channel`s.
  *
  * @param ctx The streaming context to use.
