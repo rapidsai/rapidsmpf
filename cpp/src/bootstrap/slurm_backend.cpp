@@ -130,6 +130,7 @@ void pmix_fence_all(
 
     pmix_status_t rc = PMIx_Fence(&proc, 1, &info, 1);
     PMIX_INFO_DESTRUCT(&info);
+    PMIX_PROC_DESTRUCT(&proc);
 
     if (rc != PMIX_SUCCESS && rc != PMIX_ERR_PARTIAL_SUCCESS) {
         throw std::runtime_error(
@@ -239,6 +240,7 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
                 result = std::string{val->data.string};
             } else {
                 PMIX_VALUE_RELEASE(val);
+                PMIX_PROC_DESTRUCT(&proc);
                 throw std::runtime_error(
                     "Unexpected PMIx value type for key '" + key
                     + "': " + std::to_string(static_cast<int>(val->type))
@@ -246,11 +248,13 @@ std::string SlurmBackend::get(std::string const& key, Duration timeout) {
             }
 
             PMIX_VALUE_RELEASE(val);
+            PMIX_PROC_DESTRUCT(&proc);
             return result;
         }
 
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed >= timeout) {
+            PMIX_PROC_DESTRUCT(&proc);
             throw std::runtime_error(
                 "Key '" + key + "' not available within "
                 + std::to_string(
