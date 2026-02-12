@@ -61,11 +61,6 @@ class FileBackend : public Backend {
      */
     void sync() override;
 
-    /**
-     * @copydoc Backend::broadcast
-     */
-    void broadcast(void* data, std::size_t size) override;
-
   private:
     Context ctx_;
     std::string coord_dir_;

@@ -99,16 +99,6 @@ class Backend {
      */
     virtual void sync() = 0;
 
-    /**
-     * @brief Broadcast data from rank 0 to all ranks.
-     *
-     * @param data Data buffer (input on rank 0, output on other ranks).
-     * @param size Size in bytes.
-     *
-     * @throws std::runtime_error if broadcast fails or size mismatch occurs.
-     */
-    virtual void broadcast(void* data, std::size_t size) = 0;
-
     // Non-copyable, non-movable (backends manage resources)
     Backend(Backend const&) = delete;
     Backend& operator=(Backend const&) = delete;

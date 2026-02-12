@@ -114,23 +114,6 @@ void FileBackend::sync() {
     // shared filesystem.
 }
 
-void FileBackend::broadcast(void* data, std::size_t size) {
-    if (ctx_.rank == 0) {
-        std::string bcast_data{static_cast<char const*>(data), size};
-        put("broadcast_0", bcast_data);
-    } else {
-        std::string bcast_data = get("broadcast_0", std::chrono::seconds{30});
-        if (bcast_data.size() != size) {
-            throw std::runtime_error(
-                "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
-                + std::to_string(bcast_data.size())
-            );
-        }
-        std::memcpy(data, bcast_data.data(), size);
-    }
-    barrier();
-}
-
 std::string FileBackend::get_kv_path(std::string const& key) const {
     return kv_dir_ + "/" + key;
 }

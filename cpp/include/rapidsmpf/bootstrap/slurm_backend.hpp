@@ -91,16 +91,8 @@ class SlurmBackend : public Backend {
      */
     void sync() override;
 
-    /**
-     * @copydoc Backend::broadcast()
-     *
-     * @throws std::runtime_error if PMIx operation fails.
-     */
-    void broadcast(void* data, std::size_t size) override;
-
   private:
     Context ctx_;
-    std::size_t barrier_count_{0};
     bool pmix_initialized_{false};
     pmix_proc_t proc_{};  ///< PMIx process identifier
     std::array<char, PMIX_MAX_NSLEN + 1> nspace_{};  ///< PMIx namespace (job identifier)

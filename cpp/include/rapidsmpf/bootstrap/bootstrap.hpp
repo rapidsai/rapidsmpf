@@ -62,19 +62,6 @@ struct Context {
 Context init(BackendType type = BackendType::AUTO);
 
 /**
- * @brief Broadcast data from rank 0 to all other ranks.
- *
- * This is a helper function for broadcasting small amounts of data during
- * bootstrapping. It uses the underlying backend's coordination mechanism.
- * Rank 0 provides the input data, all other ranks receive it as output.
- *
- * @param ctx Bootstrap context.
- * @param data Data buffer to broadcast (input on rank 0, output on others).
- * @param size Size of data in bytes.
- */
-void broadcast(Context const& ctx, void* data, std::size_t size);
-
-/**
  * @brief Perform a barrier synchronization across all ranks.
  *
  * This ensures all ranks reach this point before any rank proceeds.

@@ -290,34 +290,6 @@ void SlurmBackend::sync() {
     pmix_fence_all(nspace_, "sync", true);
 }
 
-void SlurmBackend::broadcast(void* data, std::size_t size) {
-    // Use unique key for each broadcast to avoid collisions between multiple
-    // broadcast operations.
-    std::string bcast_key = "bcast_" + std::to_string(barrier_count_++);
-
-    if (ctx_.rank == 0) {
-        // Rank 0 publishes data to its local PMIx cache
-        std::string bcast_data{static_cast<char const*>(data), size};
-        put(bcast_key, bcast_data);
-    }
-
-    sync();
-
-    if (ctx_.rank != 0) {
-        // Non-root ranks retrieve data from rank 0's local PMIx cache
-        std::string bcast_data = get(bcast_key, std::chrono::seconds{30});
-        if (bcast_data.size() != size) {
-            throw std::runtime_error(
-                "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
-                + std::to_string(bcast_data.size())
-            );
-        }
-        std::memcpy(data, bcast_data.data(), size);
-    }
-
-    barrier();
-}
-
 }  // namespace rapidsmpf::bootstrap::detail
 
 #endif  // RAPIDSMPF_HAVE_SLURM

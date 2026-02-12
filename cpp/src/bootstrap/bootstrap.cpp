@@ -170,13 +170,6 @@ Context init(BackendType type) {
     return ctx;
 }
 
-void broadcast(Context const& ctx, void* data, std::size_t size) {
-    if (!ctx.backend) {
-        throw std::runtime_error("Context not properly initialized - backend is null");
-    }
-    ctx.backend->broadcast(data, size);
-}
-
 void barrier(Context const& ctx) {
     if (!ctx.backend) {
         throw std::runtime_error("Context not properly initialized - backend is null");
