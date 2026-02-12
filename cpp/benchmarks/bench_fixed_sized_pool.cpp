@@ -28,6 +28,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "utils/random_data.hpp"
 
@@ -222,6 +223,7 @@ void run_chunked_pack_with_fixed_sized_pool_memcpy_async(
     state.counters["batch_size"] = batch_size;
 }
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 /**
  * @brief Benchmark chunked pack with fixed sized host buffers using cudaMemcpyBatchAsync
  */
@@ -335,6 +337,7 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
     state.counters["num_blocks"] = n_buffers;
     state.counters["batch_size"] = n_copies_per_batch;
 }
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 
 /**
  * @brief Benchmark for chunked pack with fixed sized pool using cudaMemcpyAsync
@@ -358,6 +361,7 @@ static void BM_ChunkedPack_FixedPool_MemcpyAsync(benchmark::State& state) {
     );
 }
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 /**
  * @brief Benchmark for chunked pack with fixed sized pool using cudaMemcpyBatchAsync
  */
@@ -380,6 +384,7 @@ static void BM_ChunkedPack_FixedPool_BatchAsync(benchmark::State& state) {
         stream_obj
     );
 }
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 
 void run_unpack_pinned_to_device(
     benchmark::State& state,
@@ -416,6 +421,7 @@ void run_unpack_pinned_to_device(
     state.counters["batch_size"] = 0;
 }
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 void run_unpack_pinned_to_device_with_fixed_sized_pool(
     benchmark::State& state,
     std::size_t table_size_bytes,
@@ -505,6 +511,7 @@ void run_unpack_pinned_to_device_with_fixed_sized_pool(
     state.counters["num_blocks"] = 0;
     state.counters["batch_size"] = 0;
 }
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 
 /**
  * @brief Benchmark unpacking a single 1GB table packed with
@@ -528,6 +535,7 @@ static void BM_Unpack_1GB_pinned_rmm(benchmark::State& state) {
     run_unpack_pinned_to_device(state, table_size_bytes, cuda_mr, pinned_mr, stream);
 }
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 /**
  * @brief Benchmark unpacking a single 1GB table packed with
  * rmm::mr::pinned_host_memory_resource with fixed sized pool
@@ -539,6 +547,7 @@ static void BM_Unpack_1GB_pinned_rmm_fixed_sized_pool(benchmark::State& state) {
         state, table_size_bytes, 1 * MB, cuda_mr, stream_obj
     );
 }
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 
 /**
  * @brief Custom argument generator for fixed pool benchmarks.
@@ -558,31 +567,26 @@ BENCHMARK(BM_Unpack_1GB_pinned_rapidsmpf)->UseRealTime()->Unit(benchmark::kMilli
 
 BENCHMARK(BM_Unpack_1GB_pinned_rmm)->UseRealTime()->Unit(benchmark::kMillisecond);
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 BENCHMARK(BM_Unpack_1GB_pinned_rmm_fixed_sized_pool)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
+#endif
 
 BENCHMARK(BM_ChunkedPack_FixedPool_MemcpyAsync)
     ->Apply(FixedPoolArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
 
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 BENCHMARK(BM_ChunkedPack_FixedPool_BatchAsync)
     ->Apply(FixedPoolArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
-
-// CUDA version 13.0 encoded as major*1000 + minor*10
-constexpr int kMinCudaVersion = 13000;
+#endif
 
 int main(int argc, char** argv) {
     benchmark::Initialize(&argc, argv);
-    int cuda_runtime_version{};
-    if (cudaRuntimeGetVersion(&cuda_runtime_version) != cudaSuccess
-        || cuda_runtime_version < kMinCudaVersion)
-    {
-        return 0;  // Skip if CUDA version is less than 13.
-    }
     // All benchmarks in this file require pinned memory; skip running.
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         return 0;
