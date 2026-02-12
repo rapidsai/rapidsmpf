@@ -1052,23 +1052,18 @@ pid_t launch_rank_local(
     int* out_fd_stdout,
     int* out_fd_stderr
 ) {
-    // Capture all parameters by value to avoid any potential issues
-    int captured_global_rank = global_rank;
-    int captured_local_rank = local_rank;
-    int captured_total_ranks = total_ranks;
-
     return fork_with_piped_stdio(
         out_fd_stdout,
         out_fd_stderr,
         /*combine_stderr*/ false,
-        [&cfg, captured_global_rank, captured_local_rank, captured_total_ranks]() {
+        [&cfg, global_rank, local_rank, total_ranks]() {
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
             }
 
-            setenv("RAPIDSMPF_RANK", std::to_string(captured_global_rank).c_str(), 1);
-            setenv("RAPIDSMPF_NRANKS", std::to_string(captured_total_ranks).c_str(), 1);
+            setenv("RAPIDSMPF_RANK", std::to_string(global_rank).c_str(), 1);
+            setenv("RAPIDSMPF_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
             // Set coordination directory for bootstrap initialization
             if (!cfg.coord_dir.empty()) {
@@ -1078,8 +1073,7 @@ pid_t launch_rank_local(
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
             int gpu_id = -1;
             if (!cfg.gpus.empty()) {
-                gpu_id =
-                    cfg.gpus[static_cast<size_t>(captured_local_rank) % cfg.gpus.size()];
+                gpu_id = cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
             }
 
