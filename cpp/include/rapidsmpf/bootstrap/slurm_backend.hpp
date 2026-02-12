@@ -99,8 +99,8 @@ class SlurmBackend : public Backend {
     /**
      * @brief Commit local key-value pairs to make them visible.
      *
-     * Must be called after put() operations. The subsequent fence()
-     * or barrier() will make the data globally visible.
+     * Must be called after put() operations. A subsequent sync()
+     * is necessary to make the data globally visible.
      *
      * @throws std::runtime_error if PMIx_Commit fails.
      */
