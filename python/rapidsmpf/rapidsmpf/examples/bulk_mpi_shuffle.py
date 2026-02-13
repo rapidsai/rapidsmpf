@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Bulk-synchronous MPI shuffle."""
 
@@ -299,7 +299,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     elif args.cluster_type == "ucxx":
         if rapidsmpf.bootstrap.is_running_with_rrun():
             comm = rapidsmpf.bootstrap.create_ucxx_comm(
-                backend=rapidsmpf.bootstrap.Backend.AUTO, options=options
+                type=rapidsmpf.bootstrap.BackendType.AUTO, options=options
             )
         else:
             comm = ucxx_mpi_setup(options)
