@@ -181,6 +181,7 @@ add_library(
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
+  src/memory/fixed_sized_host_buffer.cpp
   src/memory/host_buffer.cpp
   src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
