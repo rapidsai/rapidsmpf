@@ -37,8 +37,15 @@ class FixedSizedHostBuffer {
     /// Type-erased deleter invoked with the storage pointer on destruction.
     using storage_deleter_type = std::function<void(void*)>;
 
-    /// Constructs an empty buffer (no blocks, zero sizes).
-    FixedSizedHostBuffer() = default;
+    /// @brief Default block size of 1 MiB.
+    static constexpr size_t default_block_size = size_t(1) << 20;
+
+    /**
+     * @brief Construct an empty buffer with a given block size.
+     * @param block_size Size of each block in bytes.
+     */
+    explicit FixedSizedHostBuffer(size_t block_size = default_block_size)
+        : block_size_(block_size) {}
 
     /**
      * @brief Construct from a single contiguous vector split into fixed-size blocks.
@@ -180,10 +187,10 @@ class FixedSizedHostBuffer {
           block_ptrs_(block_ptrs) {}
 
   private:
-    std::unique_ptr<void, storage_deleter_type> storage_;
+    std::unique_ptr<void, storage_deleter_type> storage_{};
     std::size_t total_size_{0};
-    std::size_t block_size_{0};
-    std::span<std::byte*> block_ptrs_;
+    std::size_t block_size_{default_block_size};
+    std::span<std::byte*> block_ptrs_{};
 };
 
 }  // namespace rapidsmpf

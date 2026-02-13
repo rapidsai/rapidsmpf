@@ -25,7 +25,7 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vector(
     std::vector<std::byte> vec, std::size_t block_size
 ) {
     if (vec.empty()) {
-        return FixedSizedHostBuffer();
+        return FixedSizedHostBuffer(0, block_size, {}, nullptr, {});
     }
 
     std::size_t total_size = vec.size();
@@ -79,7 +79,7 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
 void FixedSizedHostBuffer::reset() noexcept {
     storage_.reset();
     total_size_ = 0;
-    block_size_ = 0;
+    block_size_ = default_block_size;
     block_ptrs_ = {};
 }
 
@@ -91,7 +91,8 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
+    FixedSizedHostBuffer&& other
 ) noexcept {
     storage_ = std::move(other.storage_);
     total_size_ = other.total_size_;
