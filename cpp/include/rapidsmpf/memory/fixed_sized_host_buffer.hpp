@@ -164,6 +164,7 @@ class FixedSizedHostBuffer {
      */
     [[nodiscard]] std::span<std::byte const> block_data(std::size_t i) const;
 
+  private:
     /**
      * @brief Type-erased constructor: take ownership of storage and block metadata.
      *
@@ -192,7 +193,6 @@ class FixedSizedHostBuffer {
           block_size_(block_size),
           block_ptrs_(block_ptrs) {}
 
-  private:
     std::unique_ptr<void, storage_deleter_type> storage_{};
     std::size_t total_size_{0};
     std::size_t block_size_{default_block_size};
