@@ -32,15 +32,16 @@
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "bloom_filter.hpp"
 #include "concatenate.hpp"
 #include "groupby.hpp"
 #include "join.hpp"
@@ -305,9 +306,8 @@ int main(int argc, char** argv) {
     int device;
     RAPIDSMPF_CUDA_TRY(cudaGetDevice(&device));
     RAPIDSMPF_CUDA_TRY(cudaDeviceGetAttribute(&l2size, cudaDevAttrL2CacheSize, device));
-    auto const num_filter_blocks = rapidsmpf::ndsh::BloomFilter::fitting_num_blocks(
-        static_cast<std::size_t>(l2size)
-    );
+    auto const num_filter_blocks =
+        rapidsmpf::BloomFilter::fitting_num_blocks(static_cast<std::size_t>(l2size));
 
     for (int i = 0; i < arguments.num_iterations; i++) {
         rapidsmpf::OpID op_id{0};
@@ -357,28 +357,20 @@ int main(int argc, char** argv) {
 
             // Build bloom filter from filtered orders' o_orderkey
             auto bloom_filter_output = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::build_bloom_filter(
-                    ctx,
-                    bloom_filter_input,
-                    bloom_filter_output,
-                    static_cast<rapidsmpf::OpID>(10 * i + op_id++),
-                    cudf::DEFAULT_HASH_SEED,
-                    num_filter_blocks
-                )
+            auto bloom_filter = rapidsmpf::streaming::BloomFilter(
+                ctx, cudf::DEFAULT_HASH_SEED, num_filter_blocks
             );
+            nodes.push_back(bloom_filter.build(
+                bloom_filter_input,
+                bloom_filter_output,
+                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
+            ));
 
             // Apply bloom filter to filtered lineitem before shuffling
             auto bloom_filtered_lineitem = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::apply_bloom_filter(
-                    ctx,
-                    bloom_filter_output,
-                    filtered_lineitem,
-                    bloom_filtered_lineitem,
-                    {0}
-                )
-            );
+            nodes.push_back(bloom_filter.apply(
+                bloom_filter_output, filtered_lineitem, bloom_filtered_lineitem, {0}
+            ));
 
             // We unconditionally shuffle the filtered lineitem table. This is
             // necessary to correctly handle duplicates in the left-semi join.
