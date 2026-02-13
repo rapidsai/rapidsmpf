@@ -85,7 +85,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: 983e9631686b9108451ddb4bbd6ac86cb252d4b1  # frozen: v1.2.1
+    rev: be37aaed37d910d88ff39aff4c0de2d4c1e1568c  # frozen: v1.4.3
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]
@@ -104,6 +104,16 @@ repos:
       - id: verify-alpha-spec
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
+      - id: verify-pyproject-license
+        # ignore the top-level pyproject.toml, which doesn't
+        # have or need a [project] table
+        exclude: |
+          (?x)
+            ^pyproject[.]toml$
+      - id: verify-hardcoded-version
+      - id: verify-hardcoded-version
+        name: verify-hardcoded-version-ucxx
+        args: [--fix, --version-file=UCXX_VERSION]
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: 43302d278c4215036b7fe4b4af0a85f6fad39d2c  # frozen: v1.20.2
     hooks:

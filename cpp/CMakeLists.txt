@@ -127,13 +127,12 @@ rapids_find_package(
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
 
-# NOTE: get_cccl_cudax.cmake needs to be included before rmm and cudf, because both require CCCL
-# (but without CUDAX). All of these will call rapids_cpm_cccl. So, if get_cccl_cudax is included
-# after, the CCCL::cudax target will not be available.
-include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cuco.cmake)
+include(../cmake/thirdparty/get_cucascade.cmake)
+
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -152,7 +151,6 @@ if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
 if(RAPIDSMPF_HAVE_STREAMING)
-  include(../cmake/thirdparty/get_cuco.cmake)
   include(../cmake/thirdparty/get_libcoro.cmake)
 endif()
 
@@ -178,6 +176,7 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
+  src/integrations/cudf/bloom_filter.cu
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
@@ -185,7 +184,8 @@ add_library(
   src/memory/host_buffer.cpp
   src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
-  src/memory/pinned_memory_resource.cu
+  src/memory/memory_type.cpp
+  src/memory/pinned_memory_resource.cpp
   src/memory/scoped_memory_record.cpp
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
@@ -197,7 +197,6 @@ add_library(
   src/shuffler/shuffler.cpp
   src/statistics.cpp
   src/system_info.cpp
-  src/topology_discovery.cpp
   src/utils/misc.cpp
   src/utils/string.cpp
 )
@@ -216,9 +215,11 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
+            src/streaming/cudf/bloom_filter.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
+            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -291,12 +292,14 @@ target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE cuco::cuco
+          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
+          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
-          $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
           ${CMAKE_DL_LIBS}
 )
 
@@ -397,11 +400,6 @@ endif()
 # * add tools
 # -------------------------------------------------------------------------------------
 add_subdirectory(tools)
-
-# Ensure NVML include directory is also available to the topology_discovery tool
-if(NVML_INCLUDE_DIR AND TARGET topology_discovery)
-  target_include_directories(topology_discovery PRIVATE ${NVML_INCLUDE_DIR})
-endif()
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------
