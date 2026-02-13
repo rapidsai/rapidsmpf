@@ -6,12 +6,12 @@ from enum import IntEnum
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
 
-class Backend(IntEnum):
+class BackendType(IntEnum):
     AUTO = ...
     FILE = ...
 
 def create_ucxx_comm(
-    backend: Backend = ...,
+    type: BackendType = ...,
     options: Options | None = ...,
 ) -> Communicator: ...
 def is_running_with_rrun() -> bool: ...

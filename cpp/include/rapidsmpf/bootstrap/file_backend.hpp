@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include <chrono>
 #include <string>
 
+#include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 
 namespace rapidsmpf::bootstrap::detail {
@@ -29,7 +30,7 @@ namespace rapidsmpf::bootstrap::detail {
  *       └── barrier_<N>       # Barrier synchronization
  * ```
  */
-class FileBackend {
+class FileBackend : public Backend {
   public:
     /**
      * @brief Construct a file backend.
@@ -38,40 +39,27 @@ class FileBackend {
      */
     explicit FileBackend(Context ctx);
 
-    ~FileBackend();
+    ~FileBackend() override;
 
     /**
-     * @brief Store a key-value pair.
-     *
-     * @param key Key name.
-     * @param value Value to store.
+     * @copydoc Backend::put
      */
-    void put(std::string const& key, std::string const& value);
+    void put(std::string const& key, std::string const& value) override;
 
     /**
-     * @brief Retrieve a value, blocking until available or timeout occurs.
-     *
-     * @param key Key name.
-     * @param timeout Timeout duration.
-     * @return Value associated with key.
+     * @copydoc Backend::get
      */
-    std::string get(std::string const& key, Duration timeout);
+    std::string get(std::string const& key, Duration timeout) override;
 
     /**
-     * @brief Perform a barrier synchronization.
-     *
-     * All ranks must call this before any rank proceeds.
+     * @copydoc Backend::barrier
      */
-    void barrier();
+    void barrier() override;
 
     /**
-     * @brief Broadcast data from root to all ranks.
-     *
-     * @param data Data buffer.
-     * @param size Size in bytes.
-     * @param root Root rank.
+     * @copydoc Backend::sync
      */
-    void broadcast(void* data, std::size_t size, Rank root);
+    void sync() override;
 
   private:
     Context ctx_;
