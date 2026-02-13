@@ -229,7 +229,19 @@ class Context {
         std::size_t buffer_size
     ) const noexcept;
 
+    /**
+     * @brief Return a unique identifier for this context.
+     *
+     * The returned value uniquely identifies this Context instance. No two Context
+     * objects, past or present, will ever have the same identifier within the same
+     * process.
+     *
+     * @return A process-unique identifier for this Context.
+     */
+    [[nodiscard]] std::size_t uid() const noexcept;
+
   private:
+    std::size_t const uid_;
     std::atomic<bool> is_shutdown_{false};
     std::thread::id creator_thread_id_;
     config::Options options_;

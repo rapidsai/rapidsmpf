@@ -30,8 +30,7 @@ namespace rapidsmpf::streaming {
 /**
  * @brief A unit of table data in a streaming pipeline.
  *
- * Represents either an unpacked `cudf::table`, a `cudf::packed_columns`, or a
- * `PackedData`.
+ * Represents either an unpacked `cudf::table` or a `PackedData`.
  *
  * TableChunks may be initially unavailable (e.g., if the data is packed or spilled),
  * and can be made available (i.e., materialized to device memory) on demand.
@@ -99,16 +98,6 @@ class TableChunk {
     );
 
     /**
-     * @brief Construct a TableChunk from packed columns.
-     *
-     * @param packed_columns Serialized device table.
-     * @param stream The CUDA stream on which the packed_columns was created.
-     */
-    TableChunk(
-        std::unique_ptr<cudf::packed_columns> packed_columns, rmm::cuda_stream_view stream
-    );
-
-    /**
      * @brief Construct a TableChunk from a packed data blob.
      *
      * The packed data's CUDA stream will be associated the new table chunk.
@@ -119,15 +108,22 @@ class TableChunk {
 
     ~TableChunk() = default;
 
-    /// @brief TableChunk is moveable
-    TableChunk(TableChunk&&) = default;
+    /**
+     * @brief Move constructor
+     *
+     * @note After this call `other.is_available() == false`.
+     * @param other The TableChunk to move from.
+     */
+    TableChunk(TableChunk&& other) noexcept;
 
     /**
      * @brief Move assignment
      *
-     * @returns Moved this.
+     * @note After this call `other.is_available() == false`.
+     * @param other The TableChunk to move from.
+     * @return Reference to this.
      */
-    TableChunk& operator=(TableChunk&&) = default;
+    TableChunk& operator=(TableChunk&& other) noexcept;
     TableChunk(TableChunk const&) = delete;
     TableChunk& operator=(TableChunk const&) = delete;
 
@@ -195,20 +191,15 @@ class TableChunk {
     /**
      * @brief Move this table chunk into a new one with its cudf table made available.
      *
-     * If @p the chunk is not already device-resident, this coroutine reserves device
-     * memory via `streaming::reserve_memory()` and then materializes the chunk on device
-     * using `TableChunk::make_available()`.
+     * This variant of make_available() is a coroutine that may suspend if device
+     * memory is not immediately available.
      *
      * @note After this call, the current object is in a moved-from state; only
      * reassignment, movement, or destruction are valid.
      *
-     * This helper does not take an explicit overbooking parameter. When no progress can
-     * be made within the configured `"memory_reserve_timeout"`, the behavior is
-     * determined the configuration option `"allow_overbooking_by_default"`.
-     *
      * @param ctx Streaming context used to access the memory reservation mechanism.
-     * @param net_memory_delta Estimated change in memory usage after reservation is
-     * granted and operation using the `TableChunk` has completed. See
+     * @param net_memory_delta Estimated change in memory usage after the reservation
+     * is granted and all work using the returned `TableChunk` has completed. See
      * `MemoryReserveOrWait::reserve_or_wait` for details.
      * @return A new `TableChunk` that is available on device.
      *
@@ -283,7 +274,6 @@ class TableChunk {
     // the TableChunk is a non-owning view.
     // TODO: use a variant and drop the unique pointers?
     std::unique_ptr<cudf::table> table_;
-    std::unique_ptr<cudf::packed_columns> packed_columns_;
     std::unique_ptr<PackedData> packed_data_;
 
     // Has value iff this TableChunk is available.

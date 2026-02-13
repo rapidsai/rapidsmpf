@@ -156,7 +156,7 @@ void buffer_copy(
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
-    cuda_stream_join(dst.stream(), src.stream());
+    src.latest_write_event().stream_wait(dst.stream());
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
@@ -166,7 +166,9 @@ void buffer_copy(
             stream
         ));
     });
-    cuda_stream_join(src.stream(), dst.stream());
+    // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
+    // we need the src.stream() to wait for that event.
+    dst.latest_write_event().stream_wait(src.stream());
 }
 
 }  // namespace rapidsmpf

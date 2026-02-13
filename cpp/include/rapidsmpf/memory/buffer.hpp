@@ -202,6 +202,15 @@ class Buffer {
     }
 
     /**
+     * @brief Get the CUDA event that tracks the latest write into the buffer.
+     *
+     * @return The CUDA event that tracks the latest write into the buffer.
+     */
+    [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
+        return latest_write_event_;
+    }
+
+    /**
      * @brief Rebind the buffer to a new CUDA stream.
      *
      * Changes the buffer's associated stream to @p new_stream and ensures proper
