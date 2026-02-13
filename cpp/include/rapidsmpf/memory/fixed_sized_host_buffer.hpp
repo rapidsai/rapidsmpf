@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
+
 namespace rapidsmpf {
 
 /**
@@ -22,15 +24,6 @@ namespace rapidsmpf {
  * Storage is type-erased via `unique_ptr<void, deleter>`, so different backends
  * can be used: a single vector (split into blocks), a vector of vectors, or
  * e.g. cucascade's multiple_blocks_allocation.
- *
- * Example wrapping multiple_blocks_allocation (via a factory or friend that
- * calls the private constructor):
- * @code
- *   auto alloc = multiple_blocks_allocation::create(blocks, mr);
- *   auto blocks_span = alloc->get_blocks();
- *   FixedSizedHostBuffer buf(alloc->size_bytes(), alloc->block_size(), blocks_span,
- *       alloc.get(), [a = std::move(alloc)](void*) mutable { a.reset(); });
- * @endcode
  */
 class FixedSizedHostBuffer {
   public:
@@ -70,6 +63,19 @@ class FixedSizedHostBuffer {
      * @return A buffer with one block per inner vector.
      */
     static FixedSizedHostBuffer from_vectors(std::vector<std::vector<std::byte>> vecs);
+
+    /**
+     * @brief Construct from a cucascade multiple_blocks_allocation.
+     *
+     * Takes ownership of @p allocation. When the buffer is destroyed, blocks are
+     * returned to the memory resource via the allocation's destructor.
+     *
+     * @param allocation Unique pointer to the allocation (moved from).
+     * @return A buffer backed by the allocation's blocks.
+     */
+    static FixedSizedHostBuffer from_multi_blocks_alloc(
+        cucascade::memory::fixed_multiple_blocks_allocation allocation
+    );
 
     FixedSizedHostBuffer(FixedSizedHostBuffer const&) = delete;
     FixedSizedHostBuffer& operator=(FixedSizedHostBuffer const&) = delete;

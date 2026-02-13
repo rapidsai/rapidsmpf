@@ -10,6 +10,8 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/fixed_sized_host_buffer.hpp>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
+
 namespace {
 
 template <typename T>
@@ -40,6 +42,31 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vector(
         total_size,
         block_size,
         blocks_span,
+        shared.get(),
+        [shared_ = std::move(shared)](void*) mutable { shared_.reset(); }
+    );
+}
+
+FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
+    cucascade::memory::fixed_multiple_blocks_allocation allocation
+) {
+    if (!allocation || allocation->size() == 0) {
+        return FixedSizedHostBuffer(
+            allocation && allocation->block_size() > 0 ? allocation->block_size()
+                                                       : default_block_size
+        );
+    }
+    auto shared = std::shared_ptr<
+        cucascade::memory::fixed_size_host_memory_resource::multiple_blocks_allocation>(
+        std::move(allocation)
+    );
+    std::span<std::byte*> blocks = shared->get_blocks();
+    std::size_t total_bytes = shared->size_bytes();
+    std::size_t block_sz = shared->block_size();
+    return FixedSizedHostBuffer(
+        total_bytes,
+        block_sz,
+        blocks,
         shared.get(),
         [shared_ = std::move(shared)](void*) mutable { shared_.reset(); }
     );

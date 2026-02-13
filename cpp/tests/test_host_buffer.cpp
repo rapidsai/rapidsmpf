@@ -15,6 +15,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/pinned_host_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
@@ -23,6 +24,8 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
+
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
 class HostMemoryResource : public ::testing::TestWithParam<size_t> {
   protected:
@@ -283,6 +286,57 @@ TEST_P(FixedSizedHostBufferTest, from_vectors) {
     };
 
     auto buf0 = rapidsmpf::FixedSizedHostBuffer::from_vectors(vecs);
+    check_buf(buf0);
+
+    rapidsmpf::FixedSizedHostBuffer buf1(std::move(buf0));
+    EXPECT_TRUE(buf0.empty());
+    check_buf(buf1);
+
+    buf0 = std::move(buf1);
+    EXPECT_TRUE(buf1.empty());
+    check_buf(buf0);
+}
+
+TEST_P(FixedSizedHostBufferTest, from_multi_blocks_alloc) {
+    size_t const num_buffers = GetParam();
+
+    rmm::mr::pinned_host_memory_resource upstream_mr;
+    constexpr std::size_t mem_limit = 4 * 1024 * 1024;
+    constexpr std::size_t capacity = 4 * 1024 * 1024;
+    cucascade::memory::fixed_size_host_memory_resource host_mr(
+        0, upstream_mr, mem_limit, capacity, block_size
+    );
+
+    std::size_t const allocation_size = num_buffers * block_size;
+    auto allocation = host_mr.allocate_multiple_blocks(allocation_size);
+
+    std::vector<std::vector<std::byte>> vecs;
+    for (size_t i = 0; i < allocation->size(); ++i) {
+        auto block = (*allocation)[i];
+        auto& fill = vecs.emplace_back(
+            iota_vector<std::byte>(
+                block_size, static_cast<std::byte>(i * block_size & 0xff)
+            )
+        );
+        std::ranges::copy(fill, block.begin());
+    }
+
+    auto check_buf = [&](auto const& buf) {
+        EXPECT_EQ(num_buffers * block_size, buf.total_size());
+        EXPECT_EQ(
+            num_buffers > 0 ? block_size
+                            : rapidsmpf::FixedSizedHostBuffer::default_block_size,
+            buf.block_size()
+        );
+        EXPECT_EQ(num_buffers, buf.num_blocks());
+        for (size_t i = 0; i < buf.num_blocks(); ++i) {
+            EXPECT_EQ(block_size, buf.block_data(i).size());
+            EXPECT_TRUE(std::ranges::equal(vecs[i], buf.block_data(i)));
+        }
+    };
+
+    auto buf0 =
+        rapidsmpf::FixedSizedHostBuffer::from_multi_blocks_alloc(std::move(allocation));
     check_buf(buf0);
 
     rapidsmpf::FixedSizedHostBuffer buf1(std::move(buf0));
