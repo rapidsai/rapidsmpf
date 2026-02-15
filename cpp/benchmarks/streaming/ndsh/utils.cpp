@@ -17,6 +17,7 @@
 #include <mpi.h>
 
 #include <cudf/io/parquet.hpp>
+#include <cudf/io/parquet_metadata.hpp>
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -83,24 +84,13 @@ std::map<std::string, cudf::data_type> get_column_types(
     auto files = list_parquet_files(get_table_path(input_directory, table_name));
     RAPIDSMPF_EXPECTS(!files.empty(), "No parquet files found for table " + table_name);
 
-    // Read parquet with 0 rows to get just the schema with proper cudf types
-    auto options =
-        cudf::io::parquet_reader_options::builder(cudf::io::source_info(files[0]))
-            .num_rows(0)
-            .build();
-    auto result_with_metadata = cudf::io::read_parquet(options);
+    auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(files[0]));
+    auto const& root = metadata.schema().root();
 
     std::map<std::string, cudf::data_type> result;
-    auto const& schema_info = result_with_metadata.metadata.schema_info;
-    auto const table_view = result_with_metadata.tbl->view();
-
-    RAPIDSMPF_EXPECTS(
-        schema_info.size() == static_cast<std::size_t>(table_view.num_columns()),
-        "Schema info size mismatch"
-    );
-
-    for (std::size_t i = 0; i < schema_info.size(); ++i) {
-        result.emplace(schema_info[i].name, table_view.column(i).type());
+    for (std::size_t i = 0; i < root.num_children(); ++i) {
+        auto const& column = root.child(static_cast<int>(i));
+        result.emplace(column.name(), column.cudf_type());
     }
     return result;
 }
