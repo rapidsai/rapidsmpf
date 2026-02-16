@@ -86,7 +86,7 @@ rapidsmpf::streaming::Node read_lineitem(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({
+                       .column_names({
                            "l_commitdate",  // used in filter
                            "l_receiptdate",  // used in filter
                            "l_orderkey",  // used in join
@@ -110,7 +110,7 @@ rapidsmpf::streaming::Node read_orders(
         rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({
+                       .column_names({
                            "o_orderkey",  // used in join
                            "o_orderpriority",  // used in group by
                        })
