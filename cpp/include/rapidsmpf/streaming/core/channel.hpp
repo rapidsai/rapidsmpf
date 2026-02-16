@@ -11,15 +11,15 @@
 #include <stdexcept>
 #include <utility>
 
+#include <coro/coro.hpp>
+#include <coro/queue.hpp>
+#include <coro/semaphore.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
-
-#include <coro/coro.hpp>
-#include <coro/queue.hpp>
-#include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
 

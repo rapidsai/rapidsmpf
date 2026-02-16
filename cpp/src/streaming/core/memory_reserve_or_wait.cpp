@@ -11,12 +11,12 @@
 #include <stdexcept>
 #include <utility>
 
+#include <coro/sync_wait.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/utils/string.hpp>
-
-#include <coro/sync_wait.hpp>
 
 namespace rapidsmpf::streaming {
 
