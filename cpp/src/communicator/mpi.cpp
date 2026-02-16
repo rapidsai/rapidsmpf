@@ -126,7 +126,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
-    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
@@ -155,7 +155,9 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     RAPIDSMPF_EXPECTS(
         recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
     );
-    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(
+        recv_buffer->is_latest_write_done(), "msg must be ready", std::logic_error
+    );
     MPI_Request req;
     mpi_recv_impl(
         rank, tag, recv_buffer->exclusive_data_access(), recv_buffer->size, comm_, &req

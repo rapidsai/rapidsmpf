@@ -289,9 +289,12 @@ class Buffer {
      * @param stream CUDA stream to associate with the Buffer for future operations.
      * @param mem_type The memory type of the underlying @p host_buffer.
      *
-     * @throws std::invalid_argument If @p host_buffer is null or @p mem_type is not
-     * suitable for @p host_buffer.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::invalid_argument If @p host_buffer is null.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p host_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * host_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(
         std::unique_ptr<HostBuffer> host_buffer,
@@ -314,9 +317,12 @@ class Buffer {
      * @param device_buffer Unique pointer to a device buffer. Must be non-null.
      * @param mem_type The memory type of the underlying @p device_buffer.
      *
-     * @throws std::invalid_argument If @p device_buffer is null or @p mem_type is not
-     * suitable for @p device_buffer.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::invalid_argument If @p device_buffer is null.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p device_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * device_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 

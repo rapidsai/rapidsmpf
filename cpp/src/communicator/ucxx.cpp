@@ -1147,7 +1147,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
-    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1160,7 +1160,9 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     RAPIDSMPF_EXPECTS(
         recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
     );
-    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(
+        recv_buffer->is_latest_write_done(), "msg must be ready", std::logic_error
+    );
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->exclusive_data_access(),
         recv_buffer->size,

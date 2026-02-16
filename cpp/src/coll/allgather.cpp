@@ -32,6 +32,11 @@ Chunk::Chunk(
       data_{std::move(data)},
       data_size_{data_ ? data_->size : 0} {
     RAPIDSMPF_EXPECTS(
+        (metadata_ == nullptr) == (data_ == nullptr),
+        "One of metadata or data is nullptr, but both should be valid pointers",
+        std::logic_error
+    );
+    RAPIDSMPF_EXPECTS(
         metadata_ && data_,
         "Non-finish chunk must have metadata and data",
         std::invalid_argument
