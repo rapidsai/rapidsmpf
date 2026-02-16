@@ -24,10 +24,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
-
-#include <cucascade/memory/topology_discovery.hpp>
 
 class TopologyBindingTest : public ::testing::Test {
   protected:

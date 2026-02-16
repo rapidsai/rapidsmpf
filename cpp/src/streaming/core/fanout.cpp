@@ -8,6 +8,8 @@
 #include <ranges>
 #include <span>
 
+#include <coro/coro.hpp>
+
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -15,8 +17,6 @@
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
-
-#include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming::node {
 namespace {
