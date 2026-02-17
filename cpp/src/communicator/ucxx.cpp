@@ -1197,7 +1197,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
         return {nullptr, 0};
     }
     auto info = probe->getInfo();
-    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
+    auto sender_rank = safe_cast<Rank>(info.senderTag >> 32);
     auto msg = std::make_unique<std::vector<uint8_t>>(
         info.length
     );  // TODO: choose between host and device

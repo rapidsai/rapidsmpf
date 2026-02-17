@@ -11,7 +11,6 @@
 #include <memory>
 #include <ranges>
 #include <source_location>
-#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -298,26 +297,26 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
  * @throws std::overflow_error if the value cannot be represented in the destination type.
  */
 template <typename To, typename From>
-To safe_cast(
+constexpr To safe_cast(
     From value, std::source_location const& loc = std::source_location::current()
 ) {
     static_assert(std::is_arithmetic_v<From>, "From must be an arithmetic type");
     static_assert(std::is_arithmetic_v<To>, "To must be an arithmetic type");
 
     if constexpr (std::is_same_v<From, To>) {
-        // Same type, no-op
+        // Same type, no-op.
         return value;
     } else if constexpr (std::is_integral_v<From> && std::is_integral_v<To>) {
-        // Integer to integer: use C++20 std::in_range
+        // Integer to integer.
         if (!std::in_range<To>(value)) {
-            std::ostringstream ss;
-            ss << "RapidsMPF cast error at: " << loc.file_name() << ":" << loc.line()
-               << ", value out of range";
-            throw std::overflow_error(ss.str());
+            throw std::overflow_error(
+                "RapidsMPF cast error at: " + std::string(loc.file_name()) + ":"
+                + std::to_string(loc.line()) + ", value out of range"
+            );
         }
         return static_cast<To>(value);
     } else {
-        // Floating point conversions: direct cast (well-defined overflow behavior)
+        // Floating point conversions: direct cast (well-defined overflow behavior).
         return static_cast<To>(value);
     }
 }
