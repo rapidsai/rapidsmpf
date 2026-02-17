@@ -106,21 +106,17 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     );
     offset += n_messages * sizeof(size_t);
 
-    std::vector<uint32_t> meta_offsets(n_messages);
-    std::memcpy(meta_offsets.data(), msg.data() + offset, n_messages * sizeof(uint32_t));
-    offset += n_messages * sizeof(uint32_t);
+    uint32_t metadata_size;
+    std::memcpy(&metadata_size, msg.data() + offset, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
 
-    std::vector<uint64_t> data_offsets(n_messages);
-    std::memcpy(data_offsets.data(), msg.data() + offset, n_messages * sizeof(uint64_t));
-    offset += n_messages * sizeof(uint64_t);
+    uint64_t data_size;
+    std::memcpy(&data_size, msg.data() + offset, sizeof(uint64_t));
+    offset += sizeof(uint64_t);
 
     auto concat_metadata = std::make_unique<std::vector<uint8_t>>(
         msg.begin() + static_cast<int64_t>(offset), msg.end()
     );
-
-    // Extract sizes from first element of offset vectors
-    uint32_t metadata_size = meta_offsets.empty() ? 0 : meta_offsets[0];
-    uint64_t data_size = data_offsets.empty() ? 0 : data_offsets[0];
 
     return {
         chunk_id,
@@ -165,49 +161,16 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
         }
     }
 
-    // For each message, validate the metadata and data sizes
-    uint8_t const* meta_offsets_start =
+    // Read metadata_size and data_size
+    uint8_t const* sizes_start =
         serialized_buf.data()
         + (sizeof(ChunkID) + sizeof(size_t) + n * (sizeof(PartID) + sizeof(size_t)));
-    uint8_t const* data_offsets_start = meta_offsets_start + n * sizeof(uint32_t);
 
-    // Check if prefix sums are non-decreasing
-    bool is_non_decreasing = true;
-    for (size_t i = 1; i < n; ++i) {
-        uint32_t prev_meta_offset, this_meta_offset;
-        std::memcpy(
-            &prev_meta_offset,
-            meta_offsets_start + (i - 1) * sizeof(uint32_t),
-            sizeof(uint32_t)
-        );
-        std::memcpy(
-            &this_meta_offset, meta_offsets_start + i * sizeof(uint32_t), sizeof(uint32_t)
-        );
-        is_non_decreasing &= (this_meta_offset >= prev_meta_offset);
-
-        uint64_t prev_data_offset, this_data_offset;
-        std::memcpy(
-            &prev_data_offset,
-            data_offsets_start + (i - 1) * sizeof(uint64_t),
-            sizeof(uint64_t)
-        );
-        std::memcpy(
-            &this_data_offset, data_offsets_start + i * sizeof(uint64_t), sizeof(uint64_t)
-        );
-        is_non_decreasing &= (this_data_offset >= prev_data_offset);
-    }
-    if (!is_non_decreasing) {
-        return false;
-    }
+    uint32_t metadata_size;
+    std::memcpy(&metadata_size, sizes_start, sizeof(uint32_t));
 
     // Check if the total metadata size matches the buffer size
-    uint32_t total_meta_size;
-    std::memcpy(
-        &total_meta_size,
-        meta_offsets_start + (n - 1) * sizeof(uint32_t),
-        sizeof(uint32_t)
-    );
-    if (serialized_buf.size() != header_size + total_meta_size) {
+    if (serialized_buf.size() != header_size + metadata_size) {
         return false;
     }
 

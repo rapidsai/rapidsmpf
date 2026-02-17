@@ -29,31 +29,25 @@ namespace detail {
 using ChunkID = std::uint64_t;
 
 /**
- * @brief Chunk with multiple messages. This class contains two buffers for concatenated
- * metadata and data.
+ * @brief Chunk with a single message. This class contains two buffers for metadata and data.
  *
  * When the Chunk is serialized, the format is as follows:
  * - chunk_id: uint64_t, ID of the chunk
- * - n_elements: size_t, Number of messages in the chunk
- * - [partition_ids]: vector<PartID>, Partition IDs of the messages, size = n_elements
- * - [expected_num_chunks]: vector<size_t>, Expected number of chunks of the messages,
- * size = n_elements
- * - [meta_offsets]: vector<uint32_t>, Prefix sums (excluding 0) of the metadata sizes
- * of the messages, size = n_elements
- * - [data_offsets]: vector<uint64_t>, Prefix sums (excluding 0) of the data sizes of
- * the messages, size = n_elements
- * - [concat_metadata]: vector<uint8_t>, Concatenated metadata of the messages,
- * size = meta_offsets[n_elements - 1]
+ * - n_elements: size_t, Number of messages in the chunk (always 1)
+ * - partition_id: PartID, Partition ID of the message
+ * - expected_num_chunks: size_t, Expected number of chunks for the partition
+ * - metadata_size: uint32_t, Size of the metadata in bytes
+ * - data_size: uint64_t, Size of the data in bytes
+ * - metadata: vector<uint8_t>, Metadata buffer, size = metadata_size
  *
- * For a chunk with N messages with M bytes of concat metadata the size of serialized
- * buffer is sizeof(ChunkID) + sizeof(size_t) + N * (sizeof(PartID) + sizeof(size_t) +
- * sizeof(uint32_t) + sizeof(uint64_t)) + M = 16 + N * 24 + M bytes.
+ * The size of the serialized buffer is:
+ * sizeof(ChunkID) + sizeof(size_t) + sizeof(PartID) + sizeof(size_t) +
+ * sizeof(uint32_t) + sizeof(uint64_t) + metadata_size
+ * = 8 + 8 + 4 + 8 + 4 + 8 + metadata_size = 40 + metadata_size bytes.
  *
- * For a chunk with a single control message (ie. M = 0), the size of the serialized
- * buffer is 40 bytes.
+ * For a control message (metadata_size = 0), the serialized buffer is 40 bytes.
  *
- * For a chunk with a single message with M bytes of metadata, the size of the serialized
- * buffer is 40 + M bytes.
+ * For a data message with M bytes of metadata, the serialized buffer is 40 + M bytes.
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
@@ -323,19 +317,18 @@ class Chunk {
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
 
-    /// The partition IDs of the messages in the chunk. These partition IDs should be
-    /// unique.
+    /// The partition ID of the message in the chunk (stored as a vector for legacy reasons).
     std::vector<PartID> part_ids_;
-    /// The expected number of chunks of the messages in the chunk.
+    /// The expected number of chunks for the partition (stored as a vector for legacy reasons).
     std::vector<size_t> expected_num_chunks_;
 
     uint32_t metadata_size_;  ///< The size of the metadata for the single message.
     uint64_t data_size_;  ///< The size of the data for the single message.
 
-    /// Metadata buffer that contains information about the messages in the chunk.
+    /// Metadata buffer that contains information about the message in the chunk.
     std::unique_ptr<std::vector<uint8_t>> metadata_;
 
-    /// Concatenated data buffer of the messages in the chunk.
+    /// Data buffer of the message in the chunk.
     std::unique_ptr<Buffer> data_;
 };
 
