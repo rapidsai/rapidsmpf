@@ -4,6 +4,7 @@
 from libc.stdint cimport int32_t, uint32_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.span cimport span
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
@@ -37,7 +38,10 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         bool finished() except +ex_handler
         uint32_t wait_any() except +ex_handler
         void wait_on(uint32_t pid) except +ex_handler
+        span[const uint32_t] local_partitions() except +ex_handler
         string str() except +ex_handler
+
+
 # Insert PackedData into a partition map. We implement this in C++ because
 # PackedData doesn't have a default ctor.
 cdef extern from *:
