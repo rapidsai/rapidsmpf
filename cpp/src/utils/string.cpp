@@ -247,22 +247,11 @@ std::int64_t parse_nbytes(std::string_view text) {
 
 std::size_t parse_nbytes_unsigned(std::string_view text) {
     std::int64_t const value = parse_nbytes(text);
-
     if (value < 0) {
         throw std::invalid_argument(
             "negative value not allowed: '" + std::string(text) + "'"
         );
     }
-
-    // Check against size_t range explicitly (important on 32-bit platforms).
-    if (safe_cast<std::uint64_t>(value)
-        > safe_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
-    {
-        throw std::out_of_range(
-            "value out of range for size_t: '" + std::string(text) + "'"
-        );
-    }
-
     return safe_cast<std::size_t>(value);
 }
 

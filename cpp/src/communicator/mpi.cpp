@@ -111,14 +111,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
-    RAPIDSMPF_EXPECTS(
-        msg->size() <= std::numeric_limits<int>::max(),
-        "send buffer size exceeds MPI max count"
-    );
     MPI_Request req;
-    RAPIDSMPF_MPI(
-        MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
+    RAPIDSMPF_MPI(MPI_Isend(
+        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, rank, tag, comm_, &req
+    ));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -127,12 +123,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
-    RAPIDSMPF_EXPECTS(
-        msg->size <= std::numeric_limits<int>::max(),
-        "send buffer size exceeds MPI max count"
-    );
     MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    RAPIDSMPF_MPI(MPI_Isend(
+        msg->data(), safe_cast<int>(msg->size), MPI_UINT8_T, rank, tag, comm_, &req
+    ));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -141,10 +135,9 @@ namespace {
 void mpi_recv_impl(
     Rank rank, Tag tag, auto* data, size_t size, MPI_Comm comm, MPI_Request* req
 ) {
-    RAPIDSMPF_EXPECTS(
-        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
+    RAPIDSMPF_MPI(
+        MPI_Irecv(data, safe_cast<int>(size), MPI_UINT8_T, rank, tag, comm, req)
     );
-    RAPIDSMPF_MPI(MPI_Irecv(data, size, MPI_UINT8_T, rank, tag, comm, req));
 }
 
 }  // namespace
@@ -193,15 +186,14 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     );
     MPI_Count size;
     RAPIDSMPF_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
-    RAPIDSMPF_EXPECTS(
-        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
-    );
-    auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
+    auto msg = std::make_unique<std::vector<uint8_t>>(
+        safe_cast<size_t>(size)
+    );  // TODO: uninitialize
 
     MPI_Status msg_status;
-    RAPIDSMPF_MPI(
-        MPI_Mrecv(msg->data(), msg->size(), MPI_UINT8_T, &matched_msg, &msg_status)
-    );
+    RAPIDSMPF_MPI(MPI_Mrecv(
+        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, &matched_msg, &msg_status
+    ));
     RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
     RAPIDSMPF_EXPECTS(
         safe_cast<std::size_t>(size) == msg->size(),
@@ -223,15 +215,14 @@ std::unique_ptr<std::vector<uint8_t>> MPI::recv_from(Rank src, Tag tag) {
     RAPIDSMPF_EXPECTS(tag == probe_status.MPI_TAG, "corrupt mpi tag");
     MPI_Count size;
     RAPIDSMPF_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
-    RAPIDSMPF_EXPECTS(
-        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
-    );
-    auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
+    auto msg = std::make_unique<std::vector<uint8_t>>(
+        safe_cast<size_t>(size)
+    );  // TODO: uninitialize
 
     MPI_Status msg_status;
-    RAPIDSMPF_MPI(
-        MPI_Mrecv(msg->data(), msg->size(), MPI_UINT8_T, &matched_msg, &msg_status)
-    );
+    RAPIDSMPF_MPI(MPI_Mrecv(
+        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, &matched_msg, &msg_status
+    ));
     RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
     RAPIDSMPF_EXPECTS(
         safe_cast<std::size_t>(size) == msg->size(),

@@ -325,9 +325,6 @@ Node read_parquet(
     auto files = source.filepaths();
     RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file to read");
     RAPIDSMPF_EXPECTS(
-        files.size() < std::numeric_limits<int>::max(), "Trying to read too many files"
-    );
-    RAPIDSMPF_EXPECTS(
         !options.get_filter().has_value(),
         "Do not set filter on options, use the filter argument"
     );
