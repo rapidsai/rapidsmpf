@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -67,25 +67,19 @@ def test_shuffler_single_nonempty_partition(
     else:
         shuffler.insert_chunks(packed_inputs)
 
-    my_partitions = {
-        p for p in range(total_num_partitions) if (p % comm.nranks) == comm.rank
-    }
-    if concat:
-        shuffler.insert_finished(list(range(total_num_partitions)))
-    else:
-        for pid in range(total_num_partitions):
-            shuffler.insert_finished(pid)
+    my_partitions = shuffler.local_partitions()
+    expected_partitions = set(my_partitions)
+    shuffler.insert_finished(list(range(total_num_partitions)))
 
     local_outputs = []
+    extracted_partitions = set()
     while not shuffler.finished():
         if wait_on:
-            # Wait on a specific partition id
             partition_id = my_partitions.pop()
             shuffler.wait_on(partition_id)
         else:
-            # Wait on any partition id
             partition_id = shuffler.wait_any()
-            my_partitions.remove(partition_id)
+        extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
             unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
@@ -94,6 +88,7 @@ def test_shuffler_single_nonempty_partition(
         )
         local_outputs.append(partition)
     shuffler.shutdown()
+    assert extracted_partitions == expected_partitions
     # Everything should go to a single rank thus we should get the whole dataframe or nothing.
     if len(local_outputs) == 0:
         return
@@ -132,7 +127,6 @@ def test_shuffler_uniform(
     columns_to_hash = (df.columns.get_loc("b"),)
     column_names = list(df.columns)
 
-    # Calculate the expected output partitions on all ranks
     expected = {
         partition_id: pylibcudf_to_cudf_dataframe(
             unpack_and_concat(
@@ -153,7 +147,6 @@ def test_shuffler_uniform(
 
     progress_thread = ProgressThread(comm)
 
-    # Create shuffler
     shuffler = Shuffler(
         comm,
         progress_thread,
@@ -180,16 +173,13 @@ def test_shuffler_uniform(
         else:
             shuffler.insert_chunks(packed_inputs)
 
-    # Tell shuffler we are done adding data
-    if concat:
-        shuffler.insert_finished(list(range(total_num_partitions)))
-    else:
-        for pid in range(total_num_partitions):
-            shuffler.insert_finished(pid)
+    shuffler.insert_finished(list(range(total_num_partitions)))
 
-    # Extract and check shuffled partitions
+    expected_partitions = set(shuffler.local_partitions())
+    extracted_partitions = set()
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
+        extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
             unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
@@ -203,3 +193,4 @@ def test_shuffler_uniform(
         )
 
     shuffler.shutdown()
+    assert extracted_partitions == expected_partitions
