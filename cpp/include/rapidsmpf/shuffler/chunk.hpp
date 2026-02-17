@@ -217,7 +217,7 @@ class Chunk {
     }
 
     /**
-     * @brief Create a single-message chunk from a packed data.
+     * @brief Create a chunk from a packed data.
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
@@ -229,8 +229,7 @@ class Chunk {
     );
 
     /**
-     * @brief Create a single-message chunk for a finished partition (control
-     * message).
+     * @brief Create a chunk for a finished partition (control message).
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
