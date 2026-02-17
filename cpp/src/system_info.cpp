@@ -26,8 +26,7 @@ std::uint64_t get_total_host_memory() noexcept {
             "get_total_host_memory() - fatal error: "
             "sysconf(_SC_PAGE_SIZE/_SC_PHYS_PAGES) failed"
         );
-        return static_cast<std::uint64_t>(page_size)
-               * static_cast<std::uint64_t>(phys_pages);
+        return safe_cast<std::uint64_t>(page_size) * safe_cast<std::uint64_t>(phys_pages);
     }();
     return ret;
 }
@@ -77,7 +76,7 @@ std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
     if (ret == -1) {
         return get_total_host_memory();
     }
-    return static_cast<std::uint64_t>(ret);
+    return safe_cast<std::uint64_t>(ret);
 }
 
 }  // namespace rapidsmpf

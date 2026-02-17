@@ -211,7 +211,7 @@ std::vector<std::uint8_t> Options::serialize() const {
 
     // Write count (number of key-value pairs) after prelude.
     {
-        auto const count_ = static_cast<uint64_t>(count);
+        auto const count_ = safe_cast<uint64_t>(count);
         std::memcpy(base + PRELUDE_SIZE, &count_, sizeof(uint64_t));
     }
 
@@ -228,8 +228,8 @@ std::vector<std::uint8_t> Options::serialize() const {
     std::size_t offset_index = 1;  // Offsets start after `count`.
     std::size_t data_offset = header_size;
     for (auto const& [key, value] : entries) {
-        auto key_offset = static_cast<uint64_t>(data_offset);
-        auto value_offset = static_cast<uint64_t>(key_offset + key.size());
+        auto key_offset = safe_cast<uint64_t>(data_offset);
+        auto value_offset = safe_cast<uint64_t>(key_offset + key.size());
 
         // Write offsets (placed after prelude + count)
         std::memcpy(
@@ -248,7 +248,7 @@ std::vector<std::uint8_t> Options::serialize() const {
         std::memcpy(base + key_offset, key.data(), key.size());
         std::memcpy(base + value_offset, value.data(), value.size());
 
-        data_offset = static_cast<std::size_t>(value_offset + value.size());
+        data_offset = safe_cast<std::size_t>(value_offset + value.size());
     }
 
     // Compute CRC32 over the data region and append at the end (little endian)
@@ -312,7 +312,7 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        static_cast<std::size_t>(count) <= MAX_OPTIONS,
+        safe_cast<std::size_t>(count) <= MAX_OPTIONS,
         "too many options in serialized buffer",
         std::invalid_argument
     );
@@ -354,21 +354,21 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         );
 
         uint64_t const next_key_offset =
-            (i + 1 < count) ? key_offsets[i + 1] : static_cast<uint64_t>(data_limit);
+            (i + 1 < count) ? key_offsets[i + 1] : safe_cast<uint64_t>(data_limit);
         RAPIDSMPF_EXPECTS(
             value_offset <= next_key_offset,
             "value data overlaps next key region",
             std::out_of_range
         );
         RAPIDSMPF_EXPECTS(
-            key_offset < static_cast<uint64_t>(data_limit)
-                && value_offset <= static_cast<uint64_t>(data_limit),
+            key_offset < safe_cast<uint64_t>(data_limit)
+                && value_offset <= safe_cast<uint64_t>(data_limit),
             "offsets exceed buffer size",
             std::out_of_range
         );
 
-        auto const key_len = static_cast<std::size_t>(value_offset - key_offset);
-        auto const value_len = static_cast<std::size_t>(next_key_offset - value_offset);
+        auto const key_len = safe_cast<std::size_t>(value_offset - key_offset);
+        auto const value_len = safe_cast<std::size_t>(next_key_offset - value_offset);
         RAPIDSMPF_EXPECTS(
             key_len <= MAX_KEY_LEN,
             "key length exceeds maximum allowed size",
@@ -409,7 +409,7 @@ void get_environment_variables(
         if (!eq) {
             continue;
         }
-        std::string name(cstr, static_cast<std::size_t>(eq - cstr));
+        std::string name(cstr, safe_cast<std::size_t>(eq - cstr));
         std::string value(eq + 1);
         std::smatch match;
         if (std::regex_match(name, match, name_pattern)) {
