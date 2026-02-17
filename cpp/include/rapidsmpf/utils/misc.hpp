@@ -295,7 +295,7 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
  * @param loc Source location (automatically captured).
  * @return To The safely cast value.
  *
- * @throws std::logic_error if the value cannot be represented in the destination type.
+ * @throws std::overflow_error if the value cannot be represented in the destination type.
  */
 template <typename To, typename From>
 To safe_cast(
@@ -313,7 +313,7 @@ To safe_cast(
             std::ostringstream ss;
             ss << "RapidsMPF cast error at: " << loc.file_name() << ":" << loc.line()
                << ", value out of range";
-            throw std::logic_error(ss.str());
+            throw std::overflow_error(ss.str());
         }
         return static_cast<To>(value);
     } else {

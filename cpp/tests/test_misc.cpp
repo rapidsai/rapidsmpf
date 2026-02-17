@@ -34,12 +34,12 @@ TEST(MiscTest, SafeCastSignedToUnsignedSuccess) {
 
 TEST(MiscTest, SafeCastSignedToUnsignedNegativeFails) {
     // Negative values should throw
-    EXPECT_THROW(safe_cast<unsigned>(-1), std::logic_error);
-    EXPECT_THROW(safe_cast<unsigned>(-42), std::logic_error);
-    EXPECT_THROW(safe_cast<unsigned>(INT_MIN), std::logic_error);
-    EXPECT_THROW(safe_cast<size_t>(-1), std::logic_error);
-    EXPECT_THROW(safe_cast<uint32_t>(int32_t{-5}), std::logic_error);
-    EXPECT_THROW(safe_cast<uint64_t>(int64_t{-999}), std::logic_error);
+    EXPECT_THROW(safe_cast<unsigned>(-1), std::overflow_error);
+    EXPECT_THROW(safe_cast<unsigned>(-42), std::overflow_error);
+    EXPECT_THROW(safe_cast<unsigned>(INT_MIN), std::overflow_error);
+    EXPECT_THROW(safe_cast<size_t>(-1), std::overflow_error);
+    EXPECT_THROW(safe_cast<uint32_t>(int32_t{-5}), std::overflow_error);
+    EXPECT_THROW(safe_cast<uint64_t>(int64_t{-999}), std::overflow_error);
 }
 
 // Test unsigned to signed conversions
@@ -53,10 +53,10 @@ TEST(MiscTest, SafeCastUnsignedToSignedSuccess) {
 
 TEST(MiscTest, SafeCastUnsignedToSignedOverflowFails) {
     // Values larger than signed max should throw
-    EXPECT_THROW(safe_cast<int>(UINT_MAX), std::logic_error);
-    EXPECT_THROW(safe_cast<int>(unsigned{INT_MAX} + 1u), std::logic_error);
-    EXPECT_THROW(safe_cast<int32_t>(uint32_t{0x80000000}), std::logic_error);
-    EXPECT_THROW(safe_cast<int64_t>(UINT64_MAX), std::logic_error);
+    EXPECT_THROW(safe_cast<int>(UINT_MAX), std::overflow_error);
+    EXPECT_THROW(safe_cast<int>(unsigned{INT_MAX} + 1u), std::overflow_error);
+    EXPECT_THROW(safe_cast<int32_t>(uint32_t{0x80000000}), std::overflow_error);
+    EXPECT_THROW(safe_cast<int64_t>(UINT64_MAX), std::overflow_error);
 }
 
 // Test narrowing conversions (larger to smaller types)
@@ -71,12 +71,12 @@ TEST(MiscTest, SafeCastNarrowingSuccess) {
 
 TEST(MiscTest, SafeCastNarrowingOverflowFails) {
     // Values outside target range should throw
-    EXPECT_THROW(safe_cast<int16_t>(int32_t{40000}), std::logic_error);
-    EXPECT_THROW(safe_cast<int16_t>(int32_t{-40000}), std::logic_error);
-    EXPECT_THROW(safe_cast<uint8_t>(uint32_t{256}), std::logic_error);
-    EXPECT_THROW(safe_cast<int8_t>(int32_t{128}), std::logic_error);
-    EXPECT_THROW(safe_cast<int8_t>(int32_t{-129}), std::logic_error);
-    EXPECT_THROW(safe_cast<uint32_t>(uint64_t{0x100000000ULL}), std::logic_error);
+    EXPECT_THROW(safe_cast<int16_t>(int32_t{40000}), std::overflow_error);
+    EXPECT_THROW(safe_cast<int16_t>(int32_t{-40000}), std::overflow_error);
+    EXPECT_THROW(safe_cast<uint8_t>(uint32_t{256}), std::overflow_error);
+    EXPECT_THROW(safe_cast<int8_t>(int32_t{128}), std::overflow_error);
+    EXPECT_THROW(safe_cast<int8_t>(int32_t{-129}), std::overflow_error);
+    EXPECT_THROW(safe_cast<uint32_t>(uint64_t{0x100000000ULL}), std::overflow_error);
 }
 
 // Test widening conversions (smaller to larger types - always safe)
@@ -102,20 +102,20 @@ TEST(MiscTest, SafeCastNumericLimitsInt32) {
     EXPECT_EQ(safe_cast<uint32_t>(0u), 0u);
     EXPECT_EQ(safe_cast<uint32_t>(UINT32_MAX), UINT32_MAX);
     EXPECT_EQ(safe_cast<uint64_t>(UINT32_MAX), uint64_t{UINT32_MAX});
-    EXPECT_THROW(safe_cast<int32_t>(UINT32_MAX), std::logic_error);
+    EXPECT_THROW(safe_cast<int32_t>(UINT32_MAX), std::overflow_error);
 }
 
 TEST(MiscTest, SafeCastNumericLimitsInt64) {
     // int64_t limits
     EXPECT_EQ(safe_cast<int64_t>(INT64_MIN), INT64_MIN);
     EXPECT_EQ(safe_cast<int64_t>(INT64_MAX), INT64_MAX);
-    EXPECT_THROW(safe_cast<int32_t>(INT64_MIN), std::logic_error);
-    EXPECT_THROW(safe_cast<int32_t>(INT64_MAX), std::logic_error);
+    EXPECT_THROW(safe_cast<int32_t>(INT64_MIN), std::overflow_error);
+    EXPECT_THROW(safe_cast<int32_t>(INT64_MAX), std::overflow_error);
 
     // uint64_t limits
     EXPECT_EQ(safe_cast<uint64_t>(0ULL), 0ULL);
     EXPECT_EQ(safe_cast<uint64_t>(UINT64_MAX), UINT64_MAX);
-    EXPECT_THROW(safe_cast<int64_t>(UINT64_MAX), std::logic_error);
+    EXPECT_THROW(safe_cast<int64_t>(UINT64_MAX), std::overflow_error);
 }
 
 // Test common use cases: ptrdiff_t conversions
@@ -135,7 +135,7 @@ TEST(MiscTest, SafeCastPtrdiffConversions) {
     {
         EXPECT_EQ(safe_cast<std::ptrdiff_t>(large_value), std::ptrdiff_t{large_value});
     } else {
-        EXPECT_THROW(safe_cast<std::ptrdiff_t>(large_value), std::logic_error);
+        EXPECT_THROW(safe_cast<std::ptrdiff_t>(large_value), std::overflow_error);
     }
 }
 
@@ -145,8 +145,8 @@ TEST(MiscTest, SafeCastSizeTConversions) {
     EXPECT_EQ(safe_cast<size_t>(0), size_t{0});
     EXPECT_EQ(safe_cast<size_t>(42), size_t{42});
     EXPECT_EQ(safe_cast<size_t>(INT_MAX), static_cast<size_t>(INT_MAX));
-    EXPECT_THROW(safe_cast<size_t>(-1), std::logic_error);
-    EXPECT_THROW(safe_cast<size_t>(-100), std::logic_error);
+    EXPECT_THROW(safe_cast<size_t>(-1), std::overflow_error);
+    EXPECT_THROW(safe_cast<size_t>(-100), std::overflow_error);
 
     // size_t to int
     EXPECT_EQ(safe_cast<int>(size_t{0}), 0);
@@ -155,9 +155,9 @@ TEST(MiscTest, SafeCastSizeTConversions) {
 
     // Large size_t values should fail
     if (std::numeric_limits<size_t>::max() > static_cast<size_t>(INT_MAX)) {
-        EXPECT_THROW(safe_cast<int>(size_t{INT_MAX} + 1), std::logic_error);
+        EXPECT_THROW(safe_cast<int>(size_t{INT_MAX} + 1), std::overflow_error);
         EXPECT_THROW(
-            safe_cast<int>(std::numeric_limits<size_t>::max()), std::logic_error
+            safe_cast<int>(std::numeric_limits<size_t>::max()), std::overflow_error
         );
     }
 }
@@ -173,8 +173,8 @@ TEST(MiscTest, SafeCastRankConversions) {
     EXPECT_EQ(safe_cast<size_t>(INT32_MAX), static_cast<size_t>(INT32_MAX));
 
     // Invalid ranks (negative)
-    EXPECT_THROW(safe_cast<size_t>(Rank{-1}), std::logic_error);
-    EXPECT_THROW(safe_cast<size_t>(INT32_MIN), std::logic_error);
+    EXPECT_THROW(safe_cast<size_t>(Rank{-1}), std::overflow_error);
+    EXPECT_THROW(safe_cast<size_t>(INT32_MIN), std::overflow_error);
 }
 
 // Test floating point conversions (should be direct cast)
@@ -200,8 +200,8 @@ TEST(MiscTest, SafeCastFloatingPointConversions) {
 TEST(MiscTest, SafeCastErrorMessageContainsLocation) {
     try {
         safe_cast<unsigned>(-1);
-        FAIL() << "Expected std::logic_error";
-    } catch (const std::logic_error& e) {
+        FAIL() << "Expected std::overflow_error";
+    } catch (const std::overflow_error& e) {
         std::string msg(e.what());
         // Error message should contain file name and line number
         EXPECT_TRUE(msg.find("test_misc.cpp") != std::string::npos)
@@ -222,12 +222,12 @@ TEST(MiscTest, SafeCastZeroAndBoundaries) {
     // Boundaries for int8_t
     EXPECT_EQ(safe_cast<int8_t>(int16_t{127}), int8_t{127});
     EXPECT_EQ(safe_cast<int8_t>(int16_t{-128}), int8_t{-128});
-    EXPECT_THROW(safe_cast<int8_t>(int16_t{128}), std::logic_error);
-    EXPECT_THROW(safe_cast<int8_t>(int16_t{-129}), std::logic_error);
+    EXPECT_THROW(safe_cast<int8_t>(int16_t{128}), std::overflow_error);
+    EXPECT_THROW(safe_cast<int8_t>(int16_t{-129}), std::overflow_error);
 
     // Boundaries for uint8_t
     EXPECT_EQ(safe_cast<uint8_t>(uint16_t{255}), uint8_t{255});
-    EXPECT_THROW(safe_cast<uint8_t>(uint16_t{256}), std::logic_error);
+    EXPECT_THROW(safe_cast<uint8_t>(uint16_t{256}), std::overflow_error);
 }
 
 // Test mixed signed/unsigned of different sizes
@@ -236,13 +236,13 @@ TEST(MiscTest, SafeCastMixedSignednessAndSize) {
     EXPECT_EQ(safe_cast<uint32_t>(int64_t{0}), uint32_t{0});
     EXPECT_EQ(safe_cast<uint32_t>(int64_t{100}), uint32_t{100});
     EXPECT_EQ(safe_cast<uint32_t>(int64_t{UINT32_MAX}), UINT32_MAX);
-    EXPECT_THROW(safe_cast<uint32_t>(int64_t{-1}), std::logic_error);
-    EXPECT_THROW(safe_cast<uint32_t>(int64_t{UINT32_MAX} + 1), std::logic_error);
+    EXPECT_THROW(safe_cast<uint32_t>(int64_t{-1}), std::overflow_error);
+    EXPECT_THROW(safe_cast<uint32_t>(int64_t{UINT32_MAX} + 1), std::overflow_error);
 
     // uint64_t to int32_t
     EXPECT_EQ(safe_cast<int32_t>(uint64_t{0}), int32_t{0});
     EXPECT_EQ(safe_cast<int32_t>(uint64_t{100}), int32_t{100});
     EXPECT_EQ(safe_cast<int32_t>(uint64_t{INT32_MAX}), INT32_MAX);
-    EXPECT_THROW(safe_cast<int32_t>(uint64_t{INT32_MAX} + 1), std::logic_error);
-    EXPECT_THROW(safe_cast<int32_t>(UINT64_MAX), std::logic_error);
+    EXPECT_THROW(safe_cast<int32_t>(uint64_t{INT32_MAX} + 1), std::overflow_error);
+    EXPECT_THROW(safe_cast<int32_t>(UINT64_MAX), std::overflow_error);
 }
