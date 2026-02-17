@@ -281,8 +281,7 @@ cdef class Shuffler:
 
         Returns
         -------
-        list[int]
-            Partition IDs owned by this shuffler.
+        Partition IDs owned by this shuffler.
         """
         cdef span[const uint32_t] _ret
         cdef list partitions = []
