@@ -62,7 +62,7 @@ class Shuffler {
      * @return The rank owning the partition.
      */
     static Rank round_robin(std::shared_ptr<Communicator> const& comm, PartID pid) {
-        return static_cast<Rank>(pid % static_cast<PartID>(comm->nranks()));
+        return safe_cast<Rank>(pid % safe_cast<PartID>(comm->nranks()));
     }
 
     /**
@@ -287,7 +287,7 @@ class Shuffler {
      * @return The rank.
      */
     static constexpr Rank extract_rank(detail::ChunkID cid) {
-        return static_cast<Rank>(cid >> chunk_id_counter_bits);
+        return safe_cast<Rank>(cid >> chunk_id_counter_bits);
     }
 
     /**

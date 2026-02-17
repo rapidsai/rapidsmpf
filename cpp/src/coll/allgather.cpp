@@ -368,7 +368,7 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
         spill_need = amount.value();
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        spill_need = headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
+        spill_need = headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
     }
     std::size_t spilled{0};
     if (spill_need > 0) {

@@ -401,11 +401,11 @@ Shuffler::Shuffler(
           [this](PartID pid) -> Rank {
               return this->partition_owner(this->comm_, pid);
           },  // extract Rank from pid
-          static_cast<std::size_t>(comm->nranks())
+          safe_cast<std::size_t>(comm->nranks())
       },
       ready_postbox_{
           [](PartID pid) -> PartID { return pid; },  // identity mapping
-          static_cast<std::size_t>(total_num_partitions),
+          safe_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
@@ -595,7 +595,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0) {
-            spill_need = static_cast<std::size_t>(std::abs(headroom));
+            spill_need = safe_cast<std::size_t>(std::abs(headroom));
         }
     }
     std::size_t spilled{0};
@@ -610,7 +610,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the last 38 bits (supports 256G chunks).
     std::uint64_t lower = ++chunk_id_counter_;
     // and place the rank in the first 26 bits (supports 64M ranks).
-    auto upper = static_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
+    auto upper = safe_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
     return upper | lower;
 }
 

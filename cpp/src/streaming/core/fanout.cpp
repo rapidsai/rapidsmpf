@@ -213,7 +213,7 @@ struct UnboundedFanout {
                 msg_ids_to_send.reserve(n_available_messages - self_next_idx);
                 std::ranges::copy(
                     std::ranges::drop_view(
-                        recv_msg_ids, static_cast<std::ptrdiff_t>(self_next_idx)
+                        recv_msg_ids, safe_cast<std::ptrdiff_t>(self_next_idx)
                     ),
                     std::back_inserter(msg_ids_to_send)
                 );
