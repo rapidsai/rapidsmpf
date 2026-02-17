@@ -41,7 +41,6 @@ TEST_F(ChunkTest, FromFinishedPartition) {
 
     auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
-        EXPECT_EQ(chunk.n_messages(), 1);
         EXPECT_EQ(chunk.part_id(), part_id);
         EXPECT_EQ(chunk.expected_num_chunks(), expected_num_chunks);
         EXPECT_TRUE(chunk.is_control_message());
@@ -82,7 +81,6 @@ TEST_F(ChunkTest, FromPackedData) {
 
     auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
-        EXPECT_EQ(chunk.n_messages(), 1);
         EXPECT_EQ(chunk.part_id(), part_id);
         EXPECT_EQ(chunk.expected_num_chunks(), 0);
         EXPECT_FALSE(chunk.is_control_message());

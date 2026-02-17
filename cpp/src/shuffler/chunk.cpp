@@ -38,8 +38,6 @@ Chunk::Chunk(
 }
 
 Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
-    RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-
     if (is_control_message()) {
         return from_finished_partition(new_chunk_id, part_id(), expected_num_chunks());
     }
@@ -92,19 +90,13 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     std::memcpy(&chunk_id, msg.data() + offset, sizeof(ChunkID));
     offset += sizeof(ChunkID);
 
-    size_t n_messages;
-    std::memcpy(&n_messages, msg.data() + offset, sizeof(size_t));
+    PartID part_id;
+    std::memcpy(&part_id, msg.data() + offset, sizeof(PartID));
+    offset += sizeof(PartID);
+
+    size_t expected_num_chunks;
+    std::memcpy(&expected_num_chunks, msg.data() + offset, sizeof(size_t));
     offset += sizeof(size_t);
-
-    std::vector<PartID> part_ids(n_messages);
-    std::memcpy(part_ids.data(), msg.data() + offset, n_messages * sizeof(PartID));
-    offset += n_messages * sizeof(PartID);
-
-    std::vector<size_t> expected_num_chunks(n_messages);
-    std::memcpy(
-        expected_num_chunks.data(), msg.data() + offset, n_messages * sizeof(size_t)
-    );
-    offset += n_messages * sizeof(size_t);
 
     uint32_t metadata_size;
     std::memcpy(&metadata_size, msg.data() + offset, sizeof(uint32_t));
@@ -120,8 +112,8 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
 
     return {
         chunk_id,
-        std::move(part_ids),
-        std::move(expected_num_chunks),
+        {part_id},
+        {expected_num_chunks},
         metadata_size,
         data_size,
         std::move(concat_metadata),
@@ -131,40 +123,14 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
 
 bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
     // Check if buffer is large enough to contain at least the header
-    if (serialized_buf.size() < sizeof(ChunkID) + sizeof(size_t)) {
-        return false;
-    }
-
-    // Get number of messages
-    size_t n = 0;
-    std::memcpy(&n, serialized_buf.data() + sizeof(ChunkID), sizeof(size_t));
-
-    if (n == 0) {  // no messages
-        return false;
-    }
-
-    // Check if buffer is large enough to contain all the messages' metadata
-    size_t header_size = metadata_message_header_size(n);
+    constexpr size_t header_size = metadata_message_header_size();
     if (serialized_buf.size() < header_size) {
         return false;
     }
 
-    // Check if the partition IDs are unique
-    std::unordered_set<PartID> seen_pids;
-    seen_pids.reserve(n);
-    auto const* pids = serialized_buf.data() + sizeof(ChunkID) + sizeof(size_t);
-    for (size_t i = 0; i < n; ++i) {
-        PartID pid;
-        std::memcpy(&pid, pids + i * sizeof(PartID), sizeof(PartID));
-        if (!seen_pids.emplace(pid).second) {
-            return false;
-        }
-    }
-
-    // Read metadata_size and data_size
+    // Read metadata_size from the header
     uint8_t const* sizes_start =
-        serialized_buf.data()
-        + (sizeof(ChunkID) + sizeof(size_t) + n * (sizeof(PartID) + sizeof(size_t)));
+        serialized_buf.data() + sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t);
 
     uint32_t metadata_size;
     std::memcpy(&metadata_size, sizes_start, sizeof(uint32_t));
@@ -189,10 +155,8 @@ std::string Chunk::str() const {
 }
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
-    size_t n = this->n_messages();
-
     size_t metadata_buf_size =
-        metadata_message_header_size(n) + (metadata_ ? metadata_->size() : 0);
+        metadata_message_header_size() + (metadata_ ? metadata_->size() : 0);
     auto metadata_buf = std::make_unique<std::vector<uint8_t>>(metadata_buf_size);
 
     uint8_t* p = metadata_buf->data();
@@ -200,17 +164,13 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     std::memcpy(p, &chunk_id_, sizeof(ChunkID));
     p += sizeof(ChunkID);
 
-    // Write number of messages
-    std::memcpy(p, &n, sizeof(size_t));
-    p += sizeof(size_t);
-
-    // Write partition IDs
-    std::memcpy(p, part_ids_.data(), n * sizeof(PartID));
-    p += n * sizeof(PartID);
+    // Write partition ID
+    std::memcpy(p, part_ids_.data(), sizeof(PartID));
+    p += sizeof(PartID);
 
     // Write expected number of chunks
-    std::memcpy(p, expected_num_chunks_.data(), n * sizeof(size_t));
-    p += n * sizeof(size_t);
+    std::memcpy(p, expected_num_chunks_.data(), sizeof(size_t));
+    p += sizeof(size_t);
 
     // Write metadata offset (size)
     std::memcpy(p, &metadata_size_, sizeof(uint32_t));

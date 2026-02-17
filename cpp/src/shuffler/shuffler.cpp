@@ -464,11 +464,6 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
     log.trace("insert_into_outbox: ", chunk);
 
-    // ready postbox only supports single message chunks
-    RAPIDSMPF_EXPECTS(
-        chunk.n_messages() == 1, "inserting into ready_postbox with multiple messages"
-    );
-
     auto pid = chunk.part_id();
     if (chunk.is_control_message()) {
         finish_counter_.move_goalpost(pid, chunk.expected_num_chunks());

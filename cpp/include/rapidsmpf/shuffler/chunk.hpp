@@ -48,12 +48,11 @@ using ChunkID = std::uint64_t;
  *
  * When serialized, the format is:
  * - chunk_id: uint64_t, ID of the chunk.
- * - n_elements: size_t, Number of messages in the chunk (always 1).
  * - partition_id: PartID, Partition ID of the message.
  * - expected_num_chunks: size_t, Expected number of chunks (0 for data, >0 for control).
  * - metadata_size: uint32_t, Size of the metadata in bytes.
  * - data_size: uint64_t, Size of the data in bytes.
- * - metadata: vector<uint8_t>, Metadata buffer, size = metadata_size.
+ * - metadata: vector<uint8_t>, Metadata buffer
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
@@ -82,14 +81,11 @@ class Chunk {
     /**
      * @brief The size of the metadata message header.
      *
-     * @param n_messages The number of messages in the chunk.
      * @return The size of the metadata message header.
      */
-    static constexpr size_t metadata_message_header_size(size_t n_messages) {
-        return sizeof(ChunkID) + sizeof(size_t)
-               + n_messages
-                     * (sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
-                        + sizeof(uint64_t));
+    static constexpr size_t metadata_message_header_size() {
+        return sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
+               + sizeof(uint64_t);
     }
 
     /**
@@ -102,21 +98,11 @@ class Chunk {
     }
 
     /**
-     * @brief The number of messages in the chunk.
-     *
-     * @return The number of messages in the chunk.
-     */
-    [[nodiscard]] constexpr size_t n_messages() const {
-        return part_ids_.size();
-    }
-
-    /**
      * @brief Partition ID of the message.
      *
      * @return The ID of the partition.
      */
     [[nodiscard]] constexpr PartID part_id() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return part_ids_.at(0);
     }
 
@@ -127,7 +113,6 @@ class Chunk {
      * is a control message, otherwise zero (data message).
      */
     [[nodiscard]] constexpr size_t expected_num_chunks() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return expected_num_chunks_.at(0);
     }
 
@@ -137,7 +122,6 @@ class Chunk {
      * @return True if the message is a control message, false otherwise.
      */
     [[nodiscard]] constexpr bool is_control_message() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks() > 0;
     }
@@ -164,7 +148,6 @@ class Chunk {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     [[nodiscard]] constexpr uint32_t metadata_size() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return metadata_size_;
     }
 
@@ -175,7 +158,6 @@ class Chunk {
      * control message, otherwise the size of `PackedData::data` of the message.
      */
     [[nodiscard]] constexpr size_t data_size() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return data_size_;
     }
 
