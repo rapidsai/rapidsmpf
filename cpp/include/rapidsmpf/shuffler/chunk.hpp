@@ -117,6 +117,8 @@ class Chunk {
      * @return The ID of the partition.
      */
     [[nodiscard]] constexpr PartID part_id(size_t i) const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         return part_ids_.at(i);
     }
 
@@ -128,6 +130,8 @@ class Chunk {
      * is a control message, otherwise zero (data message).
      */
     [[nodiscard]] constexpr size_t expected_num_chunks(size_t i) const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         return expected_num_chunks_.at(i);
     }
 
@@ -138,6 +142,8 @@ class Chunk {
      * @return True if the message is a control message, false otherwise.
      */
     [[nodiscard]] constexpr bool is_control_message(size_t i) const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks(i) > 0;
     }
@@ -170,6 +176,8 @@ class Chunk {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     [[nodiscard]] constexpr uint32_t metadata_size(size_t i) const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         return i == 0 ? meta_offsets_.at(0)
                       : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
     }
@@ -182,6 +190,8 @@ class Chunk {
      * control message, otherwise the size of `PackedData::data` of the message.
      */
     [[nodiscard]] constexpr size_t data_size(size_t i) const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         return i == 0 ? data_offsets_.at(0)
                       : data_offsets_.at(i) - data_offsets_.at(i - 1);
     }
@@ -230,6 +240,7 @@ class Chunk {
      * @return The size of the concatenated data.
      */
     [[nodiscard]] constexpr size_t concat_data_size() const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return data_offsets_.at(n_messages() - 1);
     }
 
@@ -239,6 +250,7 @@ class Chunk {
      * @return The size of the concatenated metadata.
      */
     [[nodiscard]] constexpr size_t concat_metadata_size() const {
+        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
         return meta_offsets_.at(n_messages() - 1);
     }
 

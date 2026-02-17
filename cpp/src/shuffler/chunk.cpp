@@ -36,9 +36,12 @@ Chunk::Chunk(
             && (part_ids_.size() == data_offsets_.size()),
         "invalid chunk: input vectors have different sizes"
     );
+    RAPIDSMPF_EXPECTS(part_ids_.size() == 1, "multi-message chunks are not supported");
 }
 
 Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
+    RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
+    RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
     RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
 
     if (is_control_message(i)) {

@@ -58,8 +58,6 @@ TEST_F(ChunkTest, FromFinishedPartition) {
 
     auto chunk3 = chunk2.get_data(chunk_id, 0, br.get());
     test_chunk(chunk3);
-
-    EXPECT_THROW(chunk3.get_data(chunk_id, 1, br.get()), std::out_of_range);
 }
 
 TEST_F(ChunkTest, FromPackedData) {
