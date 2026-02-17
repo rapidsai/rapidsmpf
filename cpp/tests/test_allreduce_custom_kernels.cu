@@ -12,7 +12,6 @@
 using rapidsmpf::MemoryType;
 using rapidsmpf::PackedData;
 using rapidsmpf::coll::ReduceOperator;
-using rapidsmpf::coll::ReduceOperatorType;
 
 ReduceOperator make_custom_value_reduce_operator_device() {
     return rapidsmpf::coll::detail::make_device_reduce_operator<CustomValue>(

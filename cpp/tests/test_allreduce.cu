@@ -21,10 +21,13 @@
 
 #include <cuda/std/functional>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -33,10 +36,8 @@
 
 using rapidsmpf::MemoryType;
 using rapidsmpf::OpID;
-using rapidsmpf::PackedData;
 using rapidsmpf::coll::AllReduce;
 using rapidsmpf::coll::ReduceOperator;
-using rapidsmpf::coll::ReduceOperatorType;
 
 namespace {
 
@@ -98,7 +99,7 @@ T make_input_value(int rank, int elem_idx) {
 /**
  * @brief Factory for a host-side reduction operator for `CustomValue`.
  *
- * The returned operator expects `PackedData::data` to contain a contiguous array
+ * The returned operator expects the buffer to contain a contiguous array
  * of `CustomValue` in host memory, with equal sizes for all ranks.
  */
 ReduceOperator make_custom_value_reduce_operator_host() {
@@ -117,11 +118,11 @@ ReduceOperator make_custom_value_reduce_operator_host() {
 }
 
 /**
- * @brief Helper to create a `PackedData` from host memory, backed by either host or
+ * @brief Helper to create a buffer from host memory, backed by either host or
  * device memory.
  */
 template <typename T>
-PackedData make_packed(
+std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     rapidsmpf::BufferResource* br, T const* data, std::size_t count, MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
@@ -130,9 +131,9 @@ PackedData make_packed(
     auto buffer = br->allocate(stream, std::move(reservation));
 
     RAPIDSMPF_EXPECTS(
-        buffer->mem_type() == mem_type, "make_packed: buffer memory type mismatch"
+        buffer->mem_type() == mem_type, "make_buffer: buffer memory type mismatch"
     );
-    RAPIDSMPF_EXPECTS(buffer->size == nbytes, "unexpected buffer size in make_packed");
+    RAPIDSMPF_EXPECTS(buffer->size == nbytes, "unexpected buffer size in make_buffer");
 
     auto* raw_ptr = buffer->exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(
@@ -141,20 +142,15 @@ PackedData make_packed(
     stream.synchronize();
     buffer->unlock();
 
-    auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(std::uint64_t));
-    auto* meta_ptr = reinterpret_cast<std::uint64_t*>(metadata->data());
-    *meta_ptr = static_cast<std::uint64_t>(count);
-
-    return PackedData{std::move(metadata), std::move(buffer)};
+    return buffer;
 }
 
 /**
- * @brief Helper to copy a `PackedData` (host or device-backed) into a host vector of T.
+ * @brief Helper to copy a buffer (host or device-backed) into a host vector of T.
  */
 template <typename T>
-std::vector<T> unpack_to_host(PackedData& pd) {
-    RAPIDSMPF_EXPECTS(pd.data, "unpack_to_host encountered null data buffer");
-    auto* buf = pd.data.get();
+std::vector<T> unpack_to_host(rapidsmpf::Buffer& buffer) {
+    auto* buf = &buffer;
     auto const nbytes = buf->size;
     RAPIDSMPF_EXPECTS(
         nbytes % sizeof(T) == 0,
@@ -163,7 +159,9 @@ std::vector<T> unpack_to_host(PackedData& pd) {
 
     auto const count = nbytes / sizeof(T);
     std::vector<T> out(count);
-
+    // Buffer is only guaranteed to be stream ordered on stream, not fully ready, so sync
+    // first.
+    buffer.stream().synchronize();
     auto* raw_ptr = buf->exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         out.data(), raw_ptr, nbytes, cudaMemcpyDefault, buf->stream().value()
@@ -204,38 +202,45 @@ class BaseAllReduceTest : public ::testing::Test {
 };
 
 TEST_F(BaseAllReduceTest, shutdown) {
+    std::vector<int> data(1, 0);
+    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::HOST);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
         OpID{0},
         rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
         rapidsmpf::Statistics::disabled()
     );
 }
 
 TEST_F(BaseAllReduceTest, timeout) {
+    std::vector<int> data(1, 42);
+    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::DEVICE);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
         OpID{0},
-        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
+        rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{}),
         rapidsmpf::Statistics::disabled()
     );
 
-    std::vector<int> data(1, 42);
-    auto packed = make_packed(br.get(), data.data(), data.size(), MemoryType::DEVICE);
-    allreduce.insert(std::move(packed));
-
-    auto result = allreduce.wait_and_extract();
+    auto [in_result, out_result] = allreduce.wait_and_extract();
+    std::ignore = in_result;
+    std::ignore = out_result;
 }
 
 struct MemoryReductionConfig {
     enum BufferType {
         ALL_HOST,
-        ALL_DEVICE,
-        MIXED
+        ALL_DEVICE
     };
 
     enum ReductionType {
@@ -247,9 +252,7 @@ struct MemoryReductionConfig {
     ReductionType reduction_type;
 
     std::string ToString() const {
-        std::string buf_str = (buffer_type == ALL_HOST)     ? "all_host"
-                              : (buffer_type == ALL_DEVICE) ? "all_device"
-                                                            : "mixed";
+        std::string buf_str = (buffer_type == ALL_HOST) ? "all_host" : "all_device";
         std::string red_str =
             (reduction_type == HOST_REDUCTION) ? "host_reduction" : "device_reduction";
         return buf_str + "_" + red_str;
@@ -278,23 +281,11 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(
             MemoryReductionConfig{
                 MemoryReductionConfig::ALL_HOST, MemoryReductionConfig::HOST_REDUCTION
-            },
-            MemoryReductionConfig{
-                MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::HOST_REDUCTION
-            },
-            MemoryReductionConfig{
-                MemoryReductionConfig::MIXED, MemoryReductionConfig::HOST_REDUCTION
             }
 #ifdef __CUDACC__
             ,
             MemoryReductionConfig{
                 MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::DEVICE_REDUCTION
-            },
-            MemoryReductionConfig{
-                MemoryReductionConfig::ALL_HOST, MemoryReductionConfig::DEVICE_REDUCTION
-            },
-            MemoryReductionConfig{
-                MemoryReductionConfig::MIXED, MemoryReductionConfig::DEVICE_REDUCTION
             }
 #endif
         )
@@ -315,35 +306,33 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
             ? rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
             : rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{});
 
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        std::move(kernel),
-        br.get(),
-        rapidsmpf::Statistics::disabled()
-    );
-
     std::vector<int> data(std::max(0, n_elements));
     for (int j = 0; j < n_elements; j++) {
         data[j] = this_rank;
     }
 
     // Choose buffer type based on config
-    PackedData packed =
-        (config.buffer_type == MemoryReductionConfig::ALL_HOST)
-            ? make_packed<int>(br.get(), data.data(), data.size(), MemoryType::HOST)
-        : (config.buffer_type == MemoryReductionConfig::ALL_DEVICE)
-            ? make_packed<int>(br.get(), data.data(), data.size(), MemoryType::DEVICE)
-        : (this_rank % 2 == 0)  // MIXED: even ranks use host, odd ranks use device
-            ? make_packed<int>(br.get(), data.data(), data.size(), MemoryType::HOST)
-            : make_packed<int>(br.get(), data.data(), data.size(), MemoryType::DEVICE);
+    MemoryType mem_type = (config.buffer_type == MemoryReductionConfig::ALL_HOST)
+                              ? MemoryType::HOST
+                              : MemoryType::DEVICE;
 
-    allreduce.insert(std::move(packed));
+    auto in_buffer = make_buffer<int>(br.get(), data.data(), data.size(), mem_type);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
-    auto result = allreduce.wait_and_extract();
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
+        OpID{0},
+        std::move(kernel),
+        rapidsmpf::Statistics::disabled()
+    );
 
-    auto reduced = unpack_to_host<int>(result);
+    auto [in_result, out_result] = allreduce.wait_and_extract();
+
+    auto reduced = unpack_to_host<int>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
     int const expected_value = (nranks * (nranks - 1)) / 2;
@@ -375,8 +364,6 @@ constexpr const char* ToString(MemoryReductionConfig::BufferType bt) {
         return "all_host";
     case MemoryReductionConfig::ALL_DEVICE:
         return "all_device";
-    case MemoryReductionConfig::MIXED:
-        return "mixed";
     }
     return "unknown_buffer";
 }
@@ -391,40 +378,20 @@ constexpr const char* ToString(MemoryReductionConfig::ReductionType rt) {
     return "unknown_reduction";
 }
 
-#define HOST_BUFFER_REDUCTION_CASES(T, OP)          \
-    AllReduceCase<                                  \
-        T,                                          \
-        OP,                                         \
-        MemoryReductionConfig::ALL_HOST,            \
-        MemoryReductionConfig::HOST_REDUCTION>,     \
-        AllReduceCase<                              \
-            T,                                      \
-            OP,                                     \
-            MemoryReductionConfig::ALL_DEVICE,      \
-            MemoryReductionConfig::HOST_REDUCTION>, \
-        AllReduceCase<                              \
-            T,                                      \
-            OP,                                     \
-            MemoryReductionConfig::MIXED,           \
-            MemoryReductionConfig::HOST_REDUCTION>
+#define HOST_BUFFER_REDUCTION_CASES(T, OP) \
+    AllReduceCase<                         \
+        T,                                 \
+        OP,                                \
+        MemoryReductionConfig::ALL_HOST,   \
+        MemoryReductionConfig::HOST_REDUCTION>
 
 #ifdef __CUDACC__
-#define DEVICE_BUFFER_REDUCTION_CASES(T, OP)          \
-    AllReduceCase<                                    \
-        T,                                            \
-        OP,                                           \
-        MemoryReductionConfig::ALL_DEVICE,            \
-        MemoryReductionConfig::DEVICE_REDUCTION>,     \
-        AllReduceCase<                                \
-            T,                                        \
-            OP,                                       \
-            MemoryReductionConfig::ALL_HOST,          \
-            MemoryReductionConfig::DEVICE_REDUCTION>, \
-        AllReduceCase<                                \
-            T,                                        \
-            OP,                                       \
-            MemoryReductionConfig::MIXED,             \
-            MemoryReductionConfig::DEVICE_REDUCTION>
+#define DEVICE_BUFFER_REDUCTION_CASES(T, OP) \
+    AllReduceCase<                           \
+        T,                                   \
+        OP,                                  \
+        MemoryReductionConfig::ALL_DEVICE,   \
+        MemoryReductionConfig::DEVICE_REDUCTION>
 #else
 #define DEVICE_BUFFER_REDUCTION_CASES(T, OP)
 #endif
@@ -496,15 +463,6 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         return rapidsmpf::coll::detail::make_host_reduce_operator<T>(Op{});
     }();
 
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        std::move(kernel),
-        this->br.get(),
-        rapidsmpf::Statistics::disabled()
-    );
-
     int constexpr n_elements{8};
 
     std::vector<T> data(n_elements);
@@ -512,21 +470,27 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         data[j] = make_input_value<T>(this_rank, j);
     }
 
-    PackedData packed =
-        (Case::buffer_type == MemoryReductionConfig::ALL_HOST)
-            ? make_packed<T>(this->br.get(), data.data(), data.size(), MemoryType::HOST)
-        : (Case::buffer_type == MemoryReductionConfig::ALL_DEVICE)
-            ? make_packed<T>(this->br.get(), data.data(), data.size(), MemoryType::DEVICE)
-        : (this_rank % 2 == 0)  // MIXED: even ranks use host, odd ranks use device
-            ? make_packed<T>(this->br.get(), data.data(), data.size(), MemoryType::HOST)
-            : make_packed<T>(
-                  this->br.get(), data.data(), data.size(), MemoryType::DEVICE
-              );
+    MemoryType mem_type = (Case::buffer_type == MemoryReductionConfig::ALL_HOST)
+                              ? MemoryType::HOST
+                              : MemoryType::DEVICE;
 
-    allreduce.insert(std::move(packed));
-    auto result = allreduce.wait_and_extract();
+    auto in_buffer = make_buffer<T>(this->br.get(), data.data(), data.size(), mem_type);
+    auto reservation = this->br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer =
+        this->br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
-    auto reduced = unpack_to_host<T>(result);
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
+        OpID{0},
+        std::move(kernel),
+        rapidsmpf::Statistics::disabled()
+    );
+    auto [in_result, out_result] = allreduce.wait_and_extract();
+
+    auto reduced = unpack_to_host<T>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     std::vector<T> expected;
     expected.reserve(n_elements);
@@ -577,15 +541,6 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     ReduceOperator kernel = config.is_device ? make_custom_value_reduce_operator_device()
                                              : make_custom_value_reduce_operator_host();
 
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        std::move(kernel),
-        br.get(),
-        rapidsmpf::Statistics::disabled()
-    );
-
     // Each rank contributes the same logical layout of CustomValue
     std::vector<CustomValue> data(n_elements);
     for (int j = 0; j < n_elements; ++j) {
@@ -593,13 +548,23 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
         data[static_cast<std::size_t>(j)].weight = this_rank * 10 + j;
     }
 
-    auto packed =
-        make_packed<CustomValue>(br.get(), data.data(), data.size(), config.buffer_type);
+    auto in_buffer =
+        make_buffer<CustomValue>(br.get(), data.data(), data.size(), config.buffer_type);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
-    allreduce.insert(std::move(packed));
-    auto result = allreduce.wait_and_extract();
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
+        OpID{0},
+        std::move(kernel),
+        rapidsmpf::Statistics::disabled()
+    );
+    auto [in_result, out_result] = allreduce.wait_and_extract();
 
-    auto reduced = unpack_to_host<CustomValue>(result);
+    auto reduced = unpack_to_host<CustomValue>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
 
     std::vector<CustomValue> expected;
@@ -642,43 +607,6 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-class AllReduceNonUniformInsertsTest : public BaseAllReduceTest {};
-
-TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
-    if (comm->nranks() < 2) {
-        GTEST_SKIP() << "Test requires at least 2 ranks";
-    }
-    auto this_rank = comm->rank();
-    constexpr int n_elements = 5;
-
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
-        rapidsmpf::Statistics::disabled()
-    );
-
-    // Test that some ranks not inserting causes failure.
-    // Only rank 0 inserts data, other ranks don't.
-    if (this_rank == 0) {
-        std::vector<int> data(n_elements);
-        for (int j = 0; j < n_elements; ++j) {
-            data[static_cast<std::size_t>(j)] = make_input_value<int>(this_rank, j);
-        }
-        auto packed =
-            make_packed<int>(br.get(), data.data(), data.size(), MemoryType::DEVICE);
-        allreduce.insert(std::move(packed));
-    }
-
-    // Should fail since not all ranks contributed
-    EXPECT_THROW(
-        std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{20}),
-        std::runtime_error
-    );
-}
-
 class AllReduceFinishedCallbackTest : public BaseAllReduceTest {};
 
 TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
@@ -689,12 +617,21 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     std::atomic<bool> callback_called{false};
     std::atomic<int> callback_count{0};
 
+    std::vector<int> data(n_elements);
+    for (int j = 0; j < n_elements; j++) {
+        data[j] = this_rank;
+    }
+    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::HOST);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
         OpID{0},
         rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
         rapidsmpf::Statistics::disabled(),
         [&callback_called, &callback_count]() {
             callback_called.store(true, std::memory_order_release);
@@ -702,24 +639,13 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
         }
     );
 
-    // Initially callback should not be called
-    EXPECT_FALSE(callback_called.load(std::memory_order_acquire));
-    EXPECT_EQ(callback_count.load(std::memory_order_acquire), 0);
-
-    std::vector<int> data(n_elements);
-    for (int j = 0; j < n_elements; j++) {
-        data[j] = this_rank;
-    }
-    auto packed = make_packed(br.get(), data.data(), data.size(), MemoryType::DEVICE);
-    allreduce.insert(std::move(packed));
-
-    auto result = allreduce.wait_and_extract();
+    auto [in_result, out_result] = allreduce.wait_and_extract();
 
     // After wait_and_extract completes, callback should have been called exactly once
     EXPECT_TRUE(callback_called.load(std::memory_order_acquire));
     EXPECT_EQ(callback_count.load(std::memory_order_acquire), 1);
 
-    auto reduced = unpack_to_host<int>(result);
+    auto reduced = unpack_to_host<int>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
     EXPECT_THAT(reduced, ::testing::Each(expected_value));
@@ -727,61 +653,38 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     EXPECT_TRUE(allreduce.finished());
 }
 
-TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_insert) {
-    std::atomic<bool> callback_called{false};
-
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
-        rapidsmpf::Statistics::disabled(),
-        [&callback_called]() { callback_called.store(true, std::memory_order_release); }
-    );
-
-    // Don't insert anything, just wait for timeout
-    EXPECT_THROW(
-        std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{50}),
-        std::runtime_error
-    );
-
-    // Callback should not be called since operation never finished
-    EXPECT_FALSE(callback_called.load(std::memory_order_acquire));
-}
-
 TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
     auto this_rank = comm->rank();
     auto nranks = comm->nranks();
     constexpr int n_elements = 5;
 
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        OpID{0},
-        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        br.get(),
-        rapidsmpf::Statistics::disabled()
-    );
-
     std::vector<int> data(n_elements);
     for (int j = 0; j < n_elements; j++) {
         data[j] = this_rank;
     }
-    auto packed = make_packed(br.get(), data.data(), data.size(), MemoryType::DEVICE);
-    allreduce.insert(std::move(packed));
+    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::DEVICE);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        std::move(in_buffer),
+        std::move(out_buffer),
+        OpID{0},
+        rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{}),
+        rapidsmpf::Statistics::disabled()
+    );
 
     // First call should succeed
-    auto result1 = allreduce.wait_and_extract();
-    auto reduced1 = unpack_to_host<int>(result1);
+    auto [in_result1, out_result1] = allreduce.wait_and_extract();
+    auto reduced1 = unpack_to_host<int>(*out_result1);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced1.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
     EXPECT_THAT(reduced1, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
 
-    // Second call: since data was already extracted from underlying AllGather,
-    // subsequent calls will get empty data, which should cause reduce_all to throw
-    // an error because it expects exactly nranks contributions
+    // Second call: data already extracted, should throw
     EXPECT_THROW(std::ignore = allreduce.wait_and_extract(), std::runtime_error);
 }
