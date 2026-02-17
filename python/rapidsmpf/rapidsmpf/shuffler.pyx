@@ -145,41 +145,6 @@ cdef class Shuffler:
         with nogil:
             deref(self._handle).insert(move(_chunks))
 
-    def concat_insert(self, chunks):
-        """
-        Insert a batch of packed (serialized) chunks into the shuffle while
-        concatenating the chunks based on the destination rank.
-
-        Parameters
-        ----------
-        chunks
-            A map where keys are partition IDs (``int``) and values are packed
-            data (``PackedData``).
-
-        Notes
-        -----
-        There are some considerations for using this method:
-
-        - The chunks are grouped by the destination rank of the partition ID and
-          concatenated on device memory.
-        - The caller thread will perform the concatenation, and hence it will be
-          blocked.
-        - Concatenation may cause device memory pressure.
-
-        """
-        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
-
-        _chunks.reserve(len(chunks))
-        for pid, chunk in chunks.items():
-            if not (<PackedData?>chunk).c_obj:
-                raise ValueError("PackedData was empty")
-            cpp_insert_chunk_into_partition_map(
-                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
-            )
-
-        with nogil:
-            deref(self._handle).concat_insert(move(_chunks))
-
     def insert_finished(self, pids):
         """
         Mark partitions as finished.

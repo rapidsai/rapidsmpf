@@ -159,14 +159,6 @@ class Shuffler {
     void shutdown();
 
     /**
-     * @brief Insert a map of packed data, grouping them by destination rank, and
-     * concatenating into a single chunk per rank.
-     *
-     * @param chunks A map of partition IDs and their packed chunks.
-     */
-    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
-
-    /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
      * @param chunks A map of partition IDs and their packed chunks.
