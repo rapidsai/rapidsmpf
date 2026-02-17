@@ -28,6 +28,8 @@ Chunk::Chunk(
       expected_num_chunks_{std::move(expected_num_chunks)},
       meta_offsets_{std::move(meta_offsets)},
       data_offsets_{std::move(data_offsets)},
+      metadata_size_{meta_offsets_.empty() ? 0 : meta_offsets_[0]},
+      data_size_{data_offsets_.empty() ? 0 : data_offsets_[0]},
       metadata_{std::move(metadata)},
       data_{std::move(data)} {
     RAPIDSMPF_EXPECTS(

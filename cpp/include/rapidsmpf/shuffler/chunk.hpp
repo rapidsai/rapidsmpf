@@ -165,7 +165,7 @@ class Chunk {
      */
     [[nodiscard]] constexpr uint32_t metadata_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return meta_offsets_.at(0);
+        return metadata_size_;
     }
 
     /**
@@ -176,7 +176,7 @@ class Chunk {
      */
     [[nodiscard]] constexpr size_t data_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return data_offsets_.at(0);
+        return data_size_;
     }
 
     /**
@@ -224,7 +224,7 @@ class Chunk {
      */
     [[nodiscard]] constexpr size_t concat_data_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return data_offsets_.at(n_messages() - 1);
+        return data_size_;
     }
 
     /**
@@ -234,7 +234,7 @@ class Chunk {
      */
     [[nodiscard]] constexpr size_t concat_metadata_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return meta_offsets_.at(n_messages() - 1);
+        return metadata_size_;
     }
 
     /**
@@ -352,6 +352,9 @@ class Chunk {
         meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
     std::vector<uint64_t>
         data_offsets_;  ///< The offsets of the data of the messages in the chunk.
+
+    uint32_t metadata_size_;  ///< The size of the metadata for the single message.
+    uint64_t data_size_;  ///< The size of the data for the single message.
 
     /// Metadata buffer that contains information about the messages in the chunk.
     std::unique_ptr<std::vector<uint8_t>> metadata_;
