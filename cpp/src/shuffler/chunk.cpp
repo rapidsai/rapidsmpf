@@ -156,7 +156,7 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     offset += n_messages * sizeof(uint64_t);
 
     auto concat_metadata = std::make_unique<std::vector<uint8_t>>(
-        msg.begin() + static_cast<int64_t>(offset), msg.end()
+        msg.begin() + safe_cast<int64_t>(offset), msg.end()
     );
 
     return {

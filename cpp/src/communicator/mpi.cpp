@@ -58,7 +58,7 @@ void detail::check_mpi_error(int error_code, char const* file, int line) {
         MPI_Error_string(error_code, error_string.data(), &error_length);
         std::cerr << "MPI error at " << file << ":" << line << ": "
                   << std::string(
-                         error_string.data(), static_cast<std::size_t>(error_length)
+                         error_string.data(), safe_cast<std::size_t>(error_length)
                      )
                   << std::endl;
         MPI_Abort(MPI_COMM_WORLD, error_code);
@@ -204,7 +204,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     );
     RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
     RAPIDSMPF_EXPECTS(
-        static_cast<std::size_t>(size) == msg->size(),
+        safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
     return {std::move(msg), probe_status.MPI_SOURCE};
@@ -234,7 +234,7 @@ std::unique_ptr<std::vector<uint8_t>> MPI::recv_from(Rank src, Tag tag) {
     );
     RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
     RAPIDSMPF_EXPECTS(
-        static_cast<std::size_t>(size) == msg->size(),
+        safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
     return msg;
@@ -266,7 +266,7 @@ MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector
         return {};
     }
     std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(static_cast<std::size_t>(num_completed));
+    completed.reserve(safe_cast<std::size_t>(num_completed));
     std::ranges::transform(
         indices.begin(),
         indices.begin() + num_completed,
@@ -306,13 +306,13 @@ std::vector<std::size_t> MPI::test_some(
             completed.data(),
             MPI_STATUSES_IGNORE
         ));
-        completed.resize(static_cast<std::size_t>(num_completed));
+        completed.resize(safe_cast<std::size_t>(num_completed));
     }
 
     std::vector<std::size_t> ret;
     ret.reserve(completed.size());
     for (int i : completed) {
-        ret.push_back(key_reqs.at(static_cast<std::size_t>(i)));
+        ret.push_back(key_reqs.at(safe_cast<std::size_t>(i)));
     }
     return ret;
 }

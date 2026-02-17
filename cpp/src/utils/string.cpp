@@ -226,7 +226,7 @@ std::int64_t parse_nbytes(std::string_view text) {
             }
 
             double const base = is_iec ? 1024.0 : 1000.0;
-            multiplier = std::pow(base, static_cast<int>(pos) + 1);
+            multiplier = std::pow(base, safe_cast<int>(pos) + 1);
         }
     }
 
@@ -255,15 +255,15 @@ std::size_t parse_nbytes_unsigned(std::string_view text) {
     }
 
     // Check against size_t range explicitly (important on 32-bit platforms).
-    if (static_cast<std::uint64_t>(value)
-        > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+    if (safe_cast<std::uint64_t>(value)
+        > safe_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
     {
         throw std::out_of_range(
             "value out of range for size_t: '" + std::string(text) + "'"
         );
     }
 
-    return static_cast<std::size_t>(value);
+    return safe_cast<std::size_t>(value);
 }
 
 std::size_t parse_nbytes_or_percent(std::string_view text, double total_bytes) {
