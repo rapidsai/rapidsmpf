@@ -304,8 +304,8 @@ Node read_parquet(
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
-    auto size = static_cast<std::size_t>(ctx->comm()->nranks());
-    auto rank = static_cast<std::size_t>(ctx->comm()->rank());
+    auto const size = safe_cast<std::size_t>(ctx->comm()->nranks());
+    auto const rank = safe_cast<std::size_t>(ctx->comm()->rank());
     auto source = options.get_source();
     RAPIDSMPF_EXPECTS(
         source.type() == cudf::io::io_type::FILEPATH, "Only implemented for file sources"
@@ -346,9 +346,9 @@ Node read_parquet(
         );
     }
     // TODO: Handle case where multiple ranks are reading from a single file.
-    int files_per_rank =
-        static_cast<int>(files.size() / size + (rank < (files.size() % size)));
-    int file_offset = rank * (files.size() / size) + std::min(rank, files.size() % size);
+    auto const files_per_rank =
+        safe_cast<int>(files.size() / size + (rank < (files.size() % size)));
+    auto const file_offset = safe_cast<int>(rank * (files.size() / size) + std::min(rank, files.size() % size));
     auto local_files = std::vector(
         files.begin() + file_offset, files.begin() + file_offset + files_per_rank
     );

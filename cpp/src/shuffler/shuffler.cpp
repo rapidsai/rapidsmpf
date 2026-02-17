@@ -569,10 +569,10 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     // TODO handle spilling
 
     // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
     // reserve space for each group assuming an even distribution of chunks
     for (auto&& group : chunk_groups) {
-        group.reserve(chunks.size() / size_t(comm_->nranks()));
+        group.reserve(chunks.size() / safe_cast<size_t>(comm_->nranks()));
     }
 
     // total size of data staged in all builders
@@ -612,8 +612,8 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             insert(create_chunk(pid, std::move(packed_data)));
         } else {
             // insert this chunk into the builder
-            total_staged_data_ += static_cast<std::int64_t>(packed_data.data->size);
-            chunk_groups[size_t(target_rank)].emplace_back(
+            total_staged_data_ += safe_cast<std::int64_t>(packed_data.data->size);
+            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
                 detail::Chunk::from_packed_data(
                     dummy_chunk_id, pid, std::move(packed_data)
                 )
@@ -656,10 +656,10 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
     }
 
     // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
     // reserve space for each group assuming an even distribution of chunks
     for (auto&& group : chunk_groups) {
-        group.reserve(pids.size() / size_t(comm_->nranks()));
+        group.reserve(pids.size() / safe_cast<size_t>(comm_->nranks()));
     }
 
     // use the dummy chunk ID for intermediate chunks
@@ -674,7 +674,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
                 )
             );
         } else {
-            chunk_groups[size_t(target_rank)].emplace_back(
+            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
                 Chunk::from_finished_partition(
                     dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
                 )

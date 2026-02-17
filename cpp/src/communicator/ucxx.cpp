@@ -357,13 +357,13 @@ class SharedResources {
 
     void barrier() {
         // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_to_endpoint_.size() != static_cast<size_t>(nranks())) {
+        while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<size_t>(nranks())) {
             progress_worker();
         }
 
         if (rank_ == 0) {
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
-            requests.reserve(static_cast<size_t>(nranks() - 1));
+            requests.reserve(safe_cast<size_t>(nranks() - 1));
             // send to all other ranks
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {

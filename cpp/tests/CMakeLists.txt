@@ -84,6 +84,7 @@ target_sources(
           test_error_macros.cpp
           test_host_buffer.cpp
           test_metadata_payload_exchange.cpp
+          test_misc.cpp
           test_partition.cpp
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
