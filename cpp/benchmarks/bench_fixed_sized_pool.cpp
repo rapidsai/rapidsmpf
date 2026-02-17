@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -234,7 +235,8 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
     std::size_t fixed_buffer_size,
     rmm::device_async_resource_ref table_mr,
     rmm::device_async_resource_ref pack_mr,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    bool shuffle_blocks = false
 ) {
     auto table = make_random_table_for_size(table_size, stream, table_mr);
 
@@ -253,6 +255,11 @@ void run_chunked_pack_with_fixed_sized_pool_batch_async(
     // Allocate fixed sized host buffers for the destination
     auto fixed_host_buffers =
         host_mr.allocate_multiple_blocks(n_buffers * fixed_buffer_size);
+
+    // Shuffle blocks to avoid sequential access patterns
+    if (shuffle_blocks) {
+        std::ranges::shuffle(fixed_host_buffers->get_blocks(), std::mt19937(42));
+    }
 
     // Allocate device bounce buffer
     rmm::device_buffer bounce_buffer(bounce_buffer_size, stream, pack_mr);
@@ -384,6 +391,31 @@ static void BM_ChunkedPack_FixedPool_BatchAsync(benchmark::State& state) {
         stream_obj
     );
 }
+
+/**
+ * @brief Benchmark for chunked pack with fixed sized pool using cudaMemcpyBatchAsync
+ */
+static void BM_ChunkedPack_FixedPool_BatchAsync_Shuffled(benchmark::State& state) {
+    auto const bounce_buffer_mb = static_cast<std::size_t>(state.range(0));
+    auto const bounce_buffer_size = bounce_buffer_mb * MB;
+    auto const fixed_buffer_size = 1 * MB;
+
+    // cudaMemcpyBatchAsync requires a non-legacy stream (not the default NULL stream)
+    rmm::cuda_stream stream_obj;
+    rmm::mr::cuda_async_memory_resource cuda_mr;
+
+    run_chunked_pack_with_fixed_sized_pool_batch_async(
+        state,
+        bounce_buffer_size,
+        table_size_bytes,
+        fixed_buffer_size,
+        cuda_mr,
+        cuda_mr,
+        stream_obj,
+        true
+    );
+}
+
 #endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 
 void run_unpack_pinned_to_device(
@@ -580,6 +612,11 @@ BENCHMARK(BM_ChunkedPack_FixedPool_MemcpyAsync)
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 BENCHMARK(BM_ChunkedPack_FixedPool_BatchAsync)
+    ->Apply(FixedPoolArguments)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_ChunkedPack_FixedPool_BatchAsync_Shuffled)
     ->Apply(FixedPoolArguments)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
