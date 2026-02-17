@@ -111,6 +111,7 @@ std::string PostBox<KeyType>::str() const {
     if (empty()) {
         return "PostBox()";
     }
+    std::lock_guard const lock(mutex_);
     std::stringstream ss;
     ss << "PostBox(";
     for (auto const& [key, chunks] : pigeonhole_) {
