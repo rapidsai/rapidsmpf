@@ -413,11 +413,11 @@ Shuffler::Shuffler(
           [this](PartID pid) -> Rank {
               return this->partition_owner(this->comm_, pid);
           },  // extract Rank from pid
-          static_cast<std::size_t>(comm->nranks())
+          safe_cast<std::size_t>(comm->nranks())
       },
       ready_postbox_{
           [](PartID pid) -> PartID { return pid; },  // identity mapping
-          static_cast<std::size_t>(total_num_partitions),
+          safe_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
@@ -569,10 +569,10 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     // TODO handle spilling
 
     // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
     // reserve space for each group assuming an even distribution of chunks
     for (auto&& group : chunk_groups) {
-        group.reserve(chunks.size() / size_t(comm_->nranks()));
+        group.reserve(chunks.size() / safe_cast<size_t>(comm_->nranks()));
     }
 
     // total size of data staged in all builders
@@ -612,8 +612,8 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             insert(create_chunk(pid, std::move(packed_data)));
         } else {
             // insert this chunk into the builder
-            total_staged_data_ += static_cast<std::int64_t>(packed_data.data->size);
-            chunk_groups[size_t(target_rank)].emplace_back(
+            total_staged_data_ += safe_cast<std::int64_t>(packed_data.data->size);
+            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
                 detail::Chunk::from_packed_data(
                     dummy_chunk_id, pid, std::move(packed_data)
                 )
@@ -656,10 +656,10 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
     }
 
     // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
     // reserve space for each group assuming an even distribution of chunks
     for (auto&& group : chunk_groups) {
-        group.reserve(pids.size() / size_t(comm_->nranks()));
+        group.reserve(pids.size() / safe_cast<size_t>(comm_->nranks()));
     }
 
     // use the dummy chunk ID for intermediate chunks
@@ -674,7 +674,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
                 )
             );
         } else {
-            chunk_groups[size_t(target_rank)].emplace_back(
+            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
                 Chunk::from_finished_partition(
                     dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
                 )
@@ -733,7 +733,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0) {
-            spill_need = static_cast<std::size_t>(std::abs(headroom));
+            spill_need = safe_cast<std::size_t>(std::abs(headroom));
         }
     }
     std::size_t spilled{0};
@@ -748,7 +748,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the last 38 bits (supports 256G chunks).
     std::uint64_t lower = ++chunk_id_counter_;
     // and place the rank in the first 26 bits (supports 64M ranks).
-    auto upper = static_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
+    auto upper = safe_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
     return upper | lower;
 }
 

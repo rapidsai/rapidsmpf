@@ -62,7 +62,7 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
         // copy the metadata to the new chunk
         uint32_t meta_slice_size = metadata_size(i);
         std::ptrdiff_t meta_slice_offset =
-            (i == 0 ? 0 : std::ptrdiff_t(meta_offsets_[i - 1]));
+            (i == 0 ? 0 : safe_cast<std::ptrdiff_t>(meta_offsets_[i - 1]));
         std::vector<uint8_t> meta_slice(meta_slice_size);
         std::memcpy(
             meta_slice.data(), metadata_->data() + meta_slice_offset, meta_slice_size
@@ -75,7 +75,7 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
             data_slice = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
         } else {
             std::ptrdiff_t data_slice_offset =
-                (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
+                (i == 0 ? 0 : safe_cast<std::ptrdiff_t>(data_offsets_[i - 1]));
             data_slice =
                 br->allocate(stream, br->reserve_or_fail(data_slice_size, MEMORY_TYPES));
             buffer_copy(
@@ -108,7 +108,7 @@ Chunk Chunk::from_packed_data(
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
-        {static_cast<uint32_t>(packed_data.metadata->size())},
+        {safe_cast<uint32_t>(packed_data.metadata->size())},
         {packed_data.data->size},
         std::move(packed_data.metadata),
         std::move(packed_data.data),
@@ -156,7 +156,7 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     offset += n_messages * sizeof(uint64_t);
 
     auto concat_metadata = std::make_unique<std::vector<uint8_t>>(
-        msg.begin() + static_cast<int64_t>(offset), msg.end()
+        msg.begin() + safe_cast<int64_t>(offset), msg.end()
     );
 
     return {

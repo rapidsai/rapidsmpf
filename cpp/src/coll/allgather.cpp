@@ -31,7 +31,16 @@ Chunk::Chunk(
       metadata_{std::move(metadata)},
       data_{std::move(data)},
       data_size_{data_ ? data_->size : 0} {
-    RAPIDSMPF_EXPECTS(metadata_ && data_, "Non-finish chunk must have metadata and data");
+    RAPIDSMPF_EXPECTS(
+        (metadata_ == nullptr) == (data_ == nullptr),
+        "One of metadata or data is nullptr, but both should be valid pointers",
+        std::logic_error
+    );
+    RAPIDSMPF_EXPECTS(
+        metadata_ && data_,
+        "Non-finish chunk must have metadata and data",
+        std::invalid_argument
+    );
 }
 
 Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
@@ -359,7 +368,7 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
         spill_need = amount.value();
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        spill_need = headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
+        spill_need = headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
     }
     std::size_t spilled{0};
     if (spill_need > 0) {

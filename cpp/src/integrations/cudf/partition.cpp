@@ -43,7 +43,7 @@ partition_and_split(
         auto owner = std::make_unique<cudf::table>(table, stream, br->device_mr());
         return {
             std::vector<cudf::table_view>(
-                static_cast<std::size_t>(num_partitions), owner->view()
+                safe_cast<std::size_t>(num_partitions), owner->view()
             ),
             std::move(owner)
         };
@@ -93,9 +93,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     RAPIDSMPF_EXPECTS(num_partitions > 0, "Need to split to at least one partition");
     if (table.num_rows() == 0) {
-        auto splits = std::vector<cudf::size_type>(
-            static_cast<std::uint64_t>(num_partitions - 1), 0
-        );
+        auto splits =
+            std::vector<cudf::size_type>(safe_cast<std::uint64_t>(num_partitions - 1), 0);
         return split_and_pack(table, splits, stream, br, statistics, allow_overbooking);
     }
 
@@ -140,7 +139,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     reservation.clear();
 
-    for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
+    for (shuffler::PartID i = 0; safe_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
             i,
