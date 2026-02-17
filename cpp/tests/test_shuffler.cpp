@@ -507,15 +507,14 @@ class ShuffleInsertGroupedTest
 
             auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
             for (auto& [cid, chunk] : chunks) {
-                for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                    outbound_chunks[chunk.part_id(i)]++;
-                    if (chunk.is_control_message(i)) {
-                        n_control_messages++;
-                    } else {
-                        n_data_messages++;
-                        n_total_data_size += chunk.data_size(i);
-                        n_total_metadata_size += chunk.metadata_size(i);
-                    }
+                // Single-message chunk
+                outbound_chunks[chunk.part_id(0)]++;
+                if (chunk.is_control_message(0)) {
+                    n_control_messages++;
+                } else {
+                    n_data_messages++;
+                    n_total_data_size += chunk.data_size(0);
+                    n_total_metadata_size += chunk.metadata_size(0);
                 }
             }
         }
@@ -531,14 +530,13 @@ class ShuffleInsertGroupedTest
                 outbound_chunks[pid]++;
                 n_control_messages++;
                 for (auto& [cid, chunk] : local_chunks) {
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        outbound_chunks[chunk.part_id(i)]++;
+                    // Single-message chunk
+                    outbound_chunks[chunk.part_id(0)]++;
 
-                        ASSERT_FALSE(chunk.is_control_message(i));
-                        n_data_messages++;
-                        n_total_data_size += chunk.data_size(i);
-                        n_total_metadata_size += chunk.metadata_size(i);
-                    }
+                    ASSERT_FALSE(chunk.is_control_message(0));
+                    n_data_messages++;
+                    n_total_data_size += chunk.data_size(0);
+                    n_total_metadata_size += chunk.metadata_size(0);
                 }
             }
         }

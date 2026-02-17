@@ -256,17 +256,11 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
 
 std::string Chunk::str() const {
     std::stringstream ss;
-    ss << "Chunk(id=" << chunk_id() << ", n=" << n_messages() << ", ";
-
-    // Add message details
-    for (size_t i = 0; i < n_messages(); ++i) {
-        ss << "msg[" << i << "]={";
-        ss << "part_id=" << part_ids_[i];
-        ss << ", expected_num_chunks=" << expected_num_chunks_[i];
-        ss << ", metadata_size=" << (meta_offsets_.empty() ? 0 : meta_offsets_[i]);
-        ss << ", data_size=" << (data_offsets_.empty() ? 0 : data_offsets_[i]);
-        ss << "},";
-    }
+    ss << "Chunk(id=" << chunk_id();
+    ss << ", part_id=" << part_ids_[0];
+    ss << ", expected_num_chunks=" << expected_num_chunks_[0];
+    ss << ", metadata_size=" << (meta_offsets_.empty() ? 0 : meta_offsets_[0]);
+    ss << ", data_size=" << (data_offsets_.empty() ? 0 : data_offsets_[0]);
     ss << ")";
     return ss.str();
 }

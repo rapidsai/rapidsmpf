@@ -256,15 +256,9 @@ class Shuffler::Progress {
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
-                    // iterate over all messages in the chunk
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        // ready postbox uniquely identifies chunks by their [partition
-                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
-                        // copy because the partition IDs are unique within a chunk.
-                        auto chunk_copy =
-                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_);
-                        shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
-                    }
+                    // Single-message chunk - get the data and insert into ready postbox
+                    auto chunk_copy = chunk.get_data(chunk.chunk_id(), 0, shuffler_.br_);
+                    shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
             }
 
@@ -328,14 +322,10 @@ class Shuffler::Progress {
                         shuffler_.comm_->release_data(std::move(future))
                     );
 
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        // ready postbox uniquely identifies chunks by their [partition
-                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
-                        // copy because the partition IDs are unique within a chunk.
-                        shuffler_.insert_into_ready_postbox(
-                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_)
-                        );
-                    }
+                    // Single-message chunk - get the data and insert into ready postbox
+                    shuffler_.insert_into_ready_postbox(
+                        chunk.get_data(chunk.chunk_id(), 0, shuffler_.br_)
+                    );
                 }
             }
 
@@ -491,11 +481,8 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
 void Shuffler::insert(detail::Chunk&& chunk) {
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        // There are multiple partitions in the chunk. So, increment the counter for
-        // each partition.
-        for (size_t i = 0; i < chunk.n_messages(); ++i) {
-            ++outbound_chunk_counter_[chunk.part_id(i)];
-        }
+        // Single-message chunk - increment counter for the one partition
+        ++outbound_chunk_counter_[chunk.part_id(0)];
     }
 
     Rank p0_target_rank = partition_owner(comm_, chunk.part_id(0));
@@ -508,14 +495,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         insert_into_ready_postbox(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to insert it into the outgoing postbox
-        // all messages in the chunk must map to the same key (rank)
-        for (size_t i = 1; i < chunk.n_messages(); ++i) {
-            RAPIDSMPF_EXPECTS(
-                partition_owner(comm_, chunk.part_id(i)) == p0_target_rank,
-                "chunk contains messages targeting different ranks"
-            );
-        }
-
         outgoing_postbox_.insert(std::move(chunk));
     }
 }

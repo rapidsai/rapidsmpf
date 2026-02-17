@@ -14,14 +14,8 @@ namespace rapidsmpf::shuffler::detail {
 
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
-    // check if all partition IDs in the chunk map to the same key
+    // Single-message chunks only - get the key for the one partition
     KeyType key = key_map_fn_(chunk.part_id(0));
-    for (size_t i = 1; i < chunk.n_messages(); ++i) {
-        RAPIDSMPF_EXPECTS(
-            key == key_map_fn_(chunk.part_id(i)),
-            "PostBox.insert(): all messages in the chunk must map to the same key"
-        );
-    }
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
