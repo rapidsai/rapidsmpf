@@ -297,11 +297,10 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
  * @throws std::overflow_error if the value cannot be represented in the destination type.
  */
 template <typename To, typename From>
+  requires std::is_arithmetic_v<To> && std::is_arithmetic_v<From>
 constexpr To safe_cast(
     From value, std::source_location const& loc = std::source_location::current()
 ) {
-    static_assert(std::is_arithmetic_v<From>, "From must be an arithmetic type");
-    static_assert(std::is_arithmetic_v<To>, "To must be an arithmetic type");
 
     if constexpr (std::is_same_v<From, To>) {
         // Same type, no-op.
