@@ -208,6 +208,13 @@ class MPI final : public Communicator {
             future_map
     ) override;
 
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) override;
+
     /**
      * @copydoc Communicator::wait
      */

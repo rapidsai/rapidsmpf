@@ -547,6 +547,25 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Test for completion of a single future.
+     *
+     * @param future Future to test
+     * @return True if the future is completed. After `test` returns true, it is safe to
+     * call `release_data()`.
+     */
+    [[nodiscard]] virtual bool test(std::unique_ptr<Communicator::Future>& future) = 0;
+
+    /**
+     * @brief Wait for completion of all futures and return their data buffers.
+     *
+     * @param futures Futures to wait for completion of, consumed.
+     * @return A vector of the contained data buffers.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) = 0;
+
+    /**
      * @brief Wait for a future to complete and return the data buffer.
      *
      * @param future The future to wait for completion of.

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -143,6 +143,13 @@ class Single final : public Communicator {
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) override;
+
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
     ) override;
 
     /**

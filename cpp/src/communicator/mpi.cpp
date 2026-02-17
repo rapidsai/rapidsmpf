@@ -317,6 +317,35 @@ std::vector<std::size_t> MPI::test_some(
     return ret;
 }
 
+bool MPI::test(std::unique_ptr<Communicator::Future>& future) {
+    auto mpi_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+    int flag{0};
+    RAPIDSMPF_MPI(MPI_Test(&mpi_future->req_, &flag, MPI_STATUS_IGNORE));
+    return flag != 0;
+}
+
+std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<MPI_Request> reqs;
+    reqs.reserve(futures.size());
+    for (auto const& future : futures) {
+        auto mpi_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+        reqs.push_back(mpi_future->req_);
+    }
+    RAPIDSMPF_MPI(
+        MPI_Waitall(static_cast<int>(reqs.size()), reqs.data(), MPI_STATUSES_IGNORE)
+    );
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    for (auto&& future : futures) {
+        result.push_back(release_data(std::move(future)));
+    }
+    return result;
+}
+
 std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
