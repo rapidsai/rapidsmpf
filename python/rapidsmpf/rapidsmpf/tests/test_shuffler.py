@@ -65,7 +65,6 @@ def test_shuffler_single_nonempty_partition(
 
     my_partitions = shuffler.local_partitions()
     expected_partitions = set(my_partitions)
-    shuffler.insert_finished(list(range(total_num_partitions)))
 
     local_outputs = []
     extracted_partitions = set()
