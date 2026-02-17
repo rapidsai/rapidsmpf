@@ -507,7 +507,6 @@ class ShuffleInsertGroupedTest
 
             auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
             for (auto& [cid, chunk] : chunks) {
-                // Single-message chunk
                 outbound_chunks[chunk.part_id()]++;
                 if (chunk.is_control_message()) {
                     n_control_messages++;
@@ -530,7 +529,6 @@ class ShuffleInsertGroupedTest
                 outbound_chunks[pid]++;
                 n_control_messages++;
                 for (auto& [cid, chunk] : local_chunks) {
-                    // Single-message chunk
                     outbound_chunks[chunk.part_id()]++;
 
                     ASSERT_FALSE(chunk.is_control_message());

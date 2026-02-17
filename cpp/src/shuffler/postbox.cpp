@@ -14,7 +14,6 @@ namespace rapidsmpf::shuffler::detail {
 
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
-    // Single-message chunks only - get the key for the one partition
     KeyType key = key_map_fn_(chunk.part_id());
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(

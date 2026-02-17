@@ -256,7 +256,6 @@ class Shuffler::Progress {
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
-                    // Single-message chunk - get the data and insert into ready postbox
                     auto chunk_copy = chunk.get_data(chunk.chunk_id(), shuffler_.br_);
                     shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
@@ -322,7 +321,6 @@ class Shuffler::Progress {
                         shuffler_.comm_->release_data(std::move(future))
                     );
 
-                    // Single-message chunk - get the data and insert into ready postbox
                     shuffler_.insert_into_ready_postbox(
                         chunk.get_data(chunk.chunk_id(), shuffler_.br_)
                     );
@@ -476,7 +474,6 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
 void Shuffler::insert(detail::Chunk&& chunk) {
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        // Single-message chunk - increment counter for the one partition
         ++outbound_chunk_counter_[chunk.part_id()];
     }
 

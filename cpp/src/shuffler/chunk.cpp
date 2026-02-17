@@ -38,7 +38,6 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
     }
     auto stream = br->stream_pool().get_stream();
 
-    // Single-message chunk - move the metadata and data to the new chunk
     return Chunk(
         new_chunk_id,
         part_id_,
