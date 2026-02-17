@@ -69,21 +69,15 @@ def test_shuffler_single_nonempty_partition(
 
     my_partitions = shuffler.local_partitions()
     expected_partitions = set(my_partitions)
-    if concat:
-        shuffler.insert_finished(list(range(total_num_partitions)))
-    else:
-        for pid in range(total_num_partitions):
-            shuffler.insert_finished(pid)
+    shuffler.insert_finished(list(range(total_num_partitions)))
 
     local_outputs = []
     extracted_partitions = set()
     while not shuffler.finished():
         if wait_on:
-            # Wait on a specific partition id
             partition_id = my_partitions.pop()
             shuffler.wait_on(partition_id)
         else:
-            # Wait on any partition id
             partition_id = shuffler.wait_any()
         extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
@@ -133,7 +127,6 @@ def test_shuffler_uniform(
     columns_to_hash = (df.columns.get_loc("b"),)
     column_names = list(df.columns)
 
-    # Calculate the expected output partitions on all ranks
     expected = {
         partition_id: pylibcudf_to_cudf_dataframe(
             unpack_and_concat(
@@ -154,7 +147,6 @@ def test_shuffler_uniform(
 
     progress_thread = ProgressThread(comm)
 
-    # Create shuffler
     shuffler = Shuffler(
         comm,
         progress_thread,
@@ -181,14 +173,8 @@ def test_shuffler_uniform(
         else:
             shuffler.insert_chunks(packed_inputs)
 
-    # Tell shuffler we are done adding data
-    if concat:
-        shuffler.insert_finished(list(range(total_num_partitions)))
-    else:
-        for pid in range(total_num_partitions):
-            shuffler.insert_finished(pid)
+    shuffler.insert_finished(list(range(total_num_partitions)))
 
-    # Extract and check shuffled partitions
     expected_partitions = set(shuffler.local_partitions())
     extracted_partitions = set()
     while not shuffler.finished():
