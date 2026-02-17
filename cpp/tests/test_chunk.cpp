@@ -42,11 +42,11 @@ TEST_F(ChunkTest, FromFinishedPartition) {
     auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
         EXPECT_EQ(chunk.n_messages(), 1);
-        EXPECT_EQ(chunk.part_id(0), part_id);
-        EXPECT_EQ(chunk.expected_num_chunks(0), expected_num_chunks);
-        EXPECT_TRUE(chunk.is_control_message(0));
-        EXPECT_EQ(chunk.metadata_size(0), 0);
-        EXPECT_EQ(chunk.data_size(0), 0);
+        EXPECT_EQ(chunk.part_id(), part_id);
+        EXPECT_EQ(chunk.expected_num_chunks(), expected_num_chunks);
+        EXPECT_TRUE(chunk.is_control_message());
+        EXPECT_EQ(chunk.metadata_size(), 0);
+        EXPECT_EQ(chunk.data_size(), 0);
     };
 
     auto chunk = Chunk::from_finished_partition(chunk_id, part_id, expected_num_chunks);
@@ -56,7 +56,7 @@ TEST_F(ChunkTest, FromFinishedPartition) {
     auto chunk2 = Chunk::deserialize(*msg, true);
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, br.get());
+    auto chunk3 = chunk2.get_data(chunk_id, br.get());
     test_chunk(chunk3);
 }
 
@@ -83,11 +83,11 @@ TEST_F(ChunkTest, FromPackedData) {
     auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
         EXPECT_EQ(chunk.n_messages(), 1);
-        EXPECT_EQ(chunk.part_id(0), part_id);
-        EXPECT_EQ(chunk.expected_num_chunks(0), 0);
-        EXPECT_FALSE(chunk.is_control_message(0));
-        EXPECT_EQ(chunk.metadata_size(0), 4);
-        EXPECT_EQ(chunk.data_size(0), 4);
+        EXPECT_EQ(chunk.part_id(), part_id);
+        EXPECT_EQ(chunk.expected_num_chunks(), 0);
+        EXPECT_FALSE(chunk.is_control_message());
+        EXPECT_EQ(chunk.metadata_size(), 4);
+        EXPECT_EQ(chunk.data_size(), 4);
     };
 
     // no need of an event because cuda buffer copy is synchronous
@@ -99,6 +99,6 @@ TEST_F(ChunkTest, FromPackedData) {
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, br.get());
+    auto chunk3 = chunk2.get_data(chunk_id, br.get());
     test_chunk(chunk3);
 }

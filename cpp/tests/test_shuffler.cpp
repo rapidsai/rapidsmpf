@@ -52,9 +52,9 @@ TEST(MetadataMessage, round_trip) {
     auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg);
 
     // They should be identical.
-    EXPECT_EQ(expect.part_id(0), result.part_id(0));
+    EXPECT_EQ(expect.part_id(), result.part_id());
     EXPECT_EQ(expect.chunk_id(), result.chunk_id());
-    EXPECT_EQ(expect.expected_num_chunks(0), result.expected_num_chunks(0));
+    EXPECT_EQ(expect.expected_num_chunks(), result.expected_num_chunks());
     EXPECT_EQ(expect.concat_data_size(), result.concat_data_size());
     EXPECT_EQ(expect.concat_metadata_size(), result.concat_metadata_size());
 
@@ -508,13 +508,13 @@ class ShuffleInsertGroupedTest
             auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
             for (auto& [cid, chunk] : chunks) {
                 // Single-message chunk
-                outbound_chunks[chunk.part_id(0)]++;
-                if (chunk.is_control_message(0)) {
+                outbound_chunks[chunk.part_id()]++;
+                if (chunk.is_control_message()) {
                     n_control_messages++;
                 } else {
                     n_data_messages++;
-                    n_total_data_size += chunk.data_size(0);
-                    n_total_metadata_size += chunk.metadata_size(0);
+                    n_total_data_size += chunk.data_size();
+                    n_total_metadata_size += chunk.metadata_size();
                 }
             }
         }
@@ -531,12 +531,12 @@ class ShuffleInsertGroupedTest
                 n_control_messages++;
                 for (auto& [cid, chunk] : local_chunks) {
                     // Single-message chunk
-                    outbound_chunks[chunk.part_id(0)]++;
+                    outbound_chunks[chunk.part_id()]++;
 
-                    ASSERT_FALSE(chunk.is_control_message(0));
+                    ASSERT_FALSE(chunk.is_control_message());
                     n_data_messages++;
-                    n_total_data_size += chunk.data_size(0);
-                    n_total_metadata_size += chunk.metadata_size(0);
+                    n_total_data_size += chunk.data_size();
+                    n_total_metadata_size += chunk.metadata_size();
                 }
             }
         }

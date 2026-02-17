@@ -15,7 +15,7 @@ namespace rapidsmpf::shuffler::detail {
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
     // Single-message chunks only - get the key for the one partition
-    KeyType key = key_map_fn_(chunk.part_id(0));
+    KeyType key = key_map_fn_(chunk.part_id());
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
@@ -92,7 +92,7 @@ std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {
-            if (!chunk.is_control_message(0) && chunk.data_memory_type() == mem_type) {
+            if (!chunk.is_control_message() && chunk.data_memory_type() == mem_type) {
                 ret.emplace_back(key, cid, chunk.concat_data_size());
             }
         }
@@ -111,8 +111,8 @@ std::string PostBox<KeyType>::str() const {
         ss << "k=" << key << ": [";
         for (auto const& [cid, chunk] : chunks) {
             assert(cid == chunk.chunk_id());
-            if (chunk.is_control_message(0)) {
-                ss << "EOP" << chunk.expected_num_chunks(0) << ", ";
+            if (chunk.is_control_message()) {
+                ss << "EOP" << chunk.expected_num_chunks() << ", ";
             } else {
                 ss << cid << ", ";
             }

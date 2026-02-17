@@ -39,67 +39,25 @@ Chunk::Chunk(
     RAPIDSMPF_EXPECTS(part_ids_.size() == 1, "multi-message chunks are not supported");
 }
 
-Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
+Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
     RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-    RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
-    RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
 
-    if (is_control_message(i)) {
-        return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
+    if (is_control_message()) {
+        return from_finished_partition(new_chunk_id, part_id(), expected_num_chunks());
     }
     auto stream = br->stream_pool().get_stream();
 
-    if (n_messages() == 1) {
-        // If there is only one message, move the metadata and data to the new chunk.
-        return Chunk(
-            new_chunk_id,
-            {part_ids_[0]},
-            {expected_num_chunks_[0]},
-            {meta_offsets_[0]},
-            {data_offsets_[0]},
-            std::move(metadata_),
-            data_ ? std::move(data_)
-                  : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
-        );
-    } else {
-        // copy the metadata to the new chunk
-        uint32_t meta_slice_size = metadata_size(i);
-        std::ptrdiff_t meta_slice_offset =
-            (i == 0 ? 0 : std::ptrdiff_t(meta_offsets_[i - 1]));
-        std::vector<uint8_t> meta_slice(meta_slice_size);
-        std::memcpy(
-            meta_slice.data(), metadata_->data() + meta_slice_offset, meta_slice_size
-        );
-
-        // copy the data to the new chunk
-        size_t data_slice_size = data_size(i);
-        std::unique_ptr<Buffer> data_slice;
-        if (data_slice_size == 0) {
-            data_slice = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
-        } else {
-            std::ptrdiff_t data_slice_offset =
-                (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-            data_slice =
-                br->allocate(stream, br->reserve_or_fail(data_slice_size, MEMORY_TYPES));
-            buffer_copy(
-                *data_slice,
-                *data_,
-                data_slice_size,
-                0,  // dst_offset
-                data_slice_offset  // src_offset
-            );
-        }
-
-        return {
-            new_chunk_id,
-            {part_ids_[i]},
-            {0},
-            {meta_slice_size},
-            {data_slice_size},
-            std::make_unique<std::vector<uint8_t>>(std::move(meta_slice)),
-            std::move(data_slice)
-        };
-    }
+    // Single-message chunk - move the metadata and data to the new chunk
+    return Chunk(
+        new_chunk_id,
+        {part_ids_[0]},
+        {expected_num_chunks_[0]},
+        {meta_offsets_[0]},
+        {data_offsets_[0]},
+        std::move(metadata_),
+        data_ ? std::move(data_)
+              : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
+    );
 }
 
 Chunk Chunk::from_packed_data(

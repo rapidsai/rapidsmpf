@@ -120,7 +120,7 @@ class Shuffler::Progress {
                 // All messages in the chunk maps to the same key (checked by the PostBox)
                 // thus we can use the partition ID of the first message in the chunk to
                 // determine the source rank of all of them.
-                auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
+                auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id());
                 log.trace("send metadata to ", dst, ": ", chunk);
                 RAPIDSMPF_EXPECTS(
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
@@ -167,7 +167,7 @@ class Shuffler::Progress {
                     // PostBox) thus we can use the partition ID of the first message in
                     // the chunk to determine the source rank of all of them.
                     RAPIDSMPF_EXPECTS(
-                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
+                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id())
                             == shuffler_.comm_->rank(),
                         "receiving chunk not owned by us"
                     );
@@ -257,7 +257,7 @@ class Shuffler::Progress {
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
                     // Single-message chunk - get the data and insert into ready postbox
-                    auto chunk_copy = chunk.get_data(chunk.chunk_id(), 0, shuffler_.br_);
+                    auto chunk_copy = chunk.get_data(chunk.chunk_id(), shuffler_.br_);
                     shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
             }
@@ -324,7 +324,7 @@ class Shuffler::Progress {
 
                     // Single-message chunk - get the data and insert into ready postbox
                     shuffler_.insert_into_ready_postbox(
-                        chunk.get_data(chunk.chunk_id(), 0, shuffler_.br_)
+                        chunk.get_data(chunk.chunk_id(), shuffler_.br_)
                     );
                 }
             }
@@ -469,9 +469,9 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
         chunk.n_messages() == 1, "inserting into ready_postbox with multiple messages"
     );
 
-    auto pid = chunk.part_id(0);
-    if (chunk.is_control_message(0)) {
-        finish_counter_.move_goalpost(pid, chunk.expected_num_chunks(0));
+    auto pid = chunk.part_id();
+    if (chunk.is_control_message()) {
+        finish_counter_.move_goalpost(pid, chunk.expected_num_chunks());
     } else {
         ready_postbox_.insert(std::move(chunk));
     }
@@ -482,10 +482,10 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
         // Single-message chunk - increment counter for the one partition
-        ++outbound_chunk_counter_[chunk.part_id(0)];
+        ++outbound_chunk_counter_[chunk.part_id()];
     }
 
-    Rank p0_target_rank = partition_owner(comm_, chunk.part_id(0));
+    Rank p0_target_rank = partition_owner(comm_, chunk.part_id());
     if (p0_target_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
         if (chunk.is_data_buffer_set()) {

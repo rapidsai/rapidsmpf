@@ -111,89 +111,72 @@ class Chunk {
     }
 
     /**
-     * @brief Partition ID of the i-th message.
+     * @brief Partition ID of the message.
      *
-     * @param i The index of the message.
      * @return The ID of the partition.
      */
-    [[nodiscard]] constexpr PartID part_id(size_t i) const {
+    [[nodiscard]] constexpr PartID part_id() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
-        return part_ids_.at(i);
+        return part_ids_.at(0);
     }
 
     /**
-     * @brief The expected number of chunks of the i-th message.
+     * @brief The expected number of chunks for the message.
      *
-     * @param i The index of the message.
      * @return The expected number of chunks for the message. Non-zero when the message
      * is a control message, otherwise zero (data message).
      */
-    [[nodiscard]] constexpr size_t expected_num_chunks(size_t i) const {
+    [[nodiscard]] constexpr size_t expected_num_chunks() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
-        return expected_num_chunks_.at(i);
+        return expected_num_chunks_.at(0);
     }
 
     /**
-     * @brief Whether the i-th message is a control message.
+     * @brief Whether the message is a control message.
      *
-     * @param i The index of the message.
      * @return True if the message is a control message, false otherwise.
      */
-    [[nodiscard]] constexpr bool is_control_message(size_t i) const {
+    [[nodiscard]] constexpr bool is_control_message() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
-        return expected_num_chunks(i) > 0;
+        return expected_num_chunks() > 0;
     }
 
     /**
-     * @brief Get the data of the i-th message, as a new chunk.
+     * @brief Get the data of the message, as a new chunk.
      *
      * @param new_chunk_id The ID of the new chunk.
-     * @param i The index of the message.
      * @param br The buffer resource to use for copying the data.
-     * @return A new chunk containing the data of the i-th message.
+     * @return A new chunk containing the data of the message.
      *
      * @note This will create a copy of the packed data using a new stream from
-     * `br->stream_pool()`. If there is only one message and the message is a data
-     * message, the buffers will be moved to the new chunk. Otherwise a new chunk will be
-     * created by copying data. If the i'th message is,
-     *  - control message, the metadata and data buffers will be nullptr, else if
-     *  - data message, both metadata and data buffers will be non-null (for a
-     *    metadata-only message, the data buffer will be an empty HOST buffer)
-     *
-     * @throws std::out_of_range if the index is out of bounds.
+     * `br->stream_pool()`. If the message is a data message, the buffers will be moved
+     * to the new chunk. If the message is a control message, the metadata and data
+     * buffers will be nullptr. For a metadata-only message, the data buffer will be an
+     * empty HOST buffer.
      */
-    Chunk get_data(ChunkID new_chunk_id, size_t i, BufferResource* br);
+    Chunk get_data(ChunkID new_chunk_id, BufferResource* br);
 
     /**
-     * @brief Get the size of the metadata of the i-th message.
+     * @brief Get the size of the metadata of the message.
      *
-     * @param i The index of the message.
      * @return The size of the metadata of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::metadata`.
      */
-    [[nodiscard]] constexpr uint32_t metadata_size(size_t i) const {
+    [[nodiscard]] constexpr uint32_t metadata_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
-        return i == 0 ? meta_offsets_.at(0)
-                      : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
+        return meta_offsets_.at(0);
     }
 
     /**
-     * @brief Get the size of the packed data of the i-th message.
+     * @brief Get the size of the packed data of the message.
      *
-     * @param i The index of the message.
      * @return The size of the packed data of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::data` of the message.
      */
-    [[nodiscard]] constexpr size_t data_size(size_t i) const {
+    [[nodiscard]] constexpr size_t data_size() const {
         RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        RAPIDSMPF_EXPECTS(i == 0, "index must be 0 for single-message chunks");
-        return i == 0 ? data_offsets_.at(0)
-                      : data_offsets_.at(i) - data_offsets_.at(i - 1);
+        return data_offsets_.at(0);
     }
 
     /**
