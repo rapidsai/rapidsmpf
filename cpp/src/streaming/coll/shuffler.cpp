@@ -148,7 +148,7 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Node ShufflerAsync::insert_finished() {
+Actor ShufflerAsync::insert_finished() {
     std::vector<shuffler::PartID> pids(total_num_partitions());
     std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
     shuffler_.insert_finished(std::move(pids));
@@ -220,7 +220,7 @@ ShufflerAsync::extract_any_async() {
     co_return std::nullopt;
 }
 
-Node ShufflerAsync::finished_drain() {
+Actor ShufflerAsync::finished_drain() {
     // Wait for all notifications to have fired.
     co_await latch_;
 
@@ -237,9 +237,9 @@ Node ShufflerAsync::finished_drain() {
     co_await semaphore_.shutdown();
 }
 
-namespace node {
+namespace actor {
 
-Node shuffler(
+Actor shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -279,5 +279,5 @@ Node shuffler(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

@@ -74,7 +74,7 @@ class MemoryReserveOrWait {
      * @return A coroutine that completes only after all pending requests have been
      * cancelled and the periodic memory check task has exited.
      */
-    Node shutdown();
+    Actor shutdown();
 
     /**
      * @brief Attempts to reserve memory or waits until progress can be made.
@@ -325,7 +325,7 @@ class MemoryReserveOrWait {
  * `allow_overbooking` resolves to `AllowOverbooking::NO`.
  *
  * @code{.cpp}
- * // Reserve memory inside a node:
+ * // Reserve memory inside an actor:
  * auto res = co_await reserve_memory(
  *     ctx,
  *     1024,

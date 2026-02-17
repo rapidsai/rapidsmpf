@@ -16,7 +16,7 @@ from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_con
 from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
+from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.partition import (
     partition_and_pack,
     unpack_and_concat as streaming_unpack_and_concat,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     )
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppNode, PyNode
+    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
@@ -107,7 +107,7 @@ def test_single_rank_shuffler(
     nodes.append(pull_node)
 
     # Run all nodes. This blocks until every node has completed.
-    run_streaming_pipeline(nodes=nodes)
+    run_actor_graph(nodes=nodes)
 
     # Unwrap the messages into table chunks.
     output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
@@ -123,7 +123,7 @@ def test_single_rank_shuffler(
     assert_eq(result, df, sort_rows="idx")
 
 
-@define_py_node()
+@define_py_actor()
 async def generate_inputs(
     context: Context, ch: Channel[TableChunk], num_rows: int, num_chunks: int
 ) -> None:
@@ -143,7 +143,7 @@ async def generate_inputs(
     await ch.drain(context)
 
 
-@define_py_node()
+@define_py_actor()
 async def do_shuffle(
     context: Context,
     ch_in: Channel[TableChunk],
@@ -194,7 +194,7 @@ def test_shuffler_object_interface(
     py_executor: ThreadPoolExecutor,
     use_extract_any: bool,  # noqa: FBT001
 ) -> None:
-    nodes: list[CppNode | PyNode] = []
+    nodes: list[CppActor | PyActor] = []
 
     num_partitions = 5
     num_rows = 100
@@ -216,7 +216,7 @@ def test_shuffler_object_interface(
     node, deferred = pull_from_channel(context, ch_shuffled)
     nodes.append(node)
 
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(nodes=nodes, py_executor=py_executor)
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5

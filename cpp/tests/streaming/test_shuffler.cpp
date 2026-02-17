@@ -27,7 +27,7 @@
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
+namespace actor = rapidsmpf::streaming::actor;
 
 class BaseStreamingShuffle : public BaseStreamingFixture {};
 
@@ -79,13 +79,13 @@ class StreamingShuffler : public BaseStreamingShuffle,
         // Create and run the streaming pipeline.
         std::vector<Message> output_chunks;
         {
-            std::vector<Node> nodes;
+            std::vector<Actor> nodes;
             auto ch1 = ctx->create_channel();
-            nodes.push_back(node::push_to_channel(ctx, ch1, std::move(input_chunks)));
+            nodes.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
 
             auto ch2 = ctx->create_channel();
             nodes.push_back(
-                node::partition_and_pack(
+                actor::partition_and_pack(
                     ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
                 )
             );
@@ -94,11 +94,11 @@ class StreamingShuffler : public BaseStreamingShuffle,
             nodes.emplace_back(make_shuffler_node_fn(ch2, ch3));
 
             auto ch4 = ctx->create_channel();
-            nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
+            nodes.push_back(actor::unpack_and_concat(ctx, ch3, ch4));
 
-            nodes.push_back(node::pull_from_channel(ctx, ch4, output_chunks));
+            nodes.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
 
-            run_streaming_pipeline(std::move(nodes));
+            run_actor_graph(std::move(nodes));
         }
 
         std::unique_ptr<cudf::table> expected_table;
@@ -150,8 +150,8 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingShuffler, basic_shuffler) {
-    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return node::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Actor {
+        return actor::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
     }));
 }
 
@@ -205,7 +205,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            auto* ctx,
                            std::mutex& mtx,
                            std::vector<shuffler::PartID>& finished_pids,
-                           size_t& n_chunks_received) -> Node {
+                           size_t& n_chunks_received) -> Actor {
         co_await ctx->executor()->schedule();
         ctx->comm()->logger().debug(tid, " extract task started");
 
@@ -236,14 +236,14 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
     size_t n_chunks_received = 0;
-    std::vector<Node> tasks;
+    std::vector<Actor> tasks;
     for (int i = 0; i < n_consumers; ++i) {
         tasks.emplace_back(extract_task(
             i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
         ));
     }
     tasks.push_back(ctx->executor()->schedule(std::move(finish_token)));
-    run_streaming_pipeline(std::move(tasks));
+    run_actor_graph(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin

@@ -227,21 +227,21 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         }
     }();
     auto ch = ctx->create_channel();
-    std::vector<Node> nodes;
+    std::vector<Actor> nodes;
 
-    nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
+    nodes.push_back(actor::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
 
     std::vector<Message> messages;
-    nodes.push_back(node::pull_from_channel(ctx, ch, messages));
+    nodes.push_back(actor::pull_from_channel(ctx, ch, messages));
 
     if (GlobalEnvironment->comm_->nranks() > 1
         && (skip_rows.value_or(0) > 0 || num_rows.has_value()))
     {
         // We don't yet implement skip_rows/num_rows in multi-rank mode
-        EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+        EXPECT_THROW(run_actor_graph(std::move(nodes)), std::logic_error);
         return;
     }
-    run_streaming_pipeline(std::move(nodes));
+    run_actor_graph(std::move(nodes));
 
     coll::AllGather allgather(
         GlobalEnvironment->comm_,

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import cudf
 
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
+from rapidsmpf.streaming.core.node import run_actor_graph
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -59,7 +59,7 @@ def test_partition_and_pack_unpack(
     )
 
     node4, output = pull_from_channel(context, ch_in=ch3)
-    run_streaming_pipeline(nodes=(node1, node2, node3, node4))
+    run_actor_graph(nodes=(node1, node2, node3, node4))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

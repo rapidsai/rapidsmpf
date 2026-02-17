@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import cudf
 
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
+from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -36,7 +36,7 @@ def test_send_table_chunks(
     ch1: Channel[TableChunk] = context.create_channel()
 
     # The node access `ch1` both through the `ch_out` parameter and the closure.
-    @define_py_node(extra_channels=(ch1,))
+    @define_py_actor(extra_channels=(ch1,))
     async def node1(ctx: Context, /, ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
@@ -54,7 +54,7 @@ def test_send_table_chunks(
 
     node2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_streaming_pipeline(
+    run_actor_graph(
         nodes=[
             node1(context, ch_out=ch1),
             node2,
@@ -70,7 +70,7 @@ def test_send_table_chunks(
 
 
 def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node()
+    @define_py_actor()
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         await ch_out.shutdown(ctx)
         # Calling shutdown multiple times is allowed.
@@ -79,7 +79,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     node2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_streaming_pipeline(
+    run_actor_graph(
         nodes=[
             node1(context, ch_out=ch1),
             node2,
@@ -91,7 +91,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
 
 
 def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node()
+    @define_py_actor()
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
@@ -102,7 +102,7 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
         RuntimeError,
         match="MyError",
     ):
-        run_streaming_pipeline(
+        run_actor_graph(
             nodes=[
                 node1(context, ch_out=ch1),
                 node2,
@@ -129,7 +129,7 @@ def test_recv_table_chunks(
 
     results: list[Message[TableChunk]] = []
 
-    @define_py_node()
+    @define_py_actor()
     async def node1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
         while True:
             chunk = await ch_in.recv(context)
@@ -139,7 +139,7 @@ def test_recv_table_chunks(
 
     ch1: Channel[TableChunk] = context.create_channel()
 
-    run_streaming_pipeline(
+    run_actor_graph(
         nodes=[
             push_to_channel(context, ch_out=ch1, messages=table_chunks),
             node1(context, ch_in=ch1),

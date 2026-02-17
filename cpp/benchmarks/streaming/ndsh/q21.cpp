@@ -51,7 +51,7 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -69,12 +69,12 @@ rapidsmpf::streaming::Node read_lineitem(
     if (latch != nullptr) {
         co_await *latch;
     }
-    co_return co_await rapidsmpf::streaming::node::read_parquet(
+    co_return co_await rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_nation(
+rapidsmpf::streaming::Actor read_nation(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -120,12 +120,12 @@ rapidsmpf::streaming::Node read_nation(
             })
         );
     }();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
 
-rapidsmpf::streaming::Node read_orders(
+rapidsmpf::streaming::Actor read_orders(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -173,12 +173,12 @@ rapidsmpf::streaming::Node read_orders(
             })
         );
     }();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
 
-rapidsmpf::streaming::Node read_orders_with_bloom_filter(
+rapidsmpf::streaming::Actor read_orders_with_bloom_filter(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> bloom_filter_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -220,7 +220,7 @@ rapidsmpf::streaming::Node read_orders_with_bloom_filter(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node read_supplier(
+rapidsmpf::streaming::Actor read_supplier(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -233,12 +233,12 @@ rapidsmpf::streaming::Node read_supplier(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"s_suppkey", "s_nationkey", "s_name"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node filter_lineitem(
+rapidsmpf::streaming::Actor filter_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -279,7 +279,7 @@ rapidsmpf::streaming::Node filter_lineitem(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node filter_grouped_greater(
+rapidsmpf::streaming::Actor filter_grouped_greater(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -324,7 +324,7 @@ rapidsmpf::streaming::Node filter_grouped_greater(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node filter_grouped_equal(
+rapidsmpf::streaming::Actor filter_grouped_equal(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -367,7 +367,7 @@ rapidsmpf::streaming::Node filter_grouped_equal(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node fanout_bounded(
+rapidsmpf::streaming::Actor fanout_bounded(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch1_out,
@@ -429,7 +429,7 @@ rapidsmpf::streaming::Node fanout_bounded(
     );
 }
 
-rapidsmpf::streaming::Node slice(
+rapidsmpf::streaming::Actor slice(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -528,7 +528,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> sum_groupby_request(
     return requests;
 }
 
-rapidsmpf::streaming::Node populate_bloom_filter(
+rapidsmpf::streaming::Actor populate_bloom_filter(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -538,7 +538,7 @@ rapidsmpf::streaming::Node populate_bloom_filter(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto passthrough = ctx->create_channel();
-    auto selector = [&]() -> rapidsmpf::streaming::Node {
+    auto selector = [&]() -> rapidsmpf::streaming::Actor {
         rapidsmpf::streaming::ShutdownAtExit c{passthrough};
         co_await ctx->executor()->schedule();
         while (!passthrough->is_shutdown()) {
@@ -639,7 +639,7 @@ int main(int argc, char** argv) {
         rapidsmpf::BloomFilter::fitting_num_blocks(static_cast<std::size_t>(l2size));
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> nodes;
         auto start = std::chrono::steady_clock::now();
         // TODO: configurable/adaptive
         std::uint32_t num_shuffle_partitions = 16;
@@ -811,11 +811,11 @@ int main(int argc, char** argv) {
             // Bloom filter needs to see all the input before we can release the orders
             // read, so need unbounded fanout.
             nodes.push_back(
-                rapidsmpf::streaming::node::fanout(
+                rapidsmpf::streaming::actor::fanout(
                     ctx,
                     supp_nation_lineitem,
                     {bloom_input, snl_passthrough},
-                    rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
+                    rapidsmpf::streaming::actor::FanoutPolicy::UNBOUNDED
                 )
             );
             auto bloom_output = ctx->create_channel();
@@ -940,7 +940,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q21 Iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

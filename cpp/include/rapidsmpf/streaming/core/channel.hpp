@@ -120,7 +120,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the metadata shutdown drain.
      */
-    [[nodiscard]] Node drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor);
+    [[nodiscard]] Actor drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
@@ -134,7 +134,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    [[nodiscard]] Node drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
+    [[nodiscard]] Actor drain(std::shared_ptr<CoroThreadPoolExecutor> executor);
 
     /**
      * @brief Immediately shuts down the channel.
@@ -144,7 +144,7 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    [[nodiscard]] Node shutdown();
+    [[nodiscard]] Actor shutdown();
 
     /**
      * @brief Immediately shuts down the metadata channel.
@@ -156,7 +156,7 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    [[nodiscard]] Node shutdown_metadata();
+    [[nodiscard]] Actor shutdown_metadata();
 
     /**
      * @brief Check whether the channel is empty.

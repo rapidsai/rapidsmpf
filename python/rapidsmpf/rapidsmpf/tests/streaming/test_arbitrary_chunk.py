@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
+from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppNode, PyNode
+    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 class Object:
@@ -112,7 +112,7 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
 
     inputs = [Message(seq, ArbitraryChunk(seq)) for seq in range(10)]
 
-    @define_py_node()
+    @define_py_actor()
     async def increment(
         ctx: Context,
         ch_in: Channel[ArbitraryChunk[int]],
@@ -127,14 +127,14 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
             )
         await ch_out.drain(ctx)
 
-    nodes: list[CppNode | PyNode] = [
+    nodes: list[CppActor | PyActor] = [
         push_to_channel(context, ch_in, inputs),
         increment(context, ch_in, ch_out),
     ]
     node, deferred_messages = pull_from_channel(context, ch_out)
     nodes.append(node)
 
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(nodes=nodes, py_executor=py_executor)
 
     results = deferred_messages.release()
     for seq, msg in enumerate(results):

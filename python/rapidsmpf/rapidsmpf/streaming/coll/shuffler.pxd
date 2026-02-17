@@ -11,12 +11,12 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
-from rapidsmpf.streaming.core.node cimport cpp_Node
+from rapidsmpf.streaming.core.node cimport cpp_Actor
 
 
 cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
-    cdef cpp_Node cpp_shuffler \
-        "rapidsmpf::streaming::node::shuffler"(
+    cdef cpp_Actor cpp_shuffler \
+        "rapidsmpf::streaming::actor::shuffler"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,

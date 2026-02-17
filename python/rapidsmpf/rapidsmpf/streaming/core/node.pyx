@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -14,9 +14,9 @@ from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
 
-cdef class CppNode:
+cdef class CppActor:
     """
-    A streaming node implemented in C++.
+    A streaming actor implemented in C++.
 
     This represents a native C++ coroutine that runs with minimal Python
     overhead.
@@ -25,28 +25,28 @@ cdef class CppNode:
         raise ValueError("use the `from_handle` Cython factory function")
 
     @staticmethod
-    cdef CppNode from_handle(unique_ptr[cpp_Node] handle, object owner):
+    cdef CppActor from_handle(unique_ptr[cpp_Actor] handle, object owner):
         """
-        Create a node from an existing native handle.
+        Create an actor from an existing native handle.
 
         Parameters
         ----------
         handle
             Ownership is transferred into the returned object.
         owner
-            An optional Python object to keep alive for as long as this node
+            An optional Python object to keep alive for as long as this actor
             exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
-        A new node that owns the provided handle.
+        A new actor that owns the provided handle.
 
         Notes
         -----
         After this call, the passed-in handle must not be used, as its
         ownership has been moved.
         """
-        cdef CppNode ret = CppNode.__new__(CppNode)
+        cdef CppActor ret = CppActor.__new__(CppActor)
         ret._handle = move(handle)
         ret._owner = owner
         return ret
@@ -55,7 +55,7 @@ cdef class CppNode:
         with nogil:
             self._handle.reset()
 
-    cdef unique_ptr[cpp_Node] release_handle(self):
+    cdef unique_ptr[cpp_Actor] release_handle(self):
         """
         Release and return the underlying native handle.
 
@@ -66,21 +66,21 @@ cdef class CppNode:
         Raises
         ------
         ValueError
-            If the node is uninitialized or has already been released.
+            If the actor is uninitialized or has already been released.
 
         Notes
         -----
-        After calling this, the node no longer owns a handle and should not be
+        After calling this, the actor no longer owns a handle and should not be
         used.
         """
         if not self._handle:
-            raise ValueError("CppNode is uninitialized, has it been released?")
+            raise ValueError("CppActor is uninitialized, has it been released?")
         return move(self._handle)
 
 
-class PyNode(Awaitable[None]):
+class PyActor(Awaitable[None]):
     """
-    A streaming node implemented in Python.
+    A streaming actor implemented in Python.
 
     This runs as an Python coroutine (asyncio), which means it comes with a significant
     Python overhead. The GIL is released on `await` and when calling the C++ API.
@@ -92,9 +92,9 @@ class PyNode(Awaitable[None]):
         return self._coro.__await__()
 
 
-def define_py_node(*, extra_channels=()):
+def define_py_actor(*, extra_channels=()):
     """
-    Create a decorator for defining a Python streaming node.
+    Create a decorator for defining a Python streaming actor.
 
     The decorated coroutine must take a `Context` as its first positional argument
     and return None. When the coroutine finishes (whether successfully or with an
@@ -114,7 +114,7 @@ def define_py_node(*, extra_channels=()):
     Returns
     -------
     decorator
-        A decorator for an async function that defines a Python node.
+        A decorator for an async function that defines a Python actor.
 
     Raises
     ------
@@ -123,21 +123,21 @@ def define_py_node(*, extra_channels=()):
 
     Examples
     --------
-    In the following example, `python_node` is defined as a Python node.
+    In the following example, `python_actor` is defined as a Python actor.
     When it completes, ``ch1`` is shut down automatically because it is passed
     as a coroutine argument, and ``ch2`` is shut down because it is listed in
     ``extra_channels``:
     >>> ch1: Channel[TableChunk] = context.create_channel()
     >>> ch2: Channel[TableChunk] = context.create_channel()
     ...
-    >>> @define_py_node(extra_channels=(ch2,))
-    ... async def python_node(ctx: Context, /, ch_in: Channel) -> None:
+    >>> @define_py_actor(extra_channels=(ch2,))
+    ... async def python_actor(ctx: Context, /, ch_in: Channel) -> None:
     ...     msg = await ch_in.recv()
     ...     await ch2.send(msg)
     ...
     ... # Calling the coroutine doesn't run it but we can provide its arguments.
-    >>> node = python_node(context, ch_in=ch1)
-    ... # Later we need to call run_streaming_pipeline() to actually run the node.
+    >>> actor = python_actor(context, ch_in=ch1)
+    ... # Later we need to call run_actor_graph() to actually run the actor.
     """
 
     def _collect_channels(obj, out):
@@ -176,51 +176,51 @@ def define_py_node(*, extra_channels=()):
                     for ch in (*found, *extra_channels):
                         await ch.shutdown(ctx)
 
-            return PyNode(run())
+            return PyActor(run())
 
         return wrapper
 
     return decorator
 
 
-def run_streaming_pipeline(*, nodes, py_executor = None):
+def run_actor_graph(*, nodes, py_executor = None):
     """
-    Run streaming nodes to completion (blocking).
+    Run streaming actors to completion (blocking).
 
-    Accepts a collection of nodes. Native C++ nodes are moved into the C++ pipeline
-    and executed with minimal Python overhead, while Python nodes are gathered and
+    Accepts a collection of actors. Native C++ actors are moved into the C++ graph
+    and executed with minimal Python overhead, while Python actors are gathered and
     executed on a dedicated event loop in the provided executor.
 
     Parameters
     ----------
     nodes
-        Iterable of nodes. Each element is either a native C++ node or a Python
-        awaitable representing a node.
+        Iterable of actors. Each element is either a native C++ actor or a Python
+        awaitable representing an actor.
     py_executor
-        Executor used to run Python nodes (required if any Python nodes are present).
-        If no Python nodes are provided, this is ignored.
+        Executor used to run Python actors (required if any Python actors are present).
+        If no Python actors are provided, this is ignored.
 
     Warnings
     --------
-    C++ nodes are released and must not be used after this call.
+    C++ actors are released and must not be used after this call.
 
     Raises
     ------
     ValueError
-        If Python nodes are present but no executor is provided.
+        If Python actors are present but no executor is provided.
     Exception
-        Any unhandled exception from a node is re-raised after execution. If multiple
-        nodes raise exceptions, only one is re-raised, and it is unspecified which one.
+        Any unhandled exception from an actor is re-raised after execution. If multiple
+        actors raise exceptions, only one is re-raised, and it is unspecified which one.
     TypeError
-        If nodes contains an unknown node type.
+        If nodes contains an unknown actor type.
 
     Examples
     --------
     >>> ch: Channel[TableChunk] = context.create_channel()
-    >>> cpp_node, output = pull_from_channel(context, ch_in=ch)
+    >>> cpp_actor, output = pull_from_channel(context, ch_in=ch)
     ...
-    >>> @define_py_node()
-    ... async def python_node(ctx: Context, ch_out: Channel) -> None:
+    >>> @define_py_actor()
+    ... async def python_actor(ctx: Context, ch_out: Channel) -> None:
     ...     # Send one message and close.
     ...     await ch_out.send(
     ...         context,
@@ -228,8 +228,8 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     ...     )
     ...     await ch_out.drain(context)
     ...
-    >>> run_streaming_pipeline(
-    ...     nodes=[cpp_node, python_node(context, ch_out=ch)],
+    >>> run_actor_graph(
+    ...     nodes=[cpp_actor, python_actor(context, ch_out=ch)],
     ...     py_executor=ThreadPoolExecutor(max_workers=1),
     ... )
     >>> results = output.release()
@@ -238,17 +238,17 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     42
     """
 
-    # Split nodes into C++ nodes and Python nodes.
-    cdef vector[cpp_Node] cpp_nodes
+    # Split actors into C++ actors and Python actors.
+    cdef vector[cpp_Actor] cpp_nodes
     cdef list py_nodes = []
     for node in nodes:
-        if isinstance(node, CppNode):
-            cpp_nodes.push_back(move(deref((<CppNode>node).release_handle())))
-        elif isinstance(node, PyNode):
+        if isinstance(node, CppActor):
+            cpp_nodes.push_back(move(deref((<CppActor>node).release_handle())))
+        elif isinstance(node, PyActor):
             py_nodes.append(node)
         else:
             raise ValueError(
-                "Unknown node type, did you forget to use `@define_py_node()`?"
+                "Unknown actor type, did you forget to use `@define_py_actor()`?"
             )
 
     async def runner():
@@ -256,13 +256,13 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
 
     if len(py_nodes) > 0:
         if py_executor is None:
-            raise ValueError("must provide a py_executor to run Python nodes.")
+            raise ValueError("must provide a py_executor to run Python actors.")
         py_future = py_executor.submit(asyncio.run, runner())
 
     try:
         if cpp_nodes.size() > 0:
             with nogil:
-                cpp_run_streaming_pipeline(move(cpp_nodes))
+                cpp_run_actor_graph(move(cpp_nodes))
     finally:
         if len(py_nodes) > 0:
             py_future.result()  # This will raise any unhandled exception.

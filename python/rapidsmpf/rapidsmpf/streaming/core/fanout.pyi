@@ -7,7 +7,7 @@ from enum import IntEnum
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.node import CppNode
+from rapidsmpf.streaming.core.node import CppActor
 
 class FanoutPolicy(IntEnum):
     BOUNDED = ...
@@ -18,4 +18,4 @@ def fanout(
     ch_in: Channel,
     chs_out: list[Channel],
     policy: FanoutPolicy,
-) -> CppNode: ...
+) -> CppActor: ...

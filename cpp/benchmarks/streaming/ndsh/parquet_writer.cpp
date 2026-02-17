@@ -19,7 +19,7 @@
 
 namespace rapidsmpf::ndsh {
 
-rapidsmpf::streaming::Node write_parquet(
+rapidsmpf::streaming::Actor write_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     cudf::io::sink_info sink,

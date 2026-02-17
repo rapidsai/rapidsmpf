@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,8 +8,8 @@
 
 namespace rapidsmpf::streaming {
 
-void run_streaming_pipeline(std::vector<Node> nodes) {
-    coro_results(coro::sync_wait(coro::when_all(std::move(nodes))));
+void run_actor_graph(std::vector<Actor> actors) {
+    coro_results(coro::sync_wait(coro::when_all(std::move(actors))));
 }
 
 }  // namespace rapidsmpf::streaming

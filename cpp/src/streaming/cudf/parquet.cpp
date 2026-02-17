@@ -29,7 +29,7 @@
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 namespace {
 
 /**
@@ -247,7 +247,7 @@ struct ChunkDesc {
  *
  * @return Coroutine representing the processing of all chunks.
  */
-Node produce_chunks(
+Actor produce_chunks(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<BoundedQueue> ch_out,
     std::vector<ChunkDesc>& chunks,
@@ -294,7 +294,7 @@ Node produce_chunks(
 }
 }  // namespace
 
-Node read_parquet(
+Actor read_parquet(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
@@ -409,7 +409,7 @@ Node read_parquet(
             )));
         }
     } else {
-        std::vector<Node> read_tasks;
+        std::vector<Actor> read_tasks;
         read_tasks.reserve(1 + num_producers);
         auto lineariser = Lineariser(ctx, ch_out, num_producers);
         auto queues = lineariser.get_queues();
@@ -436,4 +436,4 @@ Node read_parquet(
         );
     }
 }
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

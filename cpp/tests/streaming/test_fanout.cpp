@@ -23,8 +23,8 @@
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
-using rapidsmpf::streaming::node::FanoutPolicy;
+namespace actor = rapidsmpf::streaming::actor;
+using rapidsmpf::streaming::actor::FanoutPolicy;
 
 /**
  * @brief Helper to make a sequence of Message<int> with values [0, n).
@@ -107,7 +107,7 @@ TEST_F(BaseStreamingFanout, InvalidNumberOfOutputChannels) {
     std::vector<std::shared_ptr<Channel>> out_chs;
     out_chs.push_back(ctx->create_channel());
     EXPECT_THROW(
-        std::ignore = node::fanout(ctx, in, out_chs, FanoutPolicy::BOUNDED),
+        std::ignore = actor::fanout(ctx, in, out_chs, FanoutPolicy::BOUNDED),
         std::invalid_argument
     );
 }
@@ -154,23 +154,23 @@ TEST_P(StreamingFanout, SinkPerChannel) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> nodes;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
-            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_graph(std::move(nodes));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -191,23 +191,23 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> nodes;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
-            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_graph(std::move(nodes));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -244,7 +244,7 @@ namespace {
  * @param max_messages The maximum number of messages to receive.
  * @return A coroutine representing the task.
  */
-Node shutdown_channel_after_n_messages(
+Actor shutdown_channel_after_n_messages(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<Message>& out_messages,
@@ -263,7 +263,7 @@ Node shutdown_channel_after_n_messages(
     co_await ch_in->shutdown();
 }
 
-Node throwing_node(std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) {
+Actor throwing_node(std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
     throw std::logic_error("throwing source");
@@ -277,17 +277,17 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> nodes;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
             nodes.emplace_back(
@@ -295,7 +295,7 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
             );
         }
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_graph(std::move(nodes));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -315,21 +315,21 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> nodes;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
             if (i % 2 == 0) {
-                nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+                nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
             } else {
                 nodes.emplace_back(shutdown_channel_after_n_messages(
                     ctx, out_chs[i], outs[i], num_msgs / 2
@@ -337,7 +337,7 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
             }
         }
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_graph(std::move(nodes));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -373,7 +373,7 @@ INSTANTIATE_TEST_SUITE_P(
 // tests that throwing a source node propagates the error to the pipeline. This test will
 // throw, but it should not hang.
 TEST_P(ThrowingStreamingFanout, ThrowingSource) {
-    std::vector<Node> nodes;
+    std::vector<Actor> nodes;
 
     auto in = ctx->create_channel();
     nodes.emplace_back(throwing_node(ctx, in));
@@ -383,14 +383,14 @@ TEST_P(ThrowingStreamingFanout, ThrowingSource) {
         out_chs.emplace_back(ctx->create_channel());
     }
 
-    nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+    nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
     std::vector<Message> dummy_out;
     for (int i = 0; i < num_out_chs; ++i) {
-        nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], dummy_out));
+        nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_out));
     }
 
-    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::logic_error);
 }
 
 // tests that throwing a sink node propagates the error to the pipeline. This test
@@ -398,27 +398,27 @@ TEST_P(ThrowingStreamingFanout, ThrowingSource) {
 TEST_P(ThrowingStreamingFanout, ThrowingSink) {
     auto inputs = make_int_inputs(num_msgs);
 
-    std::vector<Node> nodes;
+    std::vector<Actor> nodes;
     auto in = ctx->create_channel();
-    nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+    nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
     std::vector<std::shared_ptr<Channel>> out_chs;
     for (int i = 0; i < num_out_chs; ++i) {
         out_chs.emplace_back(ctx->create_channel());
     }
 
-    nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+    nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
     std::vector<std::vector<Message>> dummy_outs(num_out_chs);
     for (int i = 0; i < num_out_chs; ++i) {
         if (i == 0) {
             nodes.emplace_back(throwing_node(ctx, out_chs[i]));
         } else {
-            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], dummy_outs[i]));
+            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_outs[i]));
         }
     }
 
-    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::logic_error);
 }
 
 namespace {
@@ -429,7 +429,7 @@ enum class ConsumePolicy : uint8_t {
                     // message
 };
 
-Node many_input_sink(
+Actor many_input_sink(
     std::shared_ptr<Context> ctx,
     std::vector<std::shared_ptr<Channel>> chs,
     ConsumePolicy consume_policy,
@@ -474,21 +474,21 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
 
         std::vector<std::vector<Message>> outs(num_out_chs);
         {
-            std::vector<Node> nodes;
+            std::vector<Actor> nodes;
 
             auto in = ctx->create_channel();
-            nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
+            nodes.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
             std::vector<std::shared_ptr<Channel>> out_chs;
             for (int i = 0; i < num_out_chs; ++i) {
                 out_chs.emplace_back(ctx->create_channel());
             }
 
-            nodes.push_back(node::fanout(ctx, in, out_chs, policy));
+            nodes.push_back(actor::fanout(ctx, in, out_chs, policy));
 
             nodes.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
 
-            run_streaming_pipeline(std::move(nodes));
+            run_actor_graph(std::move(nodes));
         }
 
         std::vector<int> expected(num_msgs);
@@ -562,22 +562,22 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> nodes;
 
         auto in = ctx->create_channel();
-        nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.push_back(node::fanout(ctx, in, out_chs, policy));
+        nodes.push_back(actor::fanout(ctx, in, out_chs, policy));
         nodes.push_back(
             many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_graph(std::move(nodes));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {

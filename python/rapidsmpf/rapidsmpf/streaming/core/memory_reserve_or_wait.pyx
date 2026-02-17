@@ -583,7 +583,7 @@ async def reserve_memory(
 
     Examples
     --------
-    Reserve device memory inside a node:
+    Reserve device memory inside an actor:
     >>> res = await reserve_memory(
     ...     ctx,
     ...     size=1024,

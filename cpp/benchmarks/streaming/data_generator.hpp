@@ -15,7 +15,7 @@
 
 #include "../utils/random_data.hpp"
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 /**
  * @brief Asynchronously generates and sends a sequence of random numeric tables.
@@ -37,11 +37,10 @@ namespace rapidsmpf::streaming::node {
  * @param nrows Number of rows per column in each table.
  * @param min_val Minimum inclusive value for the generated random integers.
  * @param max_val Maximum inclusive value for the generated random integers.
- *
- * @return A streaming node that completes once all random tables have been generated
- *         and sent, and the channel has been drained.
+ * @return A streaming actor that completes once all random tables have been generated
+ * and sent, and the channel has been drained.
  */
-inline Node random_table_generator(
+inline Actor random_table_generator(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_out,
@@ -71,4 +70,4 @@ inline Node random_table_generator(
 }
 
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

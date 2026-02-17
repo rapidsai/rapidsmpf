@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -125,7 +125,7 @@ class ShufflerAsync {
      *
      * @return A coroutine that, when awaited, indicates the shuffle has completed.
      */
-    [[nodiscard]] Node insert_finished();
+    [[nodiscard]] Actor insert_finished();
 
     /**
      * @brief Asynchronously extracts all data for a specific partition.
@@ -189,7 +189,7 @@ class ShufflerAsync {
      * @return A coroutine representing the completion of all notifications and the
      * shutdown of the semaphore.
      */
-    [[nodiscard]] Node finished_drain();
+    [[nodiscard]] Actor finished_drain();
 
     std::shared_ptr<Context> ctx_;
     coro::task_group<coro::thread_pool>
@@ -211,9 +211,9 @@ class ShufflerAsync {
     std::unordered_set<shuffler::PartID> extracted_pids_;
 };
 
-namespace node {
+namespace actor {
 /**
- * @brief Launches a shuffler node for a single shuffle operation.
+ * @brief Launches a shuffler actor for a single shuffle operation.
  *
  * This is a streaming version of `rapidsmpf::shuffler::Shuffler` that operates on
  * packed partition chunks using channels.
@@ -229,10 +229,10 @@ namespace node {
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
  *
- * @return A streaming node that completes when the shuffling has finished and the
+ * @return A streaming actor that completes when the shuffling has finished and the
  * output channel is drained.
  */
-[[nodiscard]] Node shuffler(
+[[nodiscard]] Actor shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -241,6 +241,6 @@ namespace node {
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-}  // namespace node
+}  // namespace actor
 
 }  // namespace rapidsmpf::streaming

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -91,7 +91,7 @@ class Lineariser {
      * @note This coroutine should be awaited in a `coro::when_all` with all of the
      * producer tasks.
      */
-    Node drain() {
+    Actor drain() {
         ShutdownAtExit c{ch_out_};
         co_await ctx_->executor()->schedule();
         while (!queues_.empty()) {

@@ -42,7 +42,7 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -77,7 +77,7 @@ rapidsmpf::streaming::Node read_lineitem(
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
                          stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
                      );
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
@@ -113,7 +113,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
     return requests;
 }
 
-rapidsmpf::streaming::Node postprocess_group_by(
+rapidsmpf::streaming::Actor postprocess_group_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -174,7 +174,7 @@ rapidsmpf::streaming::Node postprocess_group_by(
 // disc_price = (l_extendedprice * (1 - l_discount)),
 // charge = (l_extendedprice * (1 - l_discount) * (1 + l_tax)),
 // l_discount
-rapidsmpf::streaming::Node select_columns_for_groupby(
+rapidsmpf::streaming::Actor select_columns_for_groupby(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id = 0;
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> nodes;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q1 pipeline");
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q1 Iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

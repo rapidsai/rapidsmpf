@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,21 +10,21 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Alias for a node in a streaming pipeline.
+ * @brief Alias for an actor in a streaming graph.
  *
- * Nodes represent coroutine-based asynchronous operations used throughout the streaming
- * pipeline.
+ * Actors represent coroutine-based asynchronous operations used throughout the streaming
+ * graph.
  */
-using Node = coro::task<void>;
+using Actor = coro::task<void>;
 
 /**
- * @brief Runs a list of nodes concurrently and waits for all to complete.
+ * @brief Runs a list of actors concurrently and waits for all to complete.
  *
- * This function schedules each node and blocks until all of them have finished execution.
- * Typically used to launch multiple producer/consumer coroutines in parallel.
+ * This function schedules each actor and blocks until all of them have finished
+ * execution. Typically used to launch multiple producer/consumer coroutines in parallel.
  *
- * @param nodes A vector of nodes to run.
+ * @param actors A vector of actors to run.
  */
-void run_streaming_pipeline(std::vector<Node> nodes);
+void run_actor_graph(std::vector<Actor> actors);
 
 }  // namespace rapidsmpf::streaming

@@ -54,7 +54,7 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_customer(
+rapidsmpf::streaming::Actor read_customer(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -96,12 +96,12 @@ rapidsmpf::streaming::Node read_customer(
             })
         );
     }();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
 
-rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -133,12 +133,12 @@ rapidsmpf::streaming::Node read_lineitem(
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
                          stream, date, "l_shipdate", cudf::ast::ast_operator::GREATER
                      );
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
 
-rapidsmpf::streaming::Node read_orders(
+rapidsmpf::streaming::Actor read_orders(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -171,7 +171,7 @@ rapidsmpf::streaming::Node read_orders(
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
                          stream, date, "o_orderdate", cudf::ast::ast_operator::LESS
                      );
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
     );
 }
@@ -188,7 +188,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
 // In: o_orderkey, o_orderdate, o_shippriority, l_extendedprice, l_discount
 // Out: o_orderkey, o_orderdate, o_shippriority, revenue = (l_extendedprice - (1 -
 // l_discount))
-rapidsmpf::streaming::Node select_columns_for_groupby(
+rapidsmpf::streaming::Actor select_columns_for_groupby(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -262,7 +262,7 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node top_k_by(
+rapidsmpf::streaming::Actor top_k_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -330,7 +330,7 @@ rapidsmpf::streaming::Node top_k_by(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node fanout_bounded(
+rapidsmpf::streaming::Actor fanout_bounded(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch1_out,
@@ -454,7 +454,7 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id{0};
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> nodes;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q3 pipeline");
@@ -652,7 +652,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q3 Iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

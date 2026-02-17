@@ -21,7 +21,7 @@ from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
+from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 import asyncio
 
@@ -153,7 +153,7 @@ def shuffler(
     uint32_t total_num_partitions,
 ):
     """
-    Launch a shuffler node for a single shuffle operation.
+    Launch a shuffler actor for a single shuffle operation.
 
     Streaming variant of the RapdisMPF shuffler that reads packed, partitioned
     input chunks from an input channel and emits output chunks grouped by
@@ -162,7 +162,7 @@ def shuffler(
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
     ch_in
         Input channel that supplies partitioned map chunks to be shuffled.
     ch_out
@@ -175,7 +175,7 @@ def shuffler(
 
     Returns
     -------
-    A streaming node that finishes when shuffling is complete and `ch_out` has
+    A streaming actor that finishes when shuffling is complete and `ch_out` has
     been drained.
 
     Notes
@@ -184,7 +184,7 @@ def shuffler(
     policy (round-robin across ranks/nodes).
     """
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -193,7 +193,7 @@ def shuffler(
             op_id,
             total_num_partitions,
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner=None)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
 
 cdef class ShufflerAsync:

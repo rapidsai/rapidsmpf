@@ -8,19 +8,19 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
 cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
-    cdef cppclass cpp_Node "rapidsmpf::streaming::Node":
+    cdef cppclass cpp_Actor "rapidsmpf::streaming::Actor":
         pass
 
-    cdef void cpp_run_streaming_pipeline \
-        "rapidsmpf::streaming::run_streaming_pipeline"(vector[cpp_Node]) \
+    cdef void cpp_run_actor_graph \
+        "rapidsmpf::streaming::run_actor_graph"(vector[cpp_Actor]) \
         except +ex_handler
 
 
-cdef class CppNode:
-    cdef unique_ptr[cpp_Node] _handle
+cdef class CppActor:
+    cdef unique_ptr[cpp_Actor] _handle
     cdef object _owner
 
     @staticmethod
-    cdef CppNode from_handle(unique_ptr[cpp_Node] handle, object owner)
+    cdef CppActor from_handle(unique_ptr[cpp_Actor] handle, object owner)
 
-    cdef unique_ptr[cpp_Node] release_handle(self)
+    cdef unique_ptr[cpp_Actor] release_handle(self)

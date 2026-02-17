@@ -12,7 +12,7 @@ import pylibcudf as plc
 
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
+from rapidsmpf.streaming.core.node import run_actor_graph
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -65,7 +65,7 @@ def run_bloom_filter_pipeline(
     ]
     pull_node, deferred = pull_from_channel(context, ch_out)
     nodes.append(pull_node)
-    run_streaming_pipeline(nodes=nodes)
+    run_actor_graph(nodes=nodes)
     return deferred.release()
 
 

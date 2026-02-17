@@ -37,7 +37,7 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_parquet(
+rapidsmpf::streaming::Actor read_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -54,19 +54,19 @@ rapidsmpf::streaming::Node read_parquet(
     if (columns.has_value()) {
         options.set_column_names(*columns);
     }
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node consume_channel_parallel(
+rapidsmpf::streaming::Actor consume_channel_parallel(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::size_t num_consumers
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in};
     std::atomic<std::size_t> estimated_total_bytes{0};
-    auto task = [&]() -> rapidsmpf::streaming::Node {
+    auto task = [&]() -> rapidsmpf::streaming::Actor {
         co_await ctx->executor()->schedule();
         while (true) {
             auto msg = co_await ch_in->receive();
@@ -89,7 +89,7 @@ rapidsmpf::streaming::Node consume_channel_parallel(
             }
         }
     };
-    std::vector<rapidsmpf::streaming::Node> tasks;
+    std::vector<rapidsmpf::streaming::Actor> tasks;
     for (std::size_t i = 0; i < num_consumers; i++) {
         tasks.push_back(task());
     }
@@ -378,7 +378,7 @@ int main(int argc, char** argv) {
     auto ctx = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> nodes;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing read_parquet pipeline");
@@ -403,7 +403,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("read_parquet iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

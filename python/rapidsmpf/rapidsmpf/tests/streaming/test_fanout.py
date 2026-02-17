@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for streaming fanout node."""
@@ -15,7 +15,7 @@ import cudf
 from rapidsmpf.streaming.core.fanout import FanoutPolicy, fanout
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
+from rapidsmpf.streaming.core.node import run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -54,7 +54,7 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
-        run_streaming_pipeline(
+        run_actor_graph(
             nodes=[push_node, fanout_node, pull_node1, pull_node2],
             py_executor=executor,
         )
@@ -123,7 +123,7 @@ def test_fanout_multiple_outputs(
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
-        run_streaming_pipeline(
+        run_actor_graph(
             nodes=[push_node, fanout_node, *pull_nodes],
             py_executor=executor,
         )

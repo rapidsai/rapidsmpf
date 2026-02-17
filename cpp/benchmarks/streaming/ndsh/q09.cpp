@@ -46,7 +46,7 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -66,12 +66,12 @@ rapidsmpf::streaming::Node read_lineitem(
                             "l_suppkey"}
                        )
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_nation(
+rapidsmpf::streaming::Actor read_nation(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -84,12 +84,12 @@ rapidsmpf::streaming::Node read_nation(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"n_name", "n_nationkey"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_orders(
+rapidsmpf::streaming::Actor read_orders(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -102,12 +102,12 @@ rapidsmpf::streaming::Node read_orders(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"o_orderdate", "o_orderkey"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_part(
+rapidsmpf::streaming::Actor read_part(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -120,12 +120,12 @@ rapidsmpf::streaming::Node read_part(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"p_partkey", "p_name"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_partsupp(
+rapidsmpf::streaming::Actor read_partsupp(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -138,12 +138,12 @@ rapidsmpf::streaming::Node read_partsupp(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"ps_partkey", "ps_suppkey", "ps_supplycost"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node read_supplier(
+rapidsmpf::streaming::Actor read_supplier(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -156,12 +156,12 @@ rapidsmpf::streaming::Node read_supplier(
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .column_names({"s_nationkey", "s_suppkey"})
                        .build();
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node filter_part(
+rapidsmpf::streaming::Actor filter_part(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -198,7 +198,7 @@ rapidsmpf::streaming::Node filter_part(
     co_await ch_out->drain(ctx->executor());
 }
 
-rapidsmpf::streaming::Node select_columns(
+rapidsmpf::streaming::Actor select_columns(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -279,7 +279,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> chunkwise_groupby_requests() {
     return requests;
 }
 
-rapidsmpf::streaming::Node round_sum_profit(
+rapidsmpf::streaming::Actor round_sum_profit(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -369,7 +369,7 @@ int main(int argc, char** argv) {
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         rapidsmpf::OpID op_id{0};
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> nodes;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q9 pipeline");
@@ -618,7 +618,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q9 Iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import cudf
 
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
+from rapidsmpf.streaming.core.node import run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -35,7 +35,7 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
     node2, output = pull_from_channel(context, ch_in=ch1)
-    run_streaming_pipeline(nodes=(node1, node2))
+    run_actor_graph(nodes=(node1, node2))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

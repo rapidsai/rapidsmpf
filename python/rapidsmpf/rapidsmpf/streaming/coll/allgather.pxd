@@ -9,12 +9,12 @@ from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
-from rapidsmpf.streaming.core.node cimport cpp_Node
+from rapidsmpf.streaming.core.node cimport cpp_Actor
 
 
 cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
-    cdef cpp_Node cpp_allgather \
-        "rapidsmpf::streaming::node::allgather"(
+    cdef cpp_Actor cpp_allgather \
+        "rapidsmpf::streaming::actor::allgather"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,

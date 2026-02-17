@@ -8,14 +8,14 @@ from libcpp.vector cimport vector
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
+from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 
 def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     """
     Broadcast messages from one input channel to multiple output channels.
 
-    The node continuously receives messages from the input channel and forwards
+    The actor continuously receives messages from the input channel and forwards
     them to all output channels according to the selected fanout policy.
 
     Each output channel receives a shallow copy of the same message; no payload
@@ -25,7 +25,7 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
     ch_in
         Input channel from which messages are received.
     chs_out
@@ -37,7 +37,7 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
         are being consumed by a single/ shared consumer in the downstream.
     Returns
     -------
-    Streaming node representing the fanout operation.
+    Streaming actor representing the fanout operation.
 
     Raises
     ------
@@ -54,7 +54,7 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     ...     ch_in = ctx.create_channel()
     ...     ch_out1 = ctx.create_channel()
     ...     ch_out2 = ctx.create_channel()
-    ...     node = streaming.fanout(
+    ...     actor = streaming.fanout(
     ...         ctx,
     ...         ch_in,
     ...         [ch_out1, ch_out2],
@@ -71,9 +71,9 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
         owner.append(ch_out)
         _chs_out.push_back((<Channel>ch_out)._handle)
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_fanout(
             ctx._handle, ch_in._handle, move(_chs_out), policy
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)

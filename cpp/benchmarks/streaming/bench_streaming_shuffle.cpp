@@ -230,7 +230,7 @@ class ArgumentParser {
     bool pinned_mem_disable{false};
 };
 
-rapidsmpf::streaming::Node consumer(
+rapidsmpf::streaming::Actor consumer(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in
 ) {
@@ -259,11 +259,11 @@ rapidsmpf::Duration run(
     constexpr rapidsmpf::OpID op_id = 0;
 
     // Create streaming pipeline.
-    std::vector<rapidsmpf::streaming::Node> nodes;
+    std::vector<rapidsmpf::streaming::Actor> nodes;
     {
         auto ch1 = ctx->create_channel();
         nodes.push_back(
-            rapidsmpf::streaming::node::random_table_generator(
+            rapidsmpf::streaming::actor::random_table_generator(
                 ctx,
                 stream,
                 ch1,
@@ -276,7 +276,7 @@ rapidsmpf::Duration run(
         );
         auto ch2 = ctx->create_channel();
         nodes.push_back(
-            rapidsmpf::streaming::node::partition_and_pack(
+            rapidsmpf::streaming::actor::partition_and_pack(
                 ctx,
                 ch1,
                 ch2,
@@ -288,16 +288,16 @@ rapidsmpf::Duration run(
         );
         auto ch3 = ctx->create_channel();
         nodes.push_back(
-            rapidsmpf::streaming::node::shuffler(
+            rapidsmpf::streaming::actor::shuffler(
                 ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = ctx->create_channel();
-        nodes.push_back(rapidsmpf::streaming::node::unpack_and_concat(ctx, ch3, ch4));
+        nodes.push_back(rapidsmpf::streaming::actor::unpack_and_concat(ctx, ch3, ch4));
         nodes.push_back(consumer(ctx, ch4));
     }
     auto const t0_elapsed = rapidsmpf::Clock::now();
-    rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+    rapidsmpf::streaming::run_actor_graph(std::move(nodes));
     return rapidsmpf::Clock::now() - t0_elapsed;
 }
 

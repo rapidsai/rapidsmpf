@@ -18,7 +18,7 @@ from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
+from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 import asyncio
 
@@ -150,14 +150,14 @@ def allgather(
     bool ordered,
 ):
     """
-    Launch an allgather node for a single allgather operation.
+    Launch an allgather actor for a single allgather operation.
 
     Streaming variant of the RapidsMPF allgather.
 
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
     ch_in
         Input channel that supplies PackedDataChunks to be gathered.
     ch_out
@@ -170,11 +170,11 @@ def allgather(
 
     Returns
     -------
-    A streaming node that finishes when the allgather is complete and `ch_out` has
+    A streaming actor that finishes when the allgather is complete and `ch_out` has
     been drained.
     """
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
     with nogil:
         _ret = cpp_allgather(
@@ -184,4 +184,4 @@ def allgather(
             op_id,
             c_ordered,
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner=None)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

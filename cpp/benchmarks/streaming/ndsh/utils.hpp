@@ -231,7 +231,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing the shutdown and discard of the channel.
  */
-[[nodiscard]] streaming::Node sink_channel(
+[[nodiscard]] streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 );
 
@@ -246,7 +246,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing consuming and discarding messages in channel.
  */
-[[nodiscard]] streaming::Node consume_channel(
+[[nodiscard]] streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 );
 

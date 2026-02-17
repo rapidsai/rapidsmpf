@@ -5,7 +5,7 @@ from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.node import CppNode
+from rapidsmpf.streaming.core.node import CppActor
 
 class AllGather:
     def __init__(self, ctx: Context, op_id: int) -> None: ...
@@ -20,4 +20,4 @@ def allgather(
     op_id: int,
     *,
     ordered: bool,
-) -> CppNode: ...
+) -> CppActor: ...

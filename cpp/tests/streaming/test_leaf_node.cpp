@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,7 +28,7 @@
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
+namespace actor = rapidsmpf::streaming::actor;
 
 using StreamingLeafTasks = BaseStreamingFixture;
 
@@ -41,7 +41,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
         expects.emplace_back(random_table_with_index(i, num_rows, 0, 10));
     }
 
-    std::vector<Node> nodes;
+    std::vector<Actor> nodes;
     auto ch1 = ctx->create_channel();
 
     // Note, we use a scope to check that coroutines keeps the input alive.
@@ -59,13 +59,13 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
             ));
         }
 
-        nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
+        nodes.push_back(actor::push_to_channel(ctx, ch1, std::move(inputs)));
     }
 
     std::vector<Message> outputs;
-    nodes.push_back(node::pull_from_channel(ctx, ch1, outputs));
+    nodes.push_back(actor::pull_from_channel(ctx, ch1, outputs));
 
-    run_streaming_pipeline(std::move(nodes));
+    run_actor_graph(std::move(nodes));
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
@@ -77,15 +77,15 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
 }
 
 namespace {
-Node shutdown(
-    std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch, std::vector<Node>&& tasks
+Actor shutdown(
+    std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch, std::vector<Actor>&& tasks
 ) {
     ShutdownAtExit c{ch};
     coro_results(co_await coro::when_all(std::move(tasks)));
     co_await ch->drain(ctx->executor());
 }
 
-Node producer(
+Actor producer(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<ThrottlingAdaptor> ch,
     int val,
@@ -109,7 +109,7 @@ Node producer(
     EXPECT_TRUE(receipt.is_ready());
 }
 
-Node consumer(
+Actor consumer(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch,
     std::atomic<int>& result,
@@ -134,8 +134,8 @@ Node consumer(
 TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
     auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
-    std::vector<Node> producers;
-    std::vector<Node> consumers;
+    std::vector<Actor> producers;
+    std::vector<Actor> consumers;
     constexpr int n_producer{100};
     constexpr int n_consumer{3};
     for (int i = 0; i < n_producer; i++) {
@@ -146,15 +146,15 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
     for (int i = 0; i < n_consumer; i++) {
         consumers.push_back(consumer(ctx, ch, result));
     }
-    run_streaming_pipeline(std::move(consumers));
+    run_actor_graph(std::move(consumers));
     EXPECT_EQ(result, ((n_producer - 1) * n_producer) / 2);
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
     auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
-    std::vector<Node> producers;
-    std::vector<Node> consumers;
+    std::vector<Actor> producers;
+    std::vector<Actor> consumers;
     constexpr int n_producer{10};
     for (int i = 0; i < n_producer; i++) {
         producers.push_back(producer(ctx, throttle, i, i == 2));
@@ -162,14 +162,14 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
     consumers.push_back(shutdown(ctx, ch, std::move(producers)));
     std::atomic<int> result;
     consumers.push_back(consumer(ctx, ch, result));
-    EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
+    EXPECT_THROW(run_actor_graph(std::move(consumers)), std::runtime_error);
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
     auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
-    std::vector<Node> producers;
-    std::vector<Node> consumers;
+    std::vector<Actor> producers;
+    std::vector<Actor> consumers;
     constexpr int n_producer{100};
     constexpr int n_consumer{3};
     for (int i = 0; i < n_producer; i++) {
@@ -180,7 +180,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
     for (int i = 0; i < n_consumer; i++) {
         consumers.push_back(consumer(ctx, ch, result, i == 1));
     }
-    EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
+    EXPECT_THROW(run_actor_graph(std::move(consumers)), std::runtime_error);
 }
 
 class StreamingThrottledAdaptor : public StreamingLeafTasks,

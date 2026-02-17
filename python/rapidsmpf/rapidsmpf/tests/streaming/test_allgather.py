@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.coll.allgather import AllGather, allgather
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
+from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppNode, PyNode
+    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 def test_allgather_node(context: Context) -> None:
@@ -69,7 +69,7 @@ def test_allgather_node(context: Context) -> None:
 
     node, deferred = pull_from_channel(context, ch2)
     nodes.append(node)
-    run_streaming_pipeline(nodes=nodes)
+    run_actor_graph(nodes=nodes)
 
     result = unpack_and_concat(
         (
@@ -85,7 +85,7 @@ def test_allgather_node(context: Context) -> None:
     assert_eq(result, expect)
 
 
-@define_py_node()
+@define_py_actor()
 async def generate_inputs(
     context: Context, ch: Channel[PackedDataChunk], num_rows: int, num_chunks: int
 ) -> None:
@@ -112,7 +112,7 @@ async def generate_inputs(
     await ch.drain(context)
 
 
-@define_py_node()
+@define_py_actor()
 async def allgather_and_concat(
     context: Context,
     ch_in: Channel[PackedDataChunk],
@@ -137,7 +137,7 @@ def test_allgather_object_interface(
 ) -> None:
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
-    nodes: list[CppNode | PyNode] = []
+    nodes: list[CppActor | PyActor] = []
     num_rows = 100
     num_chunks = 10
     op_id = 0
@@ -147,7 +147,7 @@ def test_allgather_object_interface(
     node, deferred = pull_from_channel(context, ch_out)
     nodes.append(node)
 
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(nodes=nodes, py_executor=py_executor)
     (result_msg,) = deferred.release()
     result = TableChunk.from_message(result_msg)
     expect = plc.Table(

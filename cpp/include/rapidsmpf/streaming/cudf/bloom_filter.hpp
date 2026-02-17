@@ -58,7 +58,7 @@ struct BloomFilter {
      * @param tag Disambiguating tag to combine filters across ranks.
      * @return Coroutine representing the construction of the bloom filter.
      */
-    [[nodiscard]] Node build(
+    [[nodiscard]] Actor build(
         std::shared_ptr<Channel> ch_in, std::shared_ptr<Channel> ch_out, OpID tag
     );
 
@@ -76,7 +76,7 @@ struct BloomFilter {
      *
      * @return Coroutine representing the application of the bloom filter.
      */
-    [[nodiscard]] Node apply(
+    [[nodiscard]] Actor apply(
         std::shared_ptr<Channel> bloom_filter,
         std::shared_ptr<Channel> ch_in,
         std::shared_ptr<Channel> ch_out,
