@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -335,29 +335,6 @@ class Chunk {
      * @returns The metadata message as a serialized byte vector.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize() const;
-
-    /**
-     * @brief Concatenate multiple chunks into a single chunk.
-     *
-     * Using a new stream from `br->stream_pool()` for the concatenation.
-     *
-     * @param chunks Vector of chunks to concatenate.
-     * @param chunk_id The ID for the resulting concatenated chunk.
-     * @param br The buffer resource to use for memory allocation.
-     * @param preferred_mem_type The preferred memory type to use for the concatenated
-     * data buffer.
-     * @return Chunk The concatenated chunk.
-     * @throws std::logic_error if the input vector is empty or the concatenated chunk
-     * contains duplicate partition IDs.
-     *
-     * @note The chunks vector should contain unique partition IDs.
-     */
-    static Chunk concat(
-        std::vector<Chunk>&& chunks,
-        ChunkID chunk_id,
-        BufferResource* br,
-        std::optional<MemoryType> preferred_mem_type = std::nullopt
-    );
 
   private:
     // constructor

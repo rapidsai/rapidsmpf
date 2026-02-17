@@ -564,7 +564,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
     std::vector<detail::ChunkID> expected_num_chunks;
     expected_num_chunks.reserve(pids.size());
 
-    // collect expected number of chunks for each rank
+    // collect expected number of chunks for each partition
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
         for (auto pid : pids) {
@@ -572,47 +572,13 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         }
     }
 
-    // if pids only contains one element, we can just insert the finished chunk
-    if (pids.size() == 1) {
+    // insert a finished chunk for each partition
+    for (size_t i = 0; i < pids.size(); ++i) {
         insert(
             detail::Chunk::from_finished_partition(
-                get_new_cid(), pids[0], expected_num_chunks[0] + 1
+                get_new_cid(), pids[i], expected_num_chunks[i] + 1
             )
         );
-        return;
-    }
-
-    // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
-    // reserve space for each group assuming an even distribution of chunks
-    for (auto&& group : chunk_groups) {
-        group.reserve(pids.size() / size_t(comm_->nranks()));
-    }
-
-    // use the dummy chunk ID for intermediate chunks
-    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
-    for (size_t i = 0; i < pids.size(); ++i) {
-        Rank target_rank = partition_owner(comm_, pids[i]);
-
-        if (target_rank == comm_->rank()) {  // no group for local chunks
-            insert(
-                Chunk::from_finished_partition(
-                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
-                )
-            );
-        } else {
-            chunk_groups[size_t(target_rank)].emplace_back(
-                Chunk::from_finished_partition(
-                    dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
-                )
-            );
-        }
-    }
-
-    for (auto&& group : chunk_groups) {
-        if (!group.empty()) {
-            insert(Chunk::concat(std::move(group), get_new_cid(), br_));
-        }
     }
 }
 
