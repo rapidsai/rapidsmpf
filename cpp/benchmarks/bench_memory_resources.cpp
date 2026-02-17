@@ -343,17 +343,17 @@ BENCHMARK(BM_DeviceToDeviceCopy)
 
 // First large allocation: impact of initial_pool_size (with vs without initial size).
 void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     auto const allocation_size = static_cast<std::size_t>(state.range(0)) << 20;
     auto const primed = static_cast<bool>(state.range(1));
-
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-        state.SkipWithMessage("pinned memory not supported on system");
-        return;
-    }
 
     // set initial pool size to allocation size if primed, 0 otherwise
     rapidsmpf::PinnedPoolProperties props{
