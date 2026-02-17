@@ -189,10 +189,10 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /
     // host_async_resource_ref: the ref only stores a pointer, but its constructor
     // requires the referenced type to be copyable and movable (CCCL __basic_any_ref
-    // constraint). pinned_memory_pool is neither, so we wrap it in PinnedMemoryResource,
-    // which holds the pool in a shared_ptr and is copyable and movable. Copies share
-    // the same pool (is_equal compares pool_ pointers).
-    std::shared_ptr<cuda::pinned_memory_pool> pool_;
+    // constraint). pinned_memory_pool is not copyable, so we wrap it in
+    // PinnedMemoryResource, which holds the pool in a shared_resource and is copyable and
+    // movable. Copies share the same pool (is_equal compares pool_ pointers).
+    cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

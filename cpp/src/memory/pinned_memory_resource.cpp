@@ -37,7 +37,7 @@ cuda::memory_pool_properties get_memory_pool_properties(
     };
 }
 
-std::shared_ptr<cuda::pinned_memory_pool> make_pinned_memory_pool(
+cuda::mr::shared_resource<cuda::pinned_memory_pool> make_pinned_memory_pool(
     int numa_id, PinnedPoolProperties props
 ) {
     RAPIDSMPF_EXPECTS(
@@ -49,7 +49,7 @@ std::shared_ptr<cuda::pinned_memory_pool> make_pinned_memory_pool(
         "memory, noting that this may significantly degrade spilling performance.",
         std::invalid_argument
     );
-    return std::make_shared<cuda::pinned_memory_pool>(
+    return cuda::mr::make_shared_resource<cuda::pinned_memory_pool>(
         numa_id, get_memory_pool_properties(props)
     );
 }
