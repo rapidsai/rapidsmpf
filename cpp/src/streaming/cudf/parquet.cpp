@@ -304,8 +304,8 @@ Node read_parquet(
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
-    auto size = static_cast<std::size_t>(ctx->comm()->nranks());
-    auto rank = static_cast<std::size_t>(ctx->comm()->rank());
+    auto const size = safe_cast<std::size_t>(ctx->comm()->nranks());
+    auto const rank = safe_cast<std::size_t>(ctx->comm()->rank());
     auto source = options.get_source();
     RAPIDSMPF_EXPECTS(
         source.type() == cudf::io::io_type::FILEPATH, "Only implemented for file sources"
@@ -325,9 +325,6 @@ Node read_parquet(
     auto files = source.filepaths();
     RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file to read");
     RAPIDSMPF_EXPECTS(
-        files.size() < std::numeric_limits<int>::max(), "Trying to read too many files"
-    );
-    RAPIDSMPF_EXPECTS(
         !options.get_filter().has_value(),
         "Do not set filter on options, use the filter argument"
     );
@@ -346,9 +343,11 @@ Node read_parquet(
         );
     }
     // TODO: Handle case where multiple ranks are reading from a single file.
-    int files_per_rank =
-        static_cast<int>(files.size() / size + (rank < (files.size() % size)));
-    int file_offset = rank * (files.size() / size) + std::min(rank, files.size() % size);
+    auto const files_per_rank =
+        safe_cast<int>(files.size() / size + (rank < (files.size() % size)));
+    auto const file_offset = safe_cast<int>(
+        rank * (files.size() / size) + std::min(rank, files.size() % size)
+    );
     auto local_files = std::vector(
         files.begin() + file_offset, files.begin() + file_offset + files_per_rank
     );
@@ -362,7 +361,7 @@ Node read_parquet(
             cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
                 .num_rows();
         files_per_chunk =
-            static_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
+            safe_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
     }
     auto to_skip = options.get_skip_rows();
     auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
@@ -372,8 +371,8 @@ Node read_parquet(
         std::vector<std::string> chunk_files;
         auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
         std::ranges::copy_n(
-            local_files.begin() + static_cast<std::int64_t>(file_offset),
-            static_cast<std::int64_t>(nchunk_files),
+            local_files.begin() + safe_cast<std::int64_t>(file_offset),
+            safe_cast<std::int64_t>(nchunk_files),
             std::back_inserter(chunk_files)
         );
         auto source = cudf::io::source_info(chunk_files);
@@ -386,7 +385,7 @@ Node read_parquet(
         to_skip = std::max(0l, -chunk_rows);
         while (chunk_rows > 0 && to_read > 0) {
             auto rows_read =
-                std::min({static_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
+                std::min({safe_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 sequence_number, chunk_skip_rows, rows_read, source
             );

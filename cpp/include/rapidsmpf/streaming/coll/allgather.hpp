@@ -9,14 +9,14 @@
 #include <memory>
 #include <vector>
 
+#include <coro/event.hpp>
+#include <coro/task.hpp>
+
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-
-#include <coro/event.hpp>
-#include <coro/task.hpp>
 
 namespace rapidsmpf::streaming {
 

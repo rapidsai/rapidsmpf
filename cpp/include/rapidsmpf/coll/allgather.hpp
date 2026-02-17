@@ -63,6 +63,13 @@ class Chunk {
      * @param id Unique chunk identifier.
      * @param metadata Serialized metadata for the chunk.
      * @param data Data buffer containing the chunk's payload.
+     *
+     * @throw std::invalid_argument If either @p metadata and @p data are null.
+     * @throw std::logic_error If one of @p metadata or @p data are null, but not both
+     * (see warning for details).
+     *
+     * @warning The caller is responsible to ensure both metadata and data are non-null,
+     * providing only one leads to an irrecoverable condition.
      */
     Chunk(
         ChunkID id,

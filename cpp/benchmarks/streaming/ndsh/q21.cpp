@@ -25,6 +25,8 @@
 #include <cudf/types.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 
+#include <coro/when_all.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -46,8 +48,6 @@
 #include "parquet_writer.hpp"
 #include "sort.hpp"
 #include "utils.hpp"
-
-#include <coro/when_all.hpp>
 
 namespace {
 

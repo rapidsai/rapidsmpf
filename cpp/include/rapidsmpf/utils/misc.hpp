@@ -10,6 +10,8 @@
 #include <functional>
 #include <memory>
 #include <ranges>
+#include <source_location>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -281,6 +283,48 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
         }
     }
     return false;
+}
+
+/**
+ * @brief Safely casts a numeric value to another type with overflow checking.
+ *
+ * For integral conversions, the value must be representable in the
+ * destination type or an exception is thrown.
+ *
+ * For conversions involving floating point types, overflow and underflow
+ * follow standard floating point semantics. The result may become `inf`
+ * or `-inf`, or lose precision, without throwing.
+ *
+ * @tparam To The destination type.
+ * @tparam From The source type.
+ * @param value The value to cast.
+ * @param loc Source location (automatically captured).
+ * @return To The safely cast value.
+ *
+ * @throws std::overflow_error if an integral value cannot be represented in the
+ * destination type.
+ */
+template <typename To, typename From>
+    requires std::is_arithmetic_v<To> && std::is_arithmetic_v<From>
+constexpr To safe_cast(
+    From value, std::source_location const& loc = std::source_location::current()
+) {
+    if constexpr (std::is_same_v<From, To>) {
+        // Same type, no-op.
+        return value;
+    } else if constexpr (std::is_integral_v<From> && std::is_integral_v<To>) {
+        // Integer to integer.
+        if (!std::in_range<To>(value)) {
+            throw std::overflow_error(
+                "RapidsMPF cast error at: " + std::string(loc.file_name()) + ":"
+                + std::to_string(loc.line()) + ", value out of range"
+            );
+        }
+        return static_cast<To>(value);
+    } else {
+        // Floating point conversions: direct cast (well-defined overflow behavior).
+        return static_cast<To>(value);
+    }
 }
 
 }  // namespace rapidsmpf

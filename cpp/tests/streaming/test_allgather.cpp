@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,8 @@
 #include <cuda_runtime_api.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <coro/latch.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -23,8 +25,6 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include "base_streaming_fixture.hpp"
-
-#include <coro/latch.hpp>
 
 using namespace rapidsmpf;
 

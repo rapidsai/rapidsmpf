@@ -7,6 +7,7 @@ from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
+from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
@@ -331,3 +332,19 @@ cdef class ShufflerAsync:
             )
         else:
             return None
+
+    def local_partitions(self):
+        """
+        Return the partition IDs owned by this rank.
+
+        Returns
+        -------
+        Partition IDs owned by this shuffler.
+        """
+        cdef span[const uint32_t] _ret
+        cdef list partitions = []
+        with nogil:
+            _ret = deref(self._handle).local_partitions()
+        for pid in _ret:
+            partitions.append(pid)
+        return partitions

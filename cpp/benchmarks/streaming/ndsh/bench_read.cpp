@@ -23,6 +23,8 @@
 #include <rmm/detail/format.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 
+#include <coro/when_all.hpp>
+
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -32,8 +34,6 @@
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 
 #include "utils.hpp"
-
-#include <coro/when_all.hpp>
 
 namespace {
 
