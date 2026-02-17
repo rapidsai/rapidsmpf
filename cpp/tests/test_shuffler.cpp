@@ -55,8 +55,8 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_EQ(expect.part_id(), result.part_id());
     EXPECT_EQ(expect.chunk_id(), result.chunk_id());
     EXPECT_EQ(expect.expected_num_chunks(), result.expected_num_chunks());
-    EXPECT_EQ(expect.concat_data_size(), result.concat_data_size());
-    EXPECT_EQ(expect.concat_metadata_size(), result.concat_metadata_size());
+    EXPECT_EQ(expect.data_size(), result.data_size());
+    EXPECT_EQ(expect.metadata_size(), result.metadata_size());
 
     // The metadata should be identical to the original.
     EXPECT_EQ(metadata, *result.release_metadata_buffer());

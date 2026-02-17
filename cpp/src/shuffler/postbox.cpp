@@ -93,7 +93,7 @@ std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {
             if (!chunk.is_control_message() && chunk.data_memory_type() == mem_type) {
-                ret.emplace_back(key, cid, chunk.concat_data_size());
+                ret.emplace_back(key, cid, chunk.data_size());
             }
         }
     }

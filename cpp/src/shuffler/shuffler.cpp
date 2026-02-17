@@ -129,7 +129,7 @@ class Shuffler::Progress {
                 fire_and_forget_.push_back(
                     shuffler_.comm_->send(chunk.serialize(), dst, metadata_tag)
                 );
-                if (chunk.concat_data_size() > 0) {
+                if (chunk.data_size() > 0) {
                     RAPIDSMPF_EXPECTS(
                         outgoing_chunks_.emplace(chunk.chunk_id(), std::move(chunk))
                             .second,
@@ -195,14 +195,14 @@ class Shuffler::Progress {
 
                 // If the chunk contains GPU data, we need to receive it. Otherwise, it
                 // goes directly to the ready postbox.
-                if (chunk.concat_data_size() > 0) {
+                if (chunk.data_size() > 0) {
                     if (!chunk.is_data_buffer_set()) {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
                         chunk.set_data_buffer(shuffler_.br_->allocate(
                             shuffler_.br_->stream_pool().get_stream(),
                             shuffler_.br_->reserve_or_fail(
-                                chunk.concat_data_size(), MEMORY_TYPES
+                                chunk.data_size(), MEMORY_TYPES
                             )
                         ));
                         if (rapidsmpf::contains(
@@ -210,7 +210,7 @@ class Shuffler::Progress {
                             ))
                         {
                             stats.add_bytes_stat(
-                                "spill-bytes-recv-to-host", chunk.concat_data_size()
+                                "spill-bytes-recv-to-host", chunk.data_size()
                             );
                         }
                     }
@@ -227,7 +227,7 @@ class Shuffler::Progress {
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
                     auto chunk_id = chunk.chunk_id();
-                    auto data_size = chunk.concat_data_size();
+                    auto data_size = chunk.data_size();
 
                     // Setup to receive the chunk into `in_transit_*`.
                     // transfer the data buffer from the chunk to the future
@@ -294,7 +294,7 @@ class Shuffler::Progress {
                     auto msg = ReadyForDataMessage::unpack(msg_data);
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(
-                        "shuffle-payload-send", chunk.concat_data_size()
+                        "shuffle-payload-send", chunk.data_size()
                     );
                     fire_and_forget_.push_back(shuffler_.comm_->send(
                         chunk.release_data_buffer(), dst, gpu_data_tag
@@ -489,8 +489,8 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     if (p0_target_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
         if (chunk.is_data_buffer_set()) {
-            statistics_->add_bytes_stat("shuffle-payload-send", chunk.concat_data_size());
-            statistics_->add_bytes_stat("shuffle-payload-recv", chunk.concat_data_size());
+            statistics_->add_bytes_stat("shuffle-payload-send", chunk.data_size());
+            statistics_->add_bytes_stat("shuffle-payload-recv", chunk.data_size());
         }
         insert_into_ready_postbox(std::move(chunk));
     } else {
@@ -520,9 +520,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
-            statistics_->add_bytes_stat(
-                "spill-bytes-device-to-host", chunk.concat_data_size()
-            );
+            statistics_->add_bytes_stat("spill-bytes-device-to-host", chunk.data_size());
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

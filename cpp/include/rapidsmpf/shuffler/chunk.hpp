@@ -218,26 +218,6 @@ class Chunk {
     }
 
     /**
-     * @brief Get the size of the concatenated data.
-     *
-     * @return The size of the concatenated data.
-     */
-    [[nodiscard]] constexpr size_t concat_data_size() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return data_size_;
-    }
-
-    /**
-     * @brief Get the size of the concatenated metadata.
-     *
-     * @return The size of the concatenated metadata.
-     */
-    [[nodiscard]] constexpr size_t concat_metadata_size() const {
-        RAPIDSMPF_EXPECTS(n_messages() == 1, "multi-message chunks are not supported");
-        return metadata_size_;
-    }
-
-    /**
      * @brief Release the ownership of the metadata buffer.
      *
      * @return The metadata buffer.
@@ -337,8 +317,8 @@ class Chunk {
         ChunkID chunk_id,
         std::vector<PartID> part_ids,
         std::vector<size_t> expected_num_chunks,
-        std::vector<uint32_t> meta_offsets,
-        std::vector<uint64_t> data_offsets,
+        uint32_t metadata_size,
+        uint64_t data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata = nullptr,
         std::unique_ptr<Buffer> data = nullptr
     );

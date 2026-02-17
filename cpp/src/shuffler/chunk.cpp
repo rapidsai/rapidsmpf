@@ -18,24 +18,22 @@ Chunk::Chunk(
     ChunkID chunk_id,
     std::vector<PartID> part_ids,
     std::vector<size_t> expected_num_chunks,
-    std::vector<uint32_t> meta_offsets,
-    std::vector<uint64_t> data_offsets,
+    uint32_t metadata_size,
+    uint64_t data_size,
     std::unique_ptr<std::vector<uint8_t>> metadata,
     std::unique_ptr<Buffer> data
 )
     : chunk_id_{chunk_id},
       part_ids_{std::move(part_ids)},
       expected_num_chunks_{std::move(expected_num_chunks)},
-      meta_offsets_{std::move(meta_offsets)},
-      data_offsets_{std::move(data_offsets)},
-      metadata_size_{meta_offsets_.empty() ? 0 : meta_offsets_[0]},
-      data_size_{data_offsets_.empty() ? 0 : data_offsets_[0]},
+      meta_offsets_{metadata_size},
+      data_offsets_{data_size},
+      metadata_size_{metadata_size},
+      data_size_{data_size},
       metadata_{std::move(metadata)},
       data_{std::move(data)} {
     RAPIDSMPF_EXPECTS(
-        (part_ids_.size() > 0) && (part_ids_.size() == expected_num_chunks_.size())
-            && (part_ids_.size() == meta_offsets_.size())
-            && (part_ids_.size() == data_offsets_.size()),
+        (part_ids_.size() > 0) && (part_ids_.size() == expected_num_chunks_.size()),
         "invalid chunk: input vectors have different sizes"
     );
     RAPIDSMPF_EXPECTS(part_ids_.size() == 1, "multi-message chunks are not supported");
@@ -54,8 +52,8 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
         new_chunk_id,
         {part_ids_[0]},
         {expected_num_chunks_[0]},
-        {meta_offsets_[0]},
-        {data_offsets_[0]},
+        meta_offsets_[0],
+        data_offsets_[0],
         std::move(metadata_),
         data_ ? std::move(data_)
               : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
@@ -71,8 +69,8 @@ Chunk Chunk::from_packed_data(
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
-        {static_cast<uint32_t>(packed_data.metadata->size())},
-        {packed_data.data->size},
+        static_cast<uint32_t>(packed_data.metadata->size()),
+        packed_data.data->size,
         std::move(packed_data.metadata),
         std::move(packed_data.data),
     };
@@ -81,7 +79,7 @@ Chunk Chunk::from_packed_data(
 Chunk Chunk::from_finished_partition(
     ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
 ) {
-    return {chunk_id, {part_id}, {expected_num_chunks}, {0}, {0}};
+    return {chunk_id, {part_id}, {expected_num_chunks}, 0, 0};
 }
 
 Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
@@ -122,12 +120,16 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
         msg.begin() + static_cast<int64_t>(offset), msg.end()
     );
 
+    // Extract sizes from first element of offset vectors
+    uint32_t metadata_size = meta_offsets.empty() ? 0 : meta_offsets[0];
+    uint64_t data_size = data_offsets.empty() ? 0 : data_offsets[0];
+
     return {
         chunk_id,
         std::move(part_ids),
         std::move(expected_num_chunks),
-        std::move(meta_offsets),
-        std::move(data_offsets),
+        metadata_size,
+        data_size,
         std::move(concat_metadata),
         nullptr
     };
