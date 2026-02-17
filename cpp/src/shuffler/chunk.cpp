@@ -26,8 +26,6 @@ Chunk::Chunk(
     : chunk_id_{chunk_id},
       part_ids_{std::move(part_ids)},
       expected_num_chunks_{std::move(expected_num_chunks)},
-      meta_offsets_{metadata_size},
-      data_offsets_{data_size},
       metadata_size_{metadata_size},
       data_size_{data_size},
       metadata_{std::move(metadata)},
@@ -52,8 +50,8 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
         new_chunk_id,
         {part_ids_[0]},
         {expected_num_chunks_[0]},
-        meta_offsets_[0],
-        data_offsets_[0],
+        metadata_size_,
+        data_size_,
         std::move(metadata_),
         data_ ? std::move(data_)
               : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
@@ -221,8 +219,8 @@ std::string Chunk::str() const {
     ss << "Chunk(id=" << chunk_id();
     ss << ", part_id=" << part_ids_[0];
     ss << ", expected_num_chunks=" << expected_num_chunks_[0];
-    ss << ", metadata_size=" << (meta_offsets_.empty() ? 0 : meta_offsets_[0]);
-    ss << ", data_size=" << (data_offsets_.empty() ? 0 : data_offsets_[0]);
+    ss << ", metadata_size=" << metadata_size_;
+    ss << ", data_size=" << data_size_;
     ss << ")";
     return ss.str();
 }
@@ -251,13 +249,13 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     std::memcpy(p, expected_num_chunks_.data(), n * sizeof(size_t));
     p += n * sizeof(size_t);
 
-    // Write metadata offsets
-    std::memcpy(p, meta_offsets_.data(), n * sizeof(uint32_t));
-    p += n * sizeof(uint32_t);
+    // Write metadata offset (size)
+    std::memcpy(p, &metadata_size_, sizeof(uint32_t));
+    p += sizeof(uint32_t);
 
-    // Write data offsets
-    std::memcpy(p, data_offsets_.data(), n * sizeof(uint64_t));
-    p += n * sizeof(uint64_t);
+    // Write data offset (size)
+    std::memcpy(p, &data_size_, sizeof(uint64_t));
+    p += sizeof(uint64_t);
 
     // Write concatenated metadata
     if (metadata_) {

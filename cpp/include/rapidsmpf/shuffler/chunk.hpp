@@ -289,12 +289,10 @@ class Chunk {
      * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] bool is_ready() const {
-        // data_offsets_[-1] contains the size of the data buffer. If it is 0, the chunk
-        // has no data messages, so it is ready. Else, the chunk is ready if the data
+        // data_size_ contains the size of the data buffer. If it is 0, the chunk
+        // has no data, so it is ready. Else, the chunk is ready if the data
         // buffer is non-null and the data buffer is ready.
-        return !data_offsets_.empty()
-               && (data_offsets_[n_messages() - 1] == 0
-                   || (data_ && data_->is_latest_write_done()));
+        return data_size_ == 0 || (data_ && data_->is_latest_write_done());
     }
 
     /**
@@ -324,14 +322,12 @@ class Chunk {
     );
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
-    std::vector<PartID> part_ids_;  ///< The partition IDs of the messages in the
-                                    ///< chunk. These partition IDs should be unique.
-    std::vector<size_t> expected_num_chunks_;  ///< The expected number of chunks of
-                                               ///< the messages in the chunk.
-    std::vector<uint32_t>
-        meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
-    std::vector<uint64_t>
-        data_offsets_;  ///< The offsets of the data of the messages in the chunk.
+
+    /// The partition IDs of the messages in the chunk. These partition IDs should be
+    /// unique.
+    std::vector<PartID> part_ids_;
+    /// The expected number of chunks of the messages in the chunk.
+    std::vector<size_t> expected_num_chunks_;
 
     uint32_t metadata_size_;  ///< The size of the metadata for the single message.
     uint64_t data_size_;  ///< The size of the data for the single message.
