@@ -122,12 +122,7 @@ ShufflerAsync::ShufflerAsync(
           },
           ctx_->statistics(),
           std::move(partition_owner)
-      ) {
-    RAPIDSMPF_EXPECTS(
-        local_partitions().size() <= std::numeric_limits<std::int64_t>::max(),
-        "Too many local partitions"
-    );
-}
+      ) {}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(

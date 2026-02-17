@@ -8,6 +8,8 @@
 #include <ranges>
 #include <span>
 
+#include <coro/coro.hpp>
+
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -15,8 +17,6 @@
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
-
-#include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming::node {
 namespace {
@@ -213,7 +213,7 @@ struct UnboundedFanout {
                 msg_ids_to_send.reserve(n_available_messages - self_next_idx);
                 std::ranges::copy(
                     std::ranges::drop_view(
-                        recv_msg_ids, static_cast<std::ptrdiff_t>(self_next_idx)
+                        recv_msg_ids, safe_cast<std::ptrdiff_t>(self_next_idx)
                     ),
                     std::back_inserter(msg_ids_to_send)
                 );

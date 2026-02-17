@@ -58,9 +58,11 @@ IncludeCategories:
     Priority: 30 # CUDA includes
   - Regex: '^<(thrust|cub|cuda)/'
     Priority: 40 # CCCL includes
-  - Regex: '^<(cudf.*|rmm|cugraph|cuml|raft|kvikio)'
+  - Regex: '^<(cudf.*|rmm|cugraph|cuml|raft|kvikio|cucascade)'
     Priority: 50 # RAPIDS includes
   - Regex: '^<rapidsmpf/'
-    Priority: 60
+    Priority: 70 # RapidsMPF project includes
+  - Regex: '^<.*>'
+    Priority: 60 # Other angle bracket includes (e.g., third-party libraries)
   - Regex: '^"'
-    Priority: 70 # quoted includes
+    Priority: 80 # Local/quoted includes (always last)

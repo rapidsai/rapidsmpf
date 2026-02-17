@@ -16,14 +16,14 @@
 #include <cudf/table/table_view.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
+#include <coro/task.hpp>
+
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-
-#include <coro/task.hpp>
 
 namespace rapidsmpf::streaming {
 
