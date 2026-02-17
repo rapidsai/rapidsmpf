@@ -5,7 +5,6 @@
 #pragma once
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -335,11 +334,7 @@ class ReadyForDataMessage {
      *
      * @return A serialized byte vector representing the message.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack() {
-        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
-        std::memcpy(msg->data(), &cid, sizeof(cid));
-        return msg;
-    }
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack();
 
     /**
      * @brief Deserializes a message from a byte array.
@@ -349,21 +344,13 @@ class ReadyForDataMessage {
      */
     [[nodiscard]] static ReadyForDataMessage unpack(
         std::unique_ptr<std::vector<uint8_t>> const& msg
-    ) {
-        ChunkID cid;
-        std::memcpy(&cid, msg->data(), sizeof(cid));
-        return ReadyForDataMessage{cid};
-    }
+    );
 
     /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
-    [[nodiscard]] std::string str() const {
-        std::stringstream ss;
-        ss << "ReadyForDataMessage(cid=" << cid << ")";
-        return ss.str();
-    }
+    [[nodiscard]] std::string str() const;
 };
 
 /**
@@ -375,10 +362,7 @@ class ReadyForDataMessage {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
-    os << obj.str();
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, Chunk const& obj);
 
 /**
  * @brief Overloads the stream insertion operator for the ReadyForDataMessage class.
@@ -390,10 +374,7 @@ inline std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj) {
-    os << obj.str();
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj);
 
 }  // namespace detail
 }  // namespace rapidsmpf::shuffler

@@ -4,6 +4,7 @@
  */
 
 #include <cstring>
+#include <sstream>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -181,6 +182,36 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     }
 
     return metadata_buf;
+}
+
+std::unique_ptr<std::vector<uint8_t>> ReadyForDataMessage::pack() {
+    auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
+    std::memcpy(msg->data(), &cid, sizeof(cid));
+    return msg;
+}
+
+ReadyForDataMessage ReadyForDataMessage::unpack(
+    std::unique_ptr<std::vector<uint8_t>> const& msg
+) {
+    ChunkID cid;
+    std::memcpy(&cid, msg->data(), sizeof(cid));
+    return ReadyForDataMessage{cid};
+}
+
+std::string ReadyForDataMessage::str() const {
+    std::stringstream ss;
+    ss << "ReadyForDataMessage(cid=" << cid << ")";
+    return ss.str();
+}
+
+std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
+    os << obj.str();
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj) {
+    os << obj.str();
+    return os;
 }
 
 }  // namespace rapidsmpf::shuffler::detail
