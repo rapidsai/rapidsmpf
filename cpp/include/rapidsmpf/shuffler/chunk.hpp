@@ -103,7 +103,7 @@ class Chunk {
      * @return The ID of the partition.
      */
     [[nodiscard]] constexpr PartID part_id() const {
-        return part_ids_.at(0);
+        return part_id_;
     }
 
     /**
@@ -113,7 +113,7 @@ class Chunk {
      * is a control message, otherwise zero (data message).
      */
     [[nodiscard]] constexpr size_t expected_num_chunks() const {
-        return expected_num_chunks_.at(0);
+        return expected_num_chunks_;
     }
 
     /**
@@ -295,8 +295,8 @@ class Chunk {
     // constructor
     Chunk(
         ChunkID chunk_id,
-        std::vector<PartID> part_ids,
-        std::vector<size_t> expected_num_chunks,
+        PartID part_id,
+        size_t expected_num_chunks,
         uint32_t metadata_size,
         uint64_t data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata = nullptr,
@@ -304,14 +304,8 @@ class Chunk {
     );
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
-
-    /// The partition ID of the message in the chunk (stored as a vector for legacy
-    /// reasons).
-    std::vector<PartID> part_ids_;
-    /// The expected number of chunks for the partition (stored as a vector for legacy
-    /// reasons).
-    std::vector<size_t> expected_num_chunks_;
-
+    PartID part_id_;  ///< The partition ID of the message.
+    size_t expected_num_chunks_;  ///< The expected number of chunks for the partition.
     uint32_t metadata_size_;  ///< The size of the metadata for the single message.
     uint64_t data_size_;  ///< The size of the data for the single message.
 

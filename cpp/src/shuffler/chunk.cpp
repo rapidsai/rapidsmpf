@@ -16,26 +16,20 @@ namespace rapidsmpf::shuffler::detail {
 
 Chunk::Chunk(
     ChunkID chunk_id,
-    std::vector<PartID> part_ids,
-    std::vector<size_t> expected_num_chunks,
+    PartID part_id,
+    size_t expected_num_chunks,
     uint32_t metadata_size,
     uint64_t data_size,
     std::unique_ptr<std::vector<uint8_t>> metadata,
     std::unique_ptr<Buffer> data
 )
     : chunk_id_{chunk_id},
-      part_ids_{std::move(part_ids)},
-      expected_num_chunks_{std::move(expected_num_chunks)},
+      part_id_{part_id},
+      expected_num_chunks_{expected_num_chunks},
       metadata_size_{metadata_size},
       data_size_{data_size},
       metadata_{std::move(metadata)},
-      data_{std::move(data)} {
-    RAPIDSMPF_EXPECTS(
-        (part_ids_.size() > 0) && (part_ids_.size() == expected_num_chunks_.size()),
-        "invalid chunk: input vectors have different sizes"
-    );
-    RAPIDSMPF_EXPECTS(part_ids_.size() == 1, "multi-message chunks are not supported");
-}
+      data_{std::move(data)} {}
 
 Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
     if (is_control_message()) {
@@ -46,8 +40,8 @@ Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
     // Single-message chunk - move the metadata and data to the new chunk
     return Chunk(
         new_chunk_id,
-        {part_ids_[0]},
-        {expected_num_chunks_[0]},
+        part_id_,
+        expected_num_chunks_,
         metadata_size_,
         data_size_,
         std::move(metadata_),
@@ -63,8 +57,8 @@ Chunk Chunk::from_packed_data(
     RAPIDSMPF_EXPECTS(packed_data.data != nullptr, "packed_data.data is nullptr");
     return Chunk{
         chunk_id,
-        {part_id},
-        {0},  // expected_num_chunks
+        part_id,
+        0,  // expected_num_chunks
         static_cast<uint32_t>(packed_data.metadata->size()),
         packed_data.data->size,
         std::move(packed_data.metadata),
@@ -75,7 +69,7 @@ Chunk Chunk::from_packed_data(
 Chunk Chunk::from_finished_partition(
     ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
 ) {
-    return {chunk_id, {part_id}, {expected_num_chunks}, 0, 0};
+    return {chunk_id, part_id, expected_num_chunks, 0, 0};
 }
 
 Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
@@ -112,8 +106,8 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
 
     return {
         chunk_id,
-        {part_id},
-        {expected_num_chunks},
+        part_id,
+        expected_num_chunks,
         metadata_size,
         data_size,
         std::move(concat_metadata),
@@ -146,8 +140,8 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
 std::string Chunk::str() const {
     std::stringstream ss;
     ss << "Chunk(id=" << chunk_id();
-    ss << ", part_id=" << part_ids_[0];
-    ss << ", expected_num_chunks=" << expected_num_chunks_[0];
+    ss << ", part_id=" << part_id_;
+    ss << ", expected_num_chunks=" << expected_num_chunks_;
     ss << ", metadata_size=" << metadata_size_;
     ss << ", data_size=" << data_size_;
     ss << ")";
@@ -165,11 +159,11 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     p += sizeof(ChunkID);
 
     // Write partition ID
-    std::memcpy(p, part_ids_.data(), sizeof(PartID));
+    std::memcpy(p, &part_id_, sizeof(PartID));
     p += sizeof(PartID);
 
     // Write expected number of chunks
-    std::memcpy(p, expected_num_chunks_.data(), sizeof(size_t));
+    std::memcpy(p, &expected_num_chunks_, sizeof(size_t));
     p += sizeof(size_t);
 
     // Write metadata offset (size)
