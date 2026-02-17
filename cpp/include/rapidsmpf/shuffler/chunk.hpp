@@ -29,25 +29,31 @@ namespace detail {
 using ChunkID = std::uint64_t;
 
 /**
- * @brief Chunk with a single message. This class contains two buffers for metadata and data.
+ * @brief A partition chunk representing either a data message or a control message.
  *
- * When the Chunk is serialized, the format is as follows:
- * - chunk_id: uint64_t, ID of the chunk
- * - n_elements: size_t, Number of messages in the chunk (always 1)
- * - partition_id: PartID, Partition ID of the message
- * - expected_num_chunks: size_t, Expected number of chunks for the partition
- * - metadata_size: uint32_t, Size of the metadata in bytes
- * - data_size: uint64_t, Size of the data in bytes
- * - metadata: vector<uint8_t>, Metadata buffer, size = metadata_size
+ * A Chunk represents a single message for a partition in the shuffler. There are two
+ * types.
  *
- * The size of the serialized buffer is:
- * sizeof(ChunkID) + sizeof(size_t) + sizeof(PartID) + sizeof(size_t) +
- * sizeof(uint32_t) + sizeof(uint64_t) + metadata_size
- * = 8 + 8 + 4 + 8 + 4 + 8 + metadata_size = 40 + metadata_size bytes.
+ * Data Message. Contains actual partition data (metadata and optionally GPU data buffer).
+ * - Used to transfer partition data between ranks.
+ * - `expected_num_chunks` is 0.
+ * - `is_control_message()` returns false.
+ * - Contains metadata buffer and optionally a data buffer.
  *
- * For a control message (metadata_size = 0), the serialized buffer is 40 bytes.
+ * Control Message. Signals partition completion without carrying data.
+ * - Used to indicate that all data chunks for a partition have been sent.
+ * - `expected_num_chunks` > 0 (indicates total number of data chunks expected).
+ * - `is_control_message()` returns true.
+ * - No metadata or data buffers (metadata_size = 0, data_size = 0).
  *
- * For a data message with M bytes of metadata, the serialized buffer is 40 + M bytes.
+ * When serialized, the format is:
+ * - chunk_id: uint64_t, ID of the chunk.
+ * - n_elements: size_t, Number of messages in the chunk (always 1).
+ * - partition_id: PartID, Partition ID of the message.
+ * - expected_num_chunks: size_t, Expected number of chunks (0 for data, >0 for control).
+ * - metadata_size: uint32_t, Size of the metadata in bytes.
+ * - data_size: uint64_t, Size of the data in bytes.
+ * - metadata: vector<uint8_t>, Metadata buffer, size = metadata_size.
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
@@ -317,9 +323,11 @@ class Chunk {
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
 
-    /// The partition ID of the message in the chunk (stored as a vector for legacy reasons).
+    /// The partition ID of the message in the chunk (stored as a vector for legacy
+    /// reasons).
     std::vector<PartID> part_ids_;
-    /// The expected number of chunks for the partition (stored as a vector for legacy reasons).
+    /// The expected number of chunks for the partition (stored as a vector for legacy
+    /// reasons).
     std::vector<size_t> expected_num_chunks_;
 
     uint32_t metadata_size_;  ///< The size of the metadata for the single message.
