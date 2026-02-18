@@ -112,7 +112,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
 }
 
 struct ReserveLog {
-    void add(uint64_t uid, MemoryReservation&& res) {
+    void add(std::uint64_t uid, MemoryReservation&& res) {
         std::lock_guard<std::mutex> lock(mutex);
         log.emplace_back(uid, std::move(res));
     }
@@ -123,7 +123,7 @@ struct ReserveLog {
     }
 
     std::mutex mutex;
-    std::vector<std::pair<uint64_t, MemoryReservation>> log;
+    std::vector<std::pair<std::uint64_t, MemoryReservation>> log;
 };
 
 TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {

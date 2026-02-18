@@ -106,13 +106,13 @@ template <std::integral T = std::int64_t>
 
 /// @brief Create a PackedData object from a host buffer
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
-    std::span<uint8_t const> metadata,
-    std::span<uint8_t const> data,
+    std::span<std::uint8_t const> metadata,
+    std::span<std::uint8_t const> data,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br
 ) {
     auto metadata_ptr =
-        std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
+        std::make_unique<std::vector<std::uint8_t>>(metadata.begin(), metadata.end());
 
     auto reservation = br->reserve(
         rapidsmpf::MemoryType::DEVICE, data.size(), rapidsmpf::AllowOverbooking::YES
@@ -143,7 +143,7 @@ template <std::integral T = std::int64_t>
 ) {
     auto values = iota_vector<int>(n_elements, offset);
 
-    auto metadata = std::make_unique<std::vector<uint8_t>>(n_elements * sizeof(int));
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(n_elements * sizeof(int));
     std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
 
     auto data = std::make_unique<rmm::device_buffer>(

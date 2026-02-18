@@ -139,7 +139,7 @@ class Shuffler::Progress {
                         shuffler_.comm_->recv_sync_host_data(
                             dst,
                             ready_for_data_tag,
-                            std::make_unique<std::vector<uint8_t>>(
+                            std::make_unique<std::vector<std::uint8_t>>(
                                 ReadyForDataMessage::byte_size
                             )
                         )
@@ -366,7 +366,7 @@ class Shuffler::Progress {
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
 #if RAPIDSMPF_VERBOSE_INFO
-    int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
+    std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
 #endif
 };
 
@@ -542,7 +542,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
     }
 
     // insert a finished chunk for each partition
-    for (size_t i = 0; i < pids.size(); ++i) {
+    for (std::size_t i = 0; i < pids.size(); ++i) {
         insert(
             detail::Chunk::from_finished_partition(
                 get_new_cid(), pids[i], expected_num_chunks[i] + 1

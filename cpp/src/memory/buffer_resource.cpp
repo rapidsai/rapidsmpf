@@ -103,7 +103,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    size_t size, AllowOverbooking allow_overbooking
+    std::size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
     auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);

@@ -175,7 +175,7 @@ TEST_P(StreamingFanout, SinkPerChannel) {
 
     for (int c = 0; c < num_out_chs; ++c) {
         // Validate sizes
-        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
+        EXPECT_EQ(outs[c].size(), static_cast<std::size_t>(num_msgs));
 
         // Validate ordering/content and that shallow copies share the same underlying
         // object
@@ -212,7 +212,7 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
 
     for (int c = 0; c < num_out_chs; ++c) {
         // Validate sizes
-        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
+        EXPECT_EQ(outs[c].size(), static_cast<std::size_t>(num_msgs));
 
         // Validate ordering/content and that shallow copies share the same underlying
         // object
@@ -248,12 +248,12 @@ Actor shutdown_channel_after_n_messages(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<Message>& out_messages,
-    size_t max_messages
+    std::size_t max_messages
 ) {
     ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
 
-    for (size_t i = 0; i < max_messages; ++i) {
+    for (std::size_t i = 0; i < max_messages; ++i) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
@@ -299,7 +299,7 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
-        EXPECT_EQ(static_cast<size_t>(num_msgs / 2), outs[c].size());
+        EXPECT_EQ(static_cast<std::size_t>(num_msgs / 2), outs[c].size());
 
         for (int i = 0; i < num_msgs / 2; ++i) {
             SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
@@ -422,7 +422,7 @@ TEST_P(ThrowingStreamingFanout, ThrowingSink) {
 }
 
 namespace {
-enum class ConsumePolicy : uint8_t {
+enum class ConsumePolicy : std::uint8_t {
     CHANNEL_ORDER,  // consume all messages from a single channel before moving to the
                     // next
     MESSAGE_ORDER,  // consume messages from all channels before moving to the next
@@ -439,7 +439,7 @@ Actor many_input_sink(
     co_await ctx->executor()->schedule();
 
     if (consume_policy == ConsumePolicy::CHANNEL_ORDER) {
-        for (size_t i = 0; i < chs.size(); ++i) {
+        for (std::size_t i = 0; i < chs.size(); ++i) {
             while (true) {
                 auto msg = co_await chs[i]->receive();
                 if (msg.empty()) {
@@ -449,8 +449,8 @@ Actor many_input_sink(
             }
         }
     } else if (consume_policy == ConsumePolicy::MESSAGE_ORDER) {
-        std::unordered_set<size_t> active_chs{};
-        for (size_t i = 0; i < chs.size(); ++i) {
+        std::unordered_set<std::size_t> active_chs{};
+        for (std::size_t i = 0; i < chs.size(); ++i) {
             active_chs.insert(i);
         }
         while (!active_chs.empty()) {
