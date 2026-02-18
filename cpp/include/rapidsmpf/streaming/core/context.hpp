@@ -8,6 +8,8 @@
 #include <memory>
 #include <thread>
 
+#include <coro/coro.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -17,8 +19,6 @@
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
-
-#include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming {
 

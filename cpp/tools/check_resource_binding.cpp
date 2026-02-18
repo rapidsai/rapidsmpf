@@ -31,10 +31,10 @@
 
 #include <cuda_runtime.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
-
-#include <cucascade/memory/topology_discovery.hpp>
 
 namespace {
 

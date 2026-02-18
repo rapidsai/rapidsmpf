@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <unordered_set>
 #include <utility>
@@ -51,7 +50,7 @@ void TagMetadataPayloadExchange::send(
         // Assign sequential message ID
         // Format: [rank (32 bits)][sequence (32 bits)]
         std::uint64_t message_id =
-            (static_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
+            (safe_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
         RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
@@ -158,8 +157,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
         );
 
         std::vector<std::uint8_t> original_metadata(
-            msg->begin(),
-            msg->begin() + static_cast<std::ptrdiff_t>(original_metadata_size)
+            msg->begin(), msg->begin() + safe_cast<std::ptrdiff_t>(original_metadata_size)
         );
 
         // Allocate buffer before creating Message if payload is expected
