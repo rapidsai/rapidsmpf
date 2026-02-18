@@ -24,7 +24,7 @@ def define_actor(
     [Callable[Concatenate[Context, P], Awaitable[None]]],
     Callable[Concatenate[Context, P], PyActor],
 ]: ...
-def run_actor_graph(
+def run_actor_network(
     *,
     actors: Collection[CppActor | PyActor],
     py_executor: ThreadPoolExecutor | None = None,

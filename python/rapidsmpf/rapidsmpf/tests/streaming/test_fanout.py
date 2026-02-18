@@ -12,7 +12,7 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.actor import run_actor_graph
+from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.fanout import FanoutPolicy, fanout
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -54,7 +54,7 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
-        run_actor_graph(
+        run_actor_network(
             actors=[push_actor, fanout_actor, pull_actor1, pull_actor2],
             py_executor=executor,
         )
@@ -123,7 +123,7 @@ def test_fanout_multiple_outputs(
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
-        run_actor_graph(
+        run_actor_network(
             actors=[push_actor, fanout_actor, *pull_actors],
             py_executor=executor,
         )

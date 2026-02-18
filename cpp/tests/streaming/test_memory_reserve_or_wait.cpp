@@ -99,7 +99,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     }(mrow));
 
     // Run the pipeline on a dedicated thread.
-    std::thread thd(run_actor_graph, std::move(actors));
+    std::thread thd(run_actor_network, std::move(actors));
 
     // Wait until the actor has submitted its request (`mrow.size() == 1`).
     while (mrow.size() < 1) {
@@ -156,7 +156,7 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     }(log, mrow));
 
     // Run the pipeline on a dedicated thread.
-    std::thread thd(run_actor_graph, std::move(actors));
+    std::thread thd(run_actor_network, std::move(actors));
 
     // Ensure both requests are submitted and periodic_memory_check has run at least once.
     while (mrow.size() < 2) {
@@ -212,7 +212,7 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
         EXPECT_EQ(res.size(), 10);
     }(mrow));
 
-    std::thread thd1(run_actor_graph, std::move(actors1));
+    std::thread thd1(run_actor_network, std::move(actors1));
     while (mrow.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -234,7 +234,7 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
         EXPECT_EQ(res.size(), 10);
     }(mrow));
 
-    std::thread thd2(run_actor_graph, std::move(actors2));
+    std::thread thd2(run_actor_network, std::move(actors2));
     while (mrow.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -264,7 +264,7 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
             EXPECT_EQ(res.size(), 10);
         }(mrow));
 
-        std::thread thd(run_actor_graph, std::move(actors));
+        std::thread thd(run_actor_network, std::move(actors));
 
         while (mrow.size() < 1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));

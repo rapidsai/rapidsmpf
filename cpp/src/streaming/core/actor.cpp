@@ -8,7 +8,7 @@
 
 namespace rapidsmpf::streaming {
 
-void run_actor_graph(std::vector<Actor> actors) {
+void run_actor_network(std::vector<Actor> actors) {
     coro_results(coro::sync_wait(coro::when_all(std::move(actors))));
 }
 

@@ -19,7 +19,7 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.actor import (
     define_actor,
-    run_actor_graph,
+    run_actor_network,
 )
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
@@ -115,7 +115,7 @@ def main() -> int:
     actor3, out_messages = pull_from_channel(ctx, ch_in=ch2)
 
     # Run all actors. This blocks until every actor has completed.
-    run_actor_graph(
+    run_actor_network(
         actors=(
             actor1,
             actor2,

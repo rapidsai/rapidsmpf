@@ -238,10 +238,10 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         && (skip_rows.value_or(0) > 0 || num_rows.has_value()))
     {
         // We don't yet implement skip_rows/num_rows in multi-rank mode
-        EXPECT_THROW(run_actor_graph(std::move(actors)), std::logic_error);
+        EXPECT_THROW(run_actor_network(std::move(actors)), std::logic_error);
         return;
     }
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     coll::AllGather allgather(
         GlobalEnvironment->comm_,

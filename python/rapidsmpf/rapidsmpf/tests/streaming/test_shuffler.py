@@ -14,7 +14,7 @@ import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
 from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.partition import (
@@ -107,7 +107,7 @@ def test_single_rank_shuffler(
     actors.append(pull_actor)
 
     # Run all actors. This blocks until every actor has completed.
-    run_actor_graph(actors=actors)
+    run_actor_network(actors=actors)
 
     # Unwrap the messages into table chunks.
     output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
@@ -216,7 +216,7 @@ def test_shuffler_object_interface(
     actor, deferred = pull_from_channel(context, ch_shuffled)
     actors.append(actor)
 
-    run_actor_graph(actors=actors, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5

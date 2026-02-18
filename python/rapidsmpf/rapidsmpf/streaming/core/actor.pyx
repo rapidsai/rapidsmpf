@@ -137,7 +137,7 @@ def define_actor(*, extra_channels=()):
     ...
     ... # Calling the coroutine doesn't run it but we can provide its arguments.
     >>> actor = python_actor(context, ch_in=ch1)
-    ... # Later we need to call run_actor_graph() to actually run the actor.
+    ... # Later we need to call run_actor_network() to actually run the actor.
     """
 
     def _collect_channels(obj, out):
@@ -183,7 +183,7 @@ def define_actor(*, extra_channels=()):
     return decorator
 
 
-def run_actor_graph(*, actors, py_executor = None):
+def run_actor_network(*, actors, py_executor = None):
     """
     Run streaming actors to completion (blocking).
 
@@ -228,7 +228,7 @@ def run_actor_graph(*, actors, py_executor = None):
     ...     )
     ...     await ch_out.drain(context)
     ...
-    >>> run_actor_graph(
+    >>> run_actor_network(
     ...     actors=[cpp_actor, python_actor(context, ch_out=ch)],
     ...     py_executor=ThreadPoolExecutor(max_workers=1),
     ... )
@@ -262,7 +262,7 @@ def run_actor_graph(*, actors, py_executor = None):
     try:
         if cpp_actors.size() > 0:
             with nogil:
-                cpp_run_actor_graph(move(cpp_actors))
+                cpp_run_actor_network(move(cpp_actors))
     finally:
         if len(py_actors) > 0:
             py_future.result()  # This will raise any unhandled exception.

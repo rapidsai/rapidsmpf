@@ -65,7 +65,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     std::vector<Message> outputs;
     actors.push_back(actor::pull_from_channel(ctx, ch1, outputs));
 
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
@@ -146,7 +146,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
     for (int i = 0; i < n_consumer; i++) {
         consumers.push_back(consumer(ctx, ch, result));
     }
-    run_actor_graph(std::move(consumers));
+    run_actor_network(std::move(consumers));
     EXPECT_EQ(result, ((n_producer - 1) * n_producer) / 2);
 }
 
@@ -162,7 +162,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
     consumers.push_back(shutdown(ctx, ch, std::move(producers)));
     std::atomic<int> result;
     consumers.push_back(consumer(ctx, ch, result));
-    EXPECT_THROW(run_actor_graph(std::move(consumers)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(consumers)), std::runtime_error);
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
@@ -180,7 +180,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
     for (int i = 0; i < n_consumer; i++) {
         consumers.push_back(consumer(ctx, ch, result, i == 1));
     }
-    EXPECT_THROW(run_actor_graph(std::move(consumers)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(consumers)), std::runtime_error);
 }
 
 class StreamingThrottledAdaptor : public StreamingLeafTasks,

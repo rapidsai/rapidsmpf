@@ -98,7 +98,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
 
             actors.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
 
-            run_actor_graph(std::move(actors));
+            run_actor_network(std::move(actors));
         }
 
         std::unique_ptr<cudf::table> expected_table;
@@ -243,7 +243,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         ));
     }
     tasks.push_back(ctx->executor()->schedule(std::move(finish_token)));
-    run_actor_graph(std::move(tasks));
+    run_actor_network(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin

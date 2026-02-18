@@ -170,7 +170,7 @@ TEST_P(StreamingFanout, SinkPerChannel) {
             actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -207,7 +207,7 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
             actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -295,7 +295,7 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
             );
         }
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -337,7 +337,7 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
             }
         }
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -390,7 +390,7 @@ TEST_P(ThrowingStreamingFanout, ThrowingSource) {
         actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_out));
     }
 
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::logic_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::logic_error);
 }
 
 // tests that throwing a sink actor propagates the error to the pipeline. This test
@@ -418,7 +418,7 @@ TEST_P(ThrowingStreamingFanout, ThrowingSink) {
         }
     }
 
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::logic_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::logic_error);
 }
 
 namespace {
@@ -488,7 +488,7 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
 
             actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
 
-            run_actor_graph(std::move(actors));
+            run_actor_network(std::move(actors));
         }
 
         std::vector<int> expected(num_msgs);
@@ -577,7 +577,7 @@ TEST_F(SpillingStreamingFanout, Spilling) {
             many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {

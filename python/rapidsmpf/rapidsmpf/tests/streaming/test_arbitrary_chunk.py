@@ -7,7 +7,7 @@ import weakref
 from typing import TYPE_CHECKING
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 
@@ -134,7 +134,7 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
     actor, deferred_messages = pull_from_channel(context, ch_out)
     actors.append(actor)
 
-    run_actor_graph(actors=actors, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
 
     results = deferred_messages.release()
     for seq, msg in enumerate(results):

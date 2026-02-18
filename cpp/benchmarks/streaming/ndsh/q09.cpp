@@ -618,7 +618,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q9 Iteration");
-            rapidsmpf::streaming::run_actor_graph(std::move(actors));
+            rapidsmpf::streaming::run_actor_network(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

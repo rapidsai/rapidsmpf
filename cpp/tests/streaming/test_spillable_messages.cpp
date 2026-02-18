@@ -239,7 +239,7 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
 
     // Randomize the actor order.
     std::shuffle(actors.begin(), actors.end(), std::mt19937{std::random_device{}()});
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     EXPECT_EQ(
         spilled_expect.load(std::memory_order_relaxed),

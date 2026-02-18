@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> N
     ]
 
     with pytest.raises(RuntimeError, match="Throwing in task"):
-        run_actor_graph(actors=actors, py_executor=py_executor)
+        run_actor_network(actors=actors, py_executor=py_executor)
 
     messages = deferred.release()
     assert len(messages) == 0

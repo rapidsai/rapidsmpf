@@ -18,7 +18,7 @@ from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
     MemoryReserveOrWait,
@@ -55,7 +55,7 @@ def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 1024
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -75,7 +75,7 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -93,7 +93,7 @@ def test_timeout(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -117,7 +117,7 @@ def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
                 await asyncio.sleep(0)
             await mrow.shutdown()
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor1(context), actor2(context)],
             py_executor=py_executor,
         )
@@ -135,7 +135,7 @@ def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 512
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -165,7 +165,7 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
             assert res.size == 2048
             assert overbooked == 1024
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -183,7 +183,7 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
             with pytest.raises(RuntimeError):
                 await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -228,7 +228,7 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
                     allow_overbooking=False,
                 )
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -258,7 +258,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 2048
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )
@@ -283,7 +283,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
                     allow_overbooking=None,
                 )
 
-        run_actor_graph(
+        run_actor_network(
             actors=[actor(context)],
             py_executor=py_executor,
         )

@@ -11,7 +11,7 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.actor import run_actor_graph
+from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 from rapidsmpf.streaming.cudf.parquet import Filter, read_parquet
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -127,7 +127,7 @@ def test_read_parquet(
 
     consumer, deferred_messages = pull_from_channel(context, ch)
 
-    run_actor_graph(actors=[producer, consumer])
+    run_actor_network(actors=[producer, consumer])
 
     messages = deferred_messages.release()
     assert all(

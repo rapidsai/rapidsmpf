@@ -101,7 +101,7 @@ TEST_F(StreamingLineariser, ManyProducers) {
     std::vector<Message> outputs;
     outputs.reserve(num_messages);
     tasks.push_back(actor::pull_from_channel(ctx, ch_out, outputs));
-    run_actor_graph(std::move(tasks));
+    run_actor_network(std::move(tasks));
     EXPECT_EQ(num_messages, outputs.size());
     for (std::size_t i = 0; i < num_messages; i++) {
         EXPECT_EQ(outputs[i].sequence_number(), i);

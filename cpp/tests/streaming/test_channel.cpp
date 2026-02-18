@@ -37,7 +37,7 @@ TEST_F(StreamingChannel, DataRoundTripWithoutMetadata) {
     static constexpr std::size_t num_messages = 4;
     actors.emplace_back(actor::push_to_channel(ctx, ch, make_int_messages(num_messages)));
     actors.emplace_back(actor::pull_from_channel(ctx, ch, outputs));
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     ASSERT_EQ(outputs.size(), num_messages);
     for (int i = 0; i < 4; ++i) {
@@ -91,7 +91,7 @@ TEST_F(StreamingChannel, MetadataSendReceiveAndShutdown) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     ASSERT_EQ(metadata_outputs.size(), 2U);
     EXPECT_EQ(metadata_outputs[0].get<int>(), 10);
@@ -145,7 +145,7 @@ TEST_F(StreamingChannel, DataOnlyWithMetadataShutdown) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     EXPECT_TRUE(metadata_outputs.empty());
     ASSERT_EQ(data_outputs.size(), 2U);
@@ -195,7 +195,7 @@ TEST_F(StreamingChannel, MetadataOnlyWithDataShutdown) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     ASSERT_EQ(metadata_outputs.size(), 2U);
     EXPECT_EQ(metadata_outputs[0].get<int>(), 10);
@@ -238,7 +238,7 @@ TEST_F(StreamingChannel, ConsumerIgnoresMetadata) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    run_actor_graph(std::move(actors));
+    run_actor_network(std::move(actors));
 
     EXPECT_EQ(data_outputs.size(), 1U);
     EXPECT_EQ(data_outputs[0].get<int>(), 30);
@@ -270,7 +270,7 @@ TEST_F(StreamingChannel, ProducerThrowsWithMetadata) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingChannel, ConsumerThrowsWithMetadata) {
@@ -294,7 +294,7 @@ TEST_F(StreamingChannel, ConsumerThrowsWithMetadata) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingChannel, ProducerAndConsumerThrow) {
@@ -315,5 +315,5 @@ TEST_F(StreamingChannel, ProducerAndConsumerThrow) {
 
     actors.emplace_back(producer());
     actors.emplace_back(consumer());
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }

@@ -25,6 +25,6 @@ using Actor = coro::task<void>;
  *
  * @param actors A vector of actors to run.
  */
-void run_actor_graph(std::vector<Actor> actors);
+void run_actor_network(std::vector<Actor> actors);
 
 }  // namespace rapidsmpf::streaming

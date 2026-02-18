@@ -13,7 +13,7 @@ import cudf
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.content_description import ContentDescription
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import (
@@ -273,7 +273,7 @@ def test_make_available_or_wait_already_available(
         result = await chunk.make_available_or_wait(ctx, net_memory_delta=0)
         result_holder.append(result)
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -302,7 +302,7 @@ def test_make_available_or_wait_from_host(
         )
         result_holder.append(result)
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -385,7 +385,7 @@ def test_make_table_chunks_available_or_wait_single_chunk(
         )
         result_holder.append((result_chunk, res))
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -432,7 +432,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
         )
         result_holder.append((chunks, res))
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == num_chunks
     assert all(chunk.is_available() for chunk in chunks)
@@ -488,7 +488,7 @@ def test_make_table_chunks_available_or_wait(
         )
         result_holder.append((chunk, res))
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -529,7 +529,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
         )
         result_holder.append((chunks, res))
 
-    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == 2
     assert all(chunk.is_available() for chunk in chunks)

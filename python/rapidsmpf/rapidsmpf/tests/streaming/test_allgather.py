@@ -14,7 +14,7 @@ from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.coll.allgather import AllGather, allgather
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -69,7 +69,7 @@ def test_allgather_actor(context: Context) -> None:
 
     actor, deferred = pull_from_channel(context, ch2)
     actors.append(actor)
-    run_actor_graph(actors=actors)
+    run_actor_network(actors=actors)
 
     result = unpack_and_concat(
         (
@@ -147,7 +147,7 @@ def test_allgather_object_interface(
     actor, deferred = pull_from_channel(context, ch_out)
     actors.append(actor)
 
-    run_actor_graph(actors=actors, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
     (result_msg,) = deferred.release()
     result = TableChunk.from_message(result_msg)
     expect = plc.Table(

@@ -9,7 +9,7 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -54,7 +54,7 @@ def test_send_table_chunks(
 
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_actor_graph(
+    run_actor_network(
         actors=[
             actor1(context, ch_out=ch1),
             actor2,
@@ -79,7 +79,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_actor_graph(
+    run_actor_network(
         actors=[
             actor1(context, ch_out=ch1),
             actor2,
@@ -102,7 +102,7 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
         RuntimeError,
         match="MyError",
     ):
-        run_actor_graph(
+        run_actor_network(
             actors=[
                 actor1(context, ch_out=ch1),
                 actor2,
@@ -139,7 +139,7 @@ def test_recv_table_chunks(
 
     ch1: Channel[TableChunk] = context.create_channel()
 
-    run_actor_graph(
+    run_actor_network(
         actors=[
             push_to_channel(context, ch_out=ch1, messages=table_chunks),
             actor1(context, ch_in=ch1),

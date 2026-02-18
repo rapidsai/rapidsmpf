@@ -10,7 +10,7 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.actor import run_actor_graph
+from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
@@ -65,7 +65,7 @@ def run_bloom_filter_pipeline(
     ]
     pull_actor, deferred = pull_from_channel(context, ch_out)
     actors.append(pull_actor)
-    run_actor_graph(actors=actors)
+    run_actor_network(actors=actors)
     return deferred.release()
 
 

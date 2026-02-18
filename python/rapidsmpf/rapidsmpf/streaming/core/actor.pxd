@@ -11,8 +11,8 @@ cdef extern from "<rapidsmpf/streaming/core/actor.hpp>" nogil:
     cdef cppclass cpp_Actor "rapidsmpf::streaming::Actor":
         pass
 
-    cdef void cpp_run_actor_graph \
-        "rapidsmpf::streaming::run_actor_graph"(vector[cpp_Actor]) \
+    cdef void cpp_run_actor_network \
+        "rapidsmpf::streaming::run_actor_network"(vector[cpp_Actor]) \
         except +ex_handler
 
 

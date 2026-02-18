@@ -297,7 +297,7 @@ rapidsmpf::Duration run(
         actors.push_back(consumer(ctx, ch4));
     }
     auto const t0_elapsed = rapidsmpf::Clock::now();
-    rapidsmpf::streaming::run_actor_graph(std::move(actors));
+    rapidsmpf::streaming::run_actor_network(std::move(actors));
     return rapidsmpf::Clock::now() - t0_elapsed;
 }
 

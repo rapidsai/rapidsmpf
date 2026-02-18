@@ -9,7 +9,7 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.actor import run_actor_graph
+from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
@@ -59,7 +59,7 @@ def test_partition_and_pack_unpack(
     )
 
     actor4, output = pull_from_channel(context, ch_in=ch3)
-    run_actor_graph(actors=(actor1, actor2, actor3, actor4))
+    run_actor_network(actors=(actor1, actor2, actor3, actor4))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

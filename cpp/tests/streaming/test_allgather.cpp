@@ -126,7 +126,7 @@ TEST_P(StreamingAllGather, basic) {
     }
     pipeline.push_back(ctx->executor()->schedule(insert_finished()));
     pipeline.push_back(ctx->executor()->schedule(extract()));
-    streaming::run_actor_graph(std::move(pipeline));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> expected(size * size * n_inserts);
     std::iota(expected.begin(), expected.end(), 0);
     EXPECT_EQ(expected, result);
@@ -183,7 +183,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
     pipeline.push_back(ctx->executor()->schedule(
         streaming::actor::pull_from_channel(ctx, ch_out, output_messages)
     ));
-    streaming::run_actor_graph(std::move(pipeline));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> actual(size * size * n_inserts);
     std::size_t offset{0};
     for (auto& msg : output_messages) {

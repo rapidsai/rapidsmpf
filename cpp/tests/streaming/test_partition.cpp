@@ -68,7 +68,7 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
 
         actors.push_back(actor::pull_from_channel(ctx, ch3, outputs));
 
-        run_actor_graph(std::move(actors));
+        run_actor_network(std::move(actors));
     }
 
     EXPECT_EQ(expects.size(), outputs.size());

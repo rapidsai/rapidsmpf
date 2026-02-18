@@ -24,7 +24,7 @@ TEST_F(StreamingErrorHandling, UnhandledException) {
         throw std::runtime_error("unhandled_exception");
     }(*ctx));
 
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingErrorHandling, ProducerThrows) {
@@ -49,7 +49,7 @@ TEST_F(StreamingErrorHandling, ProducerThrows) {
         }(ctx, ch)
     );
 
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingErrorHandling, ConsumerThrows) {
@@ -77,5 +77,5 @@ TEST_F(StreamingErrorHandling, ConsumerThrows) {
         }(ctx, ch)
     );
 
-    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
+    EXPECT_THROW(run_actor_network(std::move(actors)), std::runtime_error);
 }
