@@ -33,7 +33,7 @@ cuda::memory_pool_properties get_memory_pool_properties(
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone,
-        .max_pool_size = pool_properties.max_pool_size,
+        .max_pool_size = pool_properties.max_pool_size.value_or(0),
     };
 }
 
