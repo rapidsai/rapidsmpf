@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,7 +44,7 @@ namespace bootstrap {
  * @endcode
  */
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
-    Backend backend = Backend::AUTO, config::Options options = config::Options{}
+    BackendType type = BackendType::AUTO, config::Options options = config::Options{}
 );
 
 }  // namespace bootstrap

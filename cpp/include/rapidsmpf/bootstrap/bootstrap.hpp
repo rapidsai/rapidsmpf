@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,31 +11,10 @@
 #include <optional>
 #include <string>
 
+#include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
-
-/**
- * @brief Backend types for process coordination and bootstrapping.
- */
-enum class Backend {
-    /**
-     * @brief Automatically detect the best backend based on environment.
-     *
-     * Detection order:
-     * 1. File-based (default fallback)
-     */
-    AUTO,
-
-    /**
-     * @brief File-based coordination using a shared directory.
-     *
-     * Uses filesystem for rank coordination and address exchange.  Works on single-node
-     * and multi-node with shared storage (e.g., NFS) via SSH. Requires RAPIDSMPF_RANK,
-     * RAPIDSMPF_NRANKS, RAPIDSMPF_COORD_DIR environment variables.
-     */
-    FILE,
-};
 
 /**
  * @brief Context information for the current process/rank.
@@ -50,11 +29,14 @@ struct Context {
     /** @brief Total number of ranks in the job. */
     Rank nranks;
 
-    /** @brief Backend used for coordination. */
-    Backend backend;
+    /** @brief Backend type used for coordination. */
+    BackendType type;
 
     /** @brief Coordination directory (for FILE backend). */
     std::optional<std::string> coord_dir;
+
+    /** @brief Backend implementation (internal, do not access directly). */
+    std::shared_ptr<detail::Backend> backend;
 };
 
 /**
@@ -68,7 +50,7 @@ struct Context {
  * - RAPIDSMPF_NRANKS: Explicitly set total rank count
  * - RAPIDSMPF_COORD_DIR: File-based coordination directory
  *
- * @param backend Backend to use (default: AUTO for auto-detection).
+ * @param type Backend type to use (default: AUTO for auto-detection).
  * @return Context object containing rank and coordination information.
  * @throws std::runtime_error if environment is not properly configured.
  *
@@ -77,20 +59,7 @@ struct Context {
  * std::cout << "I am rank " << ctx.rank << " of " << ctx.nranks << std::endl;
  * @endcode
  */
-Context init(Backend backend = Backend::AUTO);
-
-/**
- * @brief Broadcast data from root rank to all other ranks.
- *
- * This is a helper function for broadcasting small amounts of data during
- * bootstrapping. It uses the underlying backend's coordination mechanism.
- *
- * @param ctx Bootstrap context.
- * @param data Data buffer to broadcast (both input on root, output on others).
- * @param size Size of data in bytes.
- * @param root Root rank performing the broadcast (default: 0).
- */
-void broadcast(Context const& ctx, void* data, std::size_t size, Rank root = 0);
+Context init(BackendType type = BackendType::AUTO);
 
 /**
  * @brief Perform a barrier synchronization across all ranks.
@@ -102,20 +71,40 @@ void broadcast(Context const& ctx, void* data, std::size_t size, Rank root = 0);
 void barrier(Context const& ctx);
 
 /**
- * @brief Store a key-value pair in the coordination backend.
+ * @brief Ensure all previous put() operations are globally visible.
  *
- * This is useful for custom coordination beyond UCXX address exchange.
+ * Different backends have different visibility semantics for put() operations:
+ * - Slurm/PMIx: Requires explicit fence (PMIx_Fence) to make data visible across nodes.
+ * - FILE: put() operations are immediately visible via atomic filesystem operations.
+ *
+ * This function abstracts these differences. Call sync() after put() operations
+ * to ensure data is visible to other ranks before they attempt get().
+ *
+ * @param ctx Bootstrap context.
+ */
+void sync(Context const& ctx);
+
+/**
+ * @brief Store a key-value pair in the coordination backend (rank 0 only).
+ *
+ * Only rank 0 should call this function. The key-value pair is made visible
+ * to all ranks after a `sync()` call. Use this for custom coordination such
+ * as UCXX address exchange.
  *
  * @param ctx Bootstrap context.
  * @param key Key name.
  * @param value Value to store.
+ *
+ * @throws std::runtime_error if called by non-zero rank.
  */
 void put(Context const& ctx, std::string const& key, std::string const& value);
 
 /**
  * @brief Retrieve a value from the coordination backend.
  *
- * This function blocks until the key is available or timeout occurs.
+ * Any rank (including rank 0) can call this function to retrieve values
+ * published by rank 0. This function blocks until the key is available
+ * or timeout occurs.
  *
  * @param ctx Bootstrap context.
  * @param key Key name to retrieve.

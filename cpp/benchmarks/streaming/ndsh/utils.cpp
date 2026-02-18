@@ -197,7 +197,7 @@ std::shared_ptr<streaming::Context> create_context(
         break;
     case CommType::UCXX:
         if (bootstrap::is_running_with_rrun()) {
-            comm = bootstrap::create_ucxx_comm(bootstrap::Backend::AUTO, options);
+            comm = bootstrap::create_ucxx_comm(bootstrap::BackendType::AUTO, options);
         } else {
             mpi::init(nullptr, nullptr);
             comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options);

@@ -8,9 +8,9 @@ from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 
 
-cdef extern from "<rapidsmpf/bootstrap/bootstrap.hpp>" namespace \
+cdef extern from "<rapidsmpf/bootstrap/backend.hpp>" namespace \
   "rapidsmpf::bootstrap" nogil:
-    cpdef enum class Backend(int):
+    cpdef enum class BackendType(int):
         AUTO
         FILE
 
@@ -31,12 +31,12 @@ cdef extern from "<rapidsmpf/bootstrap/utils.hpp>" nogil:
 cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
     shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
         "rapidsmpf::bootstrap::create_ucxx_comm"(
-            Backend backend,
+            BackendType type,
             cpp_Options options,
         ) except +ex_handler
 
 
-def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
+def create_ucxx_comm(BackendType type = BackendType.AUTO, options = None):
     """
     Create a UCXX communicator using the bootstrap backend.
 
@@ -47,8 +47,8 @@ def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
 
     Parameters
     ----------
-    backend
-        Backend to use for coordination. By default, ``Backend.AUTO`` is used,
+    type
+        Backend type to use for coordination. By default, ``BackendType.AUTO`` is used,
         which currently resolves to the file-based backend.
     options
         Configuration options for the UCXX communicator. If ``None``, a default
@@ -73,7 +73,7 @@ def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
         cpp_options = <Options>options
 
     with nogil:
-        ucxx_comm = cpp_create_ucxx_comm(backend, cpp_options._handle)
+        ucxx_comm = cpp_create_ucxx_comm(type, cpp_options._handle)
         base_comm = dynamic_pointer_cast[cpp_Communicator, cpp_UCXX_Communicator](
             ucxx_comm
         )
