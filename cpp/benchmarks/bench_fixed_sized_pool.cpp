@@ -17,6 +17,7 @@
 #include <benchmark/benchmark.h>
 #include <cuda_runtime_api.h>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -32,8 +33,6 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils/random_data.hpp"
-
-#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
 using namespace cucascade::memory;
 
@@ -394,6 +393,7 @@ static void BM_ChunkedPack_FixedPool_BatchAsync(benchmark::State& state) {
 
 /**
  * @brief Benchmark for chunked pack with fixed sized pool using cudaMemcpyBatchAsync
+ * and shuffled blocks
  */
 static void BM_ChunkedPack_FixedPool_BatchAsync_Shuffled(benchmark::State& state) {
     auto const bounce_buffer_mb = static_cast<std::size_t>(state.range(0));
