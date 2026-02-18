@@ -107,14 +107,14 @@ std::map<std::string, cudf::data_type> get_column_types(
 
 }  // namespace detail
 
-streaming::Node sink_channel(
+streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 ) {
     co_await ctx->executor()->schedule();
     co_await ch->shutdown();
 }
 
-streaming::Node consume_channel(
+streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 ) {
     streaming::ShutdownAtExit c{ch_in};

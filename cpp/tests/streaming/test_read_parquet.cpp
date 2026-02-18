@@ -36,9 +36,9 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -227,21 +227,21 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         }
     }();
     auto ch = ctx->create_channel();
-    std::vector<Node> nodes;
+    std::vector<Actor> actors;
 
-    nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
+    actors.push_back(actor::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
 
     std::vector<Message> messages;
-    nodes.push_back(node::pull_from_channel(ctx, ch, messages));
+    actors.push_back(actor::pull_from_channel(ctx, ch, messages));
 
     if (GlobalEnvironment->comm_->nranks() > 1
         && (skip_rows.value_or(0) > 0 || num_rows.has_value()))
     {
         // We don't yet implement skip_rows/num_rows in multi-rank mode
-        EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+        EXPECT_THROW(run_actor_network(std::move(actors)), std::logic_error);
         return;
     }
-    run_streaming_pipeline(std::move(nodes));
+    run_actor_network(std::move(actors));
 
     coll::AllGather allgather(
         GlobalEnvironment->comm_,

@@ -9,9 +9,9 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
 cdef class BloomFilter:
@@ -85,17 +85,17 @@ cdef class BloomFilter:
 
         Returns
         -------
-        A streaming node representing the asynchronous filter construction.
+        A streaming actor representing the asynchronous filter construction.
         """
-        cdef cpp_Node _ret
+        cdef cpp_Actor _ret
         with nogil:
             _ret = deref(self._handle).build(
                 ch_in._handle,
                 ch_out._handle,
                 tag,
             )
-        return CppNode.from_handle(
-            make_unique[cpp_Node](move(_ret)), owner=None
+        return CppActor.from_handle(
+            make_unique[cpp_Actor](move(_ret)), owner=None
         )
 
     def apply(
@@ -121,10 +121,10 @@ cdef class BloomFilter:
 
         Returns
         -------
-        A streaming node representing the asynchronous filter application.
+        A streaming actor representing the asynchronous filter application.
         """
         cdef vector[size_type] c_keys = tuple(keys)
-        cdef cpp_Node c_ret
+        cdef cpp_Actor c_ret
         with nogil:
             c_ret = deref(self._handle).apply(
                 bloom_filter._handle,
@@ -132,6 +132,6 @@ cdef class BloomFilter:
                 ch_out._handle,
                 c_keys,
             )
-        return CppNode.from_handle(
-            make_unique[cpp_Node](move(c_ret)), owner=None
+        return CppActor.from_handle(
+            make_unique[cpp_Actor](move(c_ret)), owner=None
         )

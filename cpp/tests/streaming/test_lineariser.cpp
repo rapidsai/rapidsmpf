@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,17 +11,17 @@
 #include <gtest/gtest.h>
 #include <pthread.h>
 
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/core/lineariser.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
+namespace actor = rapidsmpf::streaming::actor;
 
 class StreamingLineariser : public BaseStreamingFixture {
   public:
@@ -73,13 +73,13 @@ TEST_F(StreamingLineariser, ManyProducers) {
 
     auto ch_out = ctx->create_channel();
     auto lineariser = Lineariser(ctx, ch_out, num_producers);
-    std::vector<Node> tasks;
+    std::vector<Actor> tasks;
     tasks.reserve(num_producers + 2);
     auto make_producer = [end = num_messages, stride = num_producers](
                              std::shared_ptr<Context> ctx,
                              std::shared_ptr<BoundedQueue> ch_out,
                              std::size_t start
-                         ) -> Node {
+                         ) -> Actor {
         for (auto id = start; id < end; id += stride) {
             co_await ctx->executor()->schedule();
             auto ticket = co_await ch_out->acquire();
@@ -100,8 +100,8 @@ TEST_F(StreamingLineariser, ManyProducers) {
     tasks.push_back(lineariser.drain());
     std::vector<Message> outputs;
     outputs.reserve(num_messages);
-    tasks.push_back(node::pull_from_channel(ctx, ch_out, outputs));
-    run_streaming_pipeline(std::move(tasks));
+    tasks.push_back(actor::pull_from_channel(ctx, ch_out, outputs));
+    run_actor_network(std::move(tasks));
     EXPECT_EQ(num_messages, outputs.size());
     for (std::size_t i = 0; i < num_messages; i++) {
         EXPECT_EQ(outputs[i].sequence_number(), i);

@@ -56,7 +56,7 @@ enum class KeepKeys : bool {
  *
  * @return Coroutine representing the broadcast
  */
-[[nodiscard]] streaming::Node broadcast(
+[[nodiscard]] streaming::Actor broadcast(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -82,7 +82,7 @@ enum class KeepKeys : bool {
  *
  * @return Coroutine representing the completion of the join.
  */
-[[nodiscard]] streaming::Node inner_join_broadcast(
+[[nodiscard]] streaming::Actor inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
@@ -110,7 +110,7 @@ enum class KeepKeys : bool {
  *
  * @return Coroutine representing the completion of the join.
  */
-[[nodiscard]] streaming::Node inner_join_shuffle(
+[[nodiscard]] streaming::Actor inner_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -140,7 +140,7 @@ enum class KeepKeys : bool {
  *
  * @return Coroutine representing the completion of the join.
  */
-streaming::Node left_semi_join_broadcast_left(
+streaming::Actor left_semi_join_broadcast_left(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
@@ -171,7 +171,7 @@ streaming::Node left_semi_join_broadcast_left(
  * @return Coroutine representing the completion of the join.
  */
 
-streaming::Node left_semi_join_shuffle(
+streaming::Actor left_semi_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -193,7 +193,7 @@ streaming::Node left_semi_join_shuffle(
  *
  * @return Coroutine representing the completion of the shuffle.
  */
-[[nodiscard]] streaming::Node shuffle(
+[[nodiscard]] streaming::Actor shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,

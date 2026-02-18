@@ -9,9 +9,9 @@ from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
-from rapidsmpf.streaming.core.node cimport cpp_Node
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/bloom_filter.hpp>" nogil:
@@ -21,12 +21,12 @@ cdef extern from "<rapidsmpf/streaming/cudf/bloom_filter.hpp>" nogil:
             uint64_t seed,
             size_t num_filter_blocks,
         ) noexcept
-        cpp_Node build(
+        cpp_Actor build(
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,
             int32_t tag,
         ) except +ex_handler
-        cpp_Node apply(
+        cpp_Actor apply(
             shared_ptr[cpp_Channel] bloom_filter,
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,

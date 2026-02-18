@@ -11,10 +11,10 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 
-Node partition_and_pack(
+Actor partition_and_pack(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -58,7 +58,7 @@ Node partition_and_pack(
     co_await ch_out->drain(ctx->executor());
 }
 
-Node unpack_and_concat(
+Actor unpack_and_concat(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out
@@ -100,4 +100,4 @@ Node unpack_and_concat(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

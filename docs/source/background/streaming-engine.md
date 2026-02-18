@@ -24,13 +24,13 @@ memory at once.
 The abstract framework we use to describe task graphs is broadly that of
 Hoare's [Communicating Sequential
 Processes](https://en.wikipedia.org/wiki/Communicating_sequential_processes).
-Nodes (tasks) in the graph are long-lived that read from zero-or-more
+Actors in the graph are long-lived coroutines that read from zero-or-more
 channels and write to zero-or-more channels. In this sense, the programming
 model is relatively close to that of
 [actors](https://en.wikipedia.org/wiki/Actor_model).
 
 The communication channels are bounded capacity, multi-producer
-multi-consumer queues. A node processing data from an input channel pulls
+multi-consumer queues. An actor processing data from an input channel pulls
 data as necessary until the channel is empty, and can optionally signal
 that it needs no more data (thus shutting the producer down).
 
@@ -51,7 +51,7 @@ application specific intermediate representation, though one can write it
 by hand.  For example, one can convert logical plans from query engines such as
 Polars, DuckDB, etc to a physical plan to be executed by rapidsmpf.
 
-A typical approach is to define one node in the graph for each physical
+A typical approach is to define one actor in the graph for each physical
 operation in the query plan. Parallelism is obtained by using a
 multi-threaded executor to handle the concurrent tasks that thus result.
 
@@ -65,19 +65,19 @@ library.
 | Scan | --> | Select | --> | Filter | --> | Sink |
 +------+     +--------+     +--------+     +------+
 ```
-*A typical rapidsmpf network of nodes*
+*A typical rapidsmpf network of actors*
 
- Once constructed, the network of "nodes" and their connecting channels remains in place for the duration of the workflow. Each node continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next node(s) in the graph.
+ Once constructed, the network of actors and their connecting channels remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the graph.
 
 
 ## Definitions
 
 ```{glossary}
 Network
-  A graph of nodes and edges. Nodes are the relational operators on data and edges are the channels connecting the next operation in the workflow.
+  A graph of actors and edges. Actors are the relational operators on data and edges are the channels connecting the next operation in the workflow.
 
 Context
-  Provides access to resources necessary for executing nodes:
+  Provides access to resources necessary for executing actors:
   - Communicators (UCXX or MPI)
   - Thread pool executor
   - CUDA Memory (RMM)
@@ -95,17 +95,17 @@ Message
   - Messages also contain metadata: a sequence number.
   - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created.
 
-Node
+Actor
   Coroutine-based asynchronous relational operator: read, filter, select, join.
 
-  - Nodes read from zero-or-more channels and write to zero-or-more channels.
-  - Multiple Nodes can be executed concurrently.
-  - Nodes can communicate directly using "streaming" collective operations such as shuffles and joins (see [Streaming collective operations](./shuffle-architecture.md#streaming-collective-operations)).
+  - Actors read from zero-or-more channels and write to zero-or-more channels.
+  - Multiple Actors can be executed concurrently.
+  - Actors can communicate directly using "streaming" collective operations such as shuffles and joins (see [Streaming collective operations](./shuffle-architecture.md#streaming-collective-operations)).
 
 Channel
-  An asynchronous messaging queue used for communicating Messages between Nodes.
+  An asynchronous messaging queue used for communicating Messages between Actors.
   - Provides backpressure to the network prevent over consumption of memory
-  - Can be throttled to prevent over production of buffers which can useful when writing producer nodes that otherwise do not depend on an input channel.
+  - Can be throttled to prevent over production of buffers which can useful when writing producer actors that otherwise do not depend on an input channel.
   - Sending suspends when channel is "full".
   - Does not copy (de-)serialize, (un-)spill data
 
