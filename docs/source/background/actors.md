@@ -20,13 +20,14 @@ rapidsmpf::streaming::Actor accumulator(
         if (msg.empty()) {
             break;
         }
+        auto seq = msg.sequence_number();
         auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
                             .make_available(ctx);
         total += chunk.table_view().num_rows();
 
         // Forward the chunk downstream.
         co_await ch_out->send(
-            streaming::to_message(msg.sequence_number(), std::move(chunk))
+            streaming::to_message(seq, std::move(chunk))
         );
     }
 }
