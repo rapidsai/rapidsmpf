@@ -231,13 +231,14 @@ TEST_P(FixedSizedHostBufferTest, from_vector) {
         EXPECT_EQ(block_size, buf.block_size());
         EXPECT_EQ((expected.size() + block_size - 1) / block_size, buf.num_blocks());
         for (size_t i = 0; i < buf.num_blocks(); ++i) {
-            EXPECT_EQ(block_size, buf.block_data(i).size());
-            size_t offset = i * block_size;
+            auto const offset = i * block_size;
             EXPECT_TRUE(
-                std::equal(
-                    expected.begin() + offset,
-                    expected.begin() + std::min(offset + block_size, expected.size()),
-                    buf.block_data(i).data()
+                std::ranges::equal(
+                    std::span<const std::byte>(
+                        expected.begin() + offset,
+                        std::min(block_size, expected.size() - offset)
+                    ),
+                    buf.block_data(i)
                 )
             );
         }

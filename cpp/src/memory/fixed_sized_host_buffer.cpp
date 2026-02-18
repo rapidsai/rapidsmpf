@@ -119,14 +119,18 @@ std::span<std::byte> FixedSizedHostBuffer::block_data(std::size_t i) {
     RAPIDSMPF_EXPECTS(
         i < num_blocks(), "FixedSizedHostBuffer::block_data", std::out_of_range
     );
-    return std::span<std::byte>{block_ptrs_[i], block_size_};
+    return std::span<std::byte>{
+        block_ptrs_[i], std::min(block_size_, total_size_ - i * block_size_)
+    };
 }
 
 std::span<std::byte const> FixedSizedHostBuffer::block_data(std::size_t i) const {
     RAPIDSMPF_EXPECTS(
         i < num_blocks(), "FixedSizedHostBuffer::block_data", std::out_of_range
     );
-    return std::span<std::byte const>{block_ptrs_[i], block_size_};
+    return std::span<std::byte const>{
+        block_ptrs_[i], std::min(block_size_, total_size_ - i * block_size_)
+    };
 }
 
 }  // namespace rapidsmpf
