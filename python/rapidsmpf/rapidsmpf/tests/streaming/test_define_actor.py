@@ -9,9 +9,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -36,7 +36,7 @@ def test_send_table_chunks(
     ch1: Channel[TableChunk] = context.create_channel()
 
     # The node access `ch1` both through the `ch_out` parameter and the closure.
-    @define_py_actor(extra_channels=(ch1,))
+    @define_actor(extra_channels=(ch1,))
     async def node1(ctx: Context, /, ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
@@ -70,7 +70,7 @@ def test_send_table_chunks(
 
 
 def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_actor()
+    @define_actor()
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         await ch_out.shutdown(ctx)
         # Calling shutdown multiple times is allowed.
@@ -91,7 +91,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
 
 
 def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_actor()
+    @define_actor()
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
@@ -129,7 +129,7 @@ def test_recv_table_chunks(
 
     results: list[Message[TableChunk]] = []
 
-    @define_py_actor()
+    @define_actor()
     async def node1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
         while True:
             chunk = await ch_in.recv(context)

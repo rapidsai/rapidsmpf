@@ -11,8 +11,8 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel
-from rapidsmpf.streaming.core.node import run_actor_graph
+from rapidsmpf.streaming.core.actor import run_actor_graph
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 from rapidsmpf.streaming.cudf.parquet import Filter, read_parquet
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppActor
 
 
 @pytest.fixture(scope="module")

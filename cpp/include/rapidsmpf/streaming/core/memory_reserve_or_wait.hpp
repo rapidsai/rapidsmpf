@@ -12,9 +12,9 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::streaming {

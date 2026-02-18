@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
+    from rapidsmpf.streaming.core.actor import PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import PyActor
 
 
 def make_messages(start: int, count: int) -> list[Message[ArbitraryChunk[int]]]:
@@ -26,7 +26,7 @@ def make_messages(start: int, count: int) -> list[Message[ArbitraryChunk[int]]]:
     ]
 
 
-@define_py_actor()
+@define_actor()
 async def send_data(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -38,7 +38,7 @@ async def send_data(
     await ch_out.drain(ctx)
 
 
-@define_py_actor()
+@define_actor()
 async def send_metadata_then_data(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -54,7 +54,7 @@ async def send_metadata_then_data(
     await ch_out.drain(ctx)
 
 
-@define_py_actor()
+@define_actor()
 async def send_data_only_with_metadata_shutdown(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -67,7 +67,7 @@ async def send_data_only_with_metadata_shutdown(
     await ch_out.drain(ctx)
 
 
-@define_py_actor()
+@define_actor()
 async def send_metadata_only(
     ctx: Context, ch_out: Channel[ArbitraryChunk[int]], metadata_values: list[int]
 ) -> None:
@@ -76,7 +76,7 @@ async def send_metadata_only(
     await ch_out.drain(ctx)
 
 
-@define_py_actor()
+@define_actor()
 async def consume_metadata_then_data(
     ctx: Context,
     ch_in: Channel[ArbitraryChunk[int]],
@@ -99,7 +99,7 @@ def test_data_roundtrip_without_metadata(
         send_data(context, ch, 0, 3),
     ]
 
-    @define_py_actor()
+    @define_actor()
     async def consume_only_data(
         ctx: Context, ch_in: Channel[ArbitraryChunk[int]]
     ) -> None:
@@ -168,7 +168,7 @@ def test_producer_raises_after_metadata(
     metadata_out: list[int] = []
     data_out: list[int] = []
 
-    @define_py_actor()
+    @define_actor()
     async def throwing_producer(
         ctx: Context, ch_out: Channel[ArbitraryChunk[int]]
     ) -> None:
@@ -188,7 +188,7 @@ def test_consumer_raises_with_metadata(
 ) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
 
-    @define_py_actor()
+    @define_actor()
     async def throwing_consumer(
         ctx: Context, ch_in: Channel[ArbitraryChunk[int]]
     ) -> None:

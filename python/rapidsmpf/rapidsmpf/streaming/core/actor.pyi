@@ -18,7 +18,7 @@ class CppActor:
 class PyActor(Awaitable[None]):
     def __await__(self) -> Generator[Any, None, None]: ...
 
-def define_py_actor(
+def define_actor(
     *, extra_channels: Collection[Channel] = ()
 ) -> Callable[
     [Callable[Concatenate[Context, P], Awaitable[None]]],

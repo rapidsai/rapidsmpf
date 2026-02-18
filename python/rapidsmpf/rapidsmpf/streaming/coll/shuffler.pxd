@@ -9,9 +9,9 @@ from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
-from rapidsmpf.streaming.core.node cimport cpp_Actor
 
 
 cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:

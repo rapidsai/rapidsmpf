@@ -6,10 +6,10 @@
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 #include "base_streaming_fixture.hpp"
 

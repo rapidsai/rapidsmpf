@@ -5,10 +5,10 @@ from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
-from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 
 def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):

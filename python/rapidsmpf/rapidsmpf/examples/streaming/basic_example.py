@@ -17,19 +17,19 @@ from rapidsmpf.communicator.single import (
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
-from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import (
-    define_py_actor,
+from rapidsmpf.streaming.core.actor import (
+    define_actor,
     run_actor_graph,
 )
+from rapidsmpf.streaming.core.context import Context
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
-    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 def main() -> int:
@@ -76,7 +76,7 @@ def main() -> int:
     # Actor 2: Python actor that counts the total number of rows.
     # Runs as a Python coroutine (asyncio), which comes with overhead,
     # but releases the GIL on `await` and when calling into C++ APIs.
-    @define_py_actor()
+    @define_actor()
     async def count_num_rows(
         ctx: Context, ch_in: Channel, ch_out: Channel, total_num_rows: list[int]
     ) -> None:

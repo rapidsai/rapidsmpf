@@ -12,9 +12,9 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 namespace rapidsmpf::streaming {
 

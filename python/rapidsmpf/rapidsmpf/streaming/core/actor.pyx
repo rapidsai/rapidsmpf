@@ -92,7 +92,7 @@ class PyActor(Awaitable[None]):
         return self._coro.__await__()
 
 
-def define_py_actor(*, extra_channels=()):
+def define_actor(*, extra_channels=()):
     """
     Create a decorator for defining a Python streaming actor.
 
@@ -130,7 +130,7 @@ def define_py_actor(*, extra_channels=()):
     >>> ch1: Channel[TableChunk] = context.create_channel()
     >>> ch2: Channel[TableChunk] = context.create_channel()
     ...
-    >>> @define_py_actor(extra_channels=(ch2,))
+    >>> @define_actor(extra_channels=(ch2,))
     ... async def python_actor(ctx: Context, /, ch_in: Channel) -> None:
     ...     msg = await ch_in.recv()
     ...     await ch2.send(msg)
@@ -219,7 +219,7 @@ def run_actor_graph(*, nodes, py_executor = None):
     >>> ch: Channel[TableChunk] = context.create_channel()
     >>> cpp_actor, output = pull_from_channel(context, ch_in=ch)
     ...
-    >>> @define_py_actor()
+    >>> @define_actor()
     ... async def python_actor(ctx: Context, ch_out: Channel) -> None:
     ...     # Send one message and close.
     ...     await ch_out.send(
@@ -248,7 +248,7 @@ def run_actor_graph(*, nodes, py_executor = None):
             py_nodes.append(node)
         else:
             raise ValueError(
-                "Unknown actor type, did you forget to use `@define_py_actor()`?"
+                "Unknown actor type, did you forget to use `@define_actor()`?"
             )
 
     async def runner():

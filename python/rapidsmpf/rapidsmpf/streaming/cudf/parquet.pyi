@@ -5,9 +5,9 @@ from pylibcudf.expressions import Expression
 from pylibcudf.io.parquet import ParquetReaderOptions
 from rmm.pylibrmm.stream import Stream
 
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.node import CppActor
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class Filter:

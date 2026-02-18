@@ -14,18 +14,18 @@ from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.coll.allgather import AllGather, allgather
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
+    from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 def test_allgather_node(context: Context) -> None:
@@ -85,7 +85,7 @@ def test_allgather_node(context: Context) -> None:
     assert_eq(result, expect)
 
 
-@define_py_actor()
+@define_actor()
 async def generate_inputs(
     context: Context, ch: Channel[PackedDataChunk], num_rows: int, num_chunks: int
 ) -> None:
@@ -112,7 +112,7 @@ async def generate_inputs(
     await ch.drain(context)
 
 
-@define_py_actor()
+@define_actor()
 async def allgather_and_concat(
     context: Context,
     ch_in: Channel[PackedDataChunk],

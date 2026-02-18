@@ -14,9 +14,9 @@ import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
 from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_graph
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_actor, run_actor_graph
 from rapidsmpf.streaming.cudf.partition import (
     partition_and_pack,
     unpack_and_concat as streaming_unpack_and_concat,
@@ -34,9 +34,9 @@ if TYPE_CHECKING:
         PartitionMapChunk,
         PartitionVectorChunk,
     )
+    from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppActor, PyActor
 
 
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
@@ -123,7 +123,7 @@ def test_single_rank_shuffler(
     assert_eq(result, df, sort_rows="idx")
 
 
-@define_py_actor()
+@define_actor()
 async def generate_inputs(
     context: Context, ch: Channel[TableChunk], num_rows: int, num_chunks: int
 ) -> None:
@@ -143,7 +143,7 @@ async def generate_inputs(
     await ch.drain(context)
 
 
-@define_py_actor()
+@define_actor()
 async def do_shuffle(
     context: Context,
     ch_in: Channel[TableChunk],

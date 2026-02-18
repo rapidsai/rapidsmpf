@@ -7,7 +7,7 @@ from libcpp.vector cimport vector
 from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
-cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
+cdef extern from "<rapidsmpf/streaming/core/actor.hpp>" nogil:
     cdef cppclass cpp_Actor "rapidsmpf::streaming::Actor":
         pass
 

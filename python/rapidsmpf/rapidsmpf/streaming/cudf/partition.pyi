@@ -4,9 +4,9 @@
 from collections.abc import Iterable
 
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.node import CppActor
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 def partition_and_pack(

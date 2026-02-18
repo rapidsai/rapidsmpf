@@ -6,13 +6,13 @@ from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
-from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 
-cdef extern from "<rapidsmpf/streaming/core/leaf_node.hpp>" nogil:
+cdef extern from "<rapidsmpf/streaming/core/leaf_actor.hpp>" nogil:
     cdef cpp_Actor cpp_push_to_channel \
         "rapidsmpf::streaming::actor::push_to_channel"(
             shared_ptr[cpp_Context] ctx,

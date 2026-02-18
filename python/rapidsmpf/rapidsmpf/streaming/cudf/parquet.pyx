@@ -18,9 +18,9 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.chunks.arbitrary cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppActor, cpp_Actor
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:

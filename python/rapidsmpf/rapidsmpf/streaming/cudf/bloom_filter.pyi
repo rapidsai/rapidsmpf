@@ -4,10 +4,10 @@
 from collections.abc import Iterable
 from typing import Self
 
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import CppActor
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class BloomFilterChunk:
