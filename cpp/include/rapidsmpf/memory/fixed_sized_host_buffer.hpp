@@ -12,9 +12,9 @@
 #include <utility>
 #include <vector>
 
-#include <rapidsmpf/owning_wrapper.hpp>
-
 #include <cucascade/memory/fixed_size_host_memory_resource.hpp>
+
+#include <rapidsmpf/owning_wrapper.hpp>
 
 namespace rapidsmpf {
 
@@ -82,10 +82,8 @@ class FixedSizedHostBuffer {
     [[nodiscard]] constexpr bool operator==(
         FixedSizedHostBuffer const& other
     ) const noexcept {
-        return total_size_ == other.total_size_
-               && (total_size_ == 0
-                   || (block_size_ == other.block_size_
-                       && std::ranges::equal(block_ptrs_, other.block_ptrs_)));
+        return std::ranges::equal(block_ptrs_, other.block_ptrs_)
+               && (block_ptrs_.empty() || block_size_ == other.block_size_);
     }
 
     /**

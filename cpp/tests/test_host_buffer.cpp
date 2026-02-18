@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -24,8 +25,6 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
-
-#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
 class HostMemoryResource : public ::testing::TestWithParam<size_t> {
   protected:
@@ -344,4 +343,19 @@ TEST_P(FixedSizedHostBufferTest, from_multi_blocks_alloc) {
     buf0 = std::move(buf1);
     EXPECT_TRUE(buf1.empty());
     check_buf(buf0);
+}
+
+TEST(FixedSizedHostBufferTest, empty_equality) {
+    std::array bufs{
+        rapidsmpf::FixedSizedHostBuffer{},
+        rapidsmpf::FixedSizedHostBuffer::from_vector({}, 10),
+        rapidsmpf::FixedSizedHostBuffer::from_vectors({}),
+        rapidsmpf::FixedSizedHostBuffer::from_multi_blocks_alloc({})
+    };
+
+    for (size_t i = 0; i < bufs.size(); ++i) {
+        for (size_t j = i; j < bufs.size(); ++j) {
+            EXPECT_EQ(bufs[i], bufs[j]);
+        }
+    }
 }

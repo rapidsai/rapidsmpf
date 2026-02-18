@@ -7,11 +7,11 @@
 #include <algorithm>
 #include <ranges>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/fixed_sized_host_buffer.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
-
-#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
 namespace rapidsmpf {
 namespace {
