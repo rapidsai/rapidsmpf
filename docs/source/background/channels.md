@@ -1,7 +1,7 @@
 # Channels
 
 
-Channels are asynchronous messaging queue used to move messages between {term}`Node`s in the rapidsmpf streaming network.
+Channels are asynchronous messaging queue used to move messages between {term}`Actor`s in the rapidsmpf streaming network.
 
 ```{image} ../_static/animation-legend.png
 :width: 320px
@@ -22,7 +22,7 @@ As buffers move through the graph, the channels (arrows) move from empty (dashed
 │                          STREAMING NETWORK                              │
 │                                                                         │
 │  ┌──────────┐         ┌──────────┐         ┌──────────┐                 │
-│  │  Node 1  │ ──ch1─> │  Node 2  │ ──ch2─> │  Node 3  │                 │
+│  │  Actor 1 │ ──ch1─> │  Actor 2 │ ──ch2─> │  Actor 3 │                 │
 │  │(Producer)│         │(Transform)         │(Consumer)│                 │
 │  └──────────┘         └──────────┘         └──────────┘                 │
 │       │                    │                     │                      │
@@ -30,11 +30,11 @@ As buffers move through the graph, the channels (arrows) move from empty (dashed
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
-*fig: example streaming network with 3 Nodes and 2 Channels*
+*fig: example streaming network with 3 Actors and 2 Channels*
 
 Components:
-  • Node: Coroutine that processes messages
-  • Channel: Async queue connecting nodes
+  • Actor: Coroutine that processes messages
+  • Channel: Async queue connecting actors
   • Message: GPU Buffer with a CUDA Stream
 
 In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for rapidsmpf to overlap: scans, compute, spilling, and communication.
@@ -81,15 +81,15 @@ async with throttle:
 
 ```c++
 auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
-std::vector<Node> producers;]
+std::vector<Actor> producers;]
 constexpr int n_producer{100};
 for (int i = 0; i < n_producer; i++) {
     producers.push_back(producer(ctx, throttle, i));
 }
 ```
 
-Internally, when using a `throttle` a Node that writes into a channel must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel reads messages without issue.  This means that the throttle is localised to the producer nodes.
+Internally, when using a `throttle` an Actor that writes into a channel must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel reads messages without issue.  This means that the throttle is localised to the producer actors.
 
-More simply, using a throttling adaptor limits the number messages a producer writes into a channel.  This pattern is very useful for producer nodes where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
+More simply, using a throttling adaptor limits the number messages a producer writes into a channel.  This pattern is very useful for producer actors where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
 
-eg. a source node that read files. `ThrottlingAdaptor` will allow the node to delay reading files, until it has acquired a ticket to send a message to the channel. In comparison, non-throttling channels will suspend during send by which time, the files have already loaded into the memory unnecessarily
+eg. a source actor that read files. `ThrottlingAdaptor` will allow the actor to delay reading files, until it has acquired a ticket to send a message to the channel. In comparison, non-throttling channels will suspend during send by which time, the files have already loaded into the memory unnecessarily

@@ -1,13 +1,13 @@
-# Nodes
+# Actors
 
-Nodes are coroutine-based asynchronous relational operators that read from
+Actors are coroutine-based asynchronous relational operators that read from
 zero-or-more {term}`Channel`s and write to zero-or-more {term}`Channel`s within a {term}`Network`.
 
 **C++**
 
 ```c++
 // sum a column
-rapidsmpf::streaming::Node accumulator(
+rapidsmpf::streaming::Actor accumulator(
     std::shared_ptr<rapidsmpf::Channel> ch_out,
     std::shared_ptr<rapidsmpf::Channel> ch_in)
 {
@@ -45,16 +45,16 @@ async def accumulator(ch_out, ch_in, msg):
     send(total, ch_out)
 ```
 
-*examples of nodes in C++ and Python*
+*examples of actors in C++ and Python*
 
-## Node Types
+## Actor Types
 
-Nodes fall into two categories:
-- Local Nodes: These include operations like filtering, projection, or column-wise transforms. They operate exclusively on local data and preserve CSP semantics.
+Actors fall into two categories:
+- Local Actors: These include operations like filtering, projection, or column-wise transforms. They operate exclusively on local data and preserve CSP semantics.
 
-- Collective Nodes: These include operations like shuffle, join, groupby aggregations, etc. which require access to distributed data.
+- Collective Actors: These include operations like shuffle, join, groupby aggregations, etc. which require access to distributed data.
 
-In the case of a collective nodes, remote communication is handled internally. For example, a shuffle node may need to access all partitions of a table, both local and remote, but this coordination and data exchange happens inside the CSP-process itself.  As a reminder "Channels" are an abstraction and not used to serialize and pass data between workers
+In the case of a collective actor, remote communication is handled internally. For example, a shuffle actor may need to access all partitions of a table, both local and remote, but this coordination and data exchange happens inside the CSP-process itself.  As a reminder "Channels" are an abstraction and not used to serialize and pass data between workers
 
 This hybrid model, which combines a SPMD-style distribution model and a local CSP-style streaming model, offers several advantages:
 
@@ -64,4 +64,4 @@ This hybrid model, which combines a SPMD-style distribution model and a local CS
 
 - It makes inter-worker parallelism explicit through SPMD-style communication.
 
-For examples of communication nodes and collective operations please read the [shuffle architecture page](./shuffle-architecture.md)
+For examples of communication actors and collective operations please read the [shuffle architecture page](./shuffle-architecture.md)
