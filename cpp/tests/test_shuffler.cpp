@@ -52,11 +52,11 @@ TEST(MetadataMessage, round_trip) {
     auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg);
 
     // They should be identical.
-    EXPECT_EQ(expect.part_id(0), result.part_id(0));
+    EXPECT_EQ(expect.part_id(), result.part_id());
     EXPECT_EQ(expect.chunk_id(), result.chunk_id());
-    EXPECT_EQ(expect.expected_num_chunks(0), result.expected_num_chunks(0));
-    EXPECT_EQ(expect.concat_data_size(), result.concat_data_size());
-    EXPECT_EQ(expect.concat_metadata_size(), result.concat_metadata_size());
+    EXPECT_EQ(expect.expected_num_chunks(), result.expected_num_chunks());
+    EXPECT_EQ(expect.data_size(), result.data_size());
+    EXPECT_EQ(expect.metadata_size(), result.metadata_size());
 
     // The metadata should be identical to the original.
     EXPECT_EQ(metadata, *result.release_metadata_buffer());
@@ -242,7 +242,7 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-// both insert and insert_finished ungrouped
+// Test with insert_finished called individually per partition
 TEST_P(MemoryAvailable_NumPartition, round_trip) {
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
         GlobalEnvironment->comm_,
@@ -262,47 +262,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     ));
 }
 
-// both insert and insert_finished grouped
-TEST_P(MemoryAvailable_NumPartition, round_trip_both_grouped) {
-    EXPECT_NO_FATAL_FAILURE(test_shuffler(
-        GlobalEnvironment->comm_,
-        *shuffler,
-        total_num_partitions,
-        [&](auto&& packed_chunks) { shuffler->concat_insert(std::move(packed_chunks)); },
-        [&]() {
-            shuffler->insert_finished(
-                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
-            );
-        },
-        total_num_rows,
-        seed,
-        hash_fn,
-        stream,
-        br.get()
-    ));
-}
-
-// insert grouped and insert_finished ungrouped
-TEST_P(MemoryAvailable_NumPartition, round_trip_insert_grouped) {
-    EXPECT_NO_FATAL_FAILURE(test_shuffler(
-        GlobalEnvironment->comm_,
-        *shuffler,
-        total_num_partitions,
-        [&](auto&& packed_chunks) { shuffler->concat_insert(std::move(packed_chunks)); },
-        [&]() {
-            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-                shuffler->insert_finished(i);
-            }
-        },
-        total_num_rows,
-        seed,
-        hash_fn,
-        stream,
-        br.get()
-    ));
-}
-
-// insert ungrouped and insert_finished grouped
+// Test with insert_finished called once with all partition IDs
 TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
         GlobalEnvironment->comm_,
@@ -403,7 +363,7 @@ class ConcurrentShuffleTest
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
 
-// both insert and insert_finished ungrouped
+// Test with insert_finished called individually per partition
 TEST_P(ConcurrentShuffleTest, round_trip) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
@@ -417,35 +377,7 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     ));
 }
 
-// both insert and insert_finished grouped
-TEST_P(ConcurrentShuffleTest, round_trip_both_grouped) {
-    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
-        [&](auto& shuffler, auto&& packed_chunks) {
-            shuffler.concat_insert(std::move(packed_chunks));
-        },
-        [&](auto& shuffler) {
-            shuffler.insert_finished(
-                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
-            );
-        }
-    ));
-}
-
-// insert grouped and insert_finished ungrouped
-TEST_P(ConcurrentShuffleTest, round_trip_insert_grouped) {
-    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
-        [&](auto& shuffler, auto&& packed_chunks) {
-            shuffler.concat_insert(std::move(packed_chunks));
-        },
-        [&](auto& shuffler) {
-            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-                shuffler.insert_finished(i);
-            }
-        }
-    ));
-}
-
-// insert ungrouped and insert_finished grouped
+// Test with insert_finished called once with all partition IDs
 TEST_P(ConcurrentShuffleTest, round_trip_finished_grouped) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
@@ -473,7 +405,7 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-/// test case for `concat_insert` and `insert_finished`. This test would only test the
+/// test case for `insert` and `insert_finished`. This test would only test the
 /// insertion logic, so, the progress thread is paused for the duration of the test. This
 /// will prevent the progress thread from extracting from the outgoing_postbox_. Also,
 /// we disable periodic spill check to avoid the buffer resource from spilling chunks in
@@ -575,15 +507,13 @@ class ShuffleInsertGroupedTest
 
             auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
             for (auto& [cid, chunk] : chunks) {
-                for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                    outbound_chunks[chunk.part_id(i)]++;
-                    if (chunk.is_control_message(i)) {
-                        n_control_messages++;
-                    } else {
-                        n_data_messages++;
-                        n_total_data_size += chunk.data_size(i);
-                        n_total_metadata_size += chunk.metadata_size(i);
-                    }
+                outbound_chunks[chunk.part_id()]++;
+                if (chunk.is_control_message()) {
+                    n_control_messages++;
+                } else {
+                    n_data_messages++;
+                    n_total_data_size += chunk.data_size();
+                    n_total_metadata_size += chunk.metadata_size();
                 }
             }
         }
@@ -599,14 +529,12 @@ class ShuffleInsertGroupedTest
                 outbound_chunks[pid]++;
                 n_control_messages++;
                 for (auto& [cid, chunk] : local_chunks) {
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        outbound_chunks[chunk.part_id(i)]++;
+                    outbound_chunks[chunk.part_id()]++;
 
-                        ASSERT_FALSE(chunk.is_control_message(i));
-                        n_data_messages++;
-                        n_total_data_size += chunk.data_size(i);
-                        n_total_metadata_size += chunk.metadata_size(i);
-                    }
+                    ASSERT_FALSE(chunk.is_control_message());
+                    n_data_messages++;
+                    n_total_data_size += chunk.data_size();
+                    n_total_metadata_size += chunk.metadata_size();
                 }
             }
         }
@@ -645,7 +573,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     progress_thread->pause();
 
     auto chunks = generate_packed_data();
-    shuffler->concat_insert(std::move(chunks));
+    shuffler->insert(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
@@ -672,7 +600,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
     progress_thread->pause();
 
     auto chunks = generate_packed_data();
-    shuffler->concat_insert(std::move(chunks));
+    shuffler->insert(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));

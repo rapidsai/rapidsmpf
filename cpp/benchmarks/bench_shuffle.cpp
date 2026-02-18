@@ -75,8 +75,6 @@ class ArgumentParser {
                               "unlimited)\n"
                            << "  -L         Disable Pinned host memory (default: "
                               " unlimited)\n"
-                           << "  -i         Use `concat_insert` method, instead of "
-                              "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
                            << "  -s         Discard output chunks to simulate streaming "
@@ -154,9 +152,6 @@ class ArgumentParser {
                     break;
                 case 'L':
                     pinned_mem_disable = true;
-                    break;
-                case 'i':
-                    use_concat_insert = true;
                     break;
                 case 'g':
                     hash_partition_with_datagen = true;
@@ -249,9 +244,6 @@ class ArgumentParser {
         if (hash_partition_with_datagen) {
             ss << "  -g (use pre-partitioned input tables)\n";
         }
-        if (use_concat_insert) {
-            ss << "  -i (use concat insert)\n";
-        }
         if (enable_cupti_monitoring) {
             ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
         }
@@ -276,7 +268,6 @@ class ArgumentParser {
     };
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
-    bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
     bool pinned_mem_disable{false};
     bool enable_cupti_monitoring{false};
@@ -417,8 +408,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
 }
 
 /**
- * Helper function to iterate over input partitions and insert them into the shuffler by
- * branching on use_concat_insert.
+ * Helper function to iterate over input partitions and insert them into the shuffler.
  *
  * @param shuffler Shuffler to insert the partitions into.
  * @param input_partitions This is either a vector<cudf::table> or
@@ -426,24 +416,16 @@ std::vector<InputPartitionsT> generate_input_partitions(
  * partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
  * @param total_num_partitions Total number of partitions in the shuffler.
  * @param make_chunk_fn Function to make a chunk from a partition.
- * @param use_concat_insert Whether to use concat insert.
  */
 void do_insert(
     rapidsmpf::shuffler::Shuffler& shuffler,
     auto&& input_partitions,
     rapidsmpf::shuffler::PartID const total_num_partitions,
-    auto&& make_chunk_fn,
-    bool use_concat_insert
+    auto&& make_chunk_fn
 ) {
     // Convert a partition into chunks and insert into the shuffler.
-    if (use_concat_insert) {
-        for (auto&& partition : input_partitions) {
-            shuffler.concat_insert(std::move(make_chunk_fn(partition)));
-        }
-    } else {
-        for (auto&& partition : input_partitions) {
-            shuffler.insert(std::move(make_chunk_fn(partition)));
-        }
+    for (auto&& partition : input_partitions) {
+        shuffler.insert(std::move(make_chunk_fn(partition)));
     }
 
     // Tell the shuffler that we have no more data.
@@ -512,8 +494,7 @@ rapidsmpf::Duration run_hash_partition_inline(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::move(make_chunk_fn),
-                args.use_concat_insert
+                std::move(make_chunk_fn)
             );
         }
     );
@@ -572,8 +553,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::identity{},
-                args.use_concat_insert
+                std::identity{}
             );
         }
     );
