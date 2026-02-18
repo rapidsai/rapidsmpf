@@ -159,14 +159,6 @@ class Shuffler {
     void shutdown();
 
     /**
-     * @brief Insert a map of packed data, grouping them by destination rank, and
-     * concatenating into a single chunk per rank.
-     *
-     * @param chunks A map of partition IDs and their packed chunks.
-     */
-    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
-
-    /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
      * @param chunks A map of partition IDs and their packed chunks.
@@ -278,14 +270,15 @@ class Shuffler {
     /**
      * @brief The mask for the counter in a chunk ID.
      */
-    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
+    static constexpr std::uint64_t counter_mask =
+        (std::uint64_t{1} << chunk_id_counter_bits) - 1;
 
     /**
      * @brief Extract the counter from a chunk ID.
      * @param cid The chunk ID.
      * @return The counter.
      */
-    static constexpr uint64_t extract_counter(detail::ChunkID cid) {
+    static constexpr std::uint64_t extract_counter(detail::ChunkID cid) {
         return cid & counter_mask;
     }
 
@@ -303,7 +296,7 @@ class Shuffler {
      * @param cid The chunk ID.
      * @return A pair of the rank and counter.
      */
-    static constexpr std::pair<Rank, uint64_t> extract_info(detail::ChunkID cid) {
+    static constexpr std::pair<Rank, std::uint64_t> extract_info(detail::ChunkID cid) {
         return std::make_pair(extract_rank(cid), extract_counter(cid));
     }
 

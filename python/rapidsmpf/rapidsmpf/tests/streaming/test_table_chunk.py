@@ -13,8 +13,8 @@ import cudf
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.content_description import ContentDescription
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import (
     TableChunk,
@@ -268,12 +268,12 @@ def test_make_available_or_wait_already_available(
     chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
     result_holder: list[TableChunk] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         result = await chunk.make_available_or_wait(ctx, net_memory_delta=0)
         result_holder.append(result)
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -295,14 +295,14 @@ def test_make_available_or_wait_from_host(
     host_chunk = device_chunk.copy(res)
     result_holder: list[TableChunk] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         result = await host_chunk.make_available_or_wait(
             ctx, net_memory_delta=net_memory_delta
         )
         result_holder.append(result)
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -378,14 +378,14 @@ def test_make_table_chunks_available_or_wait_single_chunk(
 
     result_holder: list[tuple] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         result_chunk, res = await make_table_chunks_available_or_wait(
             ctx, chunk, reserve_extra=0, net_memory_delta=0
         )
         result_holder.append((result_chunk, res))
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -422,8 +422,8 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
 
     result_holder: list[tuple] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunks,
@@ -432,7 +432,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
         )
         result_holder.append((chunks, res))
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == num_chunks
     assert all(chunk.is_available() for chunk in chunks)
@@ -477,8 +477,8 @@ def test_make_table_chunks_available_or_wait(
     host_chunk = device_chunk.copy(res_holder)
     result_holder: list[tuple] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         chunk, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunk,
@@ -488,7 +488,7 @@ def test_make_table_chunks_available_or_wait(
         )
         result_holder.append((chunk, res))
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -519,8 +519,8 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
     host_chunk = device_chunk2.copy(res2)
     result_holder: list[tuple] = []
 
-    @define_py_node()
-    async def test_node(ctx: Context) -> None:
+    @define_actor()
+    async def test_actor(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
             [available_chunk, host_chunk],
@@ -529,7 +529,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
         )
         result_holder.append((chunks, res))
 
-    run_streaming_pipeline(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == 2
     assert all(chunk.is_available() for chunk in chunks)

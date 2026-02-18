@@ -105,7 +105,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
-            streaming/test_leaf_node.cpp
+            streaming/test_leaf_actor.cpp
             streaming/test_lineariser.cpp
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp

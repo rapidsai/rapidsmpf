@@ -29,7 +29,7 @@ coro::task<bool> Channel::send_metadata(Message msg) {
     co_return result == coro::queue_produce_result::produced;
 }
 
-Node Channel::drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor) {
+Actor Channel::drain_metadata(std::shared_ptr<CoroThreadPoolExecutor> executor) {
     return metadata_.shutdown_drain(executor->get());
 }
 
@@ -42,7 +42,7 @@ coro::task<Message> Channel::receive_metadata() {
     }
 }
 
-Node Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
+Actor Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
     coro_results(
         co_await coro::when_all(
             rb_.shutdown_drain(executor->get()), drain_metadata(executor)
@@ -50,11 +50,11 @@ Node Channel::drain(std::shared_ptr<CoroThreadPoolExecutor> executor) {
     );
 }
 
-Node Channel::shutdown() {
+Actor Channel::shutdown() {
     coro_results(co_await coro::when_all(metadata_.shutdown(), rb_.shutdown()));
 }
 
-Node Channel::shutdown_metadata() {
+Actor Channel::shutdown_metadata() {
     return metadata_.shutdown();
 }
 

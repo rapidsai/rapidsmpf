@@ -5,12 +5,36 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <rapidsmpf/bootstrap/types.hpp>
 
 namespace rapidsmpf::bootstrap {
+
+/**
+ * @brief Get environment variable as optional string.
+ *
+ * Retrieves the value of an environment variable by name, returning it as
+ * std::optional<std::string>. Returns std::nullopt if the variable is not set.
+ *
+ * @param name Name of the environment variable to retrieve.
+ * @return Value of the environment variable, or std::nullopt if not set.
+ */
+std::optional<std::string> getenv_optional(std::string_view name);
+
+/**
+ * @brief Parse integer from environment variable.
+ *
+ * Retrieves an environment variable and parses it as an integer.
+ *
+ * @param name Name of the environment variable to retrieve.
+ * @return Parsed integer value, or std::nullopt if not set.
+ * @throws std::runtime_error if the variable is set but cannot be parsed as an integer.
+ */
+std::optional<int> getenv_int(std::string_view name);
 
 /**
  * @brief Get current CPU affinity as a string.
@@ -55,24 +79,44 @@ int get_gpu_id();
 bool is_running_with_rrun();
 
 /**
- * @brief Get the current `rrun` rank.
+ * @brief Check if the current process is running under Slurm with PMIx.
  *
- * This helper retrieves the rank of the current process when running with `rrun`.
- * The rank is fetched from the `RAPIDSMPF_RANK` environment variable.
+ * This helper detects Slurm environment by checking for PMIx namespace
+ * or Slurm job step environment variables.
  *
- * @return Rank of the current process (>= 0) if found, -1 otherwise.
+ * @return true if running under Slurm with PMIx, false otherwise.
+ */
+bool is_running_with_slurm();
+
+/**
+ * @brief Get the current bootstrap rank.
+ *
+ * This helper retrieves the rank of the current process when running with a
+ * bootstrap launcher (rrun or Slurm). Checks environment variables in order:
+ * 1. RAPIDSMPF_RANK (set by rrun)
+ * 2. PMIX_RANK (set by PMIx)
+ * 3. SLURM_PROCID (set by Slurm)
+ *
+ * @return Rank of the current process.
+ *
+ * @throws std::runtime_error if not running with a bootstrap launcher or if
+ * the environment variable cannot be parsed.
  */
 Rank get_rank();
 
 /**
- * @brief Get the number of `rrun` ranks.
+ * @brief Get the number of bootstrap ranks.
  *
- * This helper retrieves the number of ranks when running with `rrun`.
- * The number of ranks is fetched from the `RAPIDSMPF_NRANKS` environment variable.
+ * This helper retrieves the number of ranks when running with a bootstrap
+ * launcher (rrun or Slurm). Checks environment variables in order:
+ * 1. RAPIDSMPF_NRANKS (set by rrun)
+ * 2. SLURM_NPROCS (set by Slurm)
+ * 3. SLURM_NTASKS (set by Slurm)
  *
  * @return Number of ranks.
- * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not
- * set or cannot be parsed.
+ *
+ * @throws std::runtime_error if not running with a bootstrap launcher or if
+ * the environment variable cannot be parsed.
  */
 Rank get_nranks();
 

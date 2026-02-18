@@ -26,6 +26,31 @@
 
 namespace rapidsmpf::bootstrap {
 
+std::optional<std::string> getenv_optional(std::string_view name) {
+    // std::getenv requires a null-terminated string; construct a std::string
+    // to ensure this even when called with a non-literal std::string_view.
+    char const* value = std::getenv(std::string{name}.c_str());
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    return std::string{value};
+}
+
+std::optional<int> getenv_int(std::string_view name) {
+    auto value = getenv_optional(name);
+    if (!value) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoi(*value);
+    } catch (...) {
+        throw std::runtime_error(
+            std::string{"Failed to parse integer from environment variable "}
+            + std::string{name} + ": " + *value
+        );
+    }
+}
+
 std::string get_current_cpu_affinity() {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -49,7 +74,7 @@ std::string get_current_cpu_affinity() {
     std::ostringstream oss;
     int range_start = cores[0];
     int range_end = cores[0];
-    for (size_t i = 1; i < cores.size(); ++i) {
+    for (std::size_t i = 1; i < cores.size(); ++i) {
         if (cores[i] == range_end + 1) {
             range_end = cores[i];
         } else {
@@ -73,61 +98,56 @@ std::string get_current_cpu_affinity() {
 }
 
 std::string get_ucx_net_devices() {
-    char* env = std::getenv("UCX_NET_DEVICES");
-    return env ? std::string(env) : std::string();
+    return getenv_optional("UCX_NET_DEVICES").value_or("");
 }
 
 int get_gpu_id() {
-    char* cuda_visible = std::getenv("CUDA_VISIBLE_DEVICES");
+    auto cuda_visible = getenv_optional("CUDA_VISIBLE_DEVICES");
     if (cuda_visible) {
         try {
-            return std::stoi(cuda_visible);
+            return std::stoi(*cuda_visible);
         } catch (...) {
             // Ignore parse errors
         }
     }
-
     return -1;
 }
 
 bool is_running_with_rrun() {
-    return std::getenv("RAPIDSMPF_RANK") != nullptr;
+    return getenv_optional("RAPIDSMPF_RANK").has_value();
+}
+
+bool is_running_with_slurm() {
+    return getenv_optional("SLURM_JOB_ID").has_value()
+           && getenv_optional("SLURM_PROCID").has_value();
 }
 
 Rank get_rank() {
-    char* rank_env = std::getenv("RAPIDSMPF_RANK");
-    if (rank_env) {
-        try {
-            return std::stoi(rank_env);
-        } catch (...) {
-            // Ignore parse errors
-        }
+    if (auto rank_opt = getenv_int("RAPIDSMPF_RANK")) {
+        return *rank_opt;
+    } else if (auto rank_opt = getenv_int("PMIX_RANK")) {
+        return *rank_opt;
+    } else if (auto rank_opt = getenv_int("SLURM_PROCID")) {
+        return *rank_opt;
+    } else {
+        throw std::runtime_error(
+            "Could not determine number of ranks. "
+            "Ensure RAPIDSMPF_RANK, PMIX_RANK, or SLURM_PROCID is set."
+        );
     }
-    return -1;
 }
 
 Rank get_nranks() {
-    if (!is_running_with_rrun()) {
+    if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
+        return *nranks_opt;
+    } else if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
+        return *nranks_opt;
+    } else if (auto nranks_opt = getenv_int("SLURM_NTASKS")) {
+        return *nranks_opt;
+    } else {
         throw std::runtime_error(
-            "get_nranks() can only be called when running with `rrun`. "
-            "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'."
-        );
-    }
-
-    char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS");
-    if (nranks_str == nullptr) {
-        throw std::runtime_error(
-            "RAPIDSMPF_NRANKS environment variable not set. "
-            "Make sure to use a rrun launcher to call this function."
-        );
-    }
-
-    try {
-        return std::stoi(nranks_str);
-    } catch (...) {
-        throw std::runtime_error(
-            "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
-            + std::string(nranks_str)
+            "Could not determine number of ranks. "
+            "Ensure RAPIDSMPF_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
         );
     }
 }
@@ -141,7 +161,7 @@ std::vector<int> parse_cpu_list(std::string const& cpulist) {
     std::istringstream iss(cpulist);
     std::string token;
     while (std::getline(iss, token, ',')) {
-        size_t dash_pos = token.find('-');
+        std::size_t dash_pos = token.find('-');
         if (dash_pos != std::string::npos) {
             try {
                 int start = std::stoi(token.substr(0, dash_pos));

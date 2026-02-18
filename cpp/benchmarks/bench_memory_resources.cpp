@@ -15,6 +15,8 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
+using rapidsmpf::safe_cast;
+
 enum ResourceType : int {
     NEW_DELETE = 0,
     HOST_MEMORY_RESOURCE = 1,
@@ -69,7 +71,7 @@ std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
 
 void BM_Allocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const allocation_size = static_cast<size_t>(state.range(0));
+    auto const allocation_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -91,7 +93,10 @@ void BM_Allocate(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(allocation_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(allocation_size)
+    );
     state.SetLabel(
         "allocate: " + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
@@ -99,7 +104,7 @@ void BM_Allocate(benchmark::State& state) {
 
 void BM_Deallocate(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const allocation_size = static_cast<size_t>(state.range(0));
+    auto const allocation_size = safe_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -120,7 +125,10 @@ void BM_Deallocate(benchmark::State& state) {
         stream.synchronize();
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(allocation_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(allocation_size)
+    );
     state.SetLabel(
         "deallocate: " + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
@@ -128,7 +136,7 @@ void BM_Deallocate(benchmark::State& state) {
 
 void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -159,7 +167,10 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
         state.ResumeTiming();
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(transfer_size)
+    );
     state.SetLabel(
         "memcpy device to host (incl. alloc): "
         + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
@@ -191,7 +202,7 @@ void bench_copy(
 
 void BM_DeviceToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -210,7 +221,10 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
 
     bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(transfer_size)
+    );
     state.SetLabel(
         "memcpy device to host: "
         + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
@@ -219,7 +233,7 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
 
 void BM_HostToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -241,7 +255,10 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
 
     bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(transfer_size)
+    );
     state.SetLabel(
         "memcpy host to device: "
         + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
@@ -250,7 +267,7 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
 
 void BM_HostToHostCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
     if (resource_type == ResourceType::PINNED_MEMORY_RESOURCE
@@ -269,7 +286,10 @@ void BM_HostToHostCopy(benchmark::State& state) {
 
     bench_copy(state, host_mr, src, transfer_size, stream);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(transfer_size)
+    );
     state.SetLabel(
         "memcpy host to host: " + ResourceTypeStr[static_cast<std::size_t>(resource_type)]
     );
@@ -277,7 +297,7 @@ void BM_HostToHostCopy(benchmark::State& state) {
 
 void BM_DeviceToDeviceCopy(benchmark::State& state) {
     rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    auto const transfer_size = static_cast<size_t>(state.range(0));
+    auto const transfer_size = static_cast<std::size_t>(state.range(0));
 
     // Device MR, independent of host resource type
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
@@ -289,7 +309,10 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
 
     bench_copy(state, device_mr, src.data(), transfer_size, stream);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        safe_cast<std::int64_t>(state.iterations())
+        * safe_cast<std::int64_t>(transfer_size)
+    );
     state.SetLabel("memcpy device to device: rmm::mr::cuda_memory_resource");
 }
 

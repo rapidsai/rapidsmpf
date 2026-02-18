@@ -107,14 +107,14 @@ std::map<std::string, cudf::data_type> get_column_types(
 
 }  // namespace detail
 
-streaming::Node sink_channel(
+streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 ) {
     co_await ctx->executor()->schedule();
     co_await ch->shutdown();
 }
 
-streaming::Node consume_channel(
+streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 ) {
     streaming::ShutdownAtExit c{ch_in};
@@ -197,7 +197,7 @@ std::shared_ptr<streaming::Context> create_context(
         break;
     case CommType::UCXX:
         if (bootstrap::is_running_with_rrun()) {
-            comm = bootstrap::create_ucxx_comm(bootstrap::Backend::AUTO, options);
+            comm = bootstrap::create_ucxx_comm(bootstrap::BackendType::AUTO, options);
         } else {
             mpi::init(nullptr, nullptr);
             comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options);

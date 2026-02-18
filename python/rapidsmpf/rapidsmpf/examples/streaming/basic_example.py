@@ -17,43 +17,43 @@ from rapidsmpf.communicator.single import (
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
-from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import (
-    define_py_node,
-    run_streaming_pipeline,
+from rapidsmpf.streaming.core.actor import (
+    define_actor,
+    run_actor_network,
 )
+from rapidsmpf.streaming.core.context import Context
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
-    from rapidsmpf.streaming.core.node import CppNode, PyNode
 
 
 def main() -> int:
-    """Basic example of a streaming pipeline."""
+    """Basic example of a streaming graph."""
     # Initialize configuration options from environment variables.
     options = Options(get_environment_variables())
 
-    # Create a context that will be used by all streaming nodes.
+    # Create a context that will be used by all streaming actors.
     ctx = Context(
         comm=single_process_comm(options),
         br=BufferResource(RmmResourceAdaptor(rmm.mr.get_current_device_resource())),
         options=options,
     )
 
-    # Executor for Python nodes (asyncio coroutines).
+    # Executor for Python actors (asyncio coroutines).
     py_executor = ThreadPoolExecutor(max_workers=1)
 
-    # Create some pylibcudf tables as input to the streaming pipeline.
+    # Create some pylibcudf tables as input to the streaming graph.
     tables = [
         cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
         for seq in range(10)
     ]
 
-    # Wrap tables in TableChunk objects before sending them into the pipeline.
+    # Wrap tables in TableChunk objects before sending them into the graph.
     # A TableChunk contains a pylibcudf table, a sequence number, and a CUDA stream.
     table_chunks = [
         Message(
@@ -69,14 +69,14 @@ def main() -> int:
     ch1: Channel[TableChunk] = ctx.create_channel()
     ch2: Channel[TableChunk] = ctx.create_channel()
 
-    # Node 1: producer that pushes messages into the pipeline.
-    # This is a native C++ node that runs as a coroutine with minimal Python overhead.
-    node1: CppNode = push_to_channel(ctx, ch_out=ch1, messages=table_chunks)
+    # Actor 1: producer that pushes messages into the graph.
+    # This is a native C++ actor that runs as a coroutine with minimal Python overhead.
+    actor1: CppActor = push_to_channel(ctx, ch_out=ch1, messages=table_chunks)
 
-    # Node 2: Python node that counts the total number of rows.
+    # Actor 2: Python actor that counts the total number of rows.
     # Runs as a Python coroutine (asyncio), which comes with overhead,
     # but releases the GIL on `await` and when calling into C++ APIs.
-    @define_py_node()
+    @define_actor()
     async def count_num_rows(
         ctx: Context, ch_in: Channel, ch_out: Channel, total_num_rows: list[int]
     ) -> None:
@@ -102,24 +102,24 @@ def main() -> int:
         # Before exiting, drain the output channel to close it gracefully.
         await ch_out.drain(ctx)
 
-    # Nodes return None, so if we want an "output" value we can use either a closure
+    # Actors return None, so if we want an "output" value we can use either a closure
     # or an output parameter like `total_num_rows`.
     total_num_rows = [0]  # Wrap scalar in a list to make it mutable in-place.
-    node2: PyNode = count_num_rows(
+    actor2: PyActor = count_num_rows(
         ctx, ch_in=ch1, ch_out=ch2, total_num_rows=total_num_rows
     )
 
-    # Node 3: consumer that pulls messages from the pipeline.
-    # Like push_to_channel(), it returns a CppNode. It also returns a placeholder
+    # Actor 3: consumer that pulls messages from the graph.
+    # Like push_to_channel(), it returns a CppActor. It also returns a placeholder
     # object that will be populated with the pulled messages after execution.
-    node3, out_messages = pull_from_channel(ctx, ch_in=ch2)
+    actor3, out_messages = pull_from_channel(ctx, ch_in=ch2)
 
-    # Run all nodes. This blocks until every node has completed.
-    run_streaming_pipeline(
-        nodes=(
-            node1,
-            node2,
-            node3,
+    # Run all actors. This blocks until every actor has completed.
+    run_actor_network(
+        actors=(
+            actor1,
+            actor2,
+            actor3,
         ),
         py_executor=py_executor,
     )

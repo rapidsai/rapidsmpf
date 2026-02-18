@@ -30,9 +30,9 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
@@ -132,7 +132,7 @@ coro::task<streaming::Message> broadcast(
     }
 }
 
-streaming::Node broadcast(
+streaming::Actor broadcast(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -293,7 +293,7 @@ streaming::Message inner_join_chunk(
     );
 }
 
-streaming::Node inner_join_broadcast(
+streaming::Actor inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
@@ -356,7 +356,7 @@ streaming::Node inner_join_broadcast(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node inner_join_shuffle(
+streaming::Actor inner_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -421,7 +421,7 @@ streaming::Node inner_join_shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node left_semi_join_broadcast_left(
+streaming::Actor left_semi_join_broadcast_left(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -482,7 +482,7 @@ streaming::Node left_semi_join_broadcast_left(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node left_semi_join_shuffle(
+streaming::Actor left_semi_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -546,7 +546,7 @@ streaming::Node left_semi_join_shuffle(
     }
 }
 
-streaming::Node shuffle(
+streaming::Actor shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,

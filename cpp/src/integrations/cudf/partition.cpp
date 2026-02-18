@@ -31,7 +31,7 @@ partition_and_split(
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed,
+    std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
@@ -83,7 +83,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed,
+    std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
@@ -163,11 +163,11 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 
     // Let's find the total size of the partitions and how much of the packed data we
     // need to move to device memory (unspill).
-    size_t total_size = 0;
-    size_t non_device_size = 0;
+    std::size_t total_size = 0;
+    std::size_t non_device_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            size_t size = packed_data.data->size;
+            std::size_t size = packed_data.data->size;
             total_size += size;
             if (packed_data.data->mem_type() != MemoryType::DEVICE) {
                 non_device_size += size;

@@ -108,8 +108,8 @@ class SpillingTest : public ::testing::Test {
 };
 
 TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
-    std::vector<uint8_t> metadata{42, 99};
-    std::vector<uint8_t> payload{10, 20, 30};
+    std::vector<std::uint8_t> metadata{42, 99};
+    std::vector<std::uint8_t> payload{10, 20, 30};
 
     // Create device input.
     std::vector<rapidsmpf::PackedData> input;

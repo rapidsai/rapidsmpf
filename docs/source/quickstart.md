@@ -40,8 +40,8 @@ the same partition. See [Dask Integration](#api-integration-dask) for more.
 
 ## Streaming Engine
 
-Basic streaming pipeline example in Python.  In this example we have 3  {term}`Node`s
-in the network: push_to_channel->count_num_rows->pull_from_channel.
+Basic streaming pipeline example in Python.  In this example we have 3 {term}`Actor`s
+in the {term}`Network`: push_to_channel->count_num_rows->pull_from_channel.
 
 *note: push_to_channel/pull_from_channel are convenience functions which simulate scans/writes*
 

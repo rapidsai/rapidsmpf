@@ -120,7 +120,7 @@ class Shuffler::Progress {
                 // All messages in the chunk maps to the same key (checked by the PostBox)
                 // thus we can use the partition ID of the first message in the chunk to
                 // determine the source rank of all of them.
-                auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
+                auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id());
                 log.trace("send metadata to ", dst, ": ", chunk);
                 RAPIDSMPF_EXPECTS(
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
@@ -129,7 +129,7 @@ class Shuffler::Progress {
                 fire_and_forget_.push_back(
                     shuffler_.comm_->send(chunk.serialize(), dst, metadata_tag)
                 );
-                if (chunk.concat_data_size() > 0) {
+                if (chunk.data_size() > 0) {
                     RAPIDSMPF_EXPECTS(
                         outgoing_chunks_.emplace(chunk.chunk_id(), std::move(chunk))
                             .second,
@@ -139,7 +139,7 @@ class Shuffler::Progress {
                         shuffler_.comm_->recv_sync_host_data(
                             dst,
                             ready_for_data_tag,
-                            std::make_unique<std::vector<uint8_t>>(
+                            std::make_unique<std::vector<std::uint8_t>>(
                                 ReadyForDataMessage::byte_size
                             )
                         )
@@ -167,7 +167,7 @@ class Shuffler::Progress {
                     // PostBox) thus we can use the partition ID of the first message in
                     // the chunk to determine the source rank of all of them.
                     RAPIDSMPF_EXPECTS(
-                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
+                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id())
                             == shuffler_.comm_->rank(),
                         "receiving chunk not owned by us"
                     );
@@ -195,14 +195,14 @@ class Shuffler::Progress {
 
                 // If the chunk contains GPU data, we need to receive it. Otherwise, it
                 // goes directly to the ready postbox.
-                if (chunk.concat_data_size() > 0) {
+                if (chunk.data_size() > 0) {
                     if (!chunk.is_data_buffer_set()) {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
                         chunk.set_data_buffer(shuffler_.br_->allocate(
                             shuffler_.br_->stream_pool().get_stream(),
                             shuffler_.br_->reserve_or_fail(
-                                chunk.concat_data_size(), MEMORY_TYPES
+                                chunk.data_size(), MEMORY_TYPES
                             )
                         ));
                         if (rapidsmpf::contains(
@@ -210,7 +210,7 @@ class Shuffler::Progress {
                             ))
                         {
                             stats.add_bytes_stat(
-                                "spill-bytes-recv-to-host", chunk.concat_data_size()
+                                "spill-bytes-recv-to-host", chunk.data_size()
                             );
                         }
                     }
@@ -227,7 +227,7 @@ class Shuffler::Progress {
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
                     auto chunk_id = chunk.chunk_id();
-                    auto data_size = chunk.concat_data_size();
+                    auto data_size = chunk.data_size();
 
                     // Setup to receive the chunk into `in_transit_*`.
                     // transfer the data buffer from the chunk to the future
@@ -256,15 +256,8 @@ class Shuffler::Progress {
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
-                    // iterate over all messages in the chunk
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        // ready postbox uniquely identifies chunks by their [partition
-                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
-                        // copy because the partition IDs are unique within a chunk.
-                        auto chunk_copy =
-                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_);
-                        shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
-                    }
+                    auto chunk_copy = chunk.get_data(chunk.chunk_id(), shuffler_.br_);
+                    shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
             }
 
@@ -300,7 +293,7 @@ class Shuffler::Progress {
                     auto msg = ReadyForDataMessage::unpack(msg_data);
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(
-                        "shuffle-payload-send", chunk.concat_data_size()
+                        "shuffle-payload-send", chunk.data_size()
                     );
                     fire_and_forget_.push_back(shuffler_.comm_->send(
                         chunk.release_data_buffer(), dst, gpu_data_tag
@@ -328,14 +321,9 @@ class Shuffler::Progress {
                         shuffler_.comm_->release_data(std::move(future))
                     );
 
-                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                        // ready postbox uniquely identifies chunks by their [partition
-                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
-                        // copy because the partition IDs are unique within a chunk.
-                        shuffler_.insert_into_ready_postbox(
-                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_)
-                        );
-                    }
+                    shuffler_.insert_into_ready_postbox(
+                        chunk.get_data(chunk.chunk_id(), shuffler_.br_)
+                    );
                 }
             }
 
@@ -378,7 +366,7 @@ class Shuffler::Progress {
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
 #if RAPIDSMPF_VERBOSE_INFO
-    int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
+    std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
 #endif
 };
 
@@ -474,14 +462,9 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
     log.trace("insert_into_outbox: ", chunk);
 
-    // ready postbox only supports single message chunks
-    RAPIDSMPF_EXPECTS(
-        chunk.n_messages() == 1, "inserting into ready_postbox with multiple messages"
-    );
-
-    auto pid = chunk.part_id(0);
-    if (chunk.is_control_message(0)) {
-        finish_counter_.move_goalpost(pid, chunk.expected_num_chunks(0));
+    auto pid = chunk.part_id();
+    if (chunk.is_control_message()) {
+        finish_counter_.move_goalpost(pid, chunk.expected_num_chunks());
     } else {
         ready_postbox_.insert(std::move(chunk));
     }
@@ -491,31 +474,19 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
 void Shuffler::insert(detail::Chunk&& chunk) {
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        // There are multiple partitions in the chunk. So, increment the counter for
-        // each partition.
-        for (size_t i = 0; i < chunk.n_messages(); ++i) {
-            ++outbound_chunk_counter_[chunk.part_id(i)];
-        }
+        ++outbound_chunk_counter_[chunk.part_id()];
     }
 
-    Rank p0_target_rank = partition_owner(comm_, chunk.part_id(0));
+    Rank p0_target_rank = partition_owner(comm_, chunk.part_id());
     if (p0_target_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
         if (chunk.is_data_buffer_set()) {
-            statistics_->add_bytes_stat("shuffle-payload-send", chunk.concat_data_size());
-            statistics_->add_bytes_stat("shuffle-payload-recv", chunk.concat_data_size());
+            statistics_->add_bytes_stat("shuffle-payload-send", chunk.data_size());
+            statistics_->add_bytes_stat("shuffle-payload-recv", chunk.data_size());
         }
         insert_into_ready_postbox(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to insert it into the outgoing postbox
-        // all messages in the chunk must map to the same key (rank)
-        for (size_t i = 1; i < chunk.n_messages(); ++i) {
-            RAPIDSMPF_EXPECTS(
-                partition_owner(comm_, chunk.part_id(i)) == p0_target_rank,
-                "chunk contains messages targeting different ranks"
-            );
-        }
-
         outgoing_postbox_.insert(std::move(chunk));
     }
 }
@@ -541,9 +512,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
-            statistics_->add_bytes_stat(
-                "spill-bytes-device-to-host", chunk.concat_data_size()
-            );
+            statistics_->add_bytes_stat("spill-bytes-device-to-host", chunk.data_size());
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));
@@ -552,79 +521,6 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
     // Spill if current available device memory is still negative.
     br_->spill_manager().spill_to_make_headroom(0);
-}
-
-void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto& log = comm_->logger();
-
-    // this is the amount of memory available on the device.
-    int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-
-    if (headroom <= 0) {
-        log.warn("No memory available for concatenating data. Falling back to insert.");
-        return insert(std::move(chunks));
-    }
-
-    // TODO handle spilling
-
-    // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
-    // reserve space for each group assuming an even distribution of chunks
-    for (auto&& group : chunk_groups) {
-        group.reserve(chunks.size() / safe_cast<size_t>(comm_->nranks()));
-    }
-
-    // total size of data staged in all builders
-    int64_t total_staged_data_ = 0;
-
-    auto build_all_groups_and_insert = [&]() {
-        for (auto&& group : chunk_groups) {
-            if (!group.empty()) {
-                insert(Chunk::concat(std::move(group), get_new_cid(), br_));
-            }
-        }
-    };
-
-    bool all_groups_built_flag = false;
-    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
-    for (auto& [pid, packed_data] : chunks) {
-        Rank target_rank = partition_owner(comm_, pid);
-
-        // if the chunk is local, do not concatenate
-        if (target_rank == comm_->rank()) {
-            // no builder for local chunks
-            insert(create_chunk(pid, std::move(packed_data)));
-            continue;
-        }
-
-        // if the packed data size + total_staged_data_ > headroom, no room to add more
-        // chunks any of the builders. So, call build on all builders.
-        if (!all_groups_built_flag
-            && (int64_t(packed_data.data->size) + total_staged_data_ > headroom))
-        {
-            build_all_groups_and_insert();
-            all_groups_built_flag = true;
-        }
-
-        if (all_groups_built_flag) {
-            // insert this chunk without concatenating
-            insert(create_chunk(pid, std::move(packed_data)));
-        } else {
-            // insert this chunk into the builder
-            total_staged_data_ += safe_cast<std::int64_t>(packed_data.data->size);
-            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
-                detail::Chunk::from_packed_data(
-                    dummy_chunk_id, pid, std::move(packed_data)
-                )
-            );
-        }
-    }
-
-    // build any remaining chunks
-    if (!all_groups_built_flag) {
-        build_all_groups_and_insert();
-    }
 }
 
 void Shuffler::insert_finished(PartID pid) {
@@ -637,7 +533,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
     std::vector<detail::ChunkID> expected_num_chunks;
     expected_num_chunks.reserve(pids.size());
 
-    // collect expected number of chunks for each rank
+    // collect expected number of chunks for each partition
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
         for (auto pid : pids) {
@@ -645,47 +541,13 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         }
     }
 
-    // if pids only contains one element, we can just insert the finished chunk
-    if (pids.size() == 1) {
+    // insert a finished chunk for each partition
+    for (std::size_t i = 0; i < pids.size(); ++i) {
         insert(
             detail::Chunk::from_finished_partition(
-                get_new_cid(), pids[0], expected_num_chunks[0] + 1
+                get_new_cid(), pids[i], expected_num_chunks[i] + 1
             )
         );
-        return;
-    }
-
-    // Create a chunk group for each rank.
-    std::vector<std::vector<Chunk>> chunk_groups(safe_cast<size_t>(comm_->nranks()));
-    // reserve space for each group assuming an even distribution of chunks
-    for (auto&& group : chunk_groups) {
-        group.reserve(pids.size() / safe_cast<size_t>(comm_->nranks()));
-    }
-
-    // use the dummy chunk ID for intermediate chunks
-    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
-    for (size_t i = 0; i < pids.size(); ++i) {
-        Rank target_rank = partition_owner(comm_, pids[i]);
-
-        if (target_rank == comm_->rank()) {  // no group for local chunks
-            insert(
-                Chunk::from_finished_partition(
-                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
-                )
-            );
-        } else {
-            chunk_groups[safe_cast<size_t>(target_rank)].emplace_back(
-                Chunk::from_finished_partition(
-                    dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
-                )
-            );
-        }
-    }
-
-    for (auto&& group : chunk_groups) {
-        if (!group.empty()) {
-            insert(Chunk::concat(std::move(group), get_new_cid(), br_));
-        }
     }
 }
 
