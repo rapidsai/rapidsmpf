@@ -252,7 +252,7 @@ rapidsmpf::Duration run(
     constexpr std::int32_t min_val = 0;
     constexpr std::int32_t max_val = 10;
     constexpr cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
-    constexpr uint32_t seed = cudf::DEFAULT_HASH_SEED;
+    constexpr std::uint32_t seed = cudf::DEFAULT_HASH_SEED;
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(ctx->comm()->nranks());

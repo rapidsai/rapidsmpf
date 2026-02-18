@@ -37,7 +37,7 @@ class ChunkTest : public ::testing::Test {
 TEST_F(ChunkTest, FromFinishedPartition) {
     ChunkID chunk_id = 123;
     PartID part_id = 456;
-    size_t expected_num_chunks = 789;
+    std::size_t expected_num_chunks = 789;
 
     auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
@@ -64,18 +64,19 @@ TEST_F(ChunkTest, FromPackedData) {
     PartID part_id = 456;
 
     // Create test metadata
-    auto metadata =
-        std::make_unique<std::vector<uint8_t>>(std::vector<uint8_t>{1, 2, 3, 4});
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
+        std::vector<std::uint8_t>{1, 2, 3, 4}
+    );
 
     // Create test GPU data
     auto data = std::make_unique<rmm::device_buffer>(4, cudf::get_default_stream());
-    std::vector<uint8_t> host_data{5, 6, 7, 8};
+    std::vector<std::uint8_t> host_data{5, 6, 7, 8};
     RAPIDSMPF_CUDA_TRY(
         cudaMemcpy(data->data(), host_data.data(), 4, cudaMemcpyHostToDevice)
     );
 
     PackedData packed_data{
-        std::make_unique<std::vector<uint8_t>>(*metadata),
+        std::make_unique<std::vector<std::uint8_t>>(*metadata),
         br->move(std::move(data), stream)
     };
 

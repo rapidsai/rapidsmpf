@@ -45,6 +45,7 @@
 #include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "concatenate.hpp"
 #include "groupby.hpp"
@@ -667,10 +668,13 @@ int main(int argc, char** argv) {
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
-                timings[size_t(2 * i)]
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
             ctx->comm()->logger().print(
-                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+                "Iteration ",
+                i,
+                " compute time [s]: ",
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i + 1)]
             );
         }
     }

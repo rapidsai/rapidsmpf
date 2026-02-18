@@ -23,7 +23,7 @@ namespace rapidsmpf::streaming::actor {
  * This is a streaming version of `rapidsmpf::random_table_generator` that operates on
  * table chunks using channels.
  *
- * It creates a specified number of cuDF tables with random `int32_t` values, each
+ * It creates a specified number of cuDF tables with random `std::int32_t` values, each
  * consisting of `ncolumns` columns and `nrows` rows. The values are uniformly
  * distributed in the range [`min_val`, `max_val`]. Each generated table is wrapped
  * in a `TableChunk` and sent to the provided output channel in streaming fashion.

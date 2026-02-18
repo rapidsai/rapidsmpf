@@ -49,23 +49,23 @@ struct str_cudf_column_scalar_fn {
 struct cudf_column_data_size_fn {
     template <typename T>
         requires(cudf::is_fixed_width<T>())
-    size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
-        return safe_cast<size_t>(col.size()) * cudf::size_of(col.type())
+    std::size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
+        return safe_cast<std::size_t>(col.size()) * cudf::size_of(col.type())
                + bitmask_size(col);
     }
 
     // string type specialization
     template <typename T>
         requires(std::is_same_v<T, cudf::string_view>)
-    size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view stream) {
+    std::size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view stream) {
         cudf::strings_column_view sv(col);
-        return safe_cast<size_t>(sv.chars_size(stream)) + bitmask_size(col);
+        return safe_cast<std::size_t>(sv.chars_size(stream)) + bitmask_size(col);
     }
 
     // compound type specialization except string
     template <typename T>
         requires(!std::is_same_v<T, cudf::string_view> && cudf::is_compound<T>())
-    size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
+    std::size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
         // compound types (except string) ie. list, dict, structs dont have a
         // content::data buffer. Data is stored in children columns. So, just return the
         // bitmask size.
@@ -73,11 +73,11 @@ struct cudf_column_data_size_fn {
     }
 
     template <typename T>
-    size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
+    std::size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
         RAPIDSMPF_FAIL("not implemented for type: " + cudf::type_to_name(col.type()));
     }
 
-    static size_t bitmask_size(cudf::column_view const& col) {
+    static std::size_t bitmask_size(cudf::column_view const& col) {
         return col.nullable() ? cudf::bitmask_allocation_size_bytes(col.size()) : 0;
     }
 };
@@ -119,7 +119,7 @@ std::string str(
     return ss.str();
 }
 
-size_t estimated_memory_usage(
+std::size_t estimated_memory_usage(
     cudf::column_view const& col, rmm::cuda_stream_view stream
 ) {
     return std::transform_reduce(
@@ -133,11 +133,13 @@ size_t estimated_memory_usage(
     );
 }
 
-size_t estimated_memory_usage(cudf::table_view const& tbl, rmm::cuda_stream_view stream) {
+std::size_t estimated_memory_usage(
+    cudf::table_view const& tbl, rmm::cuda_stream_view stream
+) {
     return std::transform_reduce(
         tbl.begin(),
         tbl.end(),
-        size_t{0},
+        std::size_t{0},
         std::plus{},
         [&stream](cudf::column_view const& col) {
             return estimated_memory_usage(col, stream);

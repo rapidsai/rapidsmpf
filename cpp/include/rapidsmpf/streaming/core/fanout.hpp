@@ -14,7 +14,7 @@ namespace rapidsmpf::streaming::actor {
 /**
  * @brief Fanout policy controlling how messages are propagated.
  */
-enum class FanoutPolicy : uint8_t {
+enum class FanoutPolicy : std::uint8_t {
     /**
      * @brief Process messages as they arrive and immediately forward them.
      *

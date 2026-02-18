@@ -129,7 +129,7 @@ class Tag {
      * @brief Returns the max number of bits used for the tag
      * @return bit length
      */
-    [[nodiscard]] static constexpr size_t bit_length() noexcept {
+    [[nodiscard]] static constexpr std::size_t bit_length() noexcept {
         return op_id_bits + stage_id_bits;
     }
 
@@ -434,7 +434,7 @@ class Communicator {
      * @throws std::invalid_argument If @p msg is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+        std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
     ) = 0;
 
     /**
@@ -494,7 +494,7 @@ class Communicator {
      * @throws std::invalid_argument If @p synced_buffer is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv_sync_host_data(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+        Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
     ) = 0;
 
     /**
@@ -506,9 +506,8 @@ class Communicator {
      * @note If no message is available this is indicated by returning
      * a `nullptr` in the first slot of the pair.
      */
-    [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
-        Tag tag
-    ) = 0;
+    [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank>
+    recv_any(Tag tag) = 0;
 
     /**
      * @brief Receives a message from a specific rank (blocking).
@@ -520,7 +519,7 @@ class Communicator {
      *
      * @note If no message is available, this function returns a nullptr.
      */
-    [[nodiscard]] virtual std::unique_ptr<std::vector<uint8_t>> recv_from(
+    [[nodiscard]] virtual std::unique_ptr<std::vector<std::uint8_t>> recv_from(
         Rank src, Tag tag
     ) = 0;
 
@@ -579,9 +578,10 @@ class Communicator {
      *
      * @throws std::runtime_error if the future has no data.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_sync_host_data(
-        std::unique_ptr<Communicator::Future> future
-    ) = 0;
+    [[nodiscard]] std::
+        unique_ptr<std::vector<std::uint8_t>> virtual release_sync_host_data(
+            std::unique_ptr<Communicator::Future> future
+        ) = 0;
 
     /**
      * @brief Retrieves the logger associated with this communicator.

@@ -130,14 +130,14 @@ bool extract_gpu_info_from_json(
 
     // Find the GPU with matching ID
     std::string gpu_id_str = "\"id\": " + std::to_string(gpu_id);
-    size_t gpu_pos = json_content.find(gpu_id_str);
+    std::size_t gpu_pos = json_content.find(gpu_id_str);
     if (gpu_pos == std::string::npos) {
         std::cerr << "Error: GPU ID " << gpu_id << " not found in JSON" << std::endl;
         return false;
     }
 
     // Find the start of this GPU object
-    size_t gpu_start = json_content.rfind('{', gpu_pos);
+    std::size_t gpu_start = json_content.rfind('{', gpu_pos);
     if (gpu_start == std::string::npos) {
         return false;
     }
@@ -145,17 +145,19 @@ bool extract_gpu_info_from_json(
     // Find the end of this GPU object by matching braces
     // (accounting for nested objects like cpu_affinity)
     int brace_count = 0;
-    size_t gpu_end = gpu_start;
+    std::size_t gpu_end = gpu_start;
     bool in_string = false;
-    for (size_t i = gpu_start; i < json_content.length(); ++i) {
+    for (std::size_t i = gpu_start; i < json_content.length(); ++i) {
         char c = json_content[i];
         if (c == '"') {
             // Check if this quote is escaped
             bool escaped = false;
             if (i > 0) {
                 // Count backslashes - odd number means escaped
-                size_t backslash_count = 0;
-                for (size_t j = i - 1; j >= gpu_start && json_content[j] == '\\'; --j) {
+                std::size_t backslash_count = 0;
+                for (std::size_t j = i - 1; j >= gpu_start && json_content[j] == '\\';
+                     --j)
+                {
                     backslash_count++;
                 }
                 escaped = (backslash_count % 2 == 1);
@@ -185,11 +187,11 @@ bool extract_gpu_info_from_json(
     cpu_affinity = extract_json_string_value(gpu_json, "cpulist");
 
     // Extract memory_binding array (simplified - just get first value)
-    size_t membind_pos = gpu_json.find("\"memory_binding\"");
+    std::size_t membind_pos = gpu_json.find("\"memory_binding\"");
     if (membind_pos != std::string::npos) {
-        size_t array_start = gpu_json.find('[', membind_pos);
+        std::size_t array_start = gpu_json.find('[', membind_pos);
         if (array_start != std::string::npos) {
-            size_t array_end = gpu_json.find(']', array_start);
+            std::size_t array_end = gpu_json.find(']', array_start);
             if (array_end != std::string::npos) {
                 std::string array_str =
                     gpu_json.substr(array_start + 1, array_end - array_start - 1);
@@ -207,11 +209,11 @@ bool extract_gpu_info_from_json(
     }
 
     // Extract network_devices array
-    size_t netdev_pos = gpu_json.find("\"network_devices\"");
+    std::size_t netdev_pos = gpu_json.find("\"network_devices\"");
     if (netdev_pos != std::string::npos) {
-        size_t array_start = gpu_json.find('[', netdev_pos);
+        std::size_t array_start = gpu_json.find('[', netdev_pos);
         if (array_start != std::string::npos) {
-            size_t array_end = gpu_json.find(']', array_start);
+            std::size_t array_end = gpu_json.find(']', array_start);
             if (array_end != std::string::npos) {
                 std::string array_str =
                     gpu_json.substr(array_start + 1, array_end - array_start - 1);
@@ -463,7 +465,7 @@ ValidationResult validate_binding(
     }
 
     // Build expected UCX devices string and check
-    for (size_t i = 0; i < expected.network_devices.size(); ++i) {
+    for (std::size_t i = 0; i < expected.network_devices.size(); ++i) {
         if (i > 0) {
             result.expected_ucx_devices += ",";
         }
@@ -509,7 +511,7 @@ std::string format_output(
     if (actual.numa_nodes.empty()) {
         output << "(none)";
     } else {
-        for (size_t i = 0; i < actual.numa_nodes.size(); ++i) {
+        for (std::size_t i = 0; i < actual.numa_nodes.size(); ++i) {
             if (i > 0) {
                 output << ",";
             }
@@ -535,7 +537,7 @@ std::string format_output(
                << std::endl;
         if (!validation->numa_ok) {
             output << "  Expected: [";
-            for (size_t i = 0; i < expected->memory_binding.size(); ++i) {
+            for (std::size_t i = 0; i < expected->memory_binding.size(); ++i) {
                 if (i > 0) {
                     output << ",";
                 }
@@ -543,7 +545,7 @@ std::string format_output(
             }
             output << "]" << std::endl;
             output << "  Actual:   [";
-            for (size_t i = 0; i < actual.numa_nodes.size(); ++i) {
+            for (std::size_t i = 0; i < actual.numa_nodes.size(); ++i) {
                 if (i > 0) {
                     output << ",";
                 }

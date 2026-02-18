@@ -46,12 +46,13 @@ using ChunkID = std::uint64_t;
  * - No metadata or data buffers (metadata_size = 0, data_size = 0).
  *
  * When serialized, the format is:
- * - chunk_id: uint64_t, ID of the chunk.
+ * - chunk_id: std::uint64_t, ID of the chunk.
  * - partition_id: PartID, Partition ID of the message.
- * - expected_num_chunks: size_t, Expected number of chunks (0 for data, >0 for control).
- * - metadata_size: uint32_t, Size of the metadata in bytes.
- * - data_size: uint64_t, Size of the data in bytes.
- * - metadata: vector<uint8_t>, Metadata buffer
+ * - expected_num_chunks: std::size_t, Expected number of chunks (0 for data, >0 for
+ * control).
+ * - metadata_size: std::uint32_t, Size of the metadata in bytes.
+ * - data_size: std::uint64_t, Size of the data in bytes.
+ * - metadata: vector<std::uint8_t>, Metadata buffer
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
@@ -82,9 +83,9 @@ class Chunk {
      *
      * @return The size of the metadata message header.
      */
-    static constexpr size_t metadata_message_header_size() {
-        return sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
-               + sizeof(uint64_t);
+    static constexpr std::size_t metadata_message_header_size() {
+        return sizeof(ChunkID) + sizeof(PartID) + sizeof(std::size_t)
+               + sizeof(std::uint32_t) + sizeof(std::uint64_t);
     }
 
     /**
@@ -111,7 +112,7 @@ class Chunk {
      * @return The expected number of chunks for the message. Non-zero when the message
      * is a control message, otherwise zero (data message).
      */
-    [[nodiscard]] constexpr size_t expected_num_chunks() const {
+    [[nodiscard]] constexpr std::size_t expected_num_chunks() const {
         return expected_num_chunks_;
     }
 
@@ -146,7 +147,7 @@ class Chunk {
      * @return The size of the metadata of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::metadata`.
      */
-    [[nodiscard]] constexpr uint32_t metadata_size() const {
+    [[nodiscard]] constexpr std::uint32_t metadata_size() const {
         return metadata_size_;
     }
 
@@ -156,7 +157,7 @@ class Chunk {
      * @return The size of the packed data of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::data` of the message.
      */
-    [[nodiscard]] constexpr size_t data_size() const {
+    [[nodiscard]] constexpr std::size_t data_size() const {
         return data_size_;
     }
 
@@ -203,7 +204,7 @@ class Chunk {
      *
      * @return The metadata buffer.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_metadata_buffer() {
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> release_metadata_buffer() {
         return std::move(metadata_);
     }
 
@@ -237,7 +238,7 @@ class Chunk {
      * @return The chunk.
      */
     static Chunk from_finished_partition(
-        ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
+        ChunkID chunk_id, PartID part_id, std::size_t expected_num_chunks
     );
 
     /**
@@ -250,7 +251,7 @@ class Chunk {
      * @throws std::runtime_error if the metadata buffer does not follow the expected
      * format and `validate` is true.
      */
-    static Chunk deserialize(std::vector<uint8_t> const& msg, bool validate = true);
+    static Chunk deserialize(std::vector<std::uint8_t> const& msg, bool validate = true);
 
     /**
      * @brief Validate if a deserialized buffer follows the Chunk format.
@@ -259,7 +260,7 @@ class Chunk {
      * @return True if the deserialized buffer follows the Chunk format, false
      * otherwise.
      */
-    static bool validate_format(std::vector<uint8_t> const& serialized_buf);
+    static bool validate_format(std::vector<std::uint8_t> const& serialized_buf);
 
     /**
      * @brief Whether the chunk is ready for consumption.
@@ -287,28 +288,29 @@ class Chunk {
      *
      * @returns The metadata message as a serialized byte vector.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize() const;
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> serialize() const;
 
   private:
     // constructor
     Chunk(
         ChunkID chunk_id,
         PartID part_id,
-        size_t expected_num_chunks,
-        uint32_t metadata_size,
-        uint64_t data_size,
-        std::unique_ptr<std::vector<uint8_t>> metadata = nullptr,
+        std::size_t expected_num_chunks,
+        std::uint32_t metadata_size,
+        std::uint64_t data_size,
+        std::unique_ptr<std::vector<std::uint8_t>> metadata = nullptr,
         std::unique_ptr<Buffer> data = nullptr
     );
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
     PartID part_id_;  ///< The partition ID of the message.
-    size_t expected_num_chunks_;  ///< The expected number of chunks for the partition.
-    uint32_t metadata_size_;  ///< The size of the metadata for the single message.
-    uint64_t data_size_;  ///< The size of the data for the single message.
+    std::size_t
+        expected_num_chunks_;  ///< The expected number of chunks for the partition.
+    std::uint32_t metadata_size_;  ///< The size of the metadata for the single message.
+    std::uint64_t data_size_;  ///< The size of the data for the single message.
 
     /// Metadata buffer that contains information about the message in the chunk.
-    std::unique_ptr<std::vector<uint8_t>> metadata_;
+    std::unique_ptr<std::vector<std::uint8_t>> metadata_;
 
     /// Data buffer of the message in the chunk.
     std::unique_ptr<Buffer> data_;
@@ -326,14 +328,14 @@ class ReadyForDataMessage {
      *
      * @return The size of the message in bytes.
      */
-    static constexpr size_t byte_size = sizeof(ChunkID);
+    static constexpr std::size_t byte_size = sizeof(ChunkID);
 
     /**
      * @brief Serializes the message into a byte array.
      *
      * @return A serialized byte vector representing the message.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack();
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> pack();
 
     /**
      * @brief Deserializes a message from a byte array.
@@ -342,7 +344,7 @@ class ReadyForDataMessage {
      * @return A `ReadyForDataMessage` object.
      */
     [[nodiscard]] static ReadyForDataMessage unpack(
-        std::unique_ptr<std::vector<uint8_t>> const& msg
+        std::unique_ptr<std::vector<std::uint8_t>> const& msg
     );
 
     /**
