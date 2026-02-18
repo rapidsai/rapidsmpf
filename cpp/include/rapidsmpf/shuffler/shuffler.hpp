@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -24,7 +24,7 @@
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 
 class ShuffleInsertGroupedTest;
@@ -62,7 +62,7 @@ class Shuffler {
      * @return The rank owning the partition.
      */
     static Rank round_robin(std::shared_ptr<Communicator> const& comm, PartID pid) {
-        return static_cast<Rank>(pid % static_cast<PartID>(comm->nranks()));
+        return safe_cast<Rank>(pid % safe_cast<PartID>(comm->nranks()));
     }
 
     /**
@@ -157,14 +157,6 @@ class Shuffler {
      * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
-
-    /**
-     * @brief Insert a map of packed data, grouping them by destination rank, and
-     * concatenating into a single chunk per rank.
-     *
-     * @param chunks A map of partition IDs and their packed chunks.
-     */
-    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -295,7 +287,7 @@ class Shuffler {
      * @return The rank.
      */
     static constexpr Rank extract_rank(detail::ChunkID cid) {
-        return static_cast<Rank>(cid >> chunk_id_counter_bits);
+        return safe_cast<Rank>(cid >> chunk_id_counter_bits);
     }
 
     /**

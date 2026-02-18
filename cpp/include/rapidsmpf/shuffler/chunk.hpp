@@ -1,11 +1,10 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -29,31 +28,30 @@ namespace detail {
 using ChunkID = std::uint64_t;
 
 /**
- * @brief Chunk with multiple messages. This class contains two buffers for concatenated
- * metadata and data.
+ * @brief A partition chunk representing either a data message or a control message.
  *
- * When the Chunk is serialized, the format is as follows:
- * - chunk_id: uint64_t, ID of the chunk
- * - n_elements: size_t, Number of messages in the chunk
- * - [partition_ids]: vector<PartID>, Partition IDs of the messages, size = n_elements
- * - [expected_num_chunks]: vector<size_t>, Expected number of chunks of the messages,
- * size = n_elements
- * - [meta_offsets]: vector<uint32_t>, Prefix sums (excluding 0) of the metadata sizes
- * of the messages, size = n_elements
- * - [data_offsets]: vector<uint64_t>, Prefix sums (excluding 0) of the data sizes of
- * the messages, size = n_elements
- * - [concat_metadata]: vector<uint8_t>, Concatenated metadata of the messages,
- * size = meta_offsets[n_elements - 1]
+ * A Chunk represents a single message for a partition in the shuffler. There are two
+ * types.
  *
- * For a chunk with N messages with M bytes of concat metadata the size of serialized
- * buffer is sizeof(ChunkID) + sizeof(size_t) + N * (sizeof(PartID) + sizeof(size_t) +
- * sizeof(uint32_t) + sizeof(uint64_t)) + M = 16 + N * 24 + M bytes.
+ * Data Message. Contains actual partition data (metadata and optionally GPU data buffer).
+ * - Used to transfer partition data between ranks.
+ * - `expected_num_chunks` is 0.
+ * - `is_control_message()` returns false.
+ * - Contains metadata buffer and optionally a data buffer.
  *
- * For a chunk with a single control message (ie. M = 0), the size of the serialized
- * buffer is 40 bytes.
+ * Control Message. Signals partition completion without carrying data.
+ * - Used to indicate that all data chunks for a partition have been sent.
+ * - `expected_num_chunks` > 0 (indicates total number of data chunks expected).
+ * - `is_control_message()` returns true.
+ * - No metadata or data buffers (metadata_size = 0, data_size = 0).
  *
- * For a chunk with a single message with M bytes of metadata, the size of the serialized
- * buffer is 40 + M bytes.
+ * When serialized, the format is:
+ * - chunk_id: uint64_t, ID of the chunk.
+ * - partition_id: PartID, Partition ID of the message.
+ * - expected_num_chunks: size_t, Expected number of chunks (0 for data, >0 for control).
+ * - metadata_size: uint32_t, Size of the metadata in bytes.
+ * - data_size: uint64_t, Size of the data in bytes.
+ * - metadata: vector<uint8_t>, Metadata buffer
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
@@ -82,14 +80,11 @@ class Chunk {
     /**
      * @brief The size of the metadata message header.
      *
-     * @param n_messages The number of messages in the chunk.
      * @return The size of the metadata message header.
      */
-    static constexpr size_t metadata_message_header_size(size_t n_messages) {
-        return sizeof(ChunkID) + sizeof(size_t)
-               + n_messages
-                     * (sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
-                        + sizeof(uint64_t));
+    static constexpr size_t metadata_message_header_size() {
+        return sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
+               + sizeof(uint64_t);
     }
 
     /**
@@ -102,88 +97,67 @@ class Chunk {
     }
 
     /**
-     * @brief The number of messages in the chunk.
+     * @brief Partition ID of the message.
      *
-     * @return The number of messages in the chunk.
-     */
-    [[nodiscard]] constexpr size_t n_messages() const {
-        return part_ids_.size();
-    }
-
-    /**
-     * @brief Partition ID of the i-th message.
-     *
-     * @param i The index of the message.
      * @return The ID of the partition.
      */
-    [[nodiscard]] constexpr PartID part_id(size_t i) const {
-        return part_ids_.at(i);
+    [[nodiscard]] constexpr PartID part_id() const {
+        return part_id_;
     }
 
     /**
-     * @brief The expected number of chunks of the i-th message.
+     * @brief The expected number of chunks for the message.
      *
-     * @param i The index of the message.
      * @return The expected number of chunks for the message. Non-zero when the message
      * is a control message, otherwise zero (data message).
      */
-    [[nodiscard]] constexpr size_t expected_num_chunks(size_t i) const {
-        return expected_num_chunks_.at(i);
+    [[nodiscard]] constexpr size_t expected_num_chunks() const {
+        return expected_num_chunks_;
     }
 
     /**
-     * @brief Whether the i-th message is a control message.
+     * @brief Whether the message is a control message.
      *
-     * @param i The index of the message.
      * @return True if the message is a control message, false otherwise.
      */
-    [[nodiscard]] constexpr bool is_control_message(size_t i) const {
+    [[nodiscard]] constexpr bool is_control_message() const {
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
-        return expected_num_chunks(i) > 0;
+        return expected_num_chunks() > 0;
     }
 
     /**
-     * @brief Get the data of the i-th message, as a new chunk.
+     * @brief Get the data of the message, as a new chunk.
      *
      * @param new_chunk_id The ID of the new chunk.
-     * @param i The index of the message.
      * @param br The buffer resource to use for copying the data.
-     * @return A new chunk containing the data of the i-th message.
+     * @return A new chunk containing the data of the message.
      *
      * @note This will create a copy of the packed data using a new stream from
-     * `br->stream_pool()`. If there is only one message and the message is a data
-     * message, the buffers will be moved to the new chunk. Otherwise a new chunk will be
-     * created by copying data. If the i'th message is,
-     *  - control message, the metadata and data buffers will be nullptr, else if
-     *  - data message, both metadata and data buffers will be non-null (for a
-     *    metadata-only message, the data buffer will be an empty HOST buffer)
-     *
-     * @throws std::out_of_range if the index is out of bounds.
+     * `br->stream_pool()`. If the message is a data message, the buffers will be moved
+     * to the new chunk. If the message is a control message, the metadata and data
+     * buffers will be nullptr. For a metadata-only message, the data buffer will be an
+     * empty HOST buffer.
      */
-    Chunk get_data(ChunkID new_chunk_id, size_t i, BufferResource* br);
+    Chunk get_data(ChunkID new_chunk_id, BufferResource* br);
 
     /**
-     * @brief Get the size of the metadata of the i-th message.
+     * @brief Get the size of the metadata of the message.
      *
-     * @param i The index of the message.
      * @return The size of the metadata of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::metadata`.
      */
-    [[nodiscard]] constexpr uint32_t metadata_size(size_t i) const {
-        return i == 0 ? meta_offsets_.at(0)
-                      : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
+    [[nodiscard]] constexpr uint32_t metadata_size() const {
+        return metadata_size_;
     }
 
     /**
-     * @brief Get the size of the packed data of the i-th message.
+     * @brief Get the size of the packed data of the message.
      *
-     * @param i The index of the message.
      * @return The size of the packed data of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::data` of the message.
      */
-    [[nodiscard]] constexpr size_t data_size(size_t i) const {
-        return i == 0 ? data_offsets_.at(0)
-                      : data_offsets_.at(i) - data_offsets_.at(i - 1);
+    [[nodiscard]] constexpr size_t data_size() const {
+        return data_size_;
     }
 
     /**
@@ -225,24 +199,6 @@ class Chunk {
     }
 
     /**
-     * @brief Get the size of the concatenated data.
-     *
-     * @return The size of the concatenated data.
-     */
-    [[nodiscard]] constexpr size_t concat_data_size() const {
-        return data_offsets_.at(n_messages() - 1);
-    }
-
-    /**
-     * @brief Get the size of the concatenated metadata.
-     *
-     * @return The size of the concatenated metadata.
-     */
-    [[nodiscard]] constexpr size_t concat_metadata_size() const {
-        return meta_offsets_.at(n_messages() - 1);
-    }
-
-    /**
      * @brief Release the ownership of the metadata buffer.
      *
      * @return The metadata buffer.
@@ -261,7 +217,7 @@ class Chunk {
     }
 
     /**
-     * @brief Create a single-message chunk from a packed data.
+     * @brief Create a chunk from a packed data.
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
@@ -273,8 +229,7 @@ class Chunk {
     );
 
     /**
-     * @brief Create a single-message chunk for a finished partition (control
-     * message).
+     * @brief Create a chunk for a finished partition (control message).
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
@@ -314,12 +269,10 @@ class Chunk {
      * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] bool is_ready() const {
-        // data_offsets_[-1] contains the size of the data buffer. If it is 0, the chunk
-        // has no data messages, so it is ready. Else, the chunk is ready if the data
+        // data_size_ contains the size of the data buffer. If it is 0, the chunk
+        // has no data, so it is ready. Else, the chunk is ready if the data
         // buffer is non-null and the data buffer is ready.
-        return !data_offsets_.empty()
-               && (data_offsets_[n_messages() - 1] == 0
-                   || (data_ && data_->is_latest_write_done()));
+        return data_size_ == 0 || (data_ && data_->is_latest_write_done());
     }
 
     /**
@@ -336,55 +289,28 @@ class Chunk {
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize() const;
 
-    /**
-     * @brief Concatenate multiple chunks into a single chunk.
-     *
-     * Using a new stream from `br->stream_pool()` for the concatenation.
-     *
-     * @param chunks Vector of chunks to concatenate.
-     * @param chunk_id The ID for the resulting concatenated chunk.
-     * @param br The buffer resource to use for memory allocation.
-     * @param preferred_mem_type The preferred memory type to use for the concatenated
-     * data buffer.
-     * @return Chunk The concatenated chunk.
-     * @throws std::logic_error if the input vector is empty or the concatenated chunk
-     * contains duplicate partition IDs.
-     *
-     * @note The chunks vector should contain unique partition IDs.
-     */
-    static Chunk concat(
-        std::vector<Chunk>&& chunks,
-        ChunkID chunk_id,
-        BufferResource* br,
-        std::optional<MemoryType> preferred_mem_type = std::nullopt
-    );
-
   private:
     // constructor
     Chunk(
         ChunkID chunk_id,
-        std::vector<PartID> part_ids,
-        std::vector<size_t> expected_num_chunks,
-        std::vector<uint32_t> meta_offsets,
-        std::vector<uint64_t> data_offsets,
+        PartID part_id,
+        size_t expected_num_chunks,
+        uint32_t metadata_size,
+        uint64_t data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata = nullptr,
         std::unique_ptr<Buffer> data = nullptr
     );
 
     ChunkID chunk_id_;  ///< The ID of the chunk.
-    std::vector<PartID> part_ids_;  ///< The partition IDs of the messages in the
-                                    ///< chunk. These partition IDs should be unique.
-    std::vector<size_t> expected_num_chunks_;  ///< The expected number of chunks of
-                                               ///< the messages in the chunk.
-    std::vector<uint32_t>
-        meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
-    std::vector<uint64_t>
-        data_offsets_;  ///< The offsets of the data of the messages in the chunk.
+    PartID part_id_;  ///< The partition ID of the message.
+    size_t expected_num_chunks_;  ///< The expected number of chunks for the partition.
+    uint32_t metadata_size_;  ///< The size of the metadata for the single message.
+    uint64_t data_size_;  ///< The size of the data for the single message.
 
-    /// Metadata buffer that contains information about the messages in the chunk.
+    /// Metadata buffer that contains information about the message in the chunk.
     std::unique_ptr<std::vector<uint8_t>> metadata_;
 
-    /// Concatenated data buffer of the messages in the chunk.
+    /// Data buffer of the message in the chunk.
     std::unique_ptr<Buffer> data_;
 };
 
@@ -407,11 +333,7 @@ class ReadyForDataMessage {
      *
      * @return A serialized byte vector representing the message.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack() {
-        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
-        std::memcpy(msg->data(), &cid, sizeof(cid));
-        return msg;
-    }
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack();
 
     /**
      * @brief Deserializes a message from a byte array.
@@ -421,21 +343,13 @@ class ReadyForDataMessage {
      */
     [[nodiscard]] static ReadyForDataMessage unpack(
         std::unique_ptr<std::vector<uint8_t>> const& msg
-    ) {
-        ChunkID cid;
-        std::memcpy(&cid, msg->data(), sizeof(cid));
-        return ReadyForDataMessage{cid};
-    }
+    );
 
     /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
-    [[nodiscard]] std::string str() const {
-        std::stringstream ss;
-        ss << "ReadyForDataMessage(cid=" << cid << ")";
-        return ss.str();
-    }
+    [[nodiscard]] std::string str() const;
 };
 
 /**
@@ -447,10 +361,7 @@ class ReadyForDataMessage {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
-    os << obj.str();
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, Chunk const& obj);
 
 /**
  * @brief Overloads the stream insertion operator for the ReadyForDataMessage class.
@@ -462,10 +373,7 @@ inline std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj) {
-    os << obj.str();
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj);
 
 }  // namespace detail
 }  // namespace rapidsmpf::shuffler

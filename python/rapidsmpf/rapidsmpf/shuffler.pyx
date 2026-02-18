@@ -1,10 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """The Shuffler interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport UINT8_MAX, uint32_t
+from libc.stdint cimport uint32_t
 from libcpp.memory cimport make_unique
+from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -55,13 +56,13 @@ cdef class Shuffler:
     their own stream, and extracted buffers are likewise guaranteed to be stream-
     ordered with respect to their own stream.
     """
-    max_concurrent_shuffles = UINT8_MAX + 1  # match the type of the `op_id` argument.
+    max_concurrent_shuffles = 1 << 20  # See docs in communicator.hpp
 
     def __init__(
         self,
         Communicator comm not None,
         ProgressThread progress_thread not None,
-        uint8_t op_id,
+        int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
         Statistics statistics = None,
@@ -144,41 +145,6 @@ cdef class Shuffler:
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
-
-    def concat_insert(self, chunks):
-        """
-        Insert a batch of packed (serialized) chunks into the shuffle while
-        concatenating the chunks based on the destination rank.
-
-        Parameters
-        ----------
-        chunks
-            A map where keys are partition IDs (``int``) and values are packed
-            data (``PackedData``).
-
-        Notes
-        -----
-        There are some considerations for using this method:
-
-        - The chunks are grouped by the destination rank of the partition ID and
-          concatenated on device memory.
-        - The caller thread will perform the concatenation, and hence it will be
-          blocked.
-        - Concatenation may cause device memory pressure.
-
-        """
-        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
-
-        _chunks.reserve(len(chunks))
-        for pid, chunk in chunks.items():
-            if not (<PackedData?>chunk).c_obj:
-                raise ValueError("PackedData was empty")
-            cpp_insert_chunk_into_partition_map(
-                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
-            )
-
-        with nogil:
-            deref(self._handle).concat_insert(move(_chunks))
 
     def insert_finished(self, pids):
         """
@@ -273,3 +239,19 @@ cdef class Shuffler:
         """
         with nogil:
             deref(self._handle).wait_on(pid)
+
+    def local_partitions(self):
+        """
+        Return the partition IDs owned by this rank.
+
+        Returns
+        -------
+        Partition IDs owned by this shuffler.
+        """
+        cdef span[const uint32_t] _ret
+        cdef list partitions = []
+        with nogil:
+            _ret = deref(self._handle).local_partitions()
+        for pid in _ret:
+            partitions.append(pid)
+        return partitions

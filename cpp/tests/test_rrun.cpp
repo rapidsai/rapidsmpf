@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,8 @@
  * @brief GTest for validating topology-based binding in rrun.
  *
  * This test validates that when running under rrun, the CPU affinity, NUMA memory
- * binding, and UCX_NET_DEVICES match what TopologyDiscovery reports for the assigned GPU.
+ * binding, and UCX_NET_DEVICES match what cucascade::memory::topology_discovery reports
+ * for the assigned GPU.
  *
  * These tests must be run with rrun, e.g.:
  *   rrun -n 1 gtests/single_tests --gtest_filter="*TopologyBinding*"
@@ -23,8 +24,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/topology_discovery.hpp>
+#include <rapidsmpf/system_info.hpp>
 
 class TopologyBindingTest : public ::testing::Test {
   protected:
@@ -46,7 +49,7 @@ class TopologyBindingTest : public ::testing::Test {
         auto it = std::find_if(
             topology.gpus.begin(),
             topology.gpus.end(),
-            [this](rapidsmpf::GpuTopologyInfo const& gpu) {
+            [this](cucascade::memory::gpu_topology_info const& gpu) {
                 return static_cast<int>(gpu.id) == gpu_id_;
             }
         );
@@ -58,9 +61,9 @@ class TopologyBindingTest : public ::testing::Test {
         expected_gpu_info_ = *it;
     }
 
-    rapidsmpf::TopologyDiscovery discovery_;
+    cucascade::memory::topology_discovery discovery_;
     int gpu_id_{-1};
-    rapidsmpf::GpuTopologyInfo expected_gpu_info_;
+    cucascade::memory::gpu_topology_info expected_gpu_info_;
 };
 
 TEST_F(TopologyBindingTest, CpuAffinity) {
@@ -82,7 +85,7 @@ TEST_F(TopologyBindingTest, CpuAffinity) {
 }
 
 TEST_F(TopologyBindingTest, NumaBinding) {
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::vector<int> expected_memory_binding = expected_gpu_info_.memory_binding;
 
     if (expected_memory_binding.empty()) {
@@ -162,7 +165,7 @@ TEST_F(TopologyBindingTest, UcxNetDevices) {
 
 TEST_F(TopologyBindingTest, AllBindings) {
     std::string actual_cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
-    std::vector<int> actual_numa_nodes = rapidsmpf::bootstrap::get_current_numa_nodes();
+    std::vector<int> actual_numa_nodes = rapidsmpf::get_current_numa_nodes();
     std::string actual_ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
 
     // Check CPU affinity

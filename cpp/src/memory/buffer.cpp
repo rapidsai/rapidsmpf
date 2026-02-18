@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdexcept>
@@ -28,12 +28,14 @@ Buffer::Buffer(
       storage_{std::move(host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
-        std::get<HostBufferT>(storage_) != nullptr, "the host_buffer cannot be NULL"
+        std::get<HostBufferT>(storage_) != nullptr,
+        "the host_buffer cannot be NULL",
+        std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
         contains(host_buffer_types, mem_type_),
         "memory type is not suitable for a host buffer",
-        std::invalid_argument
+        std::logic_error
     );
 }
 
@@ -49,7 +51,7 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
     RAPIDSMPF_EXPECTS(
         contains(device_buffer_types, mem_type_),
         "memory type is not suitable for a device buffer",
-        std::invalid_argument
+        std::logic_error
     );
     stream_ = std::get<DeviceBufferT>(storage_)->stream();
     latest_write_event_.record(stream_);
@@ -112,6 +114,20 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
+void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
+    throw_if_locked();
+    if (new_stream.value() == stream_.value()) {
+        return;
+    }
+
+    // Ensure the new stream does not run ahead of any work already enqueued on
+    // the current stream.
+    latest_write_event_.stream_wait(new_stream);
+    stream_ = new_stream;
+
+    std::visit([&](auto&& storage) { storage->set_stream(new_stream); }, storage_);
+}
+
 void buffer_copy(
     Buffer& dst,
     Buffer const& src,
@@ -140,7 +156,7 @@ void buffer_copy(
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
-    cuda_stream_join(dst.stream(), src.stream());
+    src.latest_write_event().stream_wait(dst.stream());
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
@@ -150,7 +166,9 @@ void buffer_copy(
             stream
         ));
     });
-    cuda_stream_join(src.stream(), dst.stream());
+    // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
+    // we need the src.stream() to wait for that event.
+    dst.latest_write_event().stream_wait(src.stream());
 }
 
 }  // namespace rapidsmpf

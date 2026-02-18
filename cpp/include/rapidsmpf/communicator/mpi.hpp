@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -57,7 +57,7 @@ namespace detail {
  * @param file The file where the MPI call occurred.
  * @param line The line number where the MPI call occurred.
  */
-void check_mpi_error(int error_code, const char* file, int line);
+void check_mpi_error(int error_code, char const* file, int line);
 }  // namespace detail
 }  // namespace mpi
 
@@ -139,6 +139,8 @@ class MPI final : public Communicator {
 
     /**
      * @copydoc Communicator::send
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
@@ -147,6 +149,8 @@ class MPI final : public Communicator {
     // clang-format off
     /**
      * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag)
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
@@ -155,6 +159,8 @@ class MPI final : public Communicator {
 
     /**
      * @copydoc Communicator::recv
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
@@ -163,6 +169,8 @@ class MPI final : public Communicator {
     // clang-format off
     /**
      * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(

@@ -1,15 +1,35 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import gc
 import pickle
 import weakref
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
+import rmm.mr
+
+from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import (
+    AvailableMemoryMap,
+    BufferResource,
+    periodic_spill_check_from_options,
+    stream_pool_from_options,
+)
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    is_pinned_memory_resources_supported,
+)
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
+from rapidsmpf.streaming.core.context import Context
+
+if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.channel import Channel
 
 
 def test_get_with_explicit_values() -> None:
@@ -135,27 +155,25 @@ def test_get_pyobject_refcount() -> None:
     assert wr() is None
 
 
-def test_get_or_default_returns_default_when_key_missing() -> None:
-    opts = Options()
-    assert opts.get_or_default("debug", default_value=False) is False
-    assert opts.get_or_default("workers", default_value=8) == 8
-    assert opts.get_or_default("timeout", default_value=1.5) == 1.5
-    assert opts.get_or_default("loglevel", default_value="info") == "info"
-
-
-def test_get_or_default_parses_existing_values() -> None:
-    opts = Options(
-        {
-            "debug": "true",
-            "workers": "4",
-            "timeout": "2.0",
-            "loglevel": "debug",
-        }
-    )
-    assert opts.get_or_default("debug", default_value=False) is True
-    assert opts.get_or_default("workers", default_value=1) == 4
-    assert opts.get_or_default("timeout", default_value=1.0) == 2.0
-    assert opts.get_or_default("loglevel", default_value="info") == "debug"
+@pytest.mark.parametrize(
+    "opts,key,default_value,expected",
+    [
+        # Missing keys return defaults
+        (Options(), "debug", False, False),
+        (Options(), "workers", 8, 8),
+        (Options(), "timeout", 1.5, 1.5),
+        (Options(), "loglevel", "info", "info"),
+        # Existing keys parse to correct type
+        (Options({"debug": "true"}), "debug", False, True),
+        (Options({"workers": "4"}), "workers", 1, 4),
+        (Options({"timeout": "2.0"}), "timeout", 1.0, 2.0),
+        (Options({"loglevel": "debug"}), "loglevel", "info", "debug"),
+    ],
+)
+def test_get_or_default(
+    *, opts: Options, key: str, default_value: Any, expected: Any
+) -> None:
+    assert opts.get_or_default(key, default_value=default_value) == expected
 
 
 def test_get_or_default_type_conflict_raises() -> None:
@@ -356,11 +374,9 @@ def test_serialize_after_access_raises() -> None:
 def test_pickle_roundtrip() -> None:
     original_dict = {"x": "42", "y": "test", "Z": "true"}
     opts = Options(original_dict)
-
     pickled = pickle.dumps(opts)
     assert isinstance(pickled, bytes)
     unpickled = pickle.loads(pickled)
-
     assert isinstance(unpickled, Options)
     assert unpickled.get_strings() == {k.lower(): v for k, v in original_dict.items()}
 
@@ -369,6 +385,214 @@ def test_pickle_empty_options() -> None:
     opts = Options()
     pickled = pickle.dumps(opts)
     unpickled = pickle.loads(pickled)
-
     assert isinstance(unpickled, Options)
     assert unpickled.get_strings() == {}
+
+
+@pytest.mark.parametrize(
+    "opts,expected_enabled",
+    [
+        (Options({"statistics": "True"}), True),
+        (Options({"statistics": "1"}), True),
+        (Options({"statistics": "False"}), False),
+        (Options(), False),  # Default case
+    ],
+)
+def test_statistics_from_options(*, opts: Options, expected_enabled: bool) -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    stats = Statistics.from_options(mr, opts)
+    assert stats is not None
+    assert stats.enabled == expected_enabled
+
+
+@pytest.mark.parametrize(
+    "opts,expect_enabled_if_supported",
+    [
+        (Options({"pinned_memory": "True"}), True),
+        (Options({"pinned_memory": "False"}), False),
+        (Options(), False),  # Default case
+    ],
+)
+def test_pinned_memory_resource_from_options(
+    *, opts: Options, expect_enabled_if_supported: bool
+) -> None:
+    pmr = PinnedMemoryResource.from_options(opts)
+
+    if expect_enabled_if_supported and is_pinned_memory_resources_supported():
+        assert pmr is not None
+    else:
+        assert pmr is None
+
+
+def test_available_memory_map_from_options_creates_map() -> None:
+    opts = Options({"spill_device_limit": "1GiB"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mem_map = AvailableMemoryMap.from_options(mr, opts)
+    assert mem_map is not None
+
+
+def test_available_memory_map_from_options_uses_default() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mem_map = AvailableMemoryMap.from_options(mr, opts)
+    assert mem_map is not None
+
+
+@pytest.mark.parametrize(
+    "opts,expected_duration",
+    [
+        (Options({"periodic_spill_check": "5ms"}), 0.005),
+        (Options({"periodic_spill_check": "2"}), 2.0),
+        (Options({"periodic_spill_check": "disabled"}), None),
+        (Options(), 0.001),  # Default: 1ms
+    ],
+)
+def test_periodic_spill_check_from_options(
+    *, opts: Options, expected_duration: float | None
+) -> None:
+    duration = periodic_spill_check_from_options(opts)
+
+    if expected_duration is None:
+        assert duration is None
+    else:
+        assert duration is not None
+        assert abs(duration - expected_duration) < 1e-9
+
+
+@pytest.mark.parametrize(
+    "opts,expected_size",
+    [
+        (Options({"num_streams": "32"}), 32),
+        (Options(), 16),  # Default
+    ],
+)
+def test_stream_pool_from_options(*, opts: Options, expected_size: int) -> None:
+    pool_size = stream_pool_from_options(opts)
+    assert pool_size.get_pool_size() == expected_size
+
+
+def test_stream_pool_from_options_raises_on_zero() -> None:
+    opts = Options({"num_streams": "0"})
+    with pytest.raises(ValueError, match="greater than 0"):
+        stream_pool_from_options(opts)
+
+
+def test_buffer_resource_from_options_creates_instance_with_explicit_options() -> None:
+    opts = Options(
+        {
+            "statistics": "True",
+            "pinned_memory": "False",
+            "spill_device_limit": "1GiB",
+            "periodic_spill_check": "5ms",
+            "num_streams": "8",
+        }
+    )
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource.from_options(mr, opts)
+
+    assert br.statistics.enabled
+    assert br.stream_pool_size() == 8
+    mem_avail = br.memory_available(MemoryType.DEVICE)
+    assert mem_avail == 1024**3
+
+
+def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource.from_options(mr, opts)
+
+    assert not br.statistics.enabled
+    assert br.stream_pool_size() == 16
+
+    # We just check that memory_available returns a reasonable value
+    mem_avail = br.memory_available(MemoryType.DEVICE)
+    assert mem_avail > 0
+
+
+def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
+    opts = Options({"statistics": "ON"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource.from_options(mr, opts)
+
+    assert br.statistics.enabled
+
+
+def test_buffer_resource_from_options_accepts_percentage_for_device_limit() -> None:
+    opts = Options({"spill_device_limit": "50%"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource.from_options(mr, opts)
+
+    # Verify device memory limit is set (exact value depends on system memory)
+    mem_avail = br.memory_available(MemoryType.DEVICE)
+    assert mem_avail > 0
+
+
+def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    opts = Options({"pinned_memory": "True"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource.from_options(mr, opts)
+    assert br.pinned_mr is not None
+
+
+def test_context_from_options_creates_instance_with_explicit_options() -> None:
+    opts = Options(
+        {
+            "statistics": "True",
+            "num_streams": "8",
+            "spill_device_limit": "1GiB",
+        }
+    )
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.statistics().enabled
+        assert ctx.stream_pool_size() == 8
+        assert ctx.comm() is comm
+
+
+def test_context_from_options_uses_default_when_options_empty() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert not ctx.statistics().enabled
+        assert ctx.stream_pool_size() == 16  # Default
+        assert ctx.comm() is comm
+
+
+def test_context_from_options_enables_statistics_when_requested() -> None:
+    opts = Options({"statistics": "on"})
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.statistics().enabled
+
+
+def test_context_from_options_creates_buffer_resource() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        assert ctx.br() is not None
+
+
+def test_context_from_options_can_create_channel() -> None:
+    opts = Options()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    comm = single_comm.new_communicator(opts)
+
+    with Context.from_options(comm, mr, opts) as ctx:
+        assert ctx is not None
+        channel: Channel[Any] = ctx.create_channel()
+        assert channel is not None

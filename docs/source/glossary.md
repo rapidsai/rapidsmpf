@@ -13,16 +13,16 @@ BufferResource
   A class that manages memory allocation and transfers between different memory types (device, pinned host, and host). All memory operations in rapidsmpf, such as those performed by the Shuffler, rely on a BufferResource for memory management. It handles memory reservations, spilling, and provides access to CUDA stream pools.
 
 Channel
-  An asynchronous messaging queue used for communicating {term}`Message`s between {term}`Node`s within a single local network instance on a {term}`Rank`. Channels provide backpressure to prevent excessive memory consumption by suspending senders when full. They do not copy, serialize, spill, or transmit data across ranks; instead, they simply pass references between local nodes. Any inter-rank communication is handled explicitly by nodes via a {term}`Communicator`, outside the channel abstraction.
+  An asynchronous messaging queue used for communicating {term}`Message`s between {term}`Actor`s within a single local network instance on a {term}`Rank`. Channels provide backpressure to prevent excessive memory consumption by suspending senders when full. They do not copy, serialize, spill, or transmit data across ranks; instead, they simply pass references between local actors. Any inter-rank communication is handled explicitly by actors via a {term}`Communicator`, outside the channel abstraction.
 
 Collective Operation
-  A communication pattern that involves coordination across multiple {term}`Rank`s and is performed within a {term}`Node`. Collective operations use a {term}`Communicator` to exchange data between ranks, while remaining fully encapsulated within the node's execution. From the network's perspective, a collective operation is part of a local node's computation and does not alter the network topology or channel semantics. Examples include {term}`Shuffler` (redistributing data by partition) and {term}`AllGather` (gathering data from all ranks). Operations such as {term}`Fanout`, which broadcast to multiple channels within the local network, are **not** collective operations because they do not involve inter-rank communication.
+  A communication pattern that involves coordination across multiple {term}`Rank`s and is performed within an {term}`Actor`. Collective operations use a {term}`Communicator` to exchange data between ranks, while remaining fully encapsulated within the actor's execution. From the network's perspective, a collective operation is part of a local actor's computation and does not alter the network topology or channel semantics. Examples include {term}`Shuffler` (redistributing data by partition) and {term}`AllGather` (gathering data from all ranks). Operations such as {term}`Fanout`, which broadcast to multiple channels within the local network, are **not** collective operations because they do not involve inter-rank communication.
 
 Communicator
   An abstract interface for sending and receiving messages between {term}`Rank`s (processes/GPUs). Communicators support asynchronous operations, GPU data transfers, and custom logging. rapidsmpf includes UCXX (for UCX-based communication) and MPI-based communicators. A single-process communicator can be used for testing.
 
 Context
-  The execution environment for {term}`Node`s in a streaming pipeline. A Context provides access to essential resources including:
+  The execution environment for {term}`Actor`s in a streaming pipeline. A Context provides access to essential resources including:
   - A {term}`Communicator` for inter-rank communication
   - A {term}`BufferResource` for memory management
   - A {term}`ProgressThread` for background operations
@@ -46,10 +46,10 @@ Message
   A type-erased container for data payloads passed through {term}`Channel`s. Messages wrap arbitrary payload types (such as cuDF tables or buffers) along with metadata including a sequence number for ordering. Messages support deep-copy operations and can be spilled to different memory types when memory pressure occurs.
 
 Network
-  A directed graph of {term}`Node`s connected by {term}`Channel`s representing a streaming data processing pipeline local to a single {term}`Rank`. From the network's point of view, all nodes and channels are local, even if individual nodes internally perform inter-rank communication. The network topology is identical on every participating rank, which ensures consistent execution semantics across the distributed system. The network remains in place for the duration of a workflow, with nodes continuously processing data as data flows through.
+  A directed graph of {term}`Actor`s connected by {term}`Channel`s representing a streaming data processing pipeline local to a single {term}`Rank`. From the network's point of view, all actors and channels are local, even if individual actors internally perform inter-rank communication. The network topology is identical on every participating rank, which ensures consistent execution semantics across the distributed system. The network remains in place for the duration of a workflow, with actors continuously processing data as data flows through.
 
-Node
-  A coroutine-based asynchronous operator in a streaming pipeline. Nodes receive from zero or more input {term}`Channel`s, perform computation, and send to zero or more output channels. From the network's perspective, nodes are always local operators. A node may internally use a {term}`Communicator` to perform inter-rank communication, but this coordination is fully encapsulated within the node and is not visible to the surrounding network or channels. Multiple nodes execute concurrently via a thread pool executor.
+Actor
+  A coroutine-based asynchronous operator in a streaming pipeline. Actors receive from zero or more input {term}`Channel`s, perform computation, and send to zero or more output channels. From the network's perspective, actors are always local operators. An actor may internally use a {term}`Communicator` to perform inter-rank communication, but this coordination is fully encapsulated within the actor and is not visible to the surrounding network or channels. Multiple actors execute concurrently via a thread pool executor.
 
 Options
   A configuration container that stores key-value pairs controlling rapidsmpf behavior. Options can be populated from environment variables (prefixed with `RAPIDSMPF_`) or set programmatically. Common options include logging verbosity, memory limits, and integration-specific settings.

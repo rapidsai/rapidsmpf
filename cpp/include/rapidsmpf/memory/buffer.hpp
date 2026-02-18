@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -19,7 +19,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -202,6 +202,41 @@ class Buffer {
     }
 
     /**
+     * @brief Get the CUDA event that tracks the latest write into the buffer.
+     *
+     * @return The CUDA event that tracks the latest write into the buffer.
+     */
+    [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
+        return latest_write_event_;
+    }
+
+    /**
+     * @brief Rebind the buffer to a new CUDA stream.
+     *
+     * Changes the buffer's associated stream to @p new_stream and ensures proper
+     * synchronization: @p new_stream will wait for any pending work on the current
+     * stream before proceeding. The underlying storage stream (e.g., the stream of
+     * an `rmm::device_buffer` or `HostBuffer`) is also updated.
+     *
+     * @param new_stream The new CUDA stream.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     *
+     * @code{.cpp}
+     * // Example: merge buffers from different streams onto a single stream.
+     * Buffer buffer_a = ...;  // associated with stream_a
+     * Buffer buffer_b = ...;  // associated with stream_b
+     *
+     * buffer_a.rebind_stream(merged_stream);
+     * buffer_b.rebind_stream(merged_stream);
+     *
+     * // Both buffers now use merged_stream with proper synchronization
+     * buffer_copy(buffer_a, buffer_b, size);
+     * @endcode
+     */
+    void rebind_stream(rmm::cuda_stream_view new_stream);
+
+    /**
      * @brief Check whether the buffer's most recent write has completed.
      *
      * Returns whether the CUDA event that tracks the most recent write into this
@@ -255,8 +290,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p host_buffer.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for host buffers.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p host_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * host_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(
         std::unique_ptr<HostBuffer> host_buffer,
@@ -280,8 +318,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p device_buffer.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for device buffers.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p device_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * device_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -35,7 +35,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
@@ -43,7 +43,7 @@ partition_and_split(
         auto owner = std::make_unique<cudf::table>(table, stream, br->device_mr());
         return {
             std::vector<cudf::table_view>(
-                static_cast<std::size_t>(num_partitions), owner->view()
+                safe_cast<std::size_t>(num_partitions), owner->view()
             ),
             std::move(owner)
         };
@@ -69,7 +69,7 @@ partition_and_split(
     // hash_partition() returns the start offset of each partition thus we have to
     // skip the first offset. See: <https://github.com/rapidsai/cudf/issues/4607>.
     auto partition_offsets =
-        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 1);
+        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 2);
 
     // split does not make any copies.
     auto tbl_partitioned =
@@ -87,15 +87,14 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     RAPIDSMPF_EXPECTS(num_partitions > 0, "Need to split to at least one partition");
     if (table.num_rows() == 0) {
-        auto splits = std::vector<cudf::size_type>(
-            static_cast<std::uint64_t>(num_partitions - 1), 0
-        );
+        auto splits =
+            std::vector<cudf::size_type>(safe_cast<std::uint64_t>(num_partitions - 1), 0);
         return split_and_pack(table, splits, stream, br, statistics, allow_overbooking);
     }
 
@@ -114,7 +113,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         br->device_mr()
     );
     reservation.clear();
-    std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
+    std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end() - 1);
     return split_and_pack(
         reordered->view(), splits, stream, br, statistics, allow_overbooking
     );
@@ -126,7 +125,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -140,7 +139,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     reservation.clear();
 
-    for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
+    for (shuffler::PartID i = 0; safe_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
             i,
@@ -157,7 +156,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    bool allow_overbooking
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -168,9 +167,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     size_t non_device_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            total_size += packed_data.data->size;
+            size_t size = packed_data.data->size;
+            total_size += size;
             if (packed_data.data->mem_type() != MemoryType::DEVICE) {
-                non_device_size += 0;
+                non_device_size += size;
             }
         }
     }
@@ -242,7 +242,7 @@ std::vector<PackedData> spill_partitions(
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    bool allow_overbooking,
+    AllowOverbooking allow_overbooking,
     std::shared_ptr<Statistics> statistics
 ) {
     auto const start_time = Clock::now();

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "main"
+      - "release/*"
     tags:
       - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
   workflow_dispatch:
@@ -42,7 +43,6 @@ jobs:
       node_type: cpu8
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-python-build:
     needs: [conda-cpp-build]
     secrets: inherit
@@ -53,7 +53,6 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   upload-conda:
     needs: [conda-cpp-build, conda-python-build]
     secrets: inherit
@@ -72,7 +71,7 @@ jobs:
       arch: "amd64"
       branch: ${{ inputs.branch }}
       build_type: ${{ inputs.build_type || 'branch' }}
-      container_image: "rapidsai/ci-conda:26.02-latest"
+      container_image: "rapidsai/ci-conda:26.04-latest"
       date: ${{ inputs.date }}
       node_type: "cpu8"
       script: "ci/build_docs.sh"
@@ -91,7 +90,6 @@ jobs:
       package-type: cpp
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-publish-librapidsmpf:
     needs: wheel-build-librapidsmpf
     secrets: inherit
@@ -116,7 +114,6 @@ jobs:
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
     secrets: inherit
@@ -143,4 +140,3 @@ jobs:
       package-type: python
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN

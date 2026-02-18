@@ -36,27 +36,96 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
     with:
       files_yaml: |
-        test_cpp:
-          - '**'
-          - '!.devcontainer/**'
-          - '!.pre-commit-config.yaml'
-          - '!.shellcheckrc'
-          - '!CONTRIBUTING.md'
-          - '!README.md'
-          - '!ci/release/update-version.sh'
-          - '!docs/**'
-          - '!python/**'
-        test_python:
+        build_docs:
           - '**'
           - '!.clang-tidy'
           - '!.devcontainer/**'
+          - '!.github/CODEOWNERS'
+          - '!.github/copy-pr-bot.yaml'
+          - '!.github/labeler.yml'
+          - '!.github/ops-bot.yaml'
+          - '!.github/release.yml'
+          - '!.pre-commit-config.yaml'
+          - '!.shellcheckrc'
+          - '!ci/build_wheel*.sh'
+          - '!ci/check_style.sh'
+          - '!ci/release/update-version.sh'
+          - '!ci/run*.sh'
+          - '!ci/test*.sh'
+          - '!ci/timeout_with_stack.py'
+          - '!ci/validate_topology_json.py'
+          - '!ci/validate_wheel.sh'
+          - '!valgrind.supp'
+        test_cpp:
+          - '**'
+          - '!.devcontainer/**'
+          - '!.github/CODEOWNERS'
+          - '!.github/copy-pr-bot.yaml'
+          - '!.github/labeler.yml'
+          - '!.github/ops-bot.yaml'
+          - '!.github/release.yml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
           - '!CONTRIBUTING.md'
           - '!README.md'
+          - '!ci/build_docs.sh'
+          - '!ci/build_python.sh'
+          - '!ci/build_wheel*.sh'
+          - '!ci/check_style.sh'
           - '!ci/release/update-version.sh'
-          - '!cpp/.clang-format'
+          - '!ci/test_python.sh'
+          - '!ci/test_wheel.sh'
+          - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!python/**'
+        test_python_conda:
+          - '**'
+          - '!.devcontainer/**'
+          - '!.github/CODEOWNERS'
+          - '!.github/copy-pr-bot.yaml'
+          - '!.github/labeler.yml'
+          - '!.github/ops-bot.yaml'
+          - '!.github/release.yml'
+          - '!.pre-commit-config.yaml'
+          - '!.shellcheckrc'
+          - '!CONTRIBUTING.md'
+          - '!README.md'
+          - '!ci/build_docs.sh'
+          - '!ci/build_wheel*.sh'
+          - '!ci/check_style.sh'
+          - '!ci/release/update-version.sh'
+          - '!ci/run_cpp*.sh'
+          - '!ci/test_cpp*.sh'
+          - '!ci/test_wheel.sh'
+          - '!ci/validate_wheel.sh'
+          - '!cpp/.clang-format'
+          - '!cpp/doxygen/**'
+          - '!docs/**'
+        test_python_wheels:
+          - '**'
+          - '!.devcontainer/**'
+          - '!.github/CODEOWNERS'
+          - '!.github/copy-pr-bot.yaml'
+          - '!.github/labeler.yml'
+          - '!.github/ops-bot.yaml'
+          - '!.github/release.yml'
+          - '!.pre-commit-config.yaml'
+          - '!.shellcheckrc'
+          - '!CONTRIBUTING.md'
+          - '!README.md'
+          - '!ci/build_cpp.sh'
+          - '!ci/build_docs.sh'
+          - '!ci/build_python.sh'
+          - '!ci/check_style.sh'
+          - '!ci/release/update-version.sh'
+          - '!ci/run_cpp*.sh'
+          - '!ci/run_ctests.sh'
+          - '!ci/test_cpp*.sh'
+          - '!ci/test_python.sh'
+          - '!conda/**'
+          - '!cpp/.clang-format'
+          - '!cpp/doxygen/**'
+          - '!docs/**''
   checks:
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
@@ -72,7 +141,6 @@ jobs:
       package-type: cpp
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-build-rapidsmpf:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
@@ -83,7 +151,6 @@ jobs:
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-build-rapidsmpf-singlecomm:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
@@ -94,9 +161,8 @@ jobs:
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
       package-type: python
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-test:
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     needs: [changed-files, wheel-build-rapidsmpf]
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
@@ -104,7 +170,6 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_wheel.sh
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-build:
     needs: checks
     secrets: inherit
@@ -113,7 +178,6 @@ jobs:
       build_type: pull-request
       node_type: cpu8
       script: ci/build_cpp.sh
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-linters:
     secrets: inherit
     needs: checks
@@ -122,7 +186,6 @@ jobs:
       build_type: pull-request
       script: "ci/cpp_linters.sh"
       node_type: "cpu16"
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-tests:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     needs: [changed-files, conda-cpp-build]
@@ -132,7 +195,6 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_cpp.sh
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-memcheck:
     secrets: inherit
     needs: conda-cpp-build
@@ -149,7 +211,7 @@ jobs:
       build_type: pull-request
       script: ci/build_python.sh
   conda-python-tests:
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     needs: [changed-files, conda-python-build]
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
@@ -158,31 +220,29 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
       script: ci/test_python.sh
-      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   docs-build:
-    needs: conda-python-build
+    needs: [conda-python-build, changed-files]
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
     with:
       build_type: pull-request
       node_type: "cpu8"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.02-latest"
+      container_image: "rapidsai/ci-conda:26.04-latest"
       script: "ci/build_docs.sh"
   devcontainer:
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
-      cuda: '["13.0"]'
-      python_package_manager: '["conda"]'
+      cuda: '["13.1"]'
+      python_package_manager: '["conda", "pip"]'
       node_type: "cpu8"
-      rapids-aux-secret-1: GIST_REPO_READ_ORG_GITHUB_TOKEN
       env: |
         SCCACHE_DIST_MAX_RETRIES=inf
         SCCACHE_SERVER_LOG=sccache=debug
         SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
-        SCCACHE_DIST_AUTH_TOKEN_VAR=RAPIDS_AUX_SECRET_1
       build_command: |
         sccache --zero-stats;
         build-all \
@@ -191,6 +251,5 @@ jobs:
           -DBUILD_TESTS=OFF \
           -DBUILD_BENCHMARKS=ON \
           -DBUILD_NUMA_SUPPORT=OFF \
-          -DCMAKE_PREFIX_PATH="$(python -c 'import os; from importlib.metadata import entry_points; from importlib.resources import files; print(";".join([f"{x}/lib64/cmake" for xs in [[os.fspath(p) for p in path._paths] if hasattr(path, "_path") else [os.fspath(path)] for path in [files(ep.load()) for ep in entry_points(group="cmake.prefix")]] for x in xs]))')" \
           2>&1 | tee telemetry-artifacts/build.log;
         sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;

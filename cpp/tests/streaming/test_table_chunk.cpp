@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -73,6 +73,15 @@ TEST_F(StreamingTableChunk, FromTable) {
     EXPECT_TRUE(chunk.is_spillable());
     EXPECT_EQ(chunk.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+
+    auto chunk2 = chunk.make_available(
+        br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
+    );
+    EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk2.is_available());
+    EXPECT_TRUE(chunk2.is_spillable());
+    EXPECT_EQ(chunk2.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
 
 TEST_F(StreamingTableChunk, TableChunkOwner) {
@@ -135,22 +144,6 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     }
 }
 
-TEST_F(StreamingTableChunk, FromPackedColumns) {
-    constexpr unsigned int num_rows = 100;
-    constexpr std::int64_t seed = 1337;
-
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-    auto packed = cudf::pack(expect, stream);
-
-    TableChunk chunk{std::make_unique<cudf::packed_columns>(std::move(packed)), stream};
-
-    EXPECT_EQ(chunk.stream().value(), stream.value());
-    EXPECT_TRUE(chunk.is_available());
-    EXPECT_TRUE(chunk.is_spillable());
-    EXPECT_EQ(chunk.make_available_cost(), 0);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
-}
-
 TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
@@ -165,13 +158,21 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
     TableChunk chunk{std::move(packed_data)};
 
     EXPECT_EQ(chunk.stream().value(), stream.value());
-    EXPECT_FALSE(chunk.is_available());
+    // chunk was created from packed data on device, so it is available and make available
+    // cost is 0.
+    EXPECT_TRUE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
-    EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
-
-    // Eventhough the table isn't available, it is still all in device memory
-    // so the memory cost of making it available is zero.
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, chunk.table_view());
     EXPECT_EQ(chunk.make_available_cost(), 0);
+
+    auto chunk2 = chunk.make_available(
+        br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
+    );
+    EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk2.is_available());
+    EXPECT_TRUE(chunk2.is_spillable());
+    EXPECT_EQ(chunk2.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -202,7 +203,7 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     auto gpu_data_on_device = br->move(std::move(packed_columns.gpu_data), stream);
 
     // Copy the GPU data to the current spill target memory type.
-    auto [res, _] = br->reserve(spill_mem_type, size, true);
+    auto [res, _] = br->reserve(spill_mem_type, size, AllowOverbooking::YES);
     auto gpu_data_in_spill_memory = br->move(std::move(gpu_data_on_device), res);
 
     auto packed_data = std::make_unique<PackedData>(
@@ -215,6 +216,15 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
     EXPECT_EQ(chunk.make_available_cost(), size);
+
+    auto chunk2 = chunk.make_available(
+        br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
+    );
+    EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk2.is_available());
+    EXPECT_TRUE(chunk2.is_spillable());
+    EXPECT_EQ(chunk2.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
 
 TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {

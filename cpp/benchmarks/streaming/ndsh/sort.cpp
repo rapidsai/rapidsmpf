@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,11 +16,9 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utils.hpp"
-
 namespace rapidsmpf::ndsh {
 
-rapidsmpf::streaming::Node chunkwise_sort_by(
+rapidsmpf::streaming::Actor chunkwise_sort_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
@@ -56,7 +54,7 @@ rapidsmpf::streaming::Node chunkwise_sort_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
         co_await ch_out->send(to_message(
             msg.sequence_number(),
             std::make_unique<streaming::TableChunk>(make_table(chunk), chunk.stream())

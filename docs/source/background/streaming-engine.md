@@ -24,13 +24,13 @@ memory at once.
 The abstract framework we use to describe task graphs is broadly that of
 Hoare's [Communicating Sequential
 Processes](https://en.wikipedia.org/wiki/Communicating_sequential_processes).
-{term}`Node`s (tasks) in the graph are long-lived that read from zero-or-more
-{term}`Channel`s and write to zero-or-more channels. In this sense, the programming
+{term}`Actor`s in the graph are long-lived coroutines that read from zero-or-more
+{term}`Channel`s and write to zero-or-more {term}`Channel`s. In this sense, the programming
 model is relatively close to that of
 [actors](https://en.wikipedia.org/wiki/Actor_model).
 
 The communication channels are bounded capacity, multi-producer
-multi-consumer queues. A {term}`Node` processing data from an input {term}`Channel` pulls
+multi-consumer queues. An {term}`Actor` processing data from an input {term}`Channel` pulls
 data as necessary until the channel is empty, and can optionally signal
 that it needs no more data (thus shutting the producer down).
 
@@ -51,7 +51,7 @@ application specific intermediate representation, though one can write it
 by hand.  For example, one can convert logical plans from query engines such as
 Polars, DuckDB, etc to a physical plan to be executed by rapidsmpf.
 
-A typical approach is to define one {term}`Node` in the graph for each physical
+A typical approach is to define one {term}`Actor` in the graph for each physical
 operation in the query plan. Parallelism is obtained by using a
 multi-threaded executor to handle the concurrent tasks that thus result.
 
@@ -65,17 +65,17 @@ library.
 | Scan | --> | Select | --> | Filter | --> | Sink |
 +------+     +--------+     +--------+     +------+
 ```
-*A typical rapidsmpf {term}`Network` of {term}`Node`s*
+*A typical rapidsmpf {term}`Network` of {term}`Actor`s*
 
- Once constructed, the {term}`Network` of {term}`Node`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each node continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next node(s) in the graph.
+ Once constructed, the {term}`Network` of {term}`Actor`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the graph.
 
 
 ## Key Concepts
 
 The streaming engine is built around these core concepts (see the {doc}`/glossary` for complete definitions):
 
-- {term}`Network` - A graph of {term}`Node`s connected by {term}`Channel`s
-- {term}`Node` - Coroutine-based asynchronous operators (read, filter, select, join)
+- {term}`Network` - A graph of {term}`Actor`s connected by {term}`Channel`s
+- {term}`Actor` - Coroutine-based asynchronous operators (read, filter, select, join)
 - {term}`Channel` - Asynchronous messaging queues with backpressure
 - {term}`Message` - Type-erased containers for data payloads
 - {term}`Context` - Provides access to resources ({term}`Communicator`, {term}`BufferResource`, etc.)

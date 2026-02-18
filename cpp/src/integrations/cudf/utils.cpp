@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,7 +14,7 @@
 #include <cudf/wrappers/dictionary.hpp>
 
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -50,7 +50,7 @@ struct cudf_column_data_size_fn {
     template <typename T>
         requires(cudf::is_fixed_width<T>())
     size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view) {
-        return static_cast<size_t>(col.size()) * cudf::size_of(col.type())
+        return safe_cast<size_t>(col.size()) * cudf::size_of(col.type())
                + bitmask_size(col);
     }
 
@@ -59,7 +59,7 @@ struct cudf_column_data_size_fn {
         requires(std::is_same_v<T, cudf::string_view>)
     size_t operator()(cudf::column_view const& col, rmm::cuda_stream_view stream) {
         cudf::strings_column_view sv(col);
-        return static_cast<size_t>(sv.chars_size(stream)) + bitmask_size(col);
+        return safe_cast<size_t>(sv.chars_size(stream)) + bitmask_size(col);
     }
 
     // compound type specialization except string

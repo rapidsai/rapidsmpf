@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 
@@ -89,7 +90,7 @@ ShufflerAsync::ShufflerAsync(
     shuffler::Shuffler::PartitionOwner partition_owner
 )
     : ctx_(std::move(ctx)),
-      notifications_(ctx_->executor()),
+      notifications_(ctx_->executor()->get()),
       latch_{[&]() {
           // Need to initialise before shuffler_, so need to determine number of local
           // partitions sui generis.
@@ -106,7 +107,7 @@ ShufflerAsync::ShufflerAsync(
           ctx_->progress_thread(),
           op_id,
           total_num_partitions,
-          ctx_->br(),
+          ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
               // Libcoro may resume suspended coroutines during cv notification, using the
@@ -121,20 +122,14 @@ ShufflerAsync::ShufflerAsync(
           },
           ctx_->statistics(),
           std::move(partition_owner)
-      ) {
-    RAPIDSMPF_EXPECTS(
-        local_partitions().size() <= std::numeric_limits<std::int64_t>::max(),
-        "Too many local partitions"
-    );
-}
+      ) {}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
-    if (!notifications_.empty()) {
-        std::cerr << "~ShufflerAsync: not all notification tasks complete, remember to "
-                     "await the finish token from this->insert_finished()"
-                  << std::endl;
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS_FATAL(
+        notifications_.empty(),
+        "~ShufflerAsync: not all notification tasks complete, remember to await the "
+        "finish token from this->insert_finished()"
+    );
     if (!ready_pids_.empty()) {
         ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
     }
@@ -153,7 +148,7 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Node ShufflerAsync::insert_finished() {
+Actor ShufflerAsync::insert_finished() {
     std::vector<shuffler::PartID> pids(total_num_partitions());
     std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
     shuffler_.insert_finished(std::move(pids));
@@ -225,7 +220,7 @@ ShufflerAsync::extract_any_async() {
     co_return std::nullopt;
 }
 
-Node ShufflerAsync::finished_drain() {
+Actor ShufflerAsync::finished_drain() {
     // Wait for all notifications to have fired.
     co_await latch_;
 
@@ -242,9 +237,9 @@ Node ShufflerAsync::finished_drain() {
     co_await semaphore_.shutdown();
 }
 
-namespace node {
+namespace actor {
 
-Node shuffler(
+Actor shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -284,5 +279,5 @@ Node shuffler(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

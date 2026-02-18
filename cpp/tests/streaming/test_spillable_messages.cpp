@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -185,17 +185,17 @@ TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
 TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
     constexpr int num_producer_producer_pairs = 16;
     constexpr int msgs_per_producer = 100;
-    std::vector<Node> nodes;
+    std::vector<Actor> actors;
     std::atomic<std::size_t> spilled_expect{0};
     std::atomic<std::size_t> spilled_got{0};
 
     // Create many producer-consumer pairs and spill in-flight messages.
     for (int i = 0; i < num_producer_producer_pairs; ++i) {
         auto ch = ctx->create_channel();
-        nodes.emplace_back(
+        actors.emplace_back(
             [](int i,
                std::shared_ptr<Context> ctx,
-               std::shared_ptr<Channel> ch_out) -> Node {
+               std::shared_ptr<Channel> ch_out) -> Actor {
                 ShutdownAtExit c{ch_out};
                 co_await ctx->executor()->schedule();
                 for (int j = 0; j < msgs_per_producer; ++j) {
@@ -207,12 +207,12 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                 co_await ch_out->drain(ctx->executor());
             }(i, ctx, ch)
         );
-        nodes.emplace_back(
+        actors.emplace_back(
             [](int i,
                std::atomic<std::size_t>& spilled_expect,
                std::atomic<std::size_t>& spilled_got,
                std::shared_ptr<Context> ctx,
-               std::shared_ptr<Channel> ch_in) -> Node {
+               std::shared_ptr<Channel> ch_in) -> Actor {
                 ShutdownAtExit c{ch_in};
                 co_await ctx->executor()->schedule();
                 for (int j = 0; j < msgs_per_producer; ++j) {
@@ -237,9 +237,9 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
         );
     }
 
-    // Randomize the node order.
-    std::shuffle(nodes.begin(), nodes.end(), std::mt19937{std::random_device{}()});
-    run_streaming_pipeline(std::move(nodes));
+    // Randomize the actor order.
+    std::shuffle(actors.begin(), actors.end(), std::mt19937{std::random_device{}()});
+    run_actor_network(std::move(actors));
 
     EXPECT_EQ(
         spilled_expect.load(std::memory_order_relaxed),

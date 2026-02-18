@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,7 +40,7 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
     void do_deallocate(
         void* ptr, std::size_t, rmm::cuda_stream_view stream
     ) noexcept override {
-        RAPIDSMPF_ASSERT_CUDA_SUCCESS(cudaFreeAsync(ptr, stream.value()));
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaFreeAsync(ptr, stream.value()));
         allocs.erase(ptr);
     }
 

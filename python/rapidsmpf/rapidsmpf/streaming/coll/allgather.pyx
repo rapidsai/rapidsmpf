@@ -1,70 +1,68 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t
+from libc.stdint cimport int32_t
 from libcpp cimport bool
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-import asyncio
-from functools import partial
-
-from rapidsmpf.allgather.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
+from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
-from rapidsmpf.streaming.core.utilities cimport cython_invoke_python_function
+
+import asyncio
 
 
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> _extract_all_task(
+    coro::task<void> extract_all_task(
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
     ) {
-        output = co_await gather->extract_all(ordered);
-        py_invoker(py_callback.get());
+        *output = co_await gather->extract_all(ordered);
     }
 
-    void cpp_extract_all(
+    std::shared_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         rapidsmpf::streaming::AllGather *gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
-        std::vector<rapidsmpf::PackedData> &output,
-        void (*py_invoker)(void*),
-        rapidsmpf::OwningWrapper py_callback
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
     ) {
+        auto output = std::make_shared<std::vector<rapidsmpf::PackedData>>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
-                 _extract_all_task(
-                     gather, ordered, output, py_invoker, std::move(py_callback)
-                 )
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    extract_all_task(gather, ordered, output)
+                )
             ),
-            "could not spawn task on thread pool"
+            "libcoro's spawn_detached() failed to spawn task"
         );
+        return output;
     }
-    }
+    }  // namespace
     """
-    void cpp_extract_all(
+    shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
         shared_ptr[cpp_Context] ctx,
         cpp_AllGather *gather,
         cpp_Ordered ordered,
-        vector[cpp_PackedData] &output,
-        void (*py_invoker)(void*),
-        cpp_OwningWrapper py_callback,
-    ) except +
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    ) except +ex_handler
 
 
 cdef class AllGather:
@@ -79,7 +77,7 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, uint8_t op_id):
+    def __init__(self, Context ctx not None, int32_t op_id):
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 ctx._handle, op_id
@@ -128,58 +126,55 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
-        loop = asyncio.get_running_loop()
-        ret = loop.create_future()
-        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
-        cdef vector[cpp_PackedData] c_ret
-        Py_INCREF(callback)
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
+        cdef shared_ptr[vector[cpp_PackedData]] c_ret
         with nogil:
-            cpp_extract_all(
+            c_ret = cpp_extract_all(
                 ctx._handle,
                 self._handle.get(),
                 cpp_Ordered.YES if ordered else cpp_Ordered.NO,
-                c_ret,
-                cython_invoke_python_function,
-                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(deref(c_ret)))
 
 
 def allgather(
     Context ctx not None,
     Channel ch_in not None,
     Channel ch_out not None,
-    uint8_t op_id,
+    int32_t op_id,
     *,
     bool ordered,
 ):
     """
-    Launch an allgather node for a single allgather operation.
+    Launch an allgather actor for a single allgather operation.
 
     Streaming variant of the RapidsMPF allgather.
 
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
     ch_in
         Input channel that supplies PackedDataChunks to be gathered.
     ch_out
         Output channel that receives gathered PackedDataChunks.
     op_id
         Unique identifier for this allgather operation. Must not be reused until
-        all nodes participating in the allgather have shut down.
+        all actors participating in the allgather have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
 
     Returns
     -------
-    A streaming node that finishes when the allgather is complete and `ch_out` has
+    A streaming actor that finishes when the allgather is complete and `ch_out` has
     been drained.
     """
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
     with nogil:
         _ret = cpp_allgather(
@@ -189,4 +184,4 @@ def allgather(
             op_id,
             c_ordered,
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner=None)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

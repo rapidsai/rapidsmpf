@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -15,6 +16,8 @@
 #include <getopt.h>
 #include <mpi.h>
 
+#include <cudf/io/parquet.hpp>
+#include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
@@ -74,16 +77,44 @@ std::string get_table_path(
     return dir + "/" + table_name + "/";
 }
 
+std::map<std::string, cudf::data_type> get_column_types(
+    std::string const& input_directory, std::string const& table_name
+) {
+    auto files = list_parquet_files(get_table_path(input_directory, table_name));
+    RAPIDSMPF_EXPECTS(!files.empty(), "No parquet files found for table " + table_name);
+
+    // Read parquet with 0 rows to get just the schema with proper cudf types
+    auto options =
+        cudf::io::parquet_reader_options::builder(cudf::io::source_info(files[0]))
+            .num_rows(0)
+            .build();
+    auto result_with_metadata = cudf::io::read_parquet(options);
+
+    std::map<std::string, cudf::data_type> result;
+    auto const& schema_info = result_with_metadata.metadata.schema_info;
+    auto const table_view = result_with_metadata.tbl->view();
+
+    RAPIDSMPF_EXPECTS(
+        schema_info.size() == static_cast<std::size_t>(table_view.num_columns()),
+        "Schema info size mismatch"
+    );
+
+    for (std::size_t i = 0; i < schema_info.size(); ++i) {
+        result.emplace(schema_info[i].name, table_view.column(i).type());
+    }
+    return result;
+}
+
 }  // namespace detail
 
-streaming::Node sink_channel(
+streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 ) {
     co_await ctx->executor()->schedule();
     co_await ch->shutdown();
 }
 
-streaming::Node consume_channel(
+streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 ) {
     streaming::ShutdownAtExit c{ch_in};
@@ -94,7 +125,8 @@ streaming::Node consume_channel(
             break;
         }
         if (msg.holds<streaming::TableChunk>()) {
-            auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+            auto chunk =
+                co_await msg.release<streaming::TableChunk>().make_available(ctx);
             ctx->comm()->logger().print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
@@ -106,17 +138,6 @@ streaming::Node consume_channel(
     }
 }
 
-streaming::TableChunk to_device(
-    std::shared_ptr<streaming::Context> ctx,
-    streaming::TableChunk&& chunk,
-    bool allow_overbooking
-) {
-    auto reservation = ctx->br()->reserve_device_memory_and_spill(
-        chunk.make_available_cost(), allow_overbooking
-    );
-    return chunk.make_available(reservation);
-}
-
 std::shared_ptr<streaming::Context> create_context(
     ProgramOptions& arguments, RmmResourceAdaptor* mr
 ) {
@@ -124,9 +145,12 @@ std::shared_ptr<streaming::Context> create_context(
     rmm::mr::set_current_device_resource_ref(mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
     if (arguments.spill_device_limit.has_value()) {
-        auto limit_size =
-            rmm::available_device_memory().second
-            * static_cast<std::size_t>(arguments.spill_device_limit.value() * 100);
+        auto limit_size = rmm::align_down(
+            (rmm::available_device_memory().second
+             * static_cast<std::size_t>(arguments.spill_device_limit.value() * 100)
+             / 100),
+            rmm::CUDA_ALLOCATION_ALIGNMENT
+        );
 
         memory_available[MemoryType::DEVICE] =
             LimitAvailableMemory{mr, static_cast<std::int64_t>(limit_size)};
@@ -180,7 +204,7 @@ std::shared_ptr<streaming::Context> create_context(
         }
         break;
     default:
-        RAPIDSMPF_EXPECTS(false, "Unknown communicator type");
+        RAPIDSMPF_FAIL("Unknown communicator type");
     }
     auto ctx = std::make_shared<streaming::Context>(options, comm, br, statistics);
     if (comm->rank() == 0) {
@@ -188,7 +212,7 @@ std::shared_ptr<streaming::Context> create_context(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",
-            ctx->executor()->thread_count(),
+            ctx->executor()->num_streaming_threads(),
             " threads"
         );
     }

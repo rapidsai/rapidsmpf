@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,6 +16,7 @@
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -210,7 +211,8 @@ Duration run(
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-            auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
+            auto [res, _] =
+                br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
             auto buf = br->allocate(args.msg_size, stream, res);
             random_fill(*buf, br->device_mr());
             send_bufs.push_back(std::move(buf));
@@ -223,7 +225,7 @@ Duration run(
 
     auto const t0_elapsed = Clock::now();
 
-    Tag const tag{0, 1};
+    Tag const tag{0, 0};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
@@ -351,7 +353,7 @@ int main(int argc, char** argv) {
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << to_precision(elapsed) << " sec"
+        ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
            << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
            << "/s | global throughput: "
@@ -366,6 +368,21 @@ int main(int argc, char** argv) {
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
+    }
+
+    {
+        auto const elapsed_mean = harmonic_mean(elapsed_vec);
+        std::stringstream ss;
+        ss << "means: " << format_duration(elapsed_mean)
+           << " | local comm: " << format_nbytes(local_messages_send / elapsed_mean)
+           << "/s | local throughput: " << format_nbytes(local_messages / elapsed_mean)
+           << "/s | global throughput: "
+           << format_nbytes(
+                  local_messages * static_cast<std::uint64_t>(comm->nranks())
+                  / elapsed_mean
+              )
+           << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
+        log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));
 

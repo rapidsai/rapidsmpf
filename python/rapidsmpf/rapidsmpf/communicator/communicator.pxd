@@ -1,9 +1,11 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
 cdef class Logger:
@@ -29,9 +31,9 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
 
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
     cdef cppclass cpp_Communicator "rapidsmpf::Communicator":
-        Rank rank() except +
-        Rank nranks() except +
-        string str() except +
+        Rank rank() except +ex_handler
+        Rank nranks() except +ex_handler
+        string str() except +ex_handler
         cpp_Logger logger()
 
 cdef class Communicator:

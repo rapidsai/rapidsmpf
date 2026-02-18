@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,12 +23,12 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
 #include "../utils/rmm_stack.hpp"
@@ -230,7 +230,7 @@ class ArgumentParser {
     bool pinned_mem_disable{false};
 };
 
-rapidsmpf::streaming::Node consumer(
+rapidsmpf::streaming::Actor consumer(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in
 ) {
@@ -259,11 +259,11 @@ rapidsmpf::Duration run(
     constexpr rapidsmpf::OpID op_id = 0;
 
     // Create streaming pipeline.
-    std::vector<rapidsmpf::streaming::Node> nodes;
+    std::vector<rapidsmpf::streaming::Actor> actors;
     {
         auto ch1 = ctx->create_channel();
-        nodes.push_back(
-            rapidsmpf::streaming::node::random_table_generator(
+        actors.push_back(
+            rapidsmpf::streaming::actor::random_table_generator(
                 ctx,
                 stream,
                 ch1,
@@ -275,8 +275,8 @@ rapidsmpf::Duration run(
             )
         );
         auto ch2 = ctx->create_channel();
-        nodes.push_back(
-            rapidsmpf::streaming::node::partition_and_pack(
+        actors.push_back(
+            rapidsmpf::streaming::actor::partition_and_pack(
                 ctx,
                 ch1,
                 ch2,
@@ -287,17 +287,17 @@ rapidsmpf::Duration run(
             )
         );
         auto ch3 = ctx->create_channel();
-        nodes.push_back(
-            rapidsmpf::streaming::node::shuffler(
+        actors.push_back(
+            rapidsmpf::streaming::actor::shuffler(
                 ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = ctx->create_channel();
-        nodes.push_back(rapidsmpf::streaming::node::unpack_and_concat(ctx, ch3, ch4));
-        nodes.push_back(consumer(ctx, ch4));
+        actors.push_back(rapidsmpf::streaming::actor::unpack_and_concat(ctx, ch3, ch4));
+        actors.push_back(consumer(ctx, ch4));
     }
     auto const t0_elapsed = rapidsmpf::Clock::now();
-    rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+    rapidsmpf::streaming::run_actor_network(std::move(actors));
     return rapidsmpf::Clock::now() - t0_elapsed;
 }
 
@@ -409,8 +409,8 @@ int main(int argc, char** argv) {
         }
         double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -432,8 +432,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"

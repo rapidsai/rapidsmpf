@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -71,6 +71,9 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
+          test_allreduce.cpp
+          test_allreduce_custom_kernels.cu
+          test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
           test_communicator.cpp
@@ -79,17 +82,19 @@ target_sources(
           test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp
+          test_host_buffer.cpp
           test_metadata_payload_exchange.cpp
+          test_misc.cpp
           test_partition.cpp
           test_pausable_thread_loop.cpp
-          test_pinned_resources.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
           test_shuffler_many_streams.cpp
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
-          test_utils.cpp
+          test_system_info.cpp
+          test_utils_string.cpp
 )
 
 # if streaming is enabled, add the streaming test sources
@@ -97,12 +102,15 @@ if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
     PRIVATE streaming/test_allgather.cpp
+            streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
-            streaming/test_leaf_node.cpp
+            streaming/test_leaf_actor.cpp
             streaming/test_lineariser.cpp
+            streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
+            streaming/test_channel_metadata.cpp
             streaming/test_read_parquet.cpp
             streaming/test_shuffler.cpp
             streaming/test_spillable_messages.cpp
@@ -122,7 +130,6 @@ if(RAPIDSMPF_HAVE_MPI)
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
                COMPONENT testing # custom test property, so that this could be searched later
-               LINK_FLAGS "-Wl,--allow-shlib-undefined"
   )
   target_compile_options(
     mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -155,7 +162,6 @@ if(RAPIDSMPF_HAVE_MPI)
                  CUDA_STANDARD 20
                  CUDA_STANDARD_REQUIRED ON
                  COMPONENT testing # custom test property, so that this could be searched later
-                 LINK_FLAGS "-Wl,--allow-shlib-undefined"
     )
     target_compile_options(
       ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -199,8 +205,8 @@ target_compile_options(
 )
 target_link_libraries(
   rrun_tests
-  PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
-          maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE rapidsmpf::rapidsmpf cuCascade::cucascade GTest::gmock GTest::gtest
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
 

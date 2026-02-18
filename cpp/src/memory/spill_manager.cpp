@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
@@ -99,7 +100,7 @@ std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     if (headroom <= available) {
         return 0;
     }
-    return spill(static_cast<std::size_t>(headroom - available));
+    return spill(safe_cast<std::size_t>(headroom - available));
 }
 
 }  // namespace rapidsmpf

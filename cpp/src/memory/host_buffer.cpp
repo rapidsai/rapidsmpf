@@ -1,11 +1,14 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <utility>
 
+#include <cuda/memory>
+
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
@@ -19,15 +22,34 @@ HostBuffer::HostBuffer(
     }
 }
 
+HostBuffer::HostBuffer(
+    std::span<std::byte> span,
+    rmm::cuda_stream_view stream,
+    rmm::host_async_resource_ref mr,
+    std::unique_ptr<void, OwnedStorageDeleter> owned_storage
+)
+    : stream_{stream},
+      mr_{std::move(mr)},
+      span_{span},
+      owned_storage_{std::move(owned_storage)} {}
+
 void HostBuffer::deallocate_async() noexcept {
     if (!span_.empty()) {
-        mr_.deallocate(stream_, span_.data(), span_.size());
+        // If we have owned storage, release it; otherwise deallocate via mr_.
+        if (owned_storage_) {
+            owned_storage_.reset();
+        } else {
+            mr_.deallocate(stream_, span_.data(), span_.size());
+        }
     }
     span_ = {};
 }
 
 HostBuffer::HostBuffer(HostBuffer&& other) noexcept
-    : stream_{other.stream_}, mr_{other.mr_}, span_{std::exchange(other.span_, {})} {}
+    : stream_{other.stream_},
+      mr_{other.mr_},
+      span_{std::exchange(other.span_, {})},
+      owned_storage_{std::move(other.owned_storage_)} {}
 
 HostBuffer& HostBuffer::operator=(HostBuffer&& other) {
     if (this != &other) {
@@ -39,6 +61,7 @@ HostBuffer& HostBuffer::operator=(HostBuffer&& other) {
         stream_ = other.stream_;
         mr_ = other.mr_;
         span_ = std::exchange(other.span_, {});
+        owned_storage_ = std::move(other.owned_storage_);
     }
     return *this;
 }
@@ -67,6 +90,10 @@ std::byte const* HostBuffer::data() const noexcept {
     return span_.data();
 }
 
+void HostBuffer::set_stream(rmm::cuda_stream_view new_stream) {
+    stream_ = new_stream;
+}
+
 std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
     std::vector<std::uint8_t> ret(size());
     if (!empty()) {
@@ -91,6 +118,53 @@ HostBuffer HostBuffer::from_uint8_vector(
         ));
     }
     return ret;
-};
+}
+
+HostBuffer HostBuffer::from_owned_vector(
+    std::vector<std::uint8_t>&& data,
+    rmm::cuda_stream_view stream,
+    rmm::host_async_resource_ref mr
+) {
+    // Wrap in shared_ptr so the lambda is copyable (required by std::function).
+    auto shared_vec = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
+    auto* ptr = reinterpret_cast<std::byte*>(shared_vec->data());
+    auto size = shared_vec->size();
+    std::span<std::byte> span{ptr, size};
+
+    std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
+        ptr, [shared_vec_ = std::move(shared_vec)](void*) mutable { shared_vec_.reset(); }
+    };
+
+    return HostBuffer{span, stream, std::move(mr), std::move(owned_storage)};
+}
+
+HostBuffer HostBuffer::from_rmm_device_buffer(
+    std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
+    rmm::cuda_stream_view stream,
+    PinnedMemoryResource& mr
+) {
+    RAPIDSMPF_EXPECTS(
+        pinned_host_buffer != nullptr,
+        "pinned_host_buffer must not be null",
+        std::invalid_argument
+    );
+
+    RAPIDSMPF_EXPECTS(
+        cuda::is_host_accessible(pinned_host_buffer->data()),
+        "pinned_host_buffer must be host accessible",
+        std::logic_error
+    );
+
+    // Wrap in shared_ptr so the lambda is copyable (required by std::function).
+    auto shared_db = std::make_shared<rmm::device_buffer>(std::move(*pinned_host_buffer));
+    auto* ptr = static_cast<std::byte*>(shared_db->data());
+    std::span<std::byte> span{ptr, shared_db->size()};
+
+    std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
+        ptr, [shared_db_ = std::move(shared_db)](void*) mutable { shared_db_.reset(); }
+    };
+
+    return HostBuffer{std::move(span), stream, mr, std::move(owned_storage)};
+}
 
 }  // namespace rapidsmpf

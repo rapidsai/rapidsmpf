@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -8,6 +8,7 @@ from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
@@ -29,11 +30,11 @@ cdef extern from * nogil:
             rapidsmpf::ContentDescription{}
         };
     }
-    }
+    }  // namespace
     """
     cpp_Message cpp_to_message(
         uint64_t, unique_ptr[cpp_OwningWrapper]
-    ) except +
+    ) except +ex_handler
 
 
 cdef class ArbitraryChunk:

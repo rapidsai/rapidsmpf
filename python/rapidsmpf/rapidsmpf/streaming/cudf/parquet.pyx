@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -15,26 +15,27 @@ from pylibcudf.libcudf.types cimport size_type
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.streaming.chunks.arbitrary cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
     cdef cppclass cpp_Filter "rapidsmpf::streaming::Filter":
         cpp_Filter(cuda_stream_view, expression, cpp_OwningWrapper)
 
-    cdef cpp_Node cpp_read_parquet \
-        "rapidsmpf::streaming::node::read_parquet"(
+    cdef cpp_Actor cpp_read_parquet \
+        "rapidsmpf::streaming::actor::read_parquet"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_out,
             size_t num_producers,
             parquet_reader_options options,
             size_type num_rows_per_chunk,
             unique_ptr[cpp_Filter],
-        ) except +
+        ) except +ex_handler
 
 
 cdef class Filter:
@@ -97,7 +98,7 @@ def read_parquet(
     Filter filter = None,
 ):
     """
-    Create a streaming node to read from parquet.
+    Create a streaming actor to read from parquet.
 
     Parameters
     ----------
@@ -120,7 +121,7 @@ def read_parquet(
     This is a collective operation, all ranks participating via the
     execution context's communicator must call it with the same options.
     """
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     cdef unique_ptr[cpp_Filter] c_filter
     if filter is not None:
         c_filter = move(filter.release_handle())
@@ -133,6 +134,6 @@ def read_parquet(
             num_rows_per_chunk,
             move(c_filter)
         )
-    return CppNode.from_handle(
-        make_unique[cpp_Node](move(_ret)), owner=None
+    return CppActor.from_handle(
+        make_unique[cpp_Actor](move(_ret)), owner=None
     )

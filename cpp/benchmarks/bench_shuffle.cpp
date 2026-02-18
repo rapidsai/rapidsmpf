@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,7 +23,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -75,8 +75,6 @@ class ArgumentParser {
                               "unlimited)\n"
                            << "  -L         Disable Pinned host memory (default: "
                               " unlimited)\n"
-                           << "  -i         Use `concat_insert` method, instead of "
-                              "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
                            << "  -s         Discard output chunks to simulate streaming "
@@ -155,9 +153,6 @@ class ArgumentParser {
                 case 'L':
                     pinned_mem_disable = true;
                     break;
-                case 'i':
-                    use_concat_insert = true;
-                    break;
                 case 'g':
                     hash_partition_with_datagen = true;
                     break;
@@ -165,7 +160,7 @@ class ArgumentParser {
                     enable_output_discard = true;
                     break;
                 case 'b':
-                    input_data_allow_overbooking = false;
+                    input_data_allow_overbooking = rapidsmpf::AllowOverbooking::NO;
                     break;
                 case 'x':
                     enable_memory_profiler = true;
@@ -240,7 +235,7 @@ class ArgumentParser {
         if (enable_output_discard) {
             ss << "  -s (enable output discard to simulate streaming)\n";
         }
-        if (!input_data_allow_overbooking) {
+        if (input_data_allow_overbooking == rapidsmpf::AllowOverbooking::NO) {
             ss << "  -b (disallow memory overbooking when generating input data)\n";
         }
         if (enable_memory_profiler) {
@@ -248,9 +243,6 @@ class ArgumentParser {
         }
         if (hash_partition_with_datagen) {
             ss << "  -g (use pre-partitioned input tables)\n";
-        }
-        if (use_concat_insert) {
-            ss << "  -i (use concat insert)\n";
         }
         if (enable_cupti_monitoring) {
             ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
@@ -271,10 +263,11 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_output_discard{false};
-    bool input_data_allow_overbooking{true};
+    rapidsmpf::AllowOverbooking input_data_allow_overbooking{
+        rapidsmpf::AllowOverbooking::YES
+    };
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
-    bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
     bool pinned_mem_disable{false};
     bool enable_cupti_monitoring{false};
@@ -327,7 +320,10 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), br, true, statistics
+                    std::move(packed_chunks),
+                    br,
+                    rapidsmpf::AllowOverbooking::YES,
+                    statistics
                 ),
                 stream,
                 br,
@@ -412,8 +408,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
 }
 
 /**
- * Helper function to iterate over input partitions and insert them into the shuffler by
- * branching on use_concat_insert.
+ * Helper function to iterate over input partitions and insert them into the shuffler.
  *
  * @param shuffler Shuffler to insert the partitions into.
  * @param input_partitions This is either a vector<cudf::table> or
@@ -421,24 +416,16 @@ std::vector<InputPartitionsT> generate_input_partitions(
  * partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
  * @param total_num_partitions Total number of partitions in the shuffler.
  * @param make_chunk_fn Function to make a chunk from a partition.
- * @param use_concat_insert Whether to use concat insert.
  */
 void do_insert(
     rapidsmpf::shuffler::Shuffler& shuffler,
     auto&& input_partitions,
     rapidsmpf::shuffler::PartID const total_num_partitions,
-    auto&& make_chunk_fn,
-    bool use_concat_insert
+    auto&& make_chunk_fn
 ) {
     // Convert a partition into chunks and insert into the shuffler.
-    if (use_concat_insert) {
-        for (auto&& partition : input_partitions) {
-            shuffler.concat_insert(std::move(make_chunk_fn(partition)));
-        }
-    } else {
-        for (auto&& partition : input_partitions) {
-            shuffler.insert(std::move(make_chunk_fn(partition)));
-        }
+    for (auto&& partition : input_partitions) {
+        shuffler.insert(std::move(make_chunk_fn(partition)));
     }
 
     // Tell the shuffler that we have no more data.
@@ -507,8 +494,7 @@ rapidsmpf::Duration run_hash_partition_inline(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::move(make_chunk_fn),
-                args.use_concat_insert
+                std::move(make_chunk_fn)
             );
         }
     );
@@ -567,8 +553,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::identity{},
-                args.use_concat_insert
+                std::identity{}
             );
         }
     );
@@ -701,8 +686,8 @@ int main(int argc, char** argv) {
                     .count();
         }
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
-           << " sec | local throughput: "
+        ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
@@ -718,8 +703,8 @@ int main(int argc, char** argv) {
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
-           << " sec | local throughput: "
+        ss << "means: " << rapidsmpf::format_duration(elapsed_mean)
+           << " | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"

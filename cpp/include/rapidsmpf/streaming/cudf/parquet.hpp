@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,9 +12,9 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -27,13 +27,13 @@ struct Filter {
     OwningWrapper owner{};  ///< Owner of all objects in the filter.
 };
 
-namespace node {
+namespace actor {
 /**
  * @brief Asynchronously read parquet files into an output channel.
  *
  * @note This is a collective operation, all ranks named by the execution context's
  * communicator will participate. All ranks must specify the same set of options.
- * Behaviour is undefined if a `read_parquet` node appears only on a subset of the ranks
+ * Behaviour is undefined if a `read_parquet` actor appears only on a subset of the ranks
  * named by the communicator, or the options differ between ranks.
  *
  * @param ctx The execution context to use.
@@ -46,9 +46,9 @@ namespace node {
  * have.
  * @param filter Optional filter expression to apply to the read.
  *
- * @return Streaming node representing the asynchronous read.
+ * @return Streaming actor representing the asynchronous read.
  */
-Node read_parquet(
+Actor read_parquet(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
@@ -57,5 +57,5 @@ Node read_parquet(
     cudf::size_type num_rows_per_chunk,
     std::unique_ptr<Filter> filter = nullptr
 );
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

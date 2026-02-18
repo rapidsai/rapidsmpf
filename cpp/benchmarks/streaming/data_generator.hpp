@@ -1,22 +1,21 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils/random_data.hpp"
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 /**
  * @brief Asynchronously generates and sends a sequence of random numeric tables.
@@ -29,7 +28,7 @@ namespace rapidsmpf::streaming::node {
  * distributed in the range [`min_val`, `max_val`]. Each generated table is wrapped
  * in a `TableChunk` and sent to the provided output channel in streaming fashion.
  *
- * @param ctx The node context to use.
+ * @param ctx The actor context to use.
  * @param stream The CUDA stream on which to create the random tables. TODO: use a pool
  * of CUDA streams.
  * @param ch_out Output channel to which generated `TableChunk` objects are sent.
@@ -38,11 +37,10 @@ namespace rapidsmpf::streaming::node {
  * @param nrows Number of rows per column in each table.
  * @param min_val Minimum inclusive value for the generated random integers.
  * @param max_val Maximum inclusive value for the generated random integers.
- *
- * @return A streaming node that completes once all random tables have been generated
- *         and sent, and the channel has been drained.
+ * @return A streaming actor that completes once all random tables have been generated
+ * and sent, and the channel has been drained.
  */
-inline Node random_table_generator(
+inline Actor random_table_generator(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_out,
@@ -56,7 +54,8 @@ inline Node random_table_generator(
     co_await ctx->executor()->schedule();
     auto nbytes = static_cast<std::size_t>(ncolumns * nrows) * sizeof(std::int32_t);
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
-        auto res = ctx->br()->reserve_device_memory_and_spill(nbytes, false);
+        auto res =
+            ctx->br()->reserve_device_memory_and_spill(nbytes, AllowOverbooking::NO);
         co_await ch_out->send(to_message(
             seq,
             std::make_unique<TableChunk>(
@@ -71,4 +70,4 @@ inline Node random_table_generator(
 }
 
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -16,8 +17,6 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
-
-#include "rapidsmpf/utils.hpp"
 
 /**
  * @namespace rapidsmpf
@@ -39,22 +38,47 @@ using Rank = std::int32_t;
  * @brief Operation ID defined by the user. This allows users to concurrently execute
  * multiple operations, and each operation will be identified by its OpID.
  *
- * @note This limits the total number of concurrent operations to 2^8
+ * @note Although typed as an `int32`, the number of distinct operations is limited to
+ * `2^20`.
  */
-using OpID = std::uint8_t;
+using OpID = std::int32_t;
 
 /**
  * @typedef StageID
  * @brief Identifier for a stage of a communication operation.
+ *
+ * @note Although typed as an `int32`, the number of distinct stages is limited to
+ * `2^3`.
  */
-using StageID = std::uint8_t;
+using StageID = std::int32_t;
 
 /**
  * @brief A tag used for identifying messages in a communication operation.
  *
- * @note The tag is a 32-bit integer, with the following layout:
- * bits     |31:16| 15:8 | 7:0 |
- * value    |empty|  op  |stage|
+ * The tag is a 32-bit integer, with the following layout (low bits to high bits
+ * left-to-right)
+ *
+ * @code{}
+ * bits   | 012       | 34567 01234567 0123456 | 7 01234567
+ *        |           |                        |
+ * value  | stage (3) | operation (20)         | empty (9)
+ *        |           |                        |
+ * @endcode{}
+ *
+ * The restriction of 23 used bits comes from empirical MPI implementation limits for
+ * `MPI_TAG_UB`. For example, when using UCX as a transport layer, OpenMPI is restricted
+ * to `2^23` distinct tags.
+ *
+ * All messages in rapidsmpf over the same `Communicator` are disambiguated by `Tag`s. A
+ * message sent with a given `Tag` can only be matched by a receive with a matching `Tag`.
+ *
+ * In the same way, collective operations over a `Communicator` are disambiguated by an
+ * `OpID`: two different collectives with different `OpID`s will not interfere.
+ *
+ * Due to implementation restrictions, we are limited in the number of distinct tags we
+ * can use (the `Tag` constructor checks for overflow but not reuse). In particular, we
+ * support at most `2^20` distinct `OpIDs`, corresponding to `2^20` distinct collectives
+ * running simultaneously.
  */
 class Tag {
   public:
@@ -65,13 +89,13 @@ class Tag {
     using StorageT = std::int32_t;
 
     /// @brief Number of bits for the stage ID
-    static constexpr int stage_id_bits{sizeof(StageID) * 8};
+    static constexpr int stage_id_bits{3};
 
     /// @brief Mask for the stage ID
     static constexpr StorageT stage_id_mask{(1 << stage_id_bits) - 1};
 
     /// @brief Number of bits for the operation ID
-    static constexpr int op_id_bits{sizeof(OpID) * 8};
+    static constexpr int op_id_bits{20};
 
     /// @brief Mask for the operation ID
     static constexpr StorageT op_id_mask{
@@ -81,13 +105,25 @@ class Tag {
     /**
      * @brief Constructs a tag
      *
+     * @throws std::overflow_error If either the `op` or `stage` values are negative or
+     * too large.
+     *
      * @param op The operation ID
      * @param stage The stage ID
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
               (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
-          } {}
+          } {
+        RAPIDSMPF_EXPECTS(
+            stage >= 0 && stage < (1 << stage_id_bits),
+            "Invalid stage value",
+            std::overflow_error
+        );
+        RAPIDSMPF_EXPECTS(
+            op >= 0 && op < (1 << op_id_bits), "Invalid OpID value", std::overflow_error
+        );
+    }
 
     /**
      * @brief Returns the max number of bits used for the tag
@@ -201,7 +237,7 @@ class Communicator {
          * @param level The log level.
          * @return The corresponding log level name or "UNKNOWN" if out of range.
          */
-        static constexpr const char* level_name(LOG_LEVEL level) {
+        static constexpr char const* level_name(LOG_LEVEL level) {
             auto index = static_cast<std::size_t>(level);
             return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
         }
@@ -394,6 +430,8 @@ class Communicator {
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @throws std::invalid_argument If @p msg is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
@@ -407,11 +445,14 @@ class Communicator {
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      *
+     * @throws std::invalid_argument If @p msg is `nullptr`.
+     * @throws std::logic_error If @p msg is not ready (see warning for more details).
+     *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * and data are already valid before calling, for example, when a CUDA allocation
      * and/or copy are done asynchronously. Specifically, the caller should ensure
-     * `Buffer::is_ready()` returns true before calling this function, if not, a
-     * warning is printed and the application will terminate.
+     * `Buffer::is_ready()` returns true before calling this function. Providing a
+     * non-ready buffer leads to an irrecoverable condition.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
@@ -426,11 +467,15 @@ class Communicator {
      * @param recv_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      *
+     * @throws std::invalid_argument If @p recv_buffer is `nullptr`.
+     * @throws std::logic_error If @p recv_buffer is not ready (see warning for more
+     * details).
+     *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * is already valid before calling, for example, when a CUDA allocation
      * and/or copy are done asynchronously. Specifically, the caller should ensure
-     * `Buffer::is_ready()` returns true before calling this function, if not, a
-     * warning is printed and the application will terminate.
+     * `Buffer::is_ready()` returns true before calling this function. Providing a
+     * non-ready buffer leads to an irrecoverable condition.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
@@ -445,6 +490,8 @@ class Communicator {
      * @param tag Message tag for identification.
      * @param synced_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @throws std::invalid_argument If @p synced_buffer is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv_sync_host_data(
         Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer

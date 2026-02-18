@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <mutex>
+#include <optional>
 #include <ranges>
 
 #include <cudf/ast/expressions.hpp>
@@ -17,15 +19,163 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/lineariser.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/message.hpp>
+#include <rapidsmpf/streaming/core/spillable_messages.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 namespace {
+
+/**
+ * @brief Per-context cache for file-backed messages.
+ *
+ * FileCache caches file read results by storing message copies in the associated
+ * Context's SpillableMessages instance. By tying cached data to the Context, the
+ * lifetime of cached entries matches the lifetime of the Context itself.
+ *
+ * Each cache instance is scoped to a single Context and is shared across callers
+ * using that Context.
+ *
+ * The cache is thread-safe.
+ */
+class FileCache {
+  public:
+    struct Key {
+        std::vector<std::string> filepaths;
+        std::int64_t skip_rows;
+        std::size_t skip_bytes;
+        std::optional<int64_t> num_rows;
+        std::optional<int64_t> num_bytes;
+        std::optional<std::vector<std::string>> column_names;
+        std::optional<std::vector<cudf::size_type>> column_indices;
+        std::vector<std::vector<cudf::size_type>> row_groups;
+
+        // Lexicographical comparison of all data members.
+        auto operator<=>(Key const&) const = default;
+    };
+
+    /**
+     * @brief Construct a FileCache.
+     *
+     * @param mem_type Memory type used for cache storage.
+     */
+    FileCache(MemoryType mem_type = MemoryType::HOST) : mem_type_{mem_type} {}
+
+    /**
+     * @brief Insert a message into the cache.
+     *
+     * The message is copied into the memory type configured for this cache
+     * and stored in the associated Context's SpillableMessages instance.
+     *
+     * @param ctx Streaming context.
+     * @param key Cache key identifying the message.
+     * @param msg Message to cache.
+     * @return True if the message was inserted, false if the key already existed.
+     */
+    bool insert(std::shared_ptr<Context> ctx, Key key, Message const& msg) {
+        auto reservation = ctx->br()->reserve_or_fail(msg.copy_cost(), mem_type_);
+        auto msg_copy = msg.copy(reservation);
+
+        std::lock_guard lock(mutex_);
+        if (cache_.contains(key)) {
+            return false;
+        }
+        cache_.emplace(
+            std::move(key), ctx->spillable_messages()->insert(std::move(msg_copy))
+        );
+        return true;
+    }
+
+    /**
+     * @brief Retrieve a cached message.
+     *
+     * If the key exists, the cached message is copied out of spillable storage
+     * using newly reserved memory, prioritizing memory types in `MEMORY_TYPES`
+     * order.
+     *
+     * @param ctx Streaming context.
+     * @param key Cache key to look up.
+     * @return The cached message, or std::nullopt if the key is not present.
+     */
+    std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
+        auto& stats = *ctx->statistics();
+
+        auto formatter = [](std::ostream& os, std::size_t count, double val) {
+            os << val << "/" << count << " (hits/lookups)";
+        };
+
+        SpillableMessages::MessageId mid;
+        {
+            std::lock_guard lock(mutex_);
+            auto it = cache_.find(key);
+            if (it == cache_.end()) {
+                stats.add_stat("unbounded_file_read_cache hits", 0, formatter);
+                return std::nullopt;
+            }
+            mid = it->second;
+        }
+        auto const size =
+            ctx->spillable_messages()->get_content_description(mid).content_size();
+
+        stats.add_stat("unbounded_file_read_cache hits", 1, formatter);
+        stats.add_bytes_stat("unbounded_file_read_cache saved", size);
+        auto reservation = ctx->br()->reserve_or_fail(size, MEMORY_TYPES);
+        return ctx->spillable_messages()->copy(mid, reservation);
+    }
+
+    /**
+     * @brief Get the FileCache instance for a Context.
+     *
+     * Each Context has exactly one FileCache instance for the lifetime of the
+     * process. If the `unbounded_file_read_cache` option is disabled, this
+     * function returns nullptr.
+     *
+     * @param ctx Context used to identify the cache instance. The same Context must
+     * be used for all subsequent insert and get operations.
+     * @return Shared pointer to the per-context FileCache, or nullptr if the cache
+     * is disabled.
+     */
+    static std::shared_ptr<FileCache> instance(std::shared_ptr<Context> ctx) {
+        static std::mutex mutex;
+        static std::unordered_map<std::size_t, std::shared_ptr<FileCache>> instances;
+
+        std::lock_guard lock(mutex);
+        auto const id = ctx->uid();
+        auto it = instances.find(id);
+        if (it != instances.end()) {
+            return it->second;
+        }
+
+        // Get the memory type of the file cache, if enabled.
+        auto const mem_type = ctx->options().get<std::optional<MemoryType>>(
+            "unbounded_file_read_cache", [](auto const& s) -> std::optional<MemoryType> {
+                auto val = parse_optional(s);
+                if (!val.has_value() || val->empty()) {
+                    return std::nullopt;
+                }
+                return parse_string<MemoryType>(s);
+            }
+        );
+
+        if (mem_type.has_value()) {
+            auto ret = std::make_shared<FileCache>(*mem_type);
+            instances.emplace(id, ret);
+            return ret;
+        }
+        return nullptr;
+    }
+
+  private:
+    mutable std::mutex mutex_;
+    std::map<Key, SpillableMessages::MessageId> cache_;
+    MemoryType mem_type_;
+};
 
 /**
  * @brief Read a single chunk from a parquet source.
@@ -35,7 +185,6 @@ namespace {
  * @param options The parquet reader options describing the data to read.
  * @param sequence_number The ordered chunk id to reconstruct original ordering of the
  * data.
- *
  * @return Message representing the read chunk.
  */
 Message read_parquet_chunk(
@@ -44,10 +193,40 @@ Message read_parquet_chunk(
     cudf::io::parquet_reader_options options,
     std::uint64_t sequence_number
 ) {
-    auto result = std::make_unique<TableChunk>(
-        cudf::io::read_parquet(options, stream, ctx->br()->device_mr()).tbl, stream
-    );
-    return to_message(sequence_number, std::move(result));
+    auto do_read_parquet = [&]() -> Message {
+        return to_message(
+            sequence_number,
+            std::make_unique<TableChunk>(
+                cudf::io::read_parquet(options, stream, ctx->br()->device_mr()).tbl,
+                stream
+            )
+        );
+    };
+
+    auto file_cache = FileCache::instance(ctx);
+    if (file_cache == nullptr) {
+        return do_read_parquet();
+    }
+
+    FileCache::Key key{
+        .filepaths = options.get_source().filepaths(),
+        .skip_rows = options.get_skip_rows(),
+        .skip_bytes = options.get_skip_bytes(),
+        .num_rows = options.get_num_rows(),
+        .num_bytes = options.get_num_bytes(),
+        .column_names = options.get_column_names(),
+        .column_indices = options.get_column_indices(),
+        .row_groups = options.get_row_groups()
+    };
+
+    auto msg = file_cache->get(ctx, key);
+    if (msg.has_value()) {
+        return std::move(*msg);
+    }
+
+    auto ret = do_read_parquet();
+    file_cache->insert(ctx, key, ret);
+    return ret;
 }
 
 struct ChunkDesc {
@@ -68,7 +247,7 @@ struct ChunkDesc {
  *
  * @return Coroutine representing the processing of all chunks.
  */
-Node produce_chunks(
+Actor produce_chunks(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<BoundedQueue> ch_out,
     std::vector<ChunkDesc>& chunks,
@@ -115,7 +294,7 @@ Node produce_chunks(
 }
 }  // namespace
 
-Node read_parquet(
+Actor read_parquet(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
@@ -125,8 +304,8 @@ Node read_parquet(
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
-    auto size = static_cast<std::size_t>(ctx->comm()->nranks());
-    auto rank = static_cast<std::size_t>(ctx->comm()->rank());
+    auto const size = safe_cast<std::size_t>(ctx->comm()->nranks());
+    auto const rank = safe_cast<std::size_t>(ctx->comm()->rank());
     auto source = options.get_source();
     RAPIDSMPF_EXPECTS(
         source.type() == cudf::io::io_type::FILEPATH, "Only implemented for file sources"
@@ -146,9 +325,6 @@ Node read_parquet(
     auto files = source.filepaths();
     RAPIDSMPF_EXPECTS(files.size() > 0, "Must have at least one file to read");
     RAPIDSMPF_EXPECTS(
-        files.size() < std::numeric_limits<int>::max(), "Trying to read too many files"
-    );
-    RAPIDSMPF_EXPECTS(
         !options.get_filter().has_value(),
         "Do not set filter on options, use the filter argument"
     );
@@ -167,9 +343,11 @@ Node read_parquet(
         );
     }
     // TODO: Handle case where multiple ranks are reading from a single file.
-    int files_per_rank =
-        static_cast<int>(files.size() / size + (rank < (files.size() % size)));
-    int file_offset = rank * (files.size() / size) + std::min(rank, files.size() % size);
+    auto const files_per_rank =
+        safe_cast<int>(files.size() / size + (rank < (files.size() % size)));
+    auto const file_offset = safe_cast<int>(
+        rank * (files.size() / size) + std::min(rank, files.size() % size)
+    );
     auto local_files = std::vector(
         files.begin() + file_offset, files.begin() + file_offset + files_per_rank
     );
@@ -178,12 +356,12 @@ Node read_parquet(
     auto const num_files = local_files.size();
     // Estimate number of rows per file
     std::size_t files_per_chunk = 1;
-    if (files.size() > 1) {
+    if (num_files > 1) {
         auto nrows =
             cudf::io::read_parquet_metadata(cudf::io::source_info(local_files[0]))
                 .num_rows();
         files_per_chunk =
-            static_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
+            safe_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
     }
     auto to_skip = options.get_skip_rows();
     auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
@@ -193,8 +371,8 @@ Node read_parquet(
         std::vector<std::string> chunk_files;
         auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
         std::ranges::copy_n(
-            local_files.begin() + static_cast<std::int64_t>(file_offset),
-            static_cast<std::int64_t>(nchunk_files),
+            local_files.begin() + safe_cast<std::int64_t>(file_offset),
+            safe_cast<std::int64_t>(nchunk_files),
             std::back_inserter(chunk_files)
         );
         auto source = cudf::io::source_info(chunk_files);
@@ -207,7 +385,7 @@ Node read_parquet(
         to_skip = std::max(0l, -chunk_rows);
         while (chunk_rows > 0 && to_read > 0) {
             auto rows_read =
-                std::min({static_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
+                std::min({safe_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 sequence_number, chunk_skip_rows, rows_read, source
             );
@@ -231,7 +409,7 @@ Node read_parquet(
             )));
         }
     } else {
-        std::vector<Node> read_tasks;
+        std::vector<Actor> read_tasks;
         read_tasks.reserve(1 + num_producers);
         auto lineariser = Lineariser(ctx, ch_out, num_producers);
         auto queues = lineariser.get_queues();
@@ -258,4 +436,4 @@ Node read_parquet(
         );
     }
 }
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor
