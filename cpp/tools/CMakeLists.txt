@@ -5,7 +5,12 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>")
+add_executable(
+  rrun
+  "rrun.cpp"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>>"
+)
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
@@ -14,7 +19,10 @@ set_target_properties(
 )
 target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
-target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
+target_compile_definitions(
+  rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+               $<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:RAPIDSMPF_HAVE_SLURM>
+)
 target_link_libraries(
   rrun
   PRIVATE Threads::Threads
@@ -23,6 +31,7 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           ${CMAKE_DL_LIBS}
 )
 install(
