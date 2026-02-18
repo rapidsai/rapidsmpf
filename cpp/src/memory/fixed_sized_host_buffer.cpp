@@ -16,30 +16,26 @@
 namespace rapidsmpf {
 namespace {
 
+/// @brief  struct to store the block pointers and the storage.
+/// @tparam T Type of the storage.
 template <typename T>
 struct VectorStorage {
     std::vector<std::byte*> block_ptrs;
     T storage;
-
-    static void delete_storage(void* v) {
-        delete static_cast<VectorStorage<T>*>(v);
-    }
 };
-
 
 }  // namespace
 
 FixedSizedHostBuffer FixedSizedHostBuffer::from_vector(
-    std::vector<std::byte> vec, std::size_t block_size
+    std::vector<std::byte>&& vec, std::size_t block_size
 ) {
     if (vec.empty()) {
-        return FixedSizedHostBuffer(
-            std::size_t(0), block_size, std::span<std::byte*>{}, OwningWrapper()
-        );
+        return FixedSizedHostBuffer(0, block_size, {}, {});
     }
 
+    using StorageT = VectorStorage<std::vector<std::byte>>;
     std::size_t total_size = vec.size();
-    auto storage = new VectorStorage<std::vector<std::byte>>();
+    auto storage = new StorageT();
     storage->block_ptrs.reserve((total_size + block_size - 1) / block_size);
     for (std::size_t i = 0; i < total_size; i += block_size) {
         storage->block_ptrs.push_back(vec.data() + i);
@@ -47,18 +43,15 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vector(
     storage->storage = std::move(vec);
     std::span<std::byte*> blocks_span(storage->block_ptrs);
     return FixedSizedHostBuffer(
-        total_size,
-        block_size,
-        blocks_span,
-        OwningWrapper(storage, VectorStorage<std::vector<std::byte>>::delete_storage)
+        total_size, block_size, std::move(blocks_span), OwningWrapper(storage)
     );
 }
 
 FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
-    std::vector<std::vector<std::byte>> vecs
+    std::vector<std::vector<std::byte>>&& vecs
 ) {
     if (vecs.empty()) {
-        return FixedSizedHostBuffer();
+        return {};
     }
 
     size_t const block_sz = vecs[0].size();
@@ -68,8 +61,8 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
         "all vectors must be of the same size"
     );
 
-    auto storage = new VectorStorage<std::vector<std::vector<std::byte>>>();
-
+    using StorageT = VectorStorage<std::vector<std::vector<std::byte>>>;
+    auto storage = new StorageT();
     storage->block_ptrs.reserve(storage->storage.size());
     std::ranges::transform(vecs, std::back_inserter(storage->block_ptrs), [](auto& v) {
         return v.data();
@@ -77,26 +70,22 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
     storage->storage = std::move(vecs);
     std::span<std::byte*> blocks_span(storage->block_ptrs);
     return FixedSizedHostBuffer(
-        total_size,
-        block_sz,
-        std::move(blocks_span),
-        OwningWrapper(storage, VectorStorage<std::vector<std::vector<std::byte>>>::delete_storage)
+        total_size, block_sz, std::move(blocks_span), OwningWrapper(storage)
     );
 }
 
 FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
-    cucascade::memory::fixed_multiple_blo+cks_allocation allocation
+    cucascade::memory::fixed_multiple_blocks_allocation&& allocation
 ) {
     if (!allocation || allocation->size() == 0) {
-        return FixedSizedHostBuffer();
+        return {};
     }
-    auto storage = allocation->release();
-    std::span<std::byte*> blocks = shared->get_blocks();
-    std::size_t total_bytes = shared->size_bytes();
-    std::size_t block_sz = shared->block_size();
-    auto* payload = new StoragePayload{std::shared_ptr<void>(shared)};
+    auto storage = std::move(allocation).release();
+    std::span<std::byte*> blocks = storage->get_blocks();
+    std::size_t total_bytes = storage->size_bytes();
+    std::size_t block_sz = storage->block_size();
     return FixedSizedHostBuffer(
-        total_bytes, block_sz, blocks, OwningWrapper(payload, &delete_storage_payload)
+        total_bytes, block_sz, std::move(blocks), OwningWrapper(storage)
     );
 }
 
@@ -115,7 +104,8 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
+    FixedSizedHostBuffer&& other
 ) noexcept {
     storage_ = std::move(other.storage_);
     total_size_ = other.total_size_;

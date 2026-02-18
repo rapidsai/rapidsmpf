@@ -43,7 +43,7 @@ class FixedSizedHostBuffer {
      * @return A buffer with blocks covering the vector.
      */
     static FixedSizedHostBuffer from_vector(
-        std::vector<std::byte> vec, std::size_t block_size
+        std::vector<std::byte>&& vec, std::size_t block_size
     );
 
     /**
@@ -55,7 +55,7 @@ class FixedSizedHostBuffer {
      * @param vecs Vector of byte vectors (moved from).
      * @return A buffer with one block per inner vector.
      */
-    static FixedSizedHostBuffer from_vectors(std::vector<std::vector<std::byte>> vecs);
+    static FixedSizedHostBuffer from_vectors(std::vector<std::vector<std::byte>>&& vecs);
 
     /**
      * @brief Construct from a cucascade multiple_blocks_allocation.
@@ -67,7 +67,7 @@ class FixedSizedHostBuffer {
      * @return A buffer backed by the allocation's blocks.
      */
     static FixedSizedHostBuffer from_multi_blocks_alloc(
-        cucascade::memory::fixed_multiple_blocks_allocation allocation
+        cucascade::memory::fixed_multiple_blocks_allocation&& allocation
     );
 
     FixedSizedHostBuffer(FixedSizedHostBuffer const&) = delete;
@@ -79,7 +79,8 @@ class FixedSizedHostBuffer {
      * @return True if both buffers are empty or have the same total size, block size
      * and the same block pointers.
      */
-    [[nodiscard]] constexpr bool operator==(FixedSizedHostBuffer const& other
+    [[nodiscard]] constexpr bool operator==(
+        FixedSizedHostBuffer const& other
     ) const noexcept {
         return total_size_ == other.total_size_
                && (total_size_ == 0
