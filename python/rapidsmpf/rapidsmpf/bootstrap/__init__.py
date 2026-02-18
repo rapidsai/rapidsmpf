@@ -7,7 +7,17 @@ from __future__ import annotations
 from rapidsmpf.bootstrap.bootstrap import (
     BackendType,
     create_ucxx_comm,
+    get_nranks,
+    get_rank,
     is_running_with_rrun,
+    is_running_with_slurm,
 )
 
-__all__ = ["BackendType", "create_ucxx_comm", "is_running_with_rrun"]
+__all__ = [
+    "BackendType",
+    "create_ucxx_comm",
+    "get_nranks",
+    "get_rank",
+    "is_running_with_rrun",
+    "is_running_with_slurm",
+]
