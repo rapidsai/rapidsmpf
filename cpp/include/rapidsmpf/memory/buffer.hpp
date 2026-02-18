@@ -160,6 +160,10 @@ class Buffer {
      * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI, blocking
      * host I/O).
      *
+     * @warning The `Buffer` does not track read access to its underlying storage, and so
+     * one should be aware of write-after-read anti-dependencies when obtaining exclusive
+     * access.
+     *
      * @note Prefer `write_access(...)` if you can express the operation as a
      * single callable on a stream, even if that requires manually synchronizing the
      * stream before the callable returns.
@@ -249,6 +253,11 @@ class Buffer {
      * races: another thread may enqueue additional writes after this returns `true`.
      * Ensure no further writes are enqueued, or establish stronger synchronization (e.g.,
      * synchronize the buffer's stream) before using the buffer.
+     *
+     * @warning This check only confirms that there are no pending _writes_ to the
+     * `Buffer`. Pending stream-ordered _reads_ from the `Buffer` are not tracked and
+     * therefore one should be aware of write-after-read anti-dependencies when using this
+     * check to pass from stream-ordered to non-stream-ordered code.
      *
      * @return `true` if the last recorded write event has completed; `false` otherwise.
      *
