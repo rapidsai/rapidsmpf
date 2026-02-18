@@ -24,7 +24,7 @@ from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 cdef class Context:
     """
-    Context for nodes (coroutines) in rapidsmpf.
+    Context for actors (coroutines) in rapidsmpf.
 
     The context owns shared resources used during execution, including the
     coroutine executor and memory reservation infrastructure.

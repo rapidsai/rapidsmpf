@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for streaming fanout node."""
+"""Tests for streaming fanout actor."""
 
 from __future__ import annotations
 
@@ -46,16 +46,16 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
         )
         messages.append(Message(i, chunk))
 
-    # Create nodes
-    push_node = push_to_channel(context, ch_in, messages)
-    fanout_node = fanout(context, ch_in, [ch_out1, ch_out2], policy)
-    pull_node1, output1 = pull_from_channel(context, ch_out1)
-    pull_node2, output2 = pull_from_channel(context, ch_out2)
+    # Create actors
+    push_actor = push_to_channel(context, ch_in, messages)
+    fanout_actor = fanout(context, ch_in, [ch_out1, ch_out2], policy)
+    pull_actor1, output1 = pull_from_channel(context, ch_out1)
+    pull_actor2, output2 = pull_from_channel(context, ch_out2)
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
         run_actor_graph(
-            nodes=[push_node, fanout_node, pull_node1, pull_node2],
+            actors=[push_actor, fanout_actor, pull_actor1, pull_actor2],
             py_executor=executor,
         )
 
@@ -111,20 +111,20 @@ def test_fanout_multiple_outputs(
         )
         messages.append(Message(i, chunk))
 
-    # Create nodes
-    push_node = push_to_channel(context, ch_in, messages)
-    fanout_node = fanout(context, ch_in, chs_out, policy)
-    pull_nodes = []
+    # Create actors
+    push_actor = push_to_channel(context, ch_in, messages)
+    fanout_actor = fanout(context, ch_in, chs_out, policy)
+    pull_actors = []
     outputs = []
     for ch_out in chs_out:
-        pull_node, output = pull_from_channel(context, ch_out)
-        pull_nodes.append(pull_node)
+        pull_actor, output = pull_from_channel(context, ch_out)
+        pull_actors.append(pull_actor)
         outputs.append(output)
 
     # Run pipeline
     with ThreadPoolExecutor(max_workers=1) as executor:
         run_actor_graph(
-            nodes=[push_node, fanout_node, *pull_nodes],
+            actors=[push_actor, fanout_actor, *pull_actors],
             py_executor=executor,
         )
 

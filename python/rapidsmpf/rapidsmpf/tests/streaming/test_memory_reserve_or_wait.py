@@ -50,13 +50,13 @@ def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
         mrow = MemoryReserveOrWait(context.options(), MemoryType.DEVICE, context)
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             res = await mrow.reserve_or_wait(size=1024, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 1024
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -68,7 +68,7 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
         )
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             t0 = time.time()
             res = await mrow.reserve_or_wait(size=0, net_memory_delta=0)
             assert time.time() - t0 < 10  #  Should complete before timeout.
@@ -76,7 +76,7 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
             assert res.size == 0
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -88,13 +88,13 @@ def test_timeout(py_executor: ThreadPoolExecutor) -> None:
         )
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             res = await mrow.reserve_or_wait(size=2048, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -106,19 +106,19 @@ def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
         )
 
         @define_actor()
-        async def node1(ctx: Context) -> None:
+        async def actor1(ctx: Context) -> None:
             with pytest.raises(RuntimeError, match="memory reservation failed"):
                 await mrow.reserve_or_wait(size=2048, net_memory_delta=0)
 
         @define_actor()
-        async def node2(ctx: Context) -> None:
-            # Wait until `node1()` has submitted its reservation request.
+        async def actor2(ctx: Context) -> None:
+            # Wait until `actor1()` has submitted its reservation request.
             while mrow.size() == 0:
                 await asyncio.sleep(0)
             await mrow.shutdown()
 
         run_actor_graph(
-            nodes=[node1(context), node2(context)],
+            actors=[actor1(context), actor2(context)],
             py_executor=py_executor,
         )
 
@@ -129,14 +129,14 @@ def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
         assert isinstance(mrow, MemoryReserveOrWait)
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             assert ctx.memory(MemoryType.DEVICE) is mrow
             res = await mrow.reserve_or_wait(size=512, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 512
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -148,7 +148,7 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
         )
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             # No overbooking
             res, overbooked = await mrow.reserve_or_wait_or_overbook(
                 size=1024, net_memory_delta=0
@@ -166,7 +166,7 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
             assert overbooked == 1024
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -178,13 +178,13 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
         )
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             # Request cannot be satisfied and overbooking is not allowed.
             with pytest.raises(RuntimeError):
                 await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -195,7 +195,7 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
     ) as context:
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             # Fits within limit, should always succeed.
             res = await reserve_memory(
                 ctx,
@@ -229,7 +229,7 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
                 )
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -247,7 +247,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
     ) as context:
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             res = await reserve_memory(
                 ctx,
                 2048,
@@ -259,7 +259,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
             assert res.size == 2048
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -273,7 +273,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
     ) as context:
 
         @define_actor()
-        async def node(ctx: Context) -> None:
+        async def actor(ctx: Context) -> None:
             with pytest.raises(RuntimeError):
                 await reserve_memory(
                     ctx,
@@ -284,6 +284,6 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
                 )
 
         run_actor_graph(
-            nodes=[node(context)],
+            actors=[actor(context)],
             py_executor=py_executor,
         )

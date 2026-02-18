@@ -132,7 +132,7 @@ TEST_P(StreamingAllGather, basic) {
     EXPECT_EQ(expected, result);
 }
 
-TEST_P(StreamingAllGather, streaming_node) {
+TEST_P(StreamingAllGather, streaming_actor) {
     auto mem_type = std::get<1>(GetParam());
 
     auto ch_in = ctx->create_channel();

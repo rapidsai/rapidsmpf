@@ -378,14 +378,14 @@ int main(int argc, char** argv) {
     auto ctx = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
-        std::vector<rapidsmpf::streaming::Actor> nodes;
+        std::vector<rapidsmpf::streaming::Actor> actors;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing read_parquet pipeline");
 
             // Input data channels
             auto ch_out = ctx->create_channel();
-            nodes.push_back(read_parquet(
+            actors.push_back(read_parquet(
                 ctx,
                 ch_out,
                 arguments.num_producers,
@@ -394,7 +394,7 @@ int main(int argc, char** argv) {
                 arguments.input_directory,
                 arguments.input_file
             ));
-            nodes.push_back(
+            actors.push_back(
                 consume_channel_parallel(ctx, ch_out, arguments.num_consumers)
             );
         }
@@ -403,7 +403,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("read_parquet iteration");
-            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

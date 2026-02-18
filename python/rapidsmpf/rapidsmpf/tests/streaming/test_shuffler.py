@@ -73,13 +73,13 @@ def test_single_rank_shuffler(
 
     # Build the streaming pipeline:
     #   push -> partition/pack -> shuffle -> unpack/concat -> pull.
-    nodes = []
+    actors = []
 
     ch1: Channel[TableChunk] = context.create_channel()
-    nodes.append(push_to_channel(context, ch1, input_chunks))
+    actors.append(push_to_channel(context, ch1, input_chunks))
 
     ch2: Channel[PartitionMapChunk] = context.create_channel()
-    nodes.append(
+    actors.append(
         partition_and_pack(
             context,
             ch_in=ch1,
@@ -90,7 +90,7 @@ def test_single_rank_shuffler(
     )
 
     ch3: Channel[PartitionVectorChunk] = context.create_channel()
-    nodes.append(
+    actors.append(
         shuffler(
             context,
             ch_in=ch2,
@@ -101,13 +101,13 @@ def test_single_rank_shuffler(
     )
 
     ch4: Channel[TableChunk] = context.create_channel()
-    nodes.append(streaming_unpack_and_concat(context, ch_in=ch3, ch_out=ch4))
+    actors.append(streaming_unpack_and_concat(context, ch_in=ch3, ch_out=ch4))
 
-    pull_node, out_messages = pull_from_channel(context, ch_in=ch4)
-    nodes.append(pull_node)
+    pull_actor, out_messages = pull_from_channel(context, ch_in=ch4)
+    actors.append(pull_actor)
 
-    # Run all nodes. This blocks until every node has completed.
-    run_actor_graph(nodes=nodes)
+    # Run all actors. This blocks until every actor has completed.
+    run_actor_graph(actors=actors)
 
     # Unwrap the messages into table chunks.
     output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
@@ -194,16 +194,16 @@ def test_shuffler_object_interface(
     py_executor: ThreadPoolExecutor,
     use_extract_any: bool,  # noqa: FBT001
 ) -> None:
-    nodes: list[CppActor | PyActor] = []
+    actors: list[CppActor | PyActor] = []
 
     num_partitions = 5
     num_rows = 100
     num_chunks = 4
     op_id = 0
     ch_in: Channel[TableChunk] = context.create_channel()
-    nodes.append(generate_inputs(context, ch_in, num_rows, num_chunks))
+    actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
     ch_shuffled: Channel[TableChunk] = context.create_channel()
-    nodes.append(
+    actors.append(
         do_shuffle(
             context,
             ch_in,
@@ -213,10 +213,10 @@ def test_shuffler_object_interface(
             use_extract_any=use_extract_any,
         )
     )
-    node, deferred = pull_from_channel(context, ch_shuffled)
-    nodes.append(node)
+    actor, deferred = pull_from_channel(context, ch_shuffled)
+    actors.append(actor)
 
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5

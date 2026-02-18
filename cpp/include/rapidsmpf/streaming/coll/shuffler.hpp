@@ -225,7 +225,7 @@ namespace actor {
  * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
  * @param ch_out Output channel where the resulting PartitionVectorChunks are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until all
- * nodes have called `Shuffler::shutdown()`.
+ * actors have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
  *

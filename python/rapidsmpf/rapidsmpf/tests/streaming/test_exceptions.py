@@ -37,14 +37,14 @@ def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> N
 
     pull_task, deferred = pull_from_channel(context, ch3)
 
-    nodes: list[CppActor | PyActor] = [
+    actors: list[CppActor | PyActor] = [
         task_that_throws(context, ch1, ch2),
         task_that_spins(context, ch3),
         pull_task,
     ]
 
     with pytest.raises(RuntimeError, match="Throwing in task"):
-        run_actor_graph(nodes=nodes, py_executor=py_executor)
+        run_actor_graph(actors=actors, py_executor=py_executor)
 
     messages = deferred.release()
     assert len(messages) == 0

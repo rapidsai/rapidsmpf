@@ -154,23 +154,23 @@ TEST_P(StreamingFanout, SinkPerChannel) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+        actors.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+        actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
-            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
+            actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -191,23 +191,23 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+        actors.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+        actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
-            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
+            actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
         }
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -235,7 +235,7 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
 namespace {
 
 /**
- * @brief A node that pulls and shuts down a channel after a certain number of messages
+ * @brief An actor that pulls and shuts down a channel after a certain number of messages
  * have been received.
  *
  * @param ctx The context to use.
@@ -263,7 +263,7 @@ Actor shutdown_channel_after_n_messages(
     co_await ch_in->shutdown();
 }
 
-Actor throwing_node(std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) {
+Actor throwing_actor(std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
     throw std::logic_error("throwing source");
@@ -277,25 +277,25 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+        actors.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+        actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
-            nodes.emplace_back(
+            actors.emplace_back(
                 shutdown_channel_after_n_messages(ctx, out_chs[i], outs[i], num_msgs / 2)
             );
         }
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -315,29 +315,29 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
 
         auto in = ctx->create_channel();
-        nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+        actors.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+        actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
         for (int i = 0; i < num_out_chs; ++i) {
             if (i % 2 == 0) {
-                nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
+                actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], outs[i]));
             } else {
-                nodes.emplace_back(shutdown_channel_after_n_messages(
+                actors.emplace_back(shutdown_channel_after_n_messages(
                     ctx, out_chs[i], outs[i], num_msgs / 2
                 ));
             }
         }
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
@@ -370,55 +370,55 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-// tests that throwing a source node propagates the error to the pipeline. This test will
+// tests that throwing a source actor propagates the error to the pipeline. This test will
 // throw, but it should not hang.
 TEST_P(ThrowingStreamingFanout, ThrowingSource) {
-    std::vector<Actor> nodes;
+    std::vector<Actor> actors;
 
     auto in = ctx->create_channel();
-    nodes.emplace_back(throwing_node(ctx, in));
+    actors.emplace_back(throwing_actor(ctx, in));
 
     std::vector<std::shared_ptr<Channel>> out_chs;
     for (int i = 0; i < num_out_chs; ++i) {
         out_chs.emplace_back(ctx->create_channel());
     }
 
-    nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+    actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
     std::vector<Message> dummy_out;
     for (int i = 0; i < num_out_chs; ++i) {
-        nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_out));
+        actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_out));
     }
 
-    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::logic_error);
+    EXPECT_THROW(run_actor_graph(std::move(actors)), std::logic_error);
 }
 
-// tests that throwing a sink node propagates the error to the pipeline. This test
+// tests that throwing a sink actor propagates the error to the pipeline. This test
 // will throw, but it should not hang.
 TEST_P(ThrowingStreamingFanout, ThrowingSink) {
     auto inputs = make_int_inputs(num_msgs);
 
-    std::vector<Actor> nodes;
+    std::vector<Actor> actors;
     auto in = ctx->create_channel();
-    nodes.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+    actors.emplace_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
     std::vector<std::shared_ptr<Channel>> out_chs;
     for (int i = 0; i < num_out_chs; ++i) {
         out_chs.emplace_back(ctx->create_channel());
     }
 
-    nodes.emplace_back(actor::fanout(ctx, in, out_chs, policy));
+    actors.emplace_back(actor::fanout(ctx, in, out_chs, policy));
 
     std::vector<std::vector<Message>> dummy_outs(num_out_chs);
     for (int i = 0; i < num_out_chs; ++i) {
         if (i == 0) {
-            nodes.emplace_back(throwing_node(ctx, out_chs[i]));
+            actors.emplace_back(throwing_actor(ctx, out_chs[i]));
         } else {
-            nodes.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_outs[i]));
+            actors.emplace_back(actor::pull_from_channel(ctx, out_chs[i], dummy_outs[i]));
         }
     }
 
-    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::logic_error);
+    EXPECT_THROW(run_actor_graph(std::move(actors)), std::logic_error);
 }
 
 namespace {
@@ -474,21 +474,21 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
 
         std::vector<std::vector<Message>> outs(num_out_chs);
         {
-            std::vector<Actor> nodes;
+            std::vector<Actor> actors;
 
             auto in = ctx->create_channel();
-            nodes.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+            actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
             std::vector<std::shared_ptr<Channel>> out_chs;
             for (int i = 0; i < num_out_chs; ++i) {
                 out_chs.emplace_back(ctx->create_channel());
             }
 
-            nodes.push_back(actor::fanout(ctx, in, out_chs, policy));
+            actors.push_back(actor::fanout(ctx, in, out_chs, policy));
 
-            nodes.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
+            actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
 
-            run_actor_graph(std::move(nodes));
+            run_actor_graph(std::move(actors));
         }
 
         std::vector<int> expected(num_msgs);
@@ -562,22 +562,22 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
 
         auto in = ctx->create_channel();
-        nodes.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+        actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
         }
 
-        nodes.push_back(actor::fanout(ctx, in, out_chs, policy));
-        nodes.push_back(
+        actors.push_back(actor::fanout(ctx, in, out_chs, policy));
+        actors.push_back(
             many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
         );
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     for (int c = 0; c < num_out_chs; ++c) {

@@ -52,23 +52,23 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     // Create and run the streaming pipeline.
     std::vector<Message> outputs;
     {
-        std::vector<Actor> nodes;
+        std::vector<Actor> actors;
         auto ch1 = ctx->create_channel();
-        nodes.push_back(actor::push_to_channel(ctx, ch1, std::move(inputs)));
+        actors.push_back(actor::push_to_channel(ctx, ch1, std::move(inputs)));
 
         auto ch2 = ctx->create_channel();
-        nodes.push_back(
+        actors.push_back(
             actor::partition_and_pack(
                 ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
             )
         );
 
         auto ch3 = ctx->create_channel();
-        nodes.push_back(actor::unpack_and_concat(ctx, ch2, ch3));
+        actors.push_back(actor::unpack_and_concat(ctx, ch2, ch3));
 
-        nodes.push_back(actor::pull_from_channel(ctx, ch3, outputs));
+        actors.push_back(actor::pull_from_channel(ctx, ch3, outputs));
 
-        run_actor_graph(std::move(nodes));
+        run_actor_graph(std::move(actors));
     }
 
     EXPECT_EQ(expects.size(), outputs.size());

@@ -116,7 +116,7 @@ def main() -> int:
 
     # Run all actors. This blocks until every actor has completed.
     run_actor_graph(
-        nodes=(
+        actors=(
             actor1,
             actor2,
             actor3,

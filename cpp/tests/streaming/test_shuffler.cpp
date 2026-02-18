@@ -52,7 +52,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
         BaseStreamingShuffle::TearDown();
     }
 
-    void run_test(auto make_shuffler_node_fn) {
+    void run_test(auto make_shuffler_actor_fn) {
         // Create the full input table and slice it into chunks.
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<Message> input_chunks;
@@ -79,26 +79,26 @@ class StreamingShuffler : public BaseStreamingShuffle,
         // Create and run the streaming pipeline.
         std::vector<Message> output_chunks;
         {
-            std::vector<Actor> nodes;
+            std::vector<Actor> actors;
             auto ch1 = ctx->create_channel();
-            nodes.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
+            actors.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
 
             auto ch2 = ctx->create_channel();
-            nodes.push_back(
+            actors.push_back(
                 actor::partition_and_pack(
                     ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
                 )
             );
 
             auto ch3 = ctx->create_channel();
-            nodes.emplace_back(make_shuffler_node_fn(ch2, ch3));
+            actors.emplace_back(make_shuffler_actor_fn(ch2, ch3));
 
             auto ch4 = ctx->create_channel();
-            nodes.push_back(actor::unpack_and_concat(ctx, ch3, ch4));
+            actors.push_back(actor::unpack_and_concat(ctx, ch3, ch4));
 
-            nodes.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
+            actors.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
 
-            run_actor_graph(std::move(nodes));
+            run_actor_graph(std::move(actors));
         }
 
         std::unique_ptr<cudf::table> expected_table;

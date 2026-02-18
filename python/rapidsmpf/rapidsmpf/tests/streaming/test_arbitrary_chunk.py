@@ -127,14 +127,14 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
             )
         await ch_out.drain(ctx)
 
-    nodes: list[CppActor | PyActor] = [
+    actors: list[CppActor | PyActor] = [
         push_to_channel(context, ch_in, inputs),
         increment(context, ch_in, ch_out),
     ]
-    node, deferred_messages = pull_from_channel(context, ch_out)
-    nodes.append(node)
+    actor, deferred_messages = pull_from_channel(context, ch_out)
+    actors.append(actor)
 
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
 
     results = deferred_messages.release()
     for seq, msg in enumerate(results):

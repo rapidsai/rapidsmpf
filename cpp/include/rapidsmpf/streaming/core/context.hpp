@@ -23,7 +23,7 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Context for nodes (coroutines) in rapidsmpf.
+ * @brief Context for actors (coroutines) in rapidsmpf.
  *
  * The context owns shared resources used during execution, including the
  * coroutine executor and memory reservation infrastructure.

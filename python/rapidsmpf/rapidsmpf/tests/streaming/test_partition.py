@@ -40,10 +40,10 @@ def test_partition_and_pack_unpack(
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = context.create_channel()
-    node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
+    actor1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
 
     ch2: Channel[PartitionMapChunk] = context.create_channel()
-    node2 = partition_and_pack(
+    actor2 = partition_and_pack(
         context,
         ch_in=ch1,
         ch_out=ch2,
@@ -52,14 +52,14 @@ def test_partition_and_pack_unpack(
     )
 
     ch3: Channel[TableChunk] = context.create_channel()
-    node3 = unpack_and_concat(
+    actor3 = unpack_and_concat(
         context,
         ch_in=ch2,
         ch_out=ch3,
     )
 
-    node4, output = pull_from_channel(context, ch_in=ch3)
-    run_actor_graph(nodes=(node1, node2, node3, node4))
+    actor4, output = pull_from_channel(context, ch_in=ch3)
+    run_actor_graph(actors=(actor1, actor2, actor3, actor4))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

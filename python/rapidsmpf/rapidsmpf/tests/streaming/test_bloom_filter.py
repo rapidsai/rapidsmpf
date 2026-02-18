@@ -52,7 +52,7 @@ def run_bloom_filter_pipeline(
     ch_filter: Channel[BloomFilterChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
-    nodes = [
+    actors = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
         bloom.build(ch_in=ch_build, ch_out=ch_filter, tag=0),
@@ -63,9 +63,9 @@ def run_bloom_filter_pipeline(
             keys=(0,),
         ),
     ]
-    pull_node, deferred = pull_from_channel(context, ch_out)
-    nodes.append(pull_node)
-    run_actor_graph(nodes=nodes)
+    pull_actor, deferred = pull_from_channel(context, ch_out)
+    actors.append(pull_actor)
+    run_actor_graph(actors=actors)
     return deferred.release()
 
 

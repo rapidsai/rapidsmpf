@@ -26,6 +26,6 @@ def define_actor(
 ]: ...
 def run_actor_graph(
     *,
-    nodes: Collection[CppActor | PyActor],
+    actors: Collection[CppActor | PyActor],
     py_executor: ThreadPoolExecutor | None = None,
 ) -> None: ...

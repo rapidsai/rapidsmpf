@@ -28,7 +28,7 @@ namespace rapidsmpf::streaming::actor {
  * distributed in the range [`min_val`, `max_val`]. Each generated table is wrapped
  * in a `TableChunk` and sent to the provided output channel in streaming fashion.
  *
- * @param ctx The node context to use.
+ * @param ctx The actor context to use.
  * @param stream The CUDA stream on which to create the random tables. TODO: use a pool
  * of CUDA streams.
  * @param ch_out Output channel to which generated `TableChunk` objects are sent.

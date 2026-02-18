@@ -186,7 +186,7 @@ class Channel {
  *
  * This adds a semaphore-based throttle to a channel to cap the number of suspended
  * coroutines that can be waiting to send into it. It is useful when writing producer
- * nodes that otherwise do not depend on an input channel.
+ * actors that otherwise do not depend on an input channel.
  */
 class ThrottlingAdaptor {
   private:

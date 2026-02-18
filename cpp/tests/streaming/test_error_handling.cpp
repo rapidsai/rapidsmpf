@@ -17,22 +17,22 @@ using namespace rapidsmpf::streaming;
 using StreamingErrorHandling = BaseStreamingFixture;
 
 TEST_F(StreamingErrorHandling, UnhandledException) {
-    std::vector<Actor> nodes;
+    std::vector<Actor> actors;
 
-    nodes.push_back([](Context& ctx) -> Actor {
+    actors.push_back([](Context& ctx) -> Actor {
         co_await ctx.executor()->schedule();
         throw std::runtime_error("unhandled_exception");
     }(*ctx));
 
-    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::runtime_error);
+    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingErrorHandling, ProducerThrows) {
     auto ch = ctx->create_channel();
-    std::vector<Actor> nodes;
+    std::vector<Actor> actors;
 
-    // Producer node.
-    nodes.push_back(
+    // Producer actor.
+    actors.push_back(
         [](std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) -> Actor {
             ShutdownAtExit c{ch_out};
             co_await ctx->executor()->schedule();
@@ -40,8 +40,8 @@ TEST_F(StreamingErrorHandling, ProducerThrows) {
         }(ctx, ch)
     );
 
-    // Consumer node.
-    nodes.push_back(
+    // Consumer actor.
+    actors.push_back(
         [](std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_in) -> Actor {
             ShutdownAtExit c{ch_in};
             co_await ctx->executor()->schedule();
@@ -49,15 +49,15 @@ TEST_F(StreamingErrorHandling, ProducerThrows) {
         }(ctx, ch)
     );
 
-    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::runtime_error);
+    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
 }
 
 TEST_F(StreamingErrorHandling, ConsumerThrows) {
     auto ch = ctx->create_channel();
-    std::vector<Actor> nodes;
+    std::vector<Actor> actors;
 
-    // Producer node.
-    nodes.push_back(
+    // Producer actor.
+    actors.push_back(
         [](std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) -> Actor {
             ShutdownAtExit c{ch_out};
             co_await ctx->executor()->schedule();
@@ -68,8 +68,8 @@ TEST_F(StreamingErrorHandling, ConsumerThrows) {
         }(ctx, ch)
     );
 
-    // Consumer node.
-    nodes.push_back(
+    // Consumer actor.
+    actors.push_back(
         [](std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_in) -> Actor {
             ShutdownAtExit c{ch_in};
             co_await ctx->executor()->schedule();
@@ -77,5 +77,5 @@ TEST_F(StreamingErrorHandling, ConsumerThrows) {
         }(ctx, ch)
     );
 
-    EXPECT_THROW(run_actor_graph(std::move(nodes)), std::runtime_error);
+    EXPECT_THROW(run_actor_graph(std::move(actors)), std::runtime_error);
 }

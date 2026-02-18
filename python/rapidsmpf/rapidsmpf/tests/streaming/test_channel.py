@@ -95,7 +95,7 @@ def test_data_roundtrip_without_metadata(
 ) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     outputs: list[int] = []
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         send_data(context, ch, 0, 3),
     ]
 
@@ -106,8 +106,8 @@ def test_data_roundtrip_without_metadata(
         while (msg := await ch_in.recv(ctx)) is not None:
             outputs.append(ArbitraryChunk.from_message(msg).release())
 
-    nodes.append(consume_only_data(context, ch))
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    actors.append(consume_only_data(context, ch))
+    run_actor_graph(actors=actors, py_executor=py_executor)
 
     assert outputs == [0, 1, 2]
 
@@ -119,11 +119,11 @@ def test_metadata_then_data_roundtrip(
     metadata_out: list[int] = []
     data_out: list[int] = []
 
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         send_metadata_then_data(context, ch, [10, 20], 0, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
 
     assert metadata_out == [10, 20]
     assert data_out == [0, 1]
@@ -135,11 +135,11 @@ def test_data_only_with_metadata_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         send_data_only_with_metadata_shutdown(context, ch, 5, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
 
     assert metadata_out == []
     assert data_out == [5, 6]
@@ -151,11 +151,11 @@ def test_metadata_only_with_data_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         send_metadata_only(context, ch, [30, 31]),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
 
     assert metadata_out == [30, 31]
     assert data_out == []
@@ -175,12 +175,12 @@ def test_producer_raises_after_metadata(
         await ch_out.send_metadata(ctx, Message(0, ArbitraryChunk(99)))
         raise RuntimeError("producer failed")
 
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         throwing_producer(context, ch),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
     with pytest.raises(RuntimeError, match="producer failed"):
-        run_actor_graph(nodes=nodes, py_executor=py_executor)
+        run_actor_graph(actors=actors, py_executor=py_executor)
 
 
 def test_consumer_raises_with_metadata(
@@ -194,9 +194,9 @@ def test_consumer_raises_with_metadata(
     ) -> None:
         raise RuntimeError("consumer failed")
 
-    nodes: list[PyActor] = [
+    actors: list[PyActor] = [
         send_metadata_then_data(context, ch, [1], 0, 1),
         throwing_consumer(context, ch),
     ]
     with pytest.raises(RuntimeError, match="consumer failed"):
-        run_actor_graph(nodes=nodes, py_executor=py_executor)
+        run_actor_graph(actors=actors, py_executor=py_executor)

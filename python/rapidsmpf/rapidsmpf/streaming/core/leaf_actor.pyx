@@ -110,7 +110,7 @@ def pull_from_channel(Context ctx, Channel ch_in):
 
     Returns
     -------
-    node
+    actor
         Streaming actor representing the asynchronous receive.
     messages
         Deferred collection that will be populated with the received messages
@@ -122,11 +122,11 @@ def pull_from_channel(Context ctx, Channel ch_in):
     execute in order to populate it.
     """
     cdef DeferredMessages _ret_messages = DeferredMessages()
-    cdef cpp_Actor _ret_node
+    cdef cpp_Actor _ret_actor
     with nogil:
-        _ret_node = cpp_pull_from_channel(
+        _ret_actor = cpp_pull_from_channel(
             ctx._handle, ch_in._handle, _ret_messages._messages
         )
     return CppActor.from_handle(
-        make_unique[cpp_Actor](move(_ret_node)), owner=_ret_messages
+        make_unique[cpp_Actor](move(_ret_actor)), owner=_ret_messages
     ), _ret_messages

@@ -169,7 +169,7 @@ def shuffler(
         Output channel that receives the grouped (vector) chunks.
     op_id
         Unique identifier for this shuffle operation. Must not be reused until
-        all nodes participating in the shuffle have shut down.
+        all actors participating in the shuffle have shut down.
     total_num_partitions
         Total number of logical partitions to shuffle the data into.
 

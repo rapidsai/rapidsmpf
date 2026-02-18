@@ -32,7 +32,7 @@ namespace rapidsmpf::streaming {
  * auto ctx = std::make_shared<Context>(...);
  * auto ch_out = ctx->create_channel();
  * auto linearise = std::make_shared<Lineariser>(ch_out, 8);
- * std::vector<Node> tasks;
+ * std::vector<Actor> tasks;
  * // Draining the lineariser will pull from all the input channels until they are
  * // shutdown and send to the output channel until it is consumed.
  * tasks.push_back(linearise->drain());

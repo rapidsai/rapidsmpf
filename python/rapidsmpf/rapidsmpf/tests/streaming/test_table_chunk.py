@@ -269,11 +269,11 @@ def test_make_available_or_wait_already_available(
     result_holder: list[TableChunk] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         result = await chunk.make_available_or_wait(ctx, net_memory_delta=0)
         result_holder.append(result)
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -296,13 +296,13 @@ def test_make_available_or_wait_from_host(
     result_holder: list[TableChunk] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         result = await host_chunk.make_available_or_wait(
             ctx, net_memory_delta=net_memory_delta
         )
         result_holder.append(result)
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -379,13 +379,13 @@ def test_make_table_chunks_available_or_wait_single_chunk(
     result_holder: list[tuple] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         result_chunk, res = await make_table_chunks_available_or_wait(
             ctx, chunk, reserve_extra=0, net_memory_delta=0
         )
         result_holder.append((result_chunk, res))
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -423,7 +423,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
     result_holder: list[tuple] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunks,
@@ -432,7 +432,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
         )
         result_holder.append((chunks, res))
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == num_chunks
     assert all(chunk.is_available() for chunk in chunks)
@@ -478,7 +478,7 @@ def test_make_table_chunks_available_or_wait(
     result_holder: list[tuple] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         chunk, res = await make_table_chunks_available_or_wait(
             ctx,
             host_chunk,
@@ -488,7 +488,7 @@ def test_make_table_chunks_available_or_wait(
         )
         result_holder.append((chunk, res))
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -520,7 +520,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
     result_holder: list[tuple] = []
 
     @define_actor()
-    async def test_node(ctx: Context) -> None:
+    async def test_actor(ctx: Context) -> None:
         chunks, res = await make_table_chunks_available_or_wait(
             ctx,
             [available_chunk, host_chunk],
@@ -529,7 +529,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
         )
         result_holder.append((chunks, res))
 
-    run_actor_graph(nodes=[test_node(context)], py_executor=py_executor)
+    run_actor_graph(actors=[test_actor(context)], py_executor=py_executor)
     chunks, res = result_holder[0]
     assert len(chunks) == 2
     assert all(chunk.is_available() for chunk in chunks)

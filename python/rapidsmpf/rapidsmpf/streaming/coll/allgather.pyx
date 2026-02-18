@@ -164,7 +164,7 @@ def allgather(
         Output channel that receives gathered PackedDataChunks.
     op_id
         Unique identifier for this allgather operation. Must not be reused until
-        all nodes participating in the allgather have shut down.
+        all actors participating in the allgather have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
 

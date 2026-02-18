@@ -259,10 +259,10 @@ rapidsmpf::Duration run(
     constexpr rapidsmpf::OpID op_id = 0;
 
     // Create streaming pipeline.
-    std::vector<rapidsmpf::streaming::Actor> nodes;
+    std::vector<rapidsmpf::streaming::Actor> actors;
     {
         auto ch1 = ctx->create_channel();
-        nodes.push_back(
+        actors.push_back(
             rapidsmpf::streaming::actor::random_table_generator(
                 ctx,
                 stream,
@@ -275,7 +275,7 @@ rapidsmpf::Duration run(
             )
         );
         auto ch2 = ctx->create_channel();
-        nodes.push_back(
+        actors.push_back(
             rapidsmpf::streaming::actor::partition_and_pack(
                 ctx,
                 ch1,
@@ -287,17 +287,17 @@ rapidsmpf::Duration run(
             )
         );
         auto ch3 = ctx->create_channel();
-        nodes.push_back(
+        actors.push_back(
             rapidsmpf::streaming::actor::shuffler(
                 ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = ctx->create_channel();
-        nodes.push_back(rapidsmpf::streaming::actor::unpack_and_concat(ctx, ch3, ch4));
-        nodes.push_back(consumer(ctx, ch4));
+        actors.push_back(rapidsmpf::streaming::actor::unpack_and_concat(ctx, ch3, ch4));
+        actors.push_back(consumer(ctx, ch4));
     }
     auto const t0_elapsed = rapidsmpf::Clock::now();
-    rapidsmpf::streaming::run_actor_graph(std::move(nodes));
+    rapidsmpf::streaming::run_actor_graph(std::move(actors));
     return rapidsmpf::Clock::now() - t0_elapsed;
 }
 

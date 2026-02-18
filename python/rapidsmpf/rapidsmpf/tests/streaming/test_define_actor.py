@@ -35,9 +35,9 @@ def test_send_table_chunks(
 
     ch1: Channel[TableChunk] = context.create_channel()
 
-    # The node access `ch1` both through the `ch_out` parameter and the closure.
+    # The actor access `ch1` both through the `ch_out` parameter and the closure.
     @define_actor(extra_channels=(ch1,))
-    async def node1(ctx: Context, /, ch_out: Channel) -> None:
+    async def actor1(ctx: Context, /, ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
                 context,
@@ -52,12 +52,12 @@ def test_send_table_chunks(
             )
         await ch_out.drain(context)
 
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
     run_actor_graph(
-        nodes=[
-            node1(context, ch_out=ch1),
-            node2,
+        actors=[
+            actor1(context, ch_out=ch1),
+            actor2,
         ],
         py_executor=py_executor,
     )
@@ -71,18 +71,18 @@ def test_send_table_chunks(
 
 def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
     @define_actor()
-    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
+    async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         await ch_out.shutdown(ctx)
         # Calling shutdown multiple times is allowed.
         await ch_out.shutdown(ctx)
 
     ch1: Channel[TableChunk] = context.create_channel()
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
     run_actor_graph(
-        nodes=[
-            node1(context, ch_out=ch1),
-            node2,
+        actors=[
+            actor1(context, ch_out=ch1),
+            actor2,
         ],
         py_executor=py_executor,
     )
@@ -92,20 +92,20 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
 
 def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     @define_actor()
-    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
+    async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
     ch1: Channel[TableChunk] = context.create_channel()
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
     with pytest.raises(
         RuntimeError,
         match="MyError",
     ):
         run_actor_graph(
-            nodes=[
-                node1(context, ch_out=ch1),
-                node2,
+            actors=[
+                actor1(context, ch_out=ch1),
+                actor2,
             ],
             py_executor=py_executor,
         )
@@ -130,7 +130,7 @@ def test_recv_table_chunks(
     results: list[Message[TableChunk]] = []
 
     @define_actor()
-    async def node1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
+    async def actor1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
         while True:
             chunk = await ch_in.recv(context)
             if chunk is None:
@@ -140,9 +140,9 @@ def test_recv_table_chunks(
     ch1: Channel[TableChunk] = context.create_channel()
 
     run_actor_graph(
-        nodes=[
+        actors=[
             push_to_channel(context, ch_out=ch1, messages=table_chunks),
-            node1(context, ch_in=ch1),
+            actor1(context, ch_in=ch1),
         ],
         py_executor=py_executor,
     )

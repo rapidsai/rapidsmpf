@@ -306,7 +306,7 @@ class MemoryReserveOrWait {
  * a heuristic to prefer eligible requests that are expected to reduce memory pressure
  * sooner. Smaller values have higher priority.
  *
- * @param ctx Node context used to obtain the memory reservation handle.
+ * @param ctx Actor context used to obtain the memory reservation handle.
  * @param size Number of bytes to reserve.
  * @param net_memory_delta Estimated net change in memory usage after the reservation is
  * allocated and the dependent operation completes. Smaller values have higher priority.

@@ -183,7 +183,7 @@ def define_actor(*, extra_channels=()):
     return decorator
 
 
-def run_actor_graph(*, nodes, py_executor = None):
+def run_actor_graph(*, actors, py_executor = None):
     """
     Run streaming actors to completion (blocking).
 
@@ -193,7 +193,7 @@ def run_actor_graph(*, nodes, py_executor = None):
 
     Parameters
     ----------
-    nodes
+    actors
         Iterable of actors. Each element is either a native C++ actor or a Python
         awaitable representing an actor.
     py_executor
@@ -212,7 +212,7 @@ def run_actor_graph(*, nodes, py_executor = None):
         Any unhandled exception from an actor is re-raised after execution. If multiple
         actors raise exceptions, only one is re-raised, and it is unspecified which one.
     TypeError
-        If nodes contains an unknown actor type.
+        If actors contains an unknown actor type.
 
     Examples
     --------
@@ -229,7 +229,7 @@ def run_actor_graph(*, nodes, py_executor = None):
     ...     await ch_out.drain(context)
     ...
     >>> run_actor_graph(
-    ...     nodes=[cpp_actor, python_actor(context, ch_out=ch)],
+    ...     actors=[cpp_actor, python_actor(context, ch_out=ch)],
     ...     py_executor=ThreadPoolExecutor(max_workers=1),
     ... )
     >>> results = output.release()
@@ -239,30 +239,30 @@ def run_actor_graph(*, nodes, py_executor = None):
     """
 
     # Split actors into C++ actors and Python actors.
-    cdef vector[cpp_Actor] cpp_nodes
-    cdef list py_nodes = []
-    for node in nodes:
-        if isinstance(node, CppActor):
-            cpp_nodes.push_back(move(deref((<CppActor>node).release_handle())))
-        elif isinstance(node, PyActor):
-            py_nodes.append(node)
+    cdef vector[cpp_Actor] cpp_actors
+    cdef list py_actors = []
+    for actor in actors:
+        if isinstance(actor, CppActor):
+            cpp_actors.push_back(move(deref((<CppActor>actor).release_handle())))
+        elif isinstance(actor, PyActor):
+            py_actors.append(actor)
         else:
             raise ValueError(
                 "Unknown actor type, did you forget to use `@define_actor()`?"
             )
 
     async def runner():
-        return await asyncio.gather(*py_nodes)
+        return await asyncio.gather(*py_actors)
 
-    if len(py_nodes) > 0:
+    if len(py_actors) > 0:
         if py_executor is None:
             raise ValueError("must provide a py_executor to run Python actors.")
         py_future = py_executor.submit(asyncio.run, runner())
 
     try:
-        if cpp_nodes.size() > 0:
+        if cpp_actors.size() > 0:
             with nogil:
-                cpp_run_actor_graph(move(cpp_nodes))
+                cpp_run_actor_graph(move(cpp_actors))
     finally:
-        if len(py_nodes) > 0:
+        if len(py_actors) > 0:
             py_future.result()  # This will raise any unhandled exception.

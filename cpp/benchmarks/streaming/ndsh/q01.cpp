@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id = 0;
-        std::vector<rapidsmpf::streaming::Actor> nodes;
+        std::vector<rapidsmpf::streaming::Actor> actors;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q1 pipeline");
@@ -315,7 +315,7 @@ int main(int argc, char** argv) {
             auto lineitem = ctx->create_channel();
             // Out: l_returnflag, l_linestatus, l_quantity, l_extendedprice,
             // l_discount, l_tax
-            nodes.push_back(read_lineitem(
+            actors.push_back(read_lineitem(
                 ctx,
                 lineitem,
                 /* num_tickets */ 4,
@@ -329,11 +329,11 @@ int main(int argc, char** argv) {
             // disc_price = (l_extendedprice * (1 - l_discount)),
             // charge = (l_extendedprice * (1 - l_discount) * (1 + l_tax))
             // l_discount
-            nodes.push_back(
+            actors.push_back(
                 select_columns_for_groupby(ctx, lineitem, chunkwise_groupby_input)
             );
             auto chunkwise_groupby_output = ctx->create_channel();
-            nodes.push_back(
+            actors.push_back(
                 rapidsmpf::ndsh::chunkwise_group_by(
                     ctx,
                     chunkwise_groupby_input,
@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
             );
             auto final_groupby_input = ctx->create_channel();
             if (ctx->comm()->nranks() > 1) {
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::broadcast(
                         ctx,
                         chunkwise_groupby_output,
@@ -355,7 +355,7 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::concatenate(
                         ctx, chunkwise_groupby_output, final_groupby_input
                     )
@@ -363,7 +363,7 @@ int main(int argc, char** argv) {
             }
             if (ctx->comm()->rank() == 0) {
                 auto final_groupby_output = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::chunkwise_group_by(
                         ctx,
                         final_groupby_input,
@@ -374,11 +374,11 @@ int main(int argc, char** argv) {
                     )
                 );
                 auto sorted_input = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     postprocess_group_by(ctx, final_groupby_output, sorted_input)
                 );
                 auto sorted_output = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::chunkwise_sort_by(
                         ctx,
                         sorted_input,
@@ -389,7 +389,7 @@ int main(int argc, char** argv) {
                         {cudf::null_order::BEFORE, cudf::null_order::BEFORE}
                     )
                 );
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::write_parquet(
                         ctx,
                         sorted_output,
@@ -408,7 +408,7 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
+                actors.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
             }
         }
         auto end = std::chrono::steady_clock::now();
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q1 Iteration");
-            rapidsmpf::streaming::run_actor_graph(std::move(nodes));
+            rapidsmpf::streaming::run_actor_graph(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;

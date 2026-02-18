@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from rapidsmpf.streaming.core.context import Context
 
 
-def test_allgather_node(context: Context) -> None:
+def test_allgather_actor(context: Context) -> None:
     if context.comm().nranks != 1:
         pytest.skip("Only support single-rank runs")
 
@@ -55,21 +55,21 @@ def test_allgather_node(context: Context) -> None:
         )
         for table in input_tables
     ]
-    nodes = []
+    actors = []
 
     ch1: Channel[PackedDataChunk] = context.create_channel()
-    nodes.append(
+    actors.append(
         push_to_channel(
             context, ch1, [Message(i, chunk) for i, chunk in enumerate(inputs)]
         )
     )
 
     ch2: Channel[PackedDataChunk] = context.create_channel()
-    nodes.append(allgather(context, ch1, ch2, op_id, ordered=True))
+    actors.append(allgather(context, ch1, ch2, op_id, ordered=True))
 
-    node, deferred = pull_from_channel(context, ch2)
-    nodes.append(node)
-    run_actor_graph(nodes=nodes)
+    actor, deferred = pull_from_channel(context, ch2)
+    actors.append(actor)
+    run_actor_graph(actors=actors)
 
     result = unpack_and_concat(
         (
@@ -137,17 +137,17 @@ def test_allgather_object_interface(
 ) -> None:
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
-    nodes: list[CppActor | PyActor] = []
+    actors: list[CppActor | PyActor] = []
     num_rows = 100
     num_chunks = 10
     op_id = 0
-    nodes.append(generate_inputs(context, ch_in, num_rows, num_chunks))
-    nodes.append(allgather_and_concat(context, ch_in, ch_out, op_id))
+    actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
+    actors.append(allgather_and_concat(context, ch_in, ch_out, op_id))
 
-    node, deferred = pull_from_channel(context, ch_out)
-    nodes.append(node)
+    actor, deferred = pull_from_channel(context, ch_out)
+    actors.append(actor)
 
-    run_actor_graph(nodes=nodes, py_executor=py_executor)
+    run_actor_graph(actors=actors, py_executor=py_executor)
     (result_msg,) = deferred.release()
     result = TableChunk.from_message(result_msg)
     expect = plc.Table(
