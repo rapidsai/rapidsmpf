@@ -6,12 +6,13 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <rapidsmpf/owning_wrapper.hpp>
 
 #include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
@@ -21,24 +22,16 @@ namespace rapidsmpf {
  * @brief Buffer of fixed-size host memory blocks with type-erased storage.
  *
  * Holds a total size in bytes, a block size, and a span of block start pointers.
- * Storage is type-erased via `unique_ptr<void, deleter>`, so different backends
+ * Storage is type-erased via `OwningWrapper`, so different backends
  * can be used: a single vector (split into blocks), a vector of vectors, or
  * e.g. cucascade's multiple_blocks_allocation.
  */
 class FixedSizedHostBuffer {
   public:
-    /// Type-erased deleter invoked with the storage pointer on destruction.
-    using storage_deleter_type = std::function<void(void*)>;
-
-    /// @brief Default block size of 1 MiB.
-    static constexpr size_t default_block_size = size_t(1) << 20;
-
     /**
-     * @brief Construct an empty buffer with a given block size.
-     * @param block_size Size of each block in bytes.
+     * @brief Construct an empty buffer.
      */
-    explicit FixedSizedHostBuffer(size_t block_size = default_block_size)
-        : block_size_(block_size) {}
+    FixedSizedHostBuffer() = default;
 
     /**
      * @brief Construct from a single contiguous vector split into fixed-size blocks.
@@ -79,6 +72,20 @@ class FixedSizedHostBuffer {
 
     FixedSizedHostBuffer(FixedSizedHostBuffer const&) = delete;
     FixedSizedHostBuffer& operator=(FixedSizedHostBuffer const&) = delete;
+
+    /**
+     * @brief Equality operator.
+     * @param other Buffer to compare with.
+     * @return True if both buffers are empty or have the same total size, block size
+     * and the same block pointers.
+     */
+    [[nodiscard]] constexpr bool operator==(FixedSizedHostBuffer const& other
+    ) const noexcept {
+        return total_size_ == other.total_size_
+               && (total_size_ == 0
+                   || (block_size_ == other.block_size_
+                       && std::ranges::equal(block_ptrs_, other.block_ptrs_)));
+    }
 
     /**
      * @brief Move constructor; the moved-from buffer is left empty.
@@ -177,25 +184,23 @@ class FixedSizedHostBuffer {
      * @param block_size Size of each block in bytes.
      * @param block_ptrs View of block start pointers (not copied; must outlive this
      * buffer).
-     * @param storage Type-erased pointer to the storage (e.g. vector, allocation
+     * @param storage Owning wrapper to the storage (e.g. vector, allocation
      * wrapper).
-     * @param deleter Called with @p storage on destruction.
      */
     FixedSizedHostBuffer(
         std::size_t size,
         std::size_t block_size,
         std::span<std::byte*> block_ptrs,
-        void* storage,
-        storage_deleter_type deleter
+        OwningWrapper storage
     )
-        : storage_(storage, std::move(deleter)),
+        : storage_(std::move(storage)),
           total_size_(size),
           block_size_(block_size),
           block_ptrs_(block_ptrs) {}
 
-    std::unique_ptr<void, storage_deleter_type> storage_{};
+    OwningWrapper storage_{};
     std::size_t total_size_{0};
-    std::size_t block_size_{default_block_size};
+    std::size_t block_size_{0};
     std::span<std::byte*> block_ptrs_{};
 };
 

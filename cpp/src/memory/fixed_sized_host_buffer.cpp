@@ -9,66 +9,48 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/fixed_sized_host_buffer.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 
 #include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 
+namespace rapidsmpf {
 namespace {
 
 template <typename T>
 struct VectorStorage {
     std::vector<std::byte*> block_ptrs;
     T storage;
-};
-}  // namespace
 
-namespace rapidsmpf {
+    static void delete_storage(void* v) {
+        delete static_cast<VectorStorage<T>*>(v);
+    }
+};
+
+
+}  // namespace
 
 FixedSizedHostBuffer FixedSizedHostBuffer::from_vector(
     std::vector<std::byte> vec, std::size_t block_size
 ) {
     if (vec.empty()) {
-        return FixedSizedHostBuffer(0, block_size, {}, nullptr, {});
+        return FixedSizedHostBuffer(
+            std::size_t(0), block_size, std::span<std::byte*>{}, OwningWrapper()
+        );
     }
 
     std::size_t total_size = vec.size();
-    auto shared = std::make_shared<VectorStorage<std::vector<std::byte>>>();
-    shared->block_ptrs.reserve((total_size + block_size - 1) / block_size);
+    auto storage = new VectorStorage<std::vector<std::byte>>();
+    storage->block_ptrs.reserve((total_size + block_size - 1) / block_size);
     for (std::size_t i = 0; i < total_size; i += block_size) {
-        shared->block_ptrs.push_back(vec.data() + i);
+        storage->block_ptrs.push_back(vec.data() + i);
     }
-    shared->storage = std::move(vec);
-    std::span<std::byte*> blocks_span(shared->block_ptrs);
+    storage->storage = std::move(vec);
+    std::span<std::byte*> blocks_span(storage->block_ptrs);
     return FixedSizedHostBuffer(
         total_size,
         block_size,
         blocks_span,
-        shared.get(),
-        [shared_ = std::move(shared)](void*) mutable { shared_.reset(); }
-    );
-}
-
-FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
-    cucascade::memory::fixed_multiple_blocks_allocation allocation
-) {
-    if (!allocation || allocation->size() == 0) {
-        return FixedSizedHostBuffer(
-            allocation && allocation->block_size() > 0 ? allocation->block_size()
-                                                       : default_block_size
-        );
-    }
-    auto shared = std::shared_ptr<
-        cucascade::memory::fixed_size_host_memory_resource::multiple_blocks_allocation>(
-        std::move(allocation)
-    );
-    std::span<std::byte*> blocks = shared->get_blocks();
-    std::size_t total_bytes = shared->size_bytes();
-    std::size_t block_sz = shared->block_size();
-    return FixedSizedHostBuffer(
-        total_bytes,
-        block_sz,
-        blocks,
-        shared.get(),
-        [shared_ = std::move(shared)](void*) mutable { shared_.reset(); }
+        OwningWrapper(storage, VectorStorage<std::vector<std::byte>>::delete_storage)
     );
 }
 
@@ -86,27 +68,42 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
         "all vectors must be of the same size"
     );
 
-    auto shared = std::make_shared<VectorStorage<std::vector<std::vector<std::byte>>>>();
+    auto storage = new VectorStorage<std::vector<std::vector<std::byte>>>();
 
-    shared->block_ptrs.reserve(shared->storage.size());
-    std::ranges::transform(vecs, std::back_inserter(shared->block_ptrs), [](auto& v) {
+    storage->block_ptrs.reserve(storage->storage.size());
+    std::ranges::transform(vecs, std::back_inserter(storage->block_ptrs), [](auto& v) {
         return v.data();
     });
-    shared->storage = std::move(vecs);
-    std::span<std::byte*> blocks_span(shared->block_ptrs);
+    storage->storage = std::move(vecs);
+    std::span<std::byte*> blocks_span(storage->block_ptrs);
     return FixedSizedHostBuffer(
         total_size,
         block_sz,
         std::move(blocks_span),
-        shared.get(),
-        [shared_ = std::move(shared)](void*) mutable { shared_.reset(); }
+        OwningWrapper(storage, VectorStorage<std::vector<std::vector<std::byte>>>::delete_storage)
+    );
+}
+
+FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
+    cucascade::memory::fixed_multiple_blo+cks_allocation allocation
+) {
+    if (!allocation || allocation->size() == 0) {
+        return FixedSizedHostBuffer();
+    }
+    auto storage = allocation->release();
+    std::span<std::byte*> blocks = shared->get_blocks();
+    std::size_t total_bytes = shared->size_bytes();
+    std::size_t block_sz = shared->block_size();
+    auto* payload = new StoragePayload{std::shared_ptr<void>(shared)};
+    return FixedSizedHostBuffer(
+        total_bytes, block_sz, blocks, OwningWrapper(payload, &delete_storage_payload)
     );
 }
 
 void FixedSizedHostBuffer::reset() noexcept {
-    storage_.reset();
+    storage_ = {};
     total_size_ = 0;
-    block_size_ = default_block_size;
+    block_size_ = 0;
     block_ptrs_ = {};
 }
 
@@ -118,8 +115,7 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
-    FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
 ) noexcept {
     storage_ = std::move(other.storage_);
     total_size_ = other.total_size_;
