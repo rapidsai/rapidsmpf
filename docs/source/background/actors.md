@@ -6,43 +6,51 @@ zero-or-more {term}`Channel`s and write to zero-or-more {term}`Channel`s within 
 **C++**
 
 ```c++
-// sum a column
+// sum the row counts of all incoming table chunks
 rapidsmpf::streaming::Actor accumulator(
-    std::shared_ptr<rapidsmpf::Channel> ch_out,
-    std::shared_ptr<rapidsmpf::Channel> ch_in)
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::Channel> ch_out)
 {
+    co_await ctx->executor()->schedule();
     int64_t total = 0;
     while (true) {
         // continuously read until channel is empty
-        auto msg = co_await ch_in->recv();
-        if (!msg) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
             break;
         }
+        auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
+                            .make_available(ctx);
+        total += chunk.table_view().num_rows();
 
-        auto column = ... // get column from data buffer in message
-
-        total += column->sum<int64_t>();
+        // Forward the chunk downstream.
+        co_await ch_out->send(
+            streaming::to_message(msg.sequence_number(), std::move(chunk))
+        );
     }
-
-    // Send the accumulated result downstream as a message
-    co_await ch_out->send(total));
 }
 ```
 
 **Python**
-
 ```python
-async def accumulator(ch_out, ch_in, msg):
-    """Sum Column"""
+@define_actor()
+async def accumulator(ctx, ch_in, ch_out):
+    """Sum a column across all incoming table chunks."""
 
     total = 0
+    msg: Message[TableChunk] | None
     # continuously read until channel is empty
-    while (msg := await ch_in is not None:)
-        col = ... # get column from data buffer in message
-        total += sum(col)
+    while (msg := await ch_in.recv(ctx)) is not None:
+        # Convert the message into a TableChunk (releases the message).
+        table = TableChunk.from_message(msg)
+        total += table.table_view().num_rows()
 
-    # Send the accumulated result downstream as a message
-    send(total, ch_out)
+        # Wrap and forward the chunk downstream.
+        await ch_out.send(ctx, Message(msg.sequence_number, table))
+
+    # Drain the output channel to close it gracefully.
+    await ch_out.drain(ctx)
 ```
 
 *examples of actors in C++ and Python*

@@ -3,6 +3,9 @@
 This glossary defines key concepts and terminology used throughout rapidsmpf.
 
 ```{glossary}
+Actor
+  A coroutine-based asynchronous operator in a streaming pipeline. Actors receive from zero or more input {term}`Channel`s, perform computation, and send to zero or more output channels. From the network's perspective, actors are always local operators. An actor may internally use a {term}`Communicator` to perform inter-rank communication, but this coordination is fully encapsulated within the actor and is not visible to the surrounding network or channels. Multiple actors execute concurrently via a thread pool executor.
+
 AllGather
   A collective operation that gathers data from all ranks and distributes the combined result to every rank. Each rank contributes its local data, and after the operation completes, all ranks have a copy of the concatenated data from all participants.
 
@@ -47,9 +50,6 @@ Message
 
 Network
   A directed graph of {term}`Actor`s connected by {term}`Channel`s representing a streaming data processing pipeline local to a single {term}`Rank`. From the network's point of view, all actors and channels are local, even if individual actors internally perform inter-rank communication. The network topology is identical on every participating rank, which ensures consistent execution semantics across the distributed system. The network remains in place for the duration of a workflow, with actors continuously processing data as data flows through.
-
-Actor
-  A coroutine-based asynchronous operator in a streaming pipeline. Actors receive from zero or more input {term}`Channel`s, perform computation, and send to zero or more output channels. From the network's perspective, actors are always local operators. An actor may internally use a {term}`Communicator` to perform inter-rank communication, but this coordination is fully encapsulated within the actor and is not visible to the surrounding network or channels. Multiple actors execute concurrently via a thread pool executor.
 
 Options
   A configuration container that stores key-value pairs controlling rapidsmpf behavior. Options can be populated from environment variables (prefixed with `RAPIDSMPF_`) or set programmatically. Common options include logging verbosity, memory limits, and integration-specific settings.

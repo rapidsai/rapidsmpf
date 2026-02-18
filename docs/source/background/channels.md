@@ -37,7 +37,7 @@ Components:
   • {term}`Channel`: Async queue connecting actors
   • {term}`Message`: GPU {term}`Buffer` with a CUDA Stream
 
-In the above graph, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move tasks/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`spilling`, and communication.
+In the above graph, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move tasks/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`Spilling`, and communication.
 
 ## Backpressure
 
