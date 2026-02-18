@@ -370,7 +370,7 @@ class PostBox {
  * inverse bandwidth. Although the latency term is linear (rather than
  * logarithmic as is the case for Bruck's algorithm or recursive
  * doubling) MPI implementations typically observe that for large
- * messages ring allgorithms perform better since message passing is
+ * messages ring algorithms perform better since message passing is
  * only nearest neighbour.
  */
 class AllGather {
