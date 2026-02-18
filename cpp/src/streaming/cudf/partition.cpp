@@ -21,7 +21,7 @@ Actor partition_and_pack(
     std::vector<cudf::size_type> columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed
+    std::uint32_t seed
 ) {
     ShutdownAtExit c{ch_in, ch_out};
 

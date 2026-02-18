@@ -155,17 +155,17 @@ TEST_P(StreamingShuffler, basic_shuffler) {
     }));
 }
 
-class ShufflerAsyncTest
-    : public BaseStreamingShuffle,
-      public ::testing::WithParamInterface<std::tuple<int, size_t, uint32_t, int>> {
+class ShufflerAsyncTest : public BaseStreamingShuffle,
+                          public ::testing::WithParamInterface<
+                              std::tuple<int, std::size_t, std::uint32_t, int>> {
   protected:
     int n_threads;
-    size_t n_inserts;
-    uint32_t n_partitions;
+    std::size_t n_inserts;
+    std::uint32_t n_partitions;
     int n_consumers;
 
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_elements = 100;
+    static constexpr std::size_t n_elements = 100;
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
@@ -205,7 +205,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            auto* ctx,
                            std::mutex& mtx,
                            std::vector<shuffler::PartID>& finished_pids,
-                           size_t& n_chunks_received) -> Actor {
+                           std::size_t& n_chunks_received) -> Actor {
         co_await ctx->executor()->schedule();
         ctx->comm()->logger().debug(tid, " extract task started");
 
@@ -222,7 +222,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
-    for (size_t i = 0; i < n_inserts; ++i) {
+    for (std::size_t i = 0; i < n_inserts; ++i) {
         std::unordered_map<shuffler::PartID, PackedData> data;
         data.reserve(n_partitions);
         for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
@@ -235,7 +235,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
-    size_t n_chunks_received = 0;
+    std::size_t n_chunks_received = 0;
     std::vector<Actor> tasks;
     for (int i = 0; i < n_consumers; ++i) {
         tasks.emplace_back(extract_task(
@@ -257,7 +257,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_partitions = 10;
+    static constexpr std::size_t n_partitions = 10;
     {
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
@@ -268,7 +268,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
             ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
         );
 
-        size_t parts_extracted = 0;
+        std::size_t parts_extracted = 0;
         // For this test we need to await the shuffler being finished and drained, i.e.
         // ensure all insertion notifications have been received before extracting. This
         // is only because we sync_wait each individual extract_any_async.

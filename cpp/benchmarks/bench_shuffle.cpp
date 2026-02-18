@@ -384,7 +384,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
     std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        size_t size_lb = random_table_size_lower_bound(
+        std::size_t size_lb = random_table_size_lower_bound(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows)
         );

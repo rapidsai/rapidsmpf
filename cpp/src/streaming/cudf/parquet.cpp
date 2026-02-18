@@ -50,8 +50,8 @@ class FileCache {
         std::vector<std::string> filepaths;
         std::int64_t skip_rows;
         std::size_t skip_bytes;
-        std::optional<int64_t> num_rows;
-        std::optional<int64_t> num_bytes;
+        std::optional<std::int64_t> num_rows;
+        std::optional<std::int64_t> num_bytes;
         std::optional<std::vector<std::string>> column_names;
         std::optional<std::vector<cudf::size_type>> column_indices;
         std::vector<std::vector<cudf::size_type>> row_groups;
@@ -364,7 +364,8 @@ Actor read_parquet(
             safe_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
     }
     auto to_skip = options.get_skip_rows();
-    auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
+    auto to_read =
+        options.get_num_rows().value_or(std::numeric_limits<std::int64_t>::max());
     for (std::size_t file_offset = 0; file_offset < num_files;
          file_offset += files_per_chunk)
     {
@@ -384,8 +385,9 @@ Actor read_parquet(
         // remainder.
         to_skip = std::max(0l, -chunk_rows);
         while (chunk_rows > 0 && to_read > 0) {
-            auto rows_read =
-                std::min({safe_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
+            auto rows_read = std::min(
+                {safe_cast<std::int64_t>(num_rows_per_chunk), chunk_rows, to_read}
+            );
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 sequence_number, chunk_skip_rows, rows_read, source
             );

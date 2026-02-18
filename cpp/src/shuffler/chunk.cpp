@@ -18,10 +18,10 @@ namespace rapidsmpf::shuffler::detail {
 Chunk::Chunk(
     ChunkID chunk_id,
     PartID part_id,
-    size_t expected_num_chunks,
-    uint32_t metadata_size,
-    uint64_t data_size,
-    std::unique_ptr<std::vector<uint8_t>> metadata,
+    std::size_t expected_num_chunks,
+    std::uint32_t metadata_size,
+    std::uint64_t data_size,
+    std::unique_ptr<std::vector<std::uint8_t>> metadata,
     std::unique_ptr<Buffer> data
 )
     : chunk_id_{chunk_id},
@@ -59,7 +59,7 @@ Chunk Chunk::from_packed_data(
         chunk_id,
         part_id,
         0,  // expected_num_chunks
-        static_cast<uint32_t>(packed_data.metadata->size()),
+        static_cast<std::uint32_t>(packed_data.metadata->size()),
         packed_data.data->size,
         std::move(packed_data.metadata),
         std::move(packed_data.data),
@@ -67,18 +67,18 @@ Chunk Chunk::from_packed_data(
 }
 
 Chunk Chunk::from_finished_partition(
-    ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
+    ChunkID chunk_id, PartID part_id, std::size_t expected_num_chunks
 ) {
     return {chunk_id, part_id, expected_num_chunks, 0, 0};
 }
 
-Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
+Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
     if (validate) {
         RAPIDSMPF_EXPECTS(
             validate_format(msg), "serialized message does not follow the expected format"
         );
     }
-    size_t offset = 0;
+    std::size_t offset = 0;
 
     ChunkID chunk_id;
     std::memcpy(&chunk_id, msg.data() + offset, sizeof(ChunkID));
@@ -88,20 +88,20 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     std::memcpy(&part_id, msg.data() + offset, sizeof(PartID));
     offset += sizeof(PartID);
 
-    size_t expected_num_chunks;
-    std::memcpy(&expected_num_chunks, msg.data() + offset, sizeof(size_t));
-    offset += sizeof(size_t);
+    std::size_t expected_num_chunks;
+    std::memcpy(&expected_num_chunks, msg.data() + offset, sizeof(std::size_t));
+    offset += sizeof(std::size_t);
 
-    uint32_t metadata_size;
-    std::memcpy(&metadata_size, msg.data() + offset, sizeof(uint32_t));
-    offset += sizeof(uint32_t);
+    std::uint32_t metadata_size;
+    std::memcpy(&metadata_size, msg.data() + offset, sizeof(std::uint32_t));
+    offset += sizeof(std::uint32_t);
 
-    uint64_t data_size;
-    std::memcpy(&data_size, msg.data() + offset, sizeof(uint64_t));
-    offset += sizeof(uint64_t);
+    std::uint64_t data_size;
+    std::memcpy(&data_size, msg.data() + offset, sizeof(std::uint64_t));
+    offset += sizeof(std::uint64_t);
 
-    auto concat_metadata = std::make_unique<std::vector<uint8_t>>(
-        msg.begin() + safe_cast<int64_t>(offset), msg.end()
+    auto concat_metadata = std::make_unique<std::vector<std::uint8_t>>(
+        msg.begin() + safe_cast<std::int64_t>(offset), msg.end()
     );
 
     return {
@@ -115,19 +115,19 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     };
 }
 
-bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
+bool Chunk::validate_format(std::vector<std::uint8_t> const& serialized_buf) {
     // Check if buffer is large enough to contain at least the header
-    constexpr size_t header_size = metadata_message_header_size();
+    constexpr std::size_t header_size = metadata_message_header_size();
     if (serialized_buf.size() < header_size) {
         return false;
     }
 
     // Read metadata_size from the header
-    uint8_t const* sizes_start =
-        serialized_buf.data() + sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t);
+    std::uint8_t const* sizes_start =
+        serialized_buf.data() + sizeof(ChunkID) + sizeof(PartID) + sizeof(std::size_t);
 
-    uint32_t metadata_size;
-    std::memcpy(&metadata_size, sizes_start, sizeof(uint32_t));
+    std::uint32_t metadata_size;
+    std::memcpy(&metadata_size, sizes_start, sizeof(std::uint32_t));
 
     // Check if the total metadata size matches the buffer size
     if (serialized_buf.size() != header_size + metadata_size) {
@@ -148,12 +148,12 @@ std::string Chunk::str() const {
     return ss.str();
 }
 
-std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
-    size_t metadata_buf_size =
+std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
+    std::size_t metadata_buf_size =
         metadata_message_header_size() + (metadata_ ? metadata_->size() : 0);
-    auto metadata_buf = std::make_unique<std::vector<uint8_t>>(metadata_buf_size);
+    auto metadata_buf = std::make_unique<std::vector<std::uint8_t>>(metadata_buf_size);
 
-    uint8_t* p = metadata_buf->data();
+    std::uint8_t* p = metadata_buf->data();
     // Write chunk ID
     std::memcpy(p, &chunk_id_, sizeof(ChunkID));
     p += sizeof(ChunkID);
@@ -163,16 +163,16 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     p += sizeof(PartID);
 
     // Write expected number of chunks
-    std::memcpy(p, &expected_num_chunks_, sizeof(size_t));
-    p += sizeof(size_t);
+    std::memcpy(p, &expected_num_chunks_, sizeof(std::size_t));
+    p += sizeof(std::size_t);
 
     // Write metadata offset (size)
-    std::memcpy(p, &metadata_size_, sizeof(uint32_t));
-    p += sizeof(uint32_t);
+    std::memcpy(p, &metadata_size_, sizeof(std::uint32_t));
+    p += sizeof(std::uint32_t);
 
     // Write data offset (size)
-    std::memcpy(p, &data_size_, sizeof(uint64_t));
-    p += sizeof(uint64_t);
+    std::memcpy(p, &data_size_, sizeof(std::uint64_t));
+    p += sizeof(std::uint64_t);
 
     // Write concatenated metadata
     if (metadata_) {
@@ -183,14 +183,14 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     return metadata_buf;
 }
 
-std::unique_ptr<std::vector<uint8_t>> ReadyForDataMessage::pack() {
-    auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
+std::unique_ptr<std::vector<std::uint8_t>> ReadyForDataMessage::pack() {
+    auto msg = std::make_unique<std::vector<std::uint8_t>>(sizeof(ChunkID));
     std::memcpy(msg->data(), &cid, sizeof(cid));
     return msg;
 }
 
 ReadyForDataMessage ReadyForDataMessage::unpack(
-    std::unique_ptr<std::vector<uint8_t>> const& msg
+    std::unique_ptr<std::vector<std::uint8_t>> const& msg
 ) {
     ChunkID cid;
     std::memcpy(&cid, msg->data(), sizeof(cid));

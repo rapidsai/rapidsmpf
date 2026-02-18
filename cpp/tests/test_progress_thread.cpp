@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -32,13 +32,13 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 struct TestFunction {
-    size_t counter{0};
+    std::size_t counter{0};
     ProgressThread::FunctionID id{0, 0};
 };
 
 TEST_P(ProgressThreadEvents, events) {
-    size_t const num_threads = std::get<0>(GetParam());
-    size_t const num_functions = std::get<1>(GetParam());
+    std::size_t const num_threads = std::get<0>(GetParam());
+    std::size_t const num_functions = std::get<1>(GetParam());
     bool const enable_statistics = std::get<2>(GetParam());
 
     auto& logger = GlobalEnvironment->comm_->logger();
@@ -47,16 +47,16 @@ TEST_P(ProgressThreadEvents, events) {
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 
     // The number of times a particular function is expected to be called
-    auto expected_count = [num_functions](size_t thread, size_t function) {
+    auto expected_count = [num_functions](std::size_t thread, std::size_t function) {
         return thread * num_functions + function + 1;
     };
 
-    for (size_t thread = 0; thread < num_threads; ++thread) {
+    for (std::size_t thread = 0; thread < num_threads; ++thread) {
         auto& pt = progress_threads.emplace_back(
             std::make_unique<ProgressThread>(logger, statistics)
         );
 
-        for (size_t function = 0; function < num_functions; ++function) {
+        for (std::size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
             auto expected = expected_count(thread, function);
 
@@ -72,8 +72,8 @@ TEST_P(ProgressThreadEvents, events) {
         }
     }
 
-    for (size_t thread = 0; thread < num_threads; ++thread) {
-        for (size_t function = 0; function < num_functions; ++function) {
+    for (std::size_t thread = 0; thread < num_threads; ++thread) {
+        for (std::size_t function = 0; function < num_functions; ++function) {
             auto test_function = test_functions[thread][function];
             progress_threads[thread]->remove_function(test_function->id);
             EXPECT_EQ(test_function->counter, expected_count(thread, function));

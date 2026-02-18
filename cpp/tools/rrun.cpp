@@ -261,7 +261,7 @@ bool parse_cpu_list_to_mask(std::string const& cpulist, cpu_set_t* cpuset) {
     std::istringstream iss(cpulist);
     std::string token;
     while (std::getline(iss, token, ',')) {
-        size_t dash_pos = token.find('-');
+        std::size_t dash_pos = token.find('-');
         if (dash_pos != std::string::npos) {
             // Range, e.g., "0-31"
             try {
@@ -442,7 +442,7 @@ void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
 
     if (cfg.bind_network && !gpu_info.network_devices.empty()) {
         std::string ucx_net_devices;
-        for (size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
+        for (std::size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
             if (i > 0) {
                 ucx_net_devices += ",";
             }
@@ -985,7 +985,7 @@ int execute_single_node_mode(Config& cfg) {
     // Determine GPU for this Slurm task
     int gpu_id = -1;
     if (!cfg.gpus.empty()) {
-        gpu_id = cfg.gpus[static_cast<size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
+        gpu_id = cfg.gpus[static_cast<std::size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
         setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
 
         if (cfg.verbose) {
@@ -1210,7 +1210,7 @@ int launch_ranks_fork_based(
     bool is_root_parent
 ) {
     std::vector<pid_t> pids;
-    pids.reserve(static_cast<size_t>(ranks_per_task));
+    pids.reserve(static_cast<std::size_t>(ranks_per_task));
 
     // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
     sigset_t signal_set;
@@ -1222,7 +1222,7 @@ int launch_ranks_fork_based(
     // Output suppression flag and forwarder threads
     auto suppress_output = std::make_shared<std::atomic<bool>>(false);
     std::vector<std::thread> forwarders;
-    forwarders.reserve(static_cast<size_t>(ranks_per_task) * 2);
+    forwarders.reserve(static_cast<std::size_t>(ranks_per_task) * 2);
 
     // Helper to start a forwarder thread for a given fd
     auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
@@ -1273,7 +1273,7 @@ int launch_ranks_fork_based(
             msg << "[rrun] Launched rank " << global_rank << " (PID " << pid << ")";
             if (!cfg.gpus.empty()) {
                 msg << " on GPU "
-                    << cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
+                    << cfg.gpus[static_cast<std::size_t>(local_rank) % cfg.gpus.size()];
             }
             msg << std::endl;
             std::string msg_str = msg.str();
@@ -1305,7 +1305,7 @@ int launch_ranks_fork_based(
 
     // Wait for all processes
     int exit_status = 0;
-    for (size_t i = 0; i < pids.size(); ++i) {
+    for (std::size_t i = 0; i < pids.size(); ++i) {
         int status = 0;
         pid_t pid = pids[i];
         if (waitpid(pid, &status, 0) < 0) {
@@ -1404,7 +1404,7 @@ pid_t launch_rank_local(
             // Use local_rank for GPU assignment (for Slurm hybrid mode)
             int gpu_id = -1;
             if (!cfg.gpus.empty()) {
-                gpu_id = cfg.gpus[static_cast<size_t>(local_rank) % cfg.gpus.size()];
+                gpu_id = cfg.gpus[static_cast<std::size_t>(local_rank) % cfg.gpus.size()];
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
             }
 
@@ -1430,7 +1430,7 @@ int main(int argc, char* argv[]) {
             if (cfg.gpus.empty()) {
                 std::cout << "(none)\n";
             } else {
-                for (size_t i = 0; i < cfg.gpus.size(); ++i) {
+                for (std::size_t i = 0; i < cfg.gpus.size(); ++i) {
                     if (i > 0)
                         std::cout << ", ";
                     std::cout << cfg.gpus[i];
@@ -1461,7 +1461,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "  Bind To:       none\n";
             } else {
                 std::cout << "  Bind To:       ";
-                for (size_t i = 0; i < bind_types.size(); ++i) {
+                for (std::size_t i = 0; i < bind_types.size(); ++i) {
                     if (i > 0)
                         std::cout << ", ";
                     std::cout << bind_types[i];

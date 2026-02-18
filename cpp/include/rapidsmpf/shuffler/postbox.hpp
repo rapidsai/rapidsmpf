@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -37,7 +37,7 @@ class PostBox {
      * returns a `KeyType`.
      */
     template <typename Fn>
-    PostBox(Fn&& key_map_fn, size_t num_keys_hint = 0)
+    PostBox(Fn&& key_map_fn, std::size_t num_keys_hint = 0)
         : key_map_fn_(std::move(key_map_fn)) {
         if (num_keys_hint > 0) {
             pigeonhole_.reserve(num_keys_hint);

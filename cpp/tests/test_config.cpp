@@ -323,9 +323,9 @@ TEST(OptionsTest, DeserializeThrowsOnCrcMismatch) {
     std::unordered_map<std::string, std::string> strings = {{"alpha", "1"}};
     Options opts(strings);
     auto buffer = opts.serialize();
-    ASSERT_GE(buffer.size(), static_cast<size_t>(8 + sizeof(uint64_t) + 4));
+    ASSERT_GE(buffer.size(), static_cast<std::size_t>(8 + sizeof(std::uint64_t) + 4));
     // Flip one byte in the data region (just before CRC trailer)
-    if (buffer.size() > (8 + sizeof(uint64_t) + 4)) {
+    if (buffer.size() > (8 + sizeof(std::uint64_t) + 4)) {
         buffer[buffer.size() - 5] ^= 0xFF;
         EXPECT_THROW(
             static_cast<void>(Options::deserialize(buffer)), std::invalid_argument
@@ -338,7 +338,7 @@ TEST(OptionsTest, SerializeDeserializeEmptyOptions) {
     auto buffer = empty.serialize();
 
     // Buffer contains MAGIC+ver (8), count (8) and CRC32 (4)
-    EXPECT_EQ(buffer.size(), 8 + sizeof(uint64_t) + 4);
+    EXPECT_EQ(buffer.size(), 8 + sizeof(std::uint64_t) + 4);
 
     Options deserialized = Options::deserialize(buffer);
     EXPECT_TRUE(deserialized.get_strings().empty());
@@ -351,8 +351,8 @@ TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForCount) {
 
 TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForHeader) {
     // Buffer has MAGIC+ver/flags and count = 2 but no offsets/data
-    uint64_t count = 2;
-    std::vector<std::uint8_t> buffer(8 + sizeof(uint64_t));
+    std::uint64_t count = 2;
+    std::vector<std::uint8_t> buffer(8 + sizeof(std::uint64_t));
     buffer[0] = 'R';
     buffer[1] = 'M';
     buffer[2] = 'P';
@@ -361,7 +361,7 @@ TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForHeader) {
     buffer[5] = 0x01;  // flags: CRC present (won't be validated due to too-small buffer)
     buffer[6] = 0;
     buffer[7] = 0;  // reserved
-    std::memcpy(buffer.data() + 8, &count, sizeof(uint64_t));
+    std::memcpy(buffer.data() + 8, &count, sizeof(std::uint64_t));
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
 }
 
@@ -371,14 +371,16 @@ TEST(OptionsTest, DeserializeThrowsOnOffsetOutOfBounds) {
     auto buffer = opts.serialize();
 
     // Corrupt count to 1 (valid)
-    uint64_t count = 1;
+    std::uint64_t count = 1;
     // Count is stored after 8-byte prelude
-    std::memcpy(buffer.data() + 8, &count, sizeof(uint64_t));
+    std::memcpy(buffer.data() + 8, &count, sizeof(std::uint64_t));
 
     // Corrupt one offset to be out-of-bounds (key offset)
-    auto bad_offset = static_cast<uint64_t>(buffer.size() + 100);
+    auto bad_offset = static_cast<std::uint64_t>(buffer.size() + 100);
     // First key offset follows prelude (8) + count (8)
-    std::memcpy(buffer.data() + 8 + sizeof(uint64_t), &bad_offset, sizeof(uint64_t));
+    std::memcpy(
+        buffer.data() + 8 + sizeof(std::uint64_t), &bad_offset, sizeof(std::uint64_t)
+    );
 
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::out_of_range);
 }

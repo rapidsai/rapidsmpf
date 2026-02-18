@@ -74,7 +74,7 @@ std::string get_current_cpu_affinity() {
     std::ostringstream oss;
     int range_start = cores[0];
     int range_end = cores[0];
-    for (size_t i = 1; i < cores.size(); ++i) {
+    for (std::size_t i = 1; i < cores.size(); ++i) {
         if (cores[i] == range_end + 1) {
             range_end = cores[i];
         } else {
@@ -161,7 +161,7 @@ std::vector<int> parse_cpu_list(std::string const& cpulist) {
     std::istringstream iss(cpulist);
     std::string token;
     while (std::getline(iss, token, ',')) {
-        size_t dash_pos = token.find('-');
+        std::size_t dash_pos = token.find('-');
         if (dash_pos != std::string::npos) {
             try {
                 int start = std::stoi(token.substr(0, dash_pos));
