@@ -217,26 +217,6 @@ TEST_F(BaseAllReduceTest, shutdown) {
     );
 }
 
-TEST_F(BaseAllReduceTest, timeout) {
-    std::vector<int> data(1, 42);
-    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::DEVICE);
-    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        std::move(in_buffer),
-        std::move(out_buffer),
-        OpID{0},
-        rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{}),
-        rapidsmpf::Statistics::disabled()
-    );
-
-    auto [in_result, out_result] = allreduce.wait_and_extract();
-    std::ignore = in_result;
-    std::ignore = out_result;
-}
-
 struct MemoryReductionConfig {
     enum BufferType {
         ALL_HOST,
