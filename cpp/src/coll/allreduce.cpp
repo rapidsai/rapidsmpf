@@ -23,7 +23,6 @@ AllReduce::AllReduce(
     std::unique_ptr<Buffer> output,
     OpID op_id,
     ReduceOperator reduce_operator,
-    [[maybe_unused]] std::shared_ptr<Statistics> statistics,
     std::function<void(void)> finished_callback
 )
     : comm_{std::move(comm)},
@@ -125,12 +124,6 @@ bool AllReduce::is_ready() const noexcept {
     return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
 }
 
-namespace {
-bool buffer_ready(std::unique_ptr<Buffer> const& buffer) {
-    return buffer && buffer->is_latest_write_done();
-}
-}  // namespace
-
 ProgressThread::ProgressState AllReduce::event_loop() {
     Rank const rank = comm_->rank();
     bool const is_even = rank % 2 == 0;
@@ -170,7 +163,7 @@ ProgressThread::ProgressState AllReduce::event_loop() {
         {
             // Non-participating ranks have jumped straight to StartButterfly
             if (is_even) {
-                if (!buffer_ready(out_buffer_)) {
+                if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
                 send_future_ = comm_->send(std::move(out_buffer_), rank + 1, tag);
@@ -181,7 +174,9 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 // Note that buffer_ready(out_buffer_) tracks the WAR hazard, not
                 // buffer_ready(in_buffer_). Checking the readiness of in_buffer_ is
                 // belt-and-braces.
-                if (!buffer_ready(out_buffer_) || !buffer_ready(in_buffer_)) {
+                if (!out_buffer_->is_latest_write_done()
+                    || !in_buffer_->is_latest_write_done())
+                {
                     break;
                 }
                 recv_future_ = comm_->recv(rank - 1, tag, std::move(in_buffer_));
@@ -230,7 +225,9 @@ ProgressThread::ProgressState AllReduce::event_loop() {
             // hazard before receiving in the next round.
             // That, again, is tracked by out_buffer_ being ready and in_buffer readiness
             // is belt-and-braces.
-            if (!buffer_ready(out_buffer_) || !buffer_ready(in_buffer_)) {
+            if (!out_buffer_->is_latest_write_done()
+                || !in_buffer_->is_latest_write_done())
+            {
                 break;
             }
             recv_future_ = comm_->recv(stage_partner_, tag, std::move(in_buffer_));
@@ -262,12 +259,12 @@ ProgressThread::ProgressState AllReduce::event_loop() {
     case Phase::StartPostRemainder:
         {
             if (is_even) {
-                if (!buffer_ready(out_buffer_)) {
+                if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
                 recv_future_ = comm_->recv(rank + 1, tag, std::move(out_buffer_));
             } else {
-                if (!buffer_ready(out_buffer_)) {
+                if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
                 send_future_ = comm_->send(std::move(out_buffer_), rank - 1, tag);

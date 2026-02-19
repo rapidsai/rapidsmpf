@@ -71,7 +71,6 @@ class AllReduce {
      * @param output Allocated buffer in which to place reduction result. Must be the same
      * size and memory type as `input`.
      * @param op_id Unique operation identifier for this allreduce.
-     * @param statistics Statistics collection instance (disabled by default).
      * @param reduce_operator Type-erased reduction operator to use. See `ReduceOperator`.
      * @param finished_callback Optional callback run once locally when the allreduce
      * is finished and results are ready for extraction.
@@ -86,7 +85,6 @@ class AllReduce {
         std::unique_ptr<Buffer> output,
         OpID op_id,
         ReduceOperator reduce_operator,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::function<void(void)> finished_callback = nullptr
     );
 

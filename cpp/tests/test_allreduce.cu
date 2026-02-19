@@ -29,7 +29,6 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/progress_thread.hpp>
-#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 #include "test_allreduce_custom_type.hpp"
@@ -212,8 +211,7 @@ TEST_F(BaseAllReduceTest, shutdown) {
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
-        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        rapidsmpf::Statistics::disabled()
+        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{})
     );
 }
 
@@ -306,8 +304,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
-        std::move(kernel),
-        rapidsmpf::Statistics::disabled()
+        std::move(kernel)
     );
 
     auto [in_result, out_result] = allreduce.wait_and_extract();
@@ -465,8 +462,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
-        std::move(kernel),
-        rapidsmpf::Statistics::disabled()
+        std::move(kernel)
     );
     auto [in_result, out_result] = allreduce.wait_and_extract();
 
@@ -539,8 +535,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
-        std::move(kernel),
-        rapidsmpf::Statistics::disabled()
+        std::move(kernel)
     );
     auto [in_result, out_result] = allreduce.wait_and_extract();
 
@@ -612,7 +607,6 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
         std::move(out_buffer),
         OpID{0},
         rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        rapidsmpf::Statistics::disabled(),
         [&callback_called, &callback_count]() {
             callback_called.store(true, std::memory_order_release);
             callback_count.fetch_add(1, std::memory_order_relaxed);
@@ -652,8 +646,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
-        rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{}),
-        rapidsmpf::Statistics::disabled()
+        rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
     );
 
     // First call should succeed
