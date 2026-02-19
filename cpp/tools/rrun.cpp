@@ -57,9 +57,23 @@ namespace {
 struct Config;
 [[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg);
 int execute_single_node_mode(Config& cfg);
+
+/** A launched child process and its stdout/stderr forwarder threads. */
+struct LaunchedProcess {
+    pid_t pid;
+    std::thread stdout_forwarder;
+    std::thread stderr_forwarder;
+};
 #ifdef RAPIDSMPF_HAVE_SLURM
 int execute_slurm_hybrid_mode(Config& cfg);
-std::string launch_rank0_and_get_address(
+
+/** Return type when we launch one process and also obtain an address (e.g. rank 0). */
+struct AddressAndProcess {
+    std::string encoded_address;
+    LaunchedProcess process;
+};
+
+AddressAndProcess launch_rank0_and_get_address(
     Config const& cfg, std::string const& address_file, int total_ranks
 );
 std::string coordinate_root_address_via_pmix(
@@ -72,7 +86,7 @@ int launch_ranks_fork_based(
     int ranks_per_task,
     int total_ranks,
     std::optional<std::string> const& root_address,
-    bool is_root_parent
+    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
 );
 [[noreturn]] void exec_application(Config const& cfg);
 pid_t launch_rank_local(
@@ -792,8 +806,10 @@ pid_t fork_with_piped_stdio(
  * @param ranks_per_task Number of ranks to launch locally.
  * @param total_ranks Total ranks across all tasks.
  * @param root_address Pre-coordinated root address (empty for FILE backend).
- * @param is_root_parent Whether this is root parent (affects launch logic).
  * @param coord_dir_hint Hint for coordination directory name (e.g., job ID).
+ * @param pre_launched_process If set, one process was already launched; its pid
+ *                              and forwarders are included so we wait and forward
+ * signals.
  * @return Exit status (0 for success).
  */
 int setup_launch_and_cleanup(
@@ -802,8 +818,8 @@ int setup_launch_and_cleanup(
     int ranks_per_task,
     int total_ranks,
     std::optional<std::string> const& root_address,
-    bool is_root_parent,
-    std::string const& coord_dir_hint = ""
+    std::string const& coord_dir_hint = "",
+    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
 ) {
     // Set up coordination directory
     if (cfg.coord_dir.empty()) {
@@ -817,7 +833,12 @@ int setup_launch_and_cleanup(
 
     // Launch ranks and wait for completion
     int exit_status = launch_ranks_fork_based(
-        cfg, rank_offset, ranks_per_task, total_ranks, root_address, is_root_parent
+        cfg,
+        rank_offset,
+        ranks_per_task,
+        total_ranks,
+        root_address,
+        std::move(pre_launched_process)
     );
 
     if (cfg.cleanup) {
@@ -907,12 +928,15 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     int total_ranks = slurm_ntasks * cfg.nranks;
     std::string encoded_root_address, coordinated_root_address;
 
+    std::optional<LaunchedProcess> pre_launched_process;
     if (is_root_parent) {
         // Root parent: Launch rank 0, get address, coordinate via PMIx
         std::string address_file =
             "/tmp/rapidsmpf_root_address_" + std::string{job_id ? job_id : "unknown"};
-        encoded_root_address =
+        AddressAndProcess rank0_result =
             launch_rank0_and_get_address(cfg, address_file, total_ranks);
+        encoded_root_address = std::move(rank0_result.encoded_address);
+        pre_launched_process = std::move(rank0_result.process);
         coordinated_root_address =
             coordinate_root_address_via_pmix(encoded_root_address, cfg.verbose);
     } else {
@@ -938,8 +962,8 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         cfg.nranks,
         total_ranks,
         coordinated_root_address,
-        is_root_parent,
-        coord_hint
+        coord_hint,
+        std::move(pre_launched_process)
     );
 
     return exit_status;
@@ -960,7 +984,7 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt, false);
+    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt);
 }
 
 /**
@@ -1011,11 +1035,11 @@ int execute_single_node_mode(Config& cfg) {
  * @param cfg Configuration.
  * @param address_file Path to file where rank 0 will write its address.
  * @param total_ranks Total number of ranks across all tasks.
- * @return Hex-encoded root address.
+ * @return Encoded root address and the launched process handle.
  *
  * @throws std::runtime_error on timeout or launch failure.
  */
-std::string launch_rank0_and_get_address(
+AddressAndProcess launch_rank0_and_get_address(
     Config const& cfg, std::string const& address_file, int total_ranks
 ) {
     if (cfg.verbose) {
@@ -1101,13 +1125,16 @@ std::string launch_rank0_and_get_address(
                   << encoded_address.size() << " chars)" << std::endl;
     }
 
-    // Rank 0 is already running - detach forwarders
-    if (rank0_stdout_forwarder.joinable())
-        rank0_stdout_forwarder.detach();
-    if (rank0_stderr_forwarder.joinable())
-        rank0_stderr_forwarder.detach();
-
-    return encoded_address;
+    // Return rank 0's pid and forwarders so the parent can wait for it and
+    // forward signals (same as other ranks).
+    return AddressAndProcess{
+        std::move(encoded_address),
+        LaunchedProcess{
+            rank0_pid,
+            std::move(rank0_stdout_forwarder),
+            std::move(rank0_stderr_forwarder)
+        }
+    };
 }
 
 /**
@@ -1198,7 +1225,7 @@ std::string coordinate_root_address_via_pmix(
  * @param ranks_per_task Number of ranks to launch.
  * @param total_ranks Total ranks across all tasks.
  * @param root_address Pre-coordinated root address (empty for FILE backend).
- * @param is_root_parent Whether this is root parent (affects which ranks to launch).
+ * @param pre_launched_process If set, one process was already launched; include it.
  * @return Exit status (0 for success).
  */
 int launch_ranks_fork_based(
@@ -1207,10 +1234,10 @@ int launch_ranks_fork_based(
     int ranks_per_task,
     int total_ranks,
     std::optional<std::string> const& root_address,
-    bool is_root_parent
+    std::optional<LaunchedProcess> pre_launched_process
 ) {
-    std::vector<pid_t> pids;
-    pids.reserve(static_cast<std::size_t>(ranks_per_task));
+    std::vector<LaunchedProcess> processes;
+    processes.reserve(static_cast<std::size_t>(ranks_per_task));
 
     // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
     sigset_t signal_set;
@@ -1219,17 +1246,14 @@ int launch_ranks_fork_based(
     sigaddset(&signal_set, SIGTERM);
     sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 
-    // Output suppression flag and forwarder threads
     auto suppress_output = std::make_shared<std::atomic<bool>>(false);
-    std::vector<std::thread> forwarders;
-    forwarders.reserve(static_cast<std::size_t>(ranks_per_task) * 2);
 
-    // Helper to start a forwarder thread for a given fd
-    auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
-        if (fd < 0) {
-            return;
-        }
-        forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
+    // Helper to create a forwarder thread for a given fd (returns default thread if fd <
+    // 0).
+    auto make_forwarder = [&](int fd, int rank, bool to_stderr) -> std::thread {
+        if (fd < 0)
+            return {};
+        return std::thread([fd, rank, to_stderr, &cfg, suppress_output]() {
             FILE* stream = fdopen(fd, "r");
             if (!stream) {
                 close(fd);
@@ -1256,8 +1280,13 @@ int launch_ranks_fork_based(
         });
     };
 
-    // Launch ranks (skip rank 0 if root parent already launched it)
-    int start_local_rank = (is_root_parent && root_address.has_value()) ? 1 : 0;
+    // Include pre-launched process first (e.g. rank 0 in Slurm hybrid).
+    if (pre_launched_process) {
+        processes.insert(processes.begin(), std::move(*pre_launched_process));
+    }
+
+    // Launch remaining ranks (skip rank 0 if we already have it in pre_launched_process)
+    int start_local_rank = pre_launched_process.has_value() ? 1 : 0;
 
     for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
         int global_rank = rank_offset + local_rank;
@@ -1266,7 +1295,6 @@ int launch_ranks_fork_based(
         pid_t pid = launch_rank_local(
             cfg, global_rank, local_rank, total_ranks, root_address, &fd_out, &fd_err
         );
-        pids.push_back(pid);
 
         if (cfg.verbose) {
             std::ostringstream msg;
@@ -1281,12 +1309,15 @@ int launch_ranks_fork_based(
             std::cout << msg_str;
             std::cout.flush();
         }
-        start_forwarder(fd_out, global_rank, false);
-        start_forwarder(fd_err, global_rank, true);
+        processes.emplace_back(
+            pid,
+            make_forwarder(fd_out, global_rank, false),
+            make_forwarder(fd_err, global_rank, true)
+        );
     }
 
-    // Start a signal-waiting thread to forward signals.
-    std::thread([signal_set, &pids, suppress_output]() mutable {
+    // Forward signals to all processes (including pre-launched).
+    std::thread([signal_set, &processes, suppress_output]() mutable {
         for (;;) {
             int sig = 0;
             int rc = sigwait(&signal_set, &sig);
@@ -1294,8 +1325,8 @@ int launch_ranks_fork_based(
                 continue;
             }
             suppress_output->store(true, std::memory_order_relaxed);
-            for (pid_t pid : pids) {
-                kill(pid, sig);
+            for (auto& p : processes) {
+                kill(p.pid, sig);
             }
             return;
         }
@@ -1304,13 +1335,16 @@ int launch_ranks_fork_based(
     std::cout << "\n[rrun] All ranks launched. Waiting for completion...\n" << std::endl;
 
     // Wait for all processes
+    bool have_pre_launched = pre_launched_process.has_value();
     int exit_status = 0;
-    for (std::size_t i = 0; i < pids.size(); ++i) {
+    for (std::size_t i = 0; i < processes.size(); ++i) {
+        LaunchedProcess& proc = processes[i];
         int status = 0;
-        pid_t pid = pids[i];
-        if (waitpid(pid, &status, 0) < 0) {
-            std::cerr << "[rrun] Failed to wait for rank " << i << " (PID " << pid
-                      << "): " << std::strerror(errno) << std::endl;
+        int global_rank =
+            have_pre_launched ? static_cast<int>(i) : (rank_offset + static_cast<int>(i));
+        if (waitpid(proc.pid, &status, 0) < 0) {
+            std::cerr << "[rrun] Failed to wait for rank " << global_rank << " (PID "
+                      << proc.pid << "): " << std::strerror(errno) << std::endl;
             exit_status = 1;
             continue;
         }
@@ -1318,27 +1352,25 @@ int launch_ranks_fork_based(
         if (WIFEXITED(status)) {
             int code = WEXITSTATUS(status);
             if (code != 0) {
-                std::cerr << "[rrun] Rank "
-                          << (static_cast<size_t>(rank_offset)
-                              + (is_root_parent && root_address.has_value() ? i + 1 : i))
-                          << " (PID " << pid << ") exited with code " << code
-                          << std::endl;
+                std::cerr << "[rrun] Rank " << global_rank << " (PID " << proc.pid
+                          << ") exited with code " << code << std::endl;
                 exit_status = code;
             }
         } else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
-            std::cerr << "[rrun] Rank "
-                      << (static_cast<size_t>(rank_offset)
-                          + (is_root_parent && root_address.has_value() ? i + 1 : i))
-                      << " (PID " << pid << ") terminated by signal " << sig << std::endl;
+            std::cerr << "[rrun] Rank " << global_rank << " (PID " << proc.pid
+                      << ") terminated by signal " << sig << std::endl;
             exit_status = 128 + sig;
         }
     }
 
     // Wait for forwarder threads to finish
-    for (auto& t : forwarders) {
-        if (t.joinable()) {
-            t.join();
+    for (auto& p : processes) {
+        if (p.stdout_forwarder.joinable()) {
+            p.stdout_forwarder.join();
+        }
+        if (p.stderr_forwarder.joinable()) {
+            p.stderr_forwarder.join();
         }
     }
 
