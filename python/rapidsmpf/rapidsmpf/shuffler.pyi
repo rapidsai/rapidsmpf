@@ -8,7 +8,6 @@ from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.statistics import Statistics
 
 class Shuffler:
     max_concurrent_shuffles: int
@@ -19,7 +18,6 @@ class Shuffler:
         op_id: int,
         total_num_partitions: int,
         br: BufferResource,
-        statistics: Statistics | None = None,
     ) -> None: ...
     def shutdown(self) -> None: ...
     def __str__(self) -> str: ...

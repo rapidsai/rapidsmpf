@@ -13,7 +13,6 @@ from libcpp.vector cimport vector
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.progress_thread cimport ProgressThread
-from rapidsmpf.statistics cimport Statistics
 
 
 cdef class Shuffler:
@@ -38,8 +37,6 @@ cdef class Shuffler:
         Total number of partitions in the shuffle.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
 
     Attributes
     ----------
@@ -65,13 +62,10 @@ cdef class Shuffler:
         int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
-        Statistics statistics = None,
     ):
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -79,7 +73,6 @@ cdef class Shuffler:
                 op_id,
                 total_num_partitions,
                 br_,
-                statistics._handle,
             )
 
     def __dealloc__(self):

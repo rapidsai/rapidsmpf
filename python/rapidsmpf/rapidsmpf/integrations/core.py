@@ -251,7 +251,6 @@ def get_shuffler(
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 br=ctx.br,
-                statistics=ctx.statistics,
             )
         return ctx.shufflers[shuffle_id]
 

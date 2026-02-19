@@ -361,11 +361,17 @@ int main(int argc, char** argv) {
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    auto stats = args.enable_memory_profiler
+                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
+                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         mr,
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
-        std::move(memory_available)
+        std::move(memory_available),
+        std::nullopt,
+        nullptr,
+        stats
     );
 
     auto& log = comm->logger();
@@ -391,21 +397,14 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
-
-    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br, stats);
+    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
-        // Enable statistics for the last run.
+        // Clear statistics before the last run so only the final run is reported.
         if (i == total_num_runs - 1) {
-            if (args.enable_memory_profiler) {
-                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
-            } else {
-                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-            }
+            ctx->statistics()->clear();
         }
         double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
@@ -451,7 +450,7 @@ int main(int argc, char** argv) {
         }
         log.print(ss.str());
     }
-    log.print(stats->report("Statistics (of the last run):"));
+    log.print(ctx->statistics()->report("Statistics (of the last run):"));
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Finalize());
     }

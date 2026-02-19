@@ -34,9 +34,9 @@ partition_and_split(
     std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics,
     AllowOverbooking allow_overbooking
 ) {
+    auto statistics = br->statistics();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
         // Return views of a copy of the empty `table`.
@@ -86,16 +86,16 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics,
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    auto statistics = br->statistics();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     RAPIDSMPF_EXPECTS(num_partitions > 0, "Need to split to at least one partition");
     if (table.num_rows() == 0) {
         auto splits =
             std::vector<cudf::size_type>(safe_cast<std::uint64_t>(num_partitions - 1), 0);
-        return split_and_pack(table, splits, stream, br, statistics, allow_overbooking);
+        return split_and_pack(table, splits, stream, br, allow_overbooking);
     }
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
@@ -114,9 +114,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     );
     reservation.clear();
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end() - 1);
-    return split_and_pack(
-        reordered->view(), splits, stream, br, statistics, allow_overbooking
-    );
+    return split_and_pack(reordered->view(), splits, stream, br, allow_overbooking);
 }
 
 std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
@@ -124,10 +122,10 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics,
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    auto statistics = br->statistics();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::unordered_map<shuffler::PartID, PackedData> ret;
 
@@ -155,10 +153,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics,
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    auto statistics = br->statistics();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
 
     // Let's find the total size of the partitions and how much of the packed data we
@@ -215,9 +213,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions,
-    BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::vector<PackedData>&& partitions, BufferResource* br
 ) {
     auto const start_time = Clock::now();
     // Sum the total size of all packed data in device memory.
@@ -234,16 +230,17 @@ std::vector<PackedData> spill_partitions(
     for (auto& [metadata, data] : partitions) {
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
-    statistics->add_duration_stat("spill-time-device-to-host", Clock::now() - start_time);
-    statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
+    br->statistics()->add_duration_stat(
+        "spill-time-device-to-host", Clock::now() - start_time
+    );
+    br->statistics()->add_bytes_stat("spill-bytes-device-to-host", device_size);
     return ret;
 }
 
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    AllowOverbooking allow_overbooking,
-    std::shared_ptr<Statistics> statistics
+    AllowOverbooking allow_overbooking
 ) {
     auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
@@ -263,8 +260,10 @@ std::vector<PackedData> unspill_partitions(
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
 
-    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - start_time);
-    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+    br->statistics()->add_duration_stat(
+        "spill-time-host-to-device", Clock::now() - start_time
+    );
+    br->statistics()->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
 }  // namespace rapidsmpf

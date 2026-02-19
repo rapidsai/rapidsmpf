@@ -6,7 +6,7 @@ from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -23,7 +23,6 @@ from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -253,14 +252,12 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         "rapidsmpf::spill_partitions"(
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
-            shared_ptr[cpp_Statistics] statistics,
         ) except +ex_handler
 
 
 def spill_partitions(
     partitions,
     BufferResource br not None,
-    Statistics statistics = None,
 ):
     """
     Spill partitions from device memory to host memory.
@@ -281,8 +278,6 @@ def spill_partitions(
         The partitions to spill.
     br
         Buffer resource used to reserve host memory and perform the move.
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
 
     Returns
     -------
@@ -296,13 +291,10 @@ def spill_partitions(
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
-    if statistics is None:
-        statistics = Statistics(enable=False)  # Disables statistics.
     with nogil:
         _ret = cpp_spill_partitions(
             move(_partitions),
             _br,
-            statistics._handle,
         )
     return packed_data_vector_to_list(move(_ret))
 
@@ -313,7 +305,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
-            shared_ptr[cpp_Statistics] statistics,
         ) except +ex_handler
 
 
@@ -321,7 +312,6 @@ def unspill_partitions(
     partitions,
     BufferResource br not None,
     bool_t allow_overbooking,
-    Statistics statistics = None,
 ):
     """
     Move spilled partitions (i.e., packed tables in host memory) back to device memory.
@@ -346,8 +336,6 @@ def unspill_partitions(
     allow_overbooking
         If False, ensures enough memory is freed to satisfy the reservation;
         otherwise, allows overbooking even if spilling was insufficient.
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
 
     Returns
     -------
@@ -361,8 +349,6 @@ def unspill_partitions(
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
-    if statistics is None:
-        statistics = Statistics(enable=False)  # Disables statistics.
     cdef AllowOverbooking ab = (
         AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
     )
@@ -371,6 +357,5 @@ def unspill_partitions(
             move(_partitions),
             _br,
             ab,
-            statistics._handle,
         )
     return packed_data_vector_to_list(move(_ret))
