@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -239,6 +240,28 @@ class Statistics {
      * @return The updated total duration.
      */
     Duration add_duration_stat(std::string const& name, Duration seconds);
+
+    /**
+     * @brief Record byte count and elapsed time for a memory copy operation.
+     *
+     * Records two statistics entries:
+     *  - `"copy-bytes-{src}-to-{dst}"` — the number of bytes copied.
+     *  - `"copy-time-{src}-to-{dst}"` — the elapsed time of the copy.
+     *
+     * Memory type names are lowercased with underscores replaced by hyphens
+     * (e.g., `PINNED_HOST` → `"pinned-host"`), yielding names such as
+     * `"copy-bytes-device-to-pinned-host"` and `"copy-time-host-to-device"`.
+     *
+     * This is a no-op when statistics tracking is disabled.
+     *
+     * @param src Source memory type.
+     * @param dst Destination memory type.
+     * @param nbytes Number of bytes copied.
+     * @param elapsed Duration of the copy.
+     */
+    void record_copy(
+        MemoryType src, MemoryType dst, std::size_t nbytes, Duration elapsed
+    );
 
     /**
      * @brief Get the names of all statistics.
