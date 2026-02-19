@@ -174,7 +174,7 @@ cdef class Context:
         -------
         The statistics associated with this context.
         """
-        return self._br.statistics()
+        return self._br.statistics
 
     def get_stream_from_pool(self):
         """
