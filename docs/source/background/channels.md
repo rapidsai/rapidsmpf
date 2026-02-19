@@ -37,7 +37,7 @@ Components:
   • {term}`Channel`: Async queue connecting actors
   • {term}`Message`: GPU {term}`Buffer` with a CUDA Stream
 
-In the above network, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move tasks/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`Spilling`, and communication.
+In the above network, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move {term}`Message`s/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`Spilling`, and communication.
 
 ## Backpressure
 
@@ -90,6 +90,6 @@ for (int i = 0; i < n_producer; i++) {
 
 Internally, when using a `throttle` an {term}`Actor` that writes into a {term}`Channel` must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket. The consumer of a throttled channel reads {term}`Message`s without issue. This means that the throttle is localised to the producer actors.
 
-More simply, using a throttling adaptor limits the number of {term}`Message`s a producer writes into a {term}`Channel`. This pattern is very useful for producer {term}`Actor`s where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
+More simply, using a throttling adaptor limits the number of {term}`Message`s a producer writes into a {term}`Channel`. This pattern is very useful for producer {term}`Actor`s where we want some amount of bounded concurrency in the actors that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
 
 e.g. a source actor that reads files. `ThrottlingAdaptor` will allow the {term}`Actor` to delay reading files, until it has acquired a ticket to send a {term}`Message` to the {term}`Channel`. In comparison, non-throttling channels will suspend during send by which time, the files have already loaded into the memory unnecessarily.
