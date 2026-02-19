@@ -5,7 +5,8 @@ workloads without a Python runtime. The C++ layer is the foundation on which the
 Python bindings are built.
 
 The C++ API reference is available at
-[docs.rapids.ai/api/librapidsmpf/nightly](https://docs.rapids.ai/api/librapidsmpf/nightly/).
+[docs.rapids.ai/api/librapidsmpf/stable](https://docs.rapids.ai/api/librapidsmpf/stable/)
+([nightly](https://docs.rapids.ai/api/librapidsmpf/nightly/)).
 
 ## Coverage
 
