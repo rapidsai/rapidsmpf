@@ -757,6 +757,7 @@ def rmpf_worker_setup(
         periodic_spill_check=options.get_or_default(
             f"{option_prefix}periodic_spill_check", default_value=Optional(1e-3)
         ).value,
+        statistics=statistics,
     )
 
     # If enabled, create a staging device buffer for the spilling to reduce
