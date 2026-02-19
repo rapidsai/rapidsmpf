@@ -135,8 +135,7 @@ def get_rank():
 
     Returns
     -------
-    int
-        Rank of the current process.
+    Rank of the current process.
 
     Raises
     ------
