@@ -175,6 +175,15 @@ class Tag {
  * Provides an interface for sending and receiving messages between nodes, supporting
  * asynchronous operations, GPU data transfers, and custom logging. Implementations must
  * define the virtual methods to enable specific communication backends.
+ *
+ * The API of the `Communicator` is _not_ stream-ordered (since the concrete libraries we
+ * use to implement communication patterns are not stream-ordered). A consequence of this
+ * is that the user must ensure that any stream-ordered work on buffers is complete before
+ * passing a buffer into `send` or `recv`. As a corollary, after completing a future, the
+ * extracted `Buffer` is valid on its stream (it has no stream-ordered work queued up).
+ *
+ * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
+ * _must_ provide that there is no message overtaking.
  */
 class Communicator {
   public:
