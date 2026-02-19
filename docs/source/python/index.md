@@ -26,7 +26,7 @@ The Python API includes ready-to-use integrations with:
 
 ```{toctree}
 ---
-maxdepth: 1
+maxdepth: 2
 hidden:
 ---
 quickstart.md
