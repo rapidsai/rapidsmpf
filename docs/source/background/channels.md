@@ -14,7 +14,7 @@
 ```
 
 <br/>
-As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).
+As buffers move through the network, the channels (arrows) move from empty (dashed line) to full (solid line).
 
 
 ```
@@ -37,7 +37,7 @@ Components:
   • {term}`Channel`: Async queue connecting actors
   • {term}`Message`: GPU {term}`Buffer` with a CUDA Stream
 
-In the above graph, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move tasks/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`Spilling`, and communication.
+In the above network, moving data in and out of {term}`Channel`s on a single GPU should be relatively cheap, nearly free! This strategy of using channels to move tasks/{term}`Buffer`s is a core methodology for rapidsmpf to overlap: scans, compute, {term}`Spilling`, and communication.
 
 ## Backpressure
 
