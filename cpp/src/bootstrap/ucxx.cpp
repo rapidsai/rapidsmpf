@@ -8,6 +8,7 @@
 #ifdef RAPIDSMPF_HAVE_UCXX
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
@@ -81,14 +82,22 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options o
                 ->getString();
 
         std::string encoded_address = hex_encode(root_worker_address_str);
-        std::ofstream addr_file(*address_file);
+        // Write to a temp file then rename so the reader never sees partial content.
+        std::string const temp_path = *address_file + ".tmp";
+        std::ofstream addr_file(temp_path);
         if (!addr_file) {
             throw std::runtime_error(
-                "Failed to write root address to file: " + *address_file
+                "Failed to write root address to file: " + temp_path
             );
         }
         addr_file << encoded_address << std::endl;
         addr_file.close();
+        if (std::rename(temp_path.c_str(), address_file->c_str()) != 0) {
+            std::remove(temp_path.c_str());
+            throw std::runtime_error(
+                "Failed to rename root address file to: " + *address_file
+            );
+        }
 
         auto verbose = getenv_optional("RAPIDSMPF_VERBOSE");
         if (verbose && *verbose == "1") {
