@@ -25,6 +25,12 @@ cdef extern from "<rapidsmpf/bootstrap/utils.hpp>" nogil:
     bint cpp_is_running_with_rrun \
         "rapidsmpf::bootstrap::is_running_with_rrun"() except +ex_handler
 
+    bint cpp_is_running_with_slurm \
+        "rapidsmpf::bootstrap::is_running_with_slurm"() except +ex_handler
+
+    int cpp_get_rank \
+        "rapidsmpf::bootstrap::get_rank"() except +ex_handler
+
     int cpp_get_nranks \
         "rapidsmpf::bootstrap::get_nranks"() except +ex_handler
 
@@ -98,6 +104,49 @@ def is_running_with_rrun():
     with nogil:
         ret = cpp_is_running_with_rrun()
     return bool(ret)
+
+
+def is_running_with_slurm():
+    """
+    Check whether the current process is running under Slurm with PMIx.
+
+    This helper detects Slurm environment by checking for PMIx namespace
+    or Slurm job step environment variables.
+
+    Returns
+    -------
+    ``True`` if running under Slurm with PMIx, ``False`` otherwise.
+    """
+    cdef bint ret
+    with nogil:
+        ret = cpp_is_running_with_slurm()
+    return bool(ret)
+
+
+def get_rank():
+    """
+    Get the current bootstrap rank.
+
+    This helper retrieves the rank of the current process when running with a
+    bootstrap launcher (rrun or Slurm). Checks environment variables in order:
+    1. RAPIDSMPF_RANK (set by rrun)
+    2. PMIX_RANK (set by PMIx)
+    3. SLURM_PROCID (set by Slurm)
+
+    Returns
+    -------
+    Rank of the current process.
+
+    Raises
+    ------
+    RuntimeError
+        If not running with a bootstrap launcher or if the environment
+        variable cannot be parsed.
+    """
+    cdef int ret
+    with nogil:
+        ret = cpp_get_rank()
+    return ret
 
 
 def get_nranks():
