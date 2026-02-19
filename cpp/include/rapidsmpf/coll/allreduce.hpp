@@ -56,6 +56,9 @@ using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
  * @note The reduction is safe to use with both non-associative and non-commutative
  * reduction operations in the sense that all participating ranks are guaranteed to
  * receive the same answer even if the operator is not associative or commutative.
+ *
+ * @note It is safe to reuse the `op_id` passed to the `AllReduce` construction locally as
+ * soon as `wait_and_extract` is complete.
  */
 class AllReduce {
   public:
@@ -124,6 +127,11 @@ class AllReduce {
      * @return A pair of the two `Buffer`s passed to the constructor. The first `Buffer`
      * contains an implementation-defined value, the second `Buffer` contains the
      * final reduced result.
+     *
+     * @note The streams of the Buffers may change in an implementation-defined way while
+     * owned by the `AllReduce` object, if you need to launch new stream-ordered work on a
+     * `Buffer` you obtain from this function, you _must_ obtain the correct stream from
+     * the `Buffer` itself.
      *
      * @throws std::runtime_error If the timeout is reached or if this method is
      * called more than once.
