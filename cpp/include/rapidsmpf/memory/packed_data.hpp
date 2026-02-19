@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -77,15 +77,6 @@ struct PackedData {
      */
     [[nodiscard]] rmm::cuda_stream_view stream() const {
         return data->stream();
-    }
-
-    /**
-     * @brief Check if the packed data is spillable.
-     *
-     * @return True if the packed data is spillable, false otherwise.
-     */
-    [[nodiscard]] bool is_spillable() const {
-        return !empty() && contains(Buffer::device_buffer_types, data->mem_type());
     }
 
     /**
