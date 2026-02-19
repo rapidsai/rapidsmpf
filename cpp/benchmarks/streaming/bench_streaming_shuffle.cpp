@@ -370,7 +370,9 @@ int main(int argc, char** argv) {
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),
         std::nullopt,
-        nullptr,
+        std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        ),
         stats
     );
 
