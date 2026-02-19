@@ -134,6 +134,11 @@ bool buffer_ready(std::unique_ptr<Buffer> const& buffer) {
 ProgressThread::ProgressState AllReduce::event_loop() {
     Rank const rank = comm_->rank();
     bool const is_even = rank % 2 == 0;
+    // We only need a single stage ID because of no-message-overtaking guarantees in the
+    // communicator. We could use multiple stage IDs for each round of the exchange, but
+    // that would break once we have more than 256 participating ranks: there are only
+    // three bits available for the stage in the tag and we have log_2 nranks rounds.
+    // In any case, only needing a single tag is nice.
     Tag tag{op_id_, 0};
     if (!active_.load(std::memory_order_acquire)) {
         return ProgressThread::ProgressState::Done;
@@ -170,9 +175,12 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 }
                 send_future_ = comm_->send(std::move(out_buffer_), rank + 1, tag);
             } else {
-                // We are copying from in_buffer_ to out_buffer_ on in_buffer's
+                // The constructor copies in_buffer_ to out_buffer_ on in_buffer's
                 // stream. The copy must be complete before we can receive into
-                // in_buffer otherwise we have a write-after-read hazard.
+                // in_buffer_ otherwise we have a write-after-read hazard.
+                // Note that buffer_ready(out_buffer_) tracks the WAR hazard, not
+                // buffer_ready(in_buffer_). Checking the readiness of in_buffer_ is
+                // belt-and-braces.
                 if (!buffer_ready(out_buffer_) || !buffer_ready(in_buffer_)) {
                     break;
                 }
@@ -217,7 +225,12 @@ ProgressThread::ProgressState AllReduce::event_loop() {
             stage_partner_ = logical_dst < non_pow2_remainder_
                                  ? logical_dst * 2 + 1
                                  : logical_dst + non_pow2_remainder_;
-            if (!buffer_ready(in_buffer_) || !buffer_ready(out_buffer_)) {
+            // As with the copy in the ctor, the reduce_operator_ is stream-ordered on
+            // out_buffer_'s stream and reads in_buffer_. So we must guard for the WAR
+            // hazard before receiving in the next round.
+            // That, again, is tracked by out_buffer_ being ready and in_buffer readiness
+            // is belt-and-braces.
+            if (!buffer_ready(out_buffer_) || !buffer_ready(in_buffer_)) {
                 break;
             }
             recv_future_ = comm_->recv(stage_partner_, tag, std::move(in_buffer_));
