@@ -96,7 +96,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options o
                       << ", skipping bootstrap coordination" << std::endl;
         }
 
-        // Unset the flag so rank 0 participates in the final barrier
+        // Unset now that bootstrap is complete; the variable is no longer used.
         unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
     }
     // Path 2: Slurm hybrid mode for non-root ranks.
