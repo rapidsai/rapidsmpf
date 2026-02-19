@@ -160,7 +160,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
-
+    auto const start_time = Clock::now();
     // Let's find the total size of the partitions and how much of the packed data we
     // need to move to device memory (unspill).
     std::size_t total_size = 0;
@@ -182,15 +182,13 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     references.reserve(partitions.size());
     packed_data_streams.reserve(partitions.size());
 
-    // Reserve device memory for the unspill AND the cudf::unpack() calls.
-    auto reservation = br->reserve_device_memory_and_spill(
-        total_size + non_device_size, allow_overbooking
-    );
+    // Reserve device memory for the unspill packed data
+    auto reservation =
+        br->reserve_device_memory_and_spill(non_device_size, allow_overbooking);
     for (auto& packed_data : partitions) {
-        if (!packed_data.empty()) {
-            if (packed_data.data->size > 0) {  // No need to sync empty buffers.
-                packed_data_streams.push_back(packed_data.data->stream());
-            }
+        if (!packed_data.empty()) {  // only unpack non-empty packed data
+            packed_data_streams.push_back(packed_data.data->stream());
+
             unpacked.push_back(
                 cudf::unpack(references.emplace_back(
                     std::move(packed_data.metadata),
@@ -201,6 +199,13 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     }
     reservation.clear();
 
+    if (non_device_size > 0) {
+        statistics->add_duration_stat(
+            "spill-time-host-to-device", Clock::now() - start_time
+        );
+        statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+    }
+
     // We need to synchronize `stream` with the packed_data and update their
     // underlying device buffers to use `stream` going forward. This ensures
     // the packed data are not deallocated before we have a chance to
@@ -210,6 +215,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         packed_columns.gpu_data->set_stream(stream);
     }
 
+    // reserve device memory for the concatenation
     reservation = br->reserve_device_memory_and_spill(total_size, allow_overbooking);
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
@@ -263,8 +269,12 @@ std::vector<PackedData> unspill_partitions(
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
 
-    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - start_time);
-    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+    if (non_device_size > 0) {
+        statistics->add_duration_stat(
+            "spill-time-host-to-device", Clock::now() - start_time
+        );
+        statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+    }
     return ret;
 }
 }  // namespace rapidsmpf

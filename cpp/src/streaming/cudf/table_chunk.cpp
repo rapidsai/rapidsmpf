@@ -117,7 +117,17 @@ TableChunk TableChunk::make_available(MemoryReservation& reservation) {
     );
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "packed data pointer cannot be null");
     auto packed_data = std::move(packed_data_);
-    packed_data->data = reservation.br()->move(std::move(packed_data->data), reservation);
+    if (packed_data->data->mem_type() != MemoryType::DEVICE) {  // needs to be unspilled
+        auto statistics = reservation.br()->statistics();
+        auto const start_time = Clock::now();
+        packed_data->data =
+            reservation.br()->move(std::move(packed_data->data), reservation);
+        statistics->add_duration_stat(
+            "spill-time-host-to-device", Clock::now() - start_time
+        );
+        statistics->add_bytes_stat("spill-bytes-host-to-device", packed_data->data->size);
+    }
+
     return TableChunk{std::move(packed_data)};
 }
 
