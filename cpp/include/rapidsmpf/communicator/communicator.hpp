@@ -435,6 +435,9 @@ class Communicator {
      * This is used to send data that resides in host memory and is guaranteed
      * to be valid at the time of the call.
      *
+     * Use `release_sync_host_data` to obtain the data buffer again once the
+     * future is completed.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
@@ -447,7 +450,8 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Sends a message (device or host) to a specific rank.
+     * @brief Sends a message (device or host) to a specific rank. Use `release_data` to
+     * obtain the data buffer again once the future is completed.
      *
      * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
