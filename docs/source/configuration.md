@@ -20,7 +20,7 @@ options.insert_if_absent(get_environment_variables())
 ```
 
 However, Dask automatically reads environment variables for any options not set
-explicitly when calling `bootstrap_dask_cluster()`.
+explicitly when calling {func}`rapidsmpf.integrations.dask.bootstrap_dask_cluster`.
 
 It is always explicit in C++, use something like:
 
