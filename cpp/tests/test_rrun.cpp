@@ -24,10 +24,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
-
-#include <cucascade/memory/topology_discovery.hpp>
 
 class TopologyBindingTest : public ::testing::Test {
   protected:
@@ -95,7 +95,7 @@ TEST_F(TopologyBindingTest, NumaBinding) {
     if (actual_numa_nodes.empty()) {
         std::ostringstream oss;
         oss << "No NUMA nodes detected, but expected binding to: [";
-        for (size_t i = 0; i < expected_memory_binding.size(); ++i) {
+        for (std::size_t i = 0; i < expected_memory_binding.size(); ++i) {
             if (i > 0)
                 oss << ",";
             oss << expected_memory_binding[i];
@@ -121,14 +121,14 @@ TEST_F(TopologyBindingTest, NumaBinding) {
 
     EXPECT_TRUE(found) << "NUMA binding mismatch for GPU " << gpu_id_ << "\n"
                        << "  Expected: [";
-    for (size_t i = 0; i < expected_memory_binding.size(); ++i) {
+    for (std::size_t i = 0; i < expected_memory_binding.size(); ++i) {
         if (i > 0)
             std::cout << ",";
         std::cout << expected_memory_binding[i];
     }
     std::cout << "]\n"
               << "  Actual:   [";
-    for (size_t i = 0; i < actual_numa_nodes.size(); ++i) {
+    for (std::size_t i = 0; i < actual_numa_nodes.size(); ++i) {
         if (i > 0)
             std::cout << ",";
         std::cout << actual_numa_nodes[i];
@@ -147,7 +147,7 @@ TEST_F(TopologyBindingTest, UcxNetDevices) {
 
     // Convert expected network devices to comma-separated string
     std::string expected_ucx_devices;
-    for (size_t i = 0; i < expected_network_devices.size(); ++i) {
+    for (std::size_t i = 0; i < expected_network_devices.size(); ++i) {
         if (i > 0)
             expected_ucx_devices += ",";
         expected_ucx_devices += expected_network_devices[i];
@@ -199,7 +199,7 @@ TEST_F(TopologyBindingTest, AllBindings) {
     // Check UCX network devices
     if (!expected_gpu_info_.network_devices.empty()) {
         std::string expected_ucx_devices;
-        for (size_t i = 0; i < expected_gpu_info_.network_devices.size(); ++i) {
+        for (std::size_t i = 0; i < expected_gpu_info_.network_devices.size(); ++i) {
             if (i > 0)
                 expected_ucx_devices += ",";
             expected_ucx_devices += expected_gpu_info_.network_devices[i];

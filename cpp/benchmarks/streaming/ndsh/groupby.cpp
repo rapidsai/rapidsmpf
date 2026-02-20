@@ -20,7 +20,7 @@
 
 namespace rapidsmpf::ndsh {
 
-streaming::Node chunkwise_group_by(
+streaming::Actor chunkwise_group_by(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,

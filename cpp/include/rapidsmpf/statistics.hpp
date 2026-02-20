@@ -369,14 +369,20 @@ class Statistics {
 #define RAPIDSMPF_MEMORY_PROFILE_1(stats) RAPIDSMPF_MEMORY_PROFILE_2(stats, __func__)
 
 // Version with custom function name
-#define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                  \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =             \
-        ((rapidsmpf::detail::to_pointer(stats)                                       \
-          && rapidsmpf::detail::to_pointer(stats) -> is_memory_profiling_enabled())  \
-             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(         \
-                   std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-                   + std::string(funcname) + ")"                                     \
-               )                                                                     \
+#define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                      \
+    auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                      \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                 \
+        ((rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__))   \
+          && rapidsmpf::detail::to_pointer(                                              \
+                 RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                           \
+          ) -> is_memory_profiling_enabled())                                            \
+             ? rapidsmpf::detail::to_pointer(                                            \
+                   RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \
+               )                                                                         \
+                   ->create_memory_recorder(                                             \
+                       std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                       + std::string(funcname) + ")"                                     \
+                   )                                                                     \
              : rapidsmpf::Statistics::MemoryRecorder{})
 
 }  // namespace rapidsmpf

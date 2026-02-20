@@ -99,7 +99,9 @@ class MPI final : public Communicator {
          * @param req The MPI request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
          */
-        Future(MPI_Request req, std::unique_ptr<std::vector<uint8_t>> synced_host_data)
+        Future(
+            MPI_Request req, std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+        )
             : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
 
         ~Future() noexcept override = default;
@@ -110,7 +112,7 @@ class MPI final : public Communicator {
         // Buffer::storage_.
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
-        std::unique_ptr<std::vector<uint8_t>> synced_host_data_;
+        std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
     };
 
     /**
@@ -139,14 +141,18 @@ class MPI final : public Communicator {
 
     /**
      * @copydoc Communicator::send
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+        std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
     ) override;
 
     // clang-format off
     /**
      * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag)
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
@@ -155,6 +161,8 @@ class MPI final : public Communicator {
 
     /**
      * @copydoc Communicator::recv
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
@@ -162,24 +170,26 @@ class MPI final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
+     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer)
+     *
+     * @throws std::runtime_error If the message exceeds MPI size limit (2^31 bytes).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+        Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
     ) override;
 
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> recv_any(
         Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::recv_from
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> recv_from(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> recv_from(
         Rank src, Tag tag
     ) override;
     /**
@@ -200,6 +210,13 @@ class MPI final : public Communicator {
             future_map
     ) override;
 
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) override;
+
     /**
      * @copydoc Communicator::wait
      */
@@ -217,7 +234,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::release_sync_host_data
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_sync_host_data(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -48,7 +48,7 @@ constexpr std::chrono::seconds wait_timeout(30);
 
 TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
-    constexpr size_t chunksize = 1 << 20;
+    constexpr std::size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
     auto br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
 

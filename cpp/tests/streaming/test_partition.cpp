@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -22,7 +22,7 @@
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
+namespace actor = rapidsmpf::streaming::actor;
 
 using StreamingPartition = BaseStreamingFixture;
 
@@ -52,23 +52,23 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     // Create and run the streaming pipeline.
     std::vector<Message> outputs;
     {
-        std::vector<Node> nodes;
+        std::vector<Actor> actors;
         auto ch1 = ctx->create_channel();
-        nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
+        actors.push_back(actor::push_to_channel(ctx, ch1, std::move(inputs)));
 
         auto ch2 = ctx->create_channel();
-        nodes.push_back(
-            node::partition_and_pack(
+        actors.push_back(
+            actor::partition_and_pack(
                 ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
             )
         );
 
         auto ch3 = ctx->create_channel();
-        nodes.push_back(node::unpack_and_concat(ctx, ch2, ch3));
+        actors.push_back(actor::unpack_and_concat(ctx, ch2, ch3));
 
-        nodes.push_back(node::pull_from_channel(ctx, ch3, outputs));
+        actors.push_back(actor::pull_from_channel(ctx, ch3, outputs));
 
-        run_streaming_pipeline(std::move(nodes));
+        run_actor_network(std::move(actors));
     }
 
     EXPECT_EQ(expects.size(), outputs.size());

@@ -8,6 +8,8 @@
 #include <memory>
 #include <thread>
 
+#include <coro/coro.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -18,12 +20,10 @@
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
-#include <coro/coro.hpp>
-
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Context for nodes (coroutines) in rapidsmpf.
+ * @brief Context for actors (coroutines) in rapidsmpf.
  *
  * The context owns shared resources used during execution, including the
  * coroutine executor and memory reservation infrastructure.
@@ -51,15 +51,13 @@ class Context {
      * @param progress_thread Shared pointer to a progress thread.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
-     * @param statistics Shared pointer to a statistics collector.
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
-        std::shared_ptr<BufferResource> br,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<BufferResource> br
     );
 
     /**
@@ -68,13 +66,11 @@ class Context {
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
      * @param br Buffer resource used to reserve host memory and perform data movement.
-     * @param statistics Statistics instance to use (disabled by default).
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<BufferResource> br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<BufferResource> br
     );
 
     /**
@@ -250,7 +246,6 @@ class Context {
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};
-    std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
 };

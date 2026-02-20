@@ -18,7 +18,7 @@
 
 namespace rapidsmpf::ndsh {
 
-rapidsmpf::streaming::Node chunkwise_sort_by(
+rapidsmpf::streaming::Actor chunkwise_sort_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,

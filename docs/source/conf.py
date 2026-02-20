@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 # numpydoc ignore=GL08
 # Configuration file for the Sphinx documentation builder.
@@ -42,6 +42,7 @@ myst_heading_anchors = 3
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_static_path = ['_static']
+html_css_files = ['custom.css']
 
 
 html_theme_options = {
@@ -50,7 +51,7 @@ html_theme_options = {
     "icon_links": [],
     "github_url": "https://github.com/rapidsai/rapidsmpf",
     "twitter_url": "https://twitter.com/rapidsai",
-    "show_toc_level": 1,
+    "show_toc_level": 2,
     "navbar_align": "right",
     "navigation_with_keys": True,
 }
