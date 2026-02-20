@@ -238,26 +238,22 @@ class Statistics {
     void add_duration_stat(std::string const& name, Duration seconds);
 
     /**
-     * @brief Record byte count and elapsed time for a memory copy operation.
+     * @brief Record byte count for a memory copy operation.
      *
-     * Records two statistics entries:
+     * Records one statistics entry:
      *  - `"copy-bytes-{src}-to-{dst}"` — the number of bytes copied.
-     *  - `"copy-time-{src}-to-{dst}"` — the elapsed time of the copy.
      *
      * Memory type names are lowercased with underscores replaced by hyphens
      * (e.g., `PINNED_HOST` → `"pinned-host"`), yielding names such as
-     * `"copy-bytes-device-to-pinned-host"` and `"copy-time-host-to-device"`.
+     * `"copy-bytes-device-to-pinned-host"`.
      *
      * This is a no-op when statistics tracking is disabled.
      *
      * @param src Source memory type.
      * @param dst Destination memory type.
      * @param nbytes Number of bytes copied.
-     * @param elapsed Duration of the copy.
      */
-    void record_copy(
-        MemoryType src, MemoryType dst, std::size_t nbytes, Duration elapsed
-    );
+    void record_copy(MemoryType src, MemoryType dst, std::size_t nbytes);
 
     /**
      * @brief Get the names of all statistics.

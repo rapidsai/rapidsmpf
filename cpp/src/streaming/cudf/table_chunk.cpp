@@ -11,7 +11,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -172,12 +171,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             {
                 // Use libcudf to copy the table_view().
                 auto const nbytes = data_alloc_size(MemoryType::DEVICE);
-                auto const t0 = Clock::now();
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
                 br->statistics()->record_copy(
-                    MemoryType::DEVICE, MemoryType::DEVICE, nbytes, Clock::now() - t0
+                    MemoryType::DEVICE, MemoryType::DEVICE, nbytes
                 );
                 // And update the provided `reservation`.
                 br->release(reservation, nbytes);
@@ -192,13 +190,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 // new host buffer.
                 // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
                 // `cudf::pack()` allocates device memory we haven't reserved.
-                auto const t0_pack = Clock::now();
                 auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr());
                 br->statistics()->record_copy(
                     MemoryType::DEVICE,
                     MemoryType::DEVICE,
-                    packed_columns.gpu_data->size(),
-                    Clock::now() - t0_pack
+                    packed_columns.gpu_data->size()
                 );
                 auto packed_data = std::make_unique<PackedData>(
                     std::move(packed_columns.metadata),
@@ -237,9 +233,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
     auto data = br->allocate(nbytes, packed_data_->stream(), reservation);
-    auto const t0 = Clock::now();
     buffer_copy(*data, *packed_data_->data, nbytes);
-    br->statistics()->record_copy(src, reservation.mem_type(), nbytes, Clock::now() - t0);
+    br->statistics()->record_copy(src, reservation.mem_type(), nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 

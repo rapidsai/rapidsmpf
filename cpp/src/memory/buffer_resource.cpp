@@ -194,9 +194,8 @@ std::unique_ptr<Buffer> BufferResource::move(
         auto const src = buffer->mem_type();
         auto const nbytes = buffer->size;
         auto ret = allocate(nbytes, buffer->stream(), reservation);
-        auto const t0 = Clock::now();
         buffer_copy(*ret, *buffer, nbytes);
-        statistics_->record_copy(src, reservation.mem_type_, nbytes, Clock::now() - t0);
+        statistics_->record_copy(src, reservation.mem_type_, nbytes);
         return ret;
     }
     return buffer;

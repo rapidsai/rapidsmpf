@@ -204,9 +204,7 @@ std::string Statistics::report(std::string const& header) const {
     return ss.str();
 }
 
-void Statistics::record_copy(
-    MemoryType src, MemoryType dst, std::size_t nbytes, Duration elapsed
-) {
+void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
     auto mem_type_label = [](MemoryType mt) {
         std::string s{to_string(mt)};
         for (char& c : s) {
@@ -217,7 +215,6 @@ void Statistics::record_copy(
     };
     std::string const suffix = mem_type_label(src) + "-to-" + mem_type_label(dst);
     add_bytes_stat("copy-bytes-" + suffix, nbytes);
-    add_duration_stat("copy-time-" + suffix, elapsed);
 }
 
 }  // namespace rapidsmpf

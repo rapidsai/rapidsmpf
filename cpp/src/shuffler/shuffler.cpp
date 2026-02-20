@@ -503,11 +503,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
-            auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
-            statistics_->add_duration_stat(
-                "spill-time-device-to-host", Clock::now() - t0_elapsed
-            );
             statistics_->add_bytes_stat("spill-bytes-device-to-host", chunk.data_size());
             insert(std::move(chunk));
         } else {

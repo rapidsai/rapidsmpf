@@ -211,7 +211,6 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions, BufferResource* br
 ) {
-    auto const start_time = Clock::now();
     // Sum the total size of all packed data in device memory.
     std::size_t device_size{0};
     for (auto& [_, data] : partitions) {
@@ -226,9 +225,6 @@ std::vector<PackedData> spill_partitions(
     for (auto& [metadata, data] : partitions) {
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
-    br->statistics()->add_duration_stat(
-        "spill-time-device-to-host", Clock::now() - start_time
-    );
     br->statistics()->add_bytes_stat("spill-bytes-device-to-host", device_size);
     return ret;
 }
@@ -239,7 +235,6 @@ std::vector<PackedData> unspill_partitions(
     AllowOverbooking allow_overbooking
 ) {
     auto statistics = br->statistics();
-    auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -257,7 +252,6 @@ std::vector<PackedData> unspill_partitions(
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
 
-    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - start_time);
     statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
