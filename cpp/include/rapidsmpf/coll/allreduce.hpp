@@ -59,6 +59,9 @@ using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
  *
  * @note It is safe to reuse the `op_id` passed to the `AllReduce` construction locally as
  * soon as `wait_and_extract` is complete.
+ *
+ * @warning Behaviour of this object is undefined if it is destructed without first
+ * ensuring that `wait_and_extract` completes successfully.
  */
 class AllReduce {
   public:

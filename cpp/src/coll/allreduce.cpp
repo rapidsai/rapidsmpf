@@ -81,6 +81,14 @@ AllReduce::~AllReduce() noexcept {
     if (function_id_.is_valid() && progress_thread_
         && active_.load(std::memory_order_acquire))
     {
+        auto const phase = phase_.load(std::memory_order_acquire);
+        if (phase != Phase::ResultAvailable && phase != Phase::Done) {
+            // If we get here and we hadn't finished the event loop then there are in
+            // flight messages that will be lost forever and potentially be matched
+            // incorrectly so there's really nothing we can do.
+            comm_->logger().warn("Destroying AllReduce before waiting for extraction");
+            std::terminate();
+        }
         active_.store(false, std::memory_order_release);
         progress_thread_->remove_function(function_id_);
     }
