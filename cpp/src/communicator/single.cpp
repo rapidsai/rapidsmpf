@@ -52,6 +52,16 @@ std::vector<std::size_t> Single::test_some(
     RAPIDSMPF_FAIL("Unexpected test_some from self", std::runtime_error);
 }
 
+bool Single::test(std::unique_ptr<Communicator::Future>&) {
+    RAPIDSMPF_FAIL("Unexpected test from self", std::runtime_error);
+}
+
+std::vector<std::unique_ptr<Buffer>> Single::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&&
+) {
+    RAPIDSMPF_FAIL("Unexpected wait_all from self", std::runtime_error);
+}
+
 std::unique_ptr<Buffer> Single::wait(std::unique_ptr<Communicator::Future>) {
     RAPIDSMPF_FAIL("Unexpected wait from self", std::runtime_error);
 }
