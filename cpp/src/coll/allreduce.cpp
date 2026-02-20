@@ -78,9 +78,7 @@ AllReduce::AllReduce(
 }
 
 AllReduce::~AllReduce() noexcept {
-    if (function_id_.is_valid() && progress_thread_
-        && active_.load(std::memory_order_acquire))
-    {
+    if (function_id_.is_valid() && progress_thread_) {
         auto const phase = phase_.load(std::memory_order_acquire);
         if (phase != Phase::ResultAvailable && phase != Phase::Done) {
             // If we get here and we hadn't finished the event loop then there are in
