@@ -137,11 +137,7 @@ This table gives an overview of the different statistics collected.
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `spill-bytes-device-to-host` | int | The size in bytes of data moved from device to host when spilling data. |
-| `spill-time-device-to-host` | float | The duration of the device to host spill. The unit is platform dependent. |
-| `spill-bytes-host-to-device` | int | The size in bytes of data moved from host to device when unspilling data. |
-| `spill-time-host-to-device` | float | The duration of the host to device spill. The unit is platform dependent. |
-| `spill-bytes-recv-to-host` | int | The size in bytes of data received into host memory on one node from some other node. |
+| `recv-into-host-memory` | int | The size in bytes of data received into host memory on one node from some other node. |
 | `shuffle-payload-send` | int | The size in bytes of data transferred from a node (including locally, from a node to itself). |
 | `shuffle-payload-recv` | int | The size in bytes of data transferred to a node (including locally, from a node to itself). |
 | `event-loop-total` | float | The duration of a Shuffler's event loop iteration. The unit is platform dependent. |

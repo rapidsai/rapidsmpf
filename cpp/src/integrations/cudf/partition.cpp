@@ -225,7 +225,6 @@ std::vector<PackedData> spill_partitions(
     for (auto& [metadata, data] : partitions) {
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
-    br->statistics()->add_bytes_stat("spill-bytes-device-to-host", device_size);
     return ret;
 }
 
@@ -252,7 +251,6 @@ std::vector<PackedData> unspill_partitions(
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
 
-    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
 }  // namespace rapidsmpf

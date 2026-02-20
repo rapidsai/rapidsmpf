@@ -208,7 +208,7 @@ class Shuffler::Progress {
                             ))
                         {
                             stats.add_bytes_stat(
-                                "spill-bytes-recv-to-host", chunk.data_size()
+                                "recv-into-host-memory", chunk.data_size()
                             );
                         }
                     }
@@ -504,7 +504,6 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
-            statistics_->add_bytes_stat("spill-bytes-device-to-host", chunk.data_size());
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

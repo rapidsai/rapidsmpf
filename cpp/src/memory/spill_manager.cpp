@@ -77,7 +77,6 @@ std::size_t SpillManager::spill(std::size_t amount) {
     }
     lock.unlock();
     auto& stats = *br_->statistics();
-    stats.add_bytes_stat("spill-bytes-device-to-host", spilled);
     if (spilled < amount) {
         // TODO: use a "max" statistic when it is available, for now we use the average.
         stats.add_stat(
