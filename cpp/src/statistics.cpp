@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <cctype>
 #include <iomanip>
 #include <ranges>
 #include <sstream>
@@ -205,16 +204,20 @@ std::string Statistics::report(std::string const& header) const {
 }
 
 void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
-    auto mem_type_label = [](MemoryType mt) {
-        std::string s{to_string(mt)};
-        for (char& c : s) {
-            c = c == '_' ? '-'
-                         : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    using Key = std::pair<MemoryType, MemoryType>;
+    // Use a lambda to construct all stat names once at first call.
+    static std::map<Key, std::string> const name_map = [] {
+        std::map<Key, std::string> ret;
+        for (MemoryType s : MEMORY_TYPES) {
+            auto const src_name = to_lower(to_string(s));
+            for (MemoryType d : MEMORY_TYPES) {
+                auto const dst_name = to_lower(to_string(d));
+                ret.emplace(Key{s, d}, "copy-" + dst_name + "-to-" + dst_name);
+            }
         }
-        return s;
-    };
-    std::string const suffix = mem_type_label(src) + "-to-" + mem_type_label(dst);
-    add_bytes_stat("copy-" + suffix, nbytes);
+        return ret;
+    }();
+    add_bytes_stat(name_map.at({src, dst}), nbytes);
 }
 
 }  // namespace rapidsmpf

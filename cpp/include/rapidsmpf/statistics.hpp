@@ -243,12 +243,6 @@ class Statistics {
      * Records one statistics entry:
      *  - `"copy-{src}-to-{dst}"` — the number of bytes copied.
      *
-     * Memory type names are lowercased with underscores replaced by hyphens
-     * (e.g., `PINNED_HOST` → `"pinned-host"`), yielding names such as
-     * `"copy-device-to-pinned-host"`.
-     *
-     * This is a no-op when statistics tracking is disabled.
-     *
      * @param src Source memory type.
      * @param dst Destination memory type.
      * @param nbytes Number of bytes copied.
