@@ -177,8 +177,8 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 // The constructor copies in_buffer_ to out_buffer_ on in_buffer's
                 // stream. The copy must be complete before we can receive into
                 // in_buffer_ otherwise we have a write-after-read hazard.
-                // Note that buffer_ready(out_buffer_) tracks the WAR hazard, not
-                // buffer_ready(in_buffer_). Checking the readiness of in_buffer_ is
+                // Note that out_buffer_ latest-write tracks the WAR hazard, not
+                // in_buffer_'s latest write. Checking the latest write of in_buffer_ is
                 // belt-and-braces.
                 if (!out_buffer_->is_latest_write_done()
                     || !in_buffer_->is_latest_write_done())
