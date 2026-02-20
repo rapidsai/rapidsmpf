@@ -1312,7 +1312,7 @@ std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
     reqs.reserve(futures.size());
     for (auto const& future : futures) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a MPI::Future");
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         reqs.push_back(ucxx_future->req_);
     }
     while (!std::ranges::all_of(reqs, [](auto&& req) {
