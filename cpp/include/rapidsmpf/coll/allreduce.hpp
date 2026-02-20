@@ -135,6 +135,11 @@ class AllReduce {
      * `Buffer` you obtain from this function, you _must_ obtain the correct stream from
      * the `Buffer` itself.
      *
+     * @warning There may be outstanding stream-ordered work _reading_ from the first
+     * `Buffer` when this function returns (not tracked by the buffer's
+     * `Buffer::latest_write_event()`). If you want to pass it to a non-stream-ordered API
+     * that writes to the buffer you _must_ synchronise its stream first.
+     *
      * @throws std::runtime_error If the timeout is reached or if this method is
      * called more than once.
      */
