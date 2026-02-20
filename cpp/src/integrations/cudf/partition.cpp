@@ -238,6 +238,7 @@ std::vector<PackedData> unspill_partitions(
     BufferResource* br,
     AllowOverbooking allow_overbooking
 ) {
+    auto statistics = br->statistics();
     auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
@@ -256,10 +257,10 @@ std::vector<PackedData> unspill_partitions(
         ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
     }
 
-    br->statistics()->add_duration_stat(
+    statistics->add_duration_stat(
         "spill-time-host-to-device", Clock::now() - start_time
     );
-    br->statistics()->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
 }  // namespace rapidsmpf
