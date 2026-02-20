@@ -72,7 +72,8 @@ class AllReduce {
      * @param progress_thread The progress thread used by the underlying AllGather.
      * @param input Local data to contribute to the reduction.
      * @param output Allocated buffer in which to place reduction result. Must be the same
-     * size and memory type as `input`.
+     * size and memory type as `input`. Overwritten with the reduction result (values
+     * already in the buffer are ignored).
      * @param op_id Unique operation identifier for this allreduce.
      * @param reduce_operator Type-erased reduction operator to use. See `ReduceOperator`.
      * @param finished_callback Optional callback run once locally when the allreduce
@@ -280,8 +281,7 @@ struct DeviceOp {
                 && right->mem_type() == MemoryType::DEVICE,
             "DeviceOp expects device memory"
         );
-        // Both buffers are guaranteed to be on the same stream by the insertion
-        // implementation.
+        // Both buffers are guaranteed to be on the same stream by the AllReduce ctor.
         right->write_access([&](std::byte* right_bytes, rmm::cuda_stream_view stream) {
             auto const* left_bytes = reinterpret_cast<std::byte const*>(left->data());
 
@@ -321,10 +321,7 @@ struct DeviceOp {
 template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
 ReduceOperator make_host_reduce_operator(Op op) {
-    HostOp<T, Op> host_op{std::move(op)};
-    return [host_op = std::move(host_op)](Buffer const* left, Buffer* right) mutable {
-        host_op(left, right);
-    };
+    return HostOp<T, Op>{std::move(op)};
 }
 
 /**
@@ -342,10 +339,7 @@ template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
 ReduceOperator make_device_reduce_operator(Op op) {
 #ifdef __CUDACC__
-    DeviceOp<T, Op> device_op{std::move(op)};
-    return [device_op = std::move(device_op)](Buffer const* left, Buffer* right) mutable {
-        device_op(left, right);
-    };
+    return DeviceOp<T, Op>{std::move(op)};
 #else
     std::ignore = op;
 

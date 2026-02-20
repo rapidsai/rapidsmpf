@@ -4,14 +4,12 @@
  */
 
 #include <algorithm>
-#include <array>
 #include <atomic>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
+#include <stdexcept>
 #include <string>
 #include <tuple>
-#include <type_traits>
 #include <vector>
 
 #include <cuda_runtime_api.h>
@@ -28,10 +26,8 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 
 #include "environment.hpp"
-#include "test_allreduce_custom_type.hpp"
 
 using rapidsmpf::MemoryType;
 using rapidsmpf::OpID;
@@ -83,9 +79,20 @@ struct OpName<cuda::maximum<T>> {
     }
 };
 
-template <typename Op, typename T>
-T apply_op(Op op, T a, T b) {
-    return op(a, b);
+template <typename Op>
+constexpr const char* ToStringOp() {
+    return OpName<Op>::value();
+}
+
+constexpr const char* ToString(MemoryType mem_type) {
+    switch (mem_type) {
+    case rapidsmpf::MemoryType::HOST:
+        return "host";
+    case rapidsmpf::MemoryType::DEVICE:
+        return "device";
+    default:
+        return "unknown_mem_type";
+    }
 }
 
 template <typename T>
@@ -96,23 +103,40 @@ T make_input_value(int rank, int elem_idx) {
 }
 
 /**
+ * @brief Simple user-defined type used to demonstrate custom allreduce operators.
+ *
+ * The reduction we implement for this type is:
+ *  - `value` field: summed across ranks
+ *  - `weight` field: minimum across ranks
+ */
+struct CustomValue {
+    int value{};
+    int weight{};
+};
+
+/**
  * @brief Factory for a host-side reduction operator for `CustomValue`.
  *
  * The returned operator expects the buffer to contain a contiguous array
  * of `CustomValue` in host memory, with equal sizes for all ranks.
  */
 ReduceOperator make_custom_value_reduce_operator_host() {
-    struct CustomValueOp {
-        CustomValue operator()(CustomValue const& a, CustomValue const& b) const {
-            CustomValue result;
-            result.value = a.value + b.value;
-            result.weight = std::min(a.weight, b.weight);
-            return result;
-        }
-    };
-
     return rapidsmpf::coll::detail::make_host_reduce_operator<CustomValue>(
-        CustomValueOp{}
+        [](CustomValue a, CustomValue b) -> CustomValue {
+            return {
+                .value = a.value + b.value, .weight = cuda::std::min(a.weight, b.weight)
+            };
+        }
+    );
+}
+
+ReduceOperator make_custom_value_reduce_operator_device() {
+    return rapidsmpf::coll::detail::make_device_reduce_operator<CustomValue>(
+        [] __device__(CustomValue a, CustomValue b) -> CustomValue {
+            return {
+                .value = a.value + b.value, .weight = cuda::std::min(a.weight, b.weight)
+            };
+        }
     );
 }
 
@@ -200,40 +224,88 @@ class BaseAllReduceTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
-struct MemoryReductionConfig {
-    enum BufferType {
-        ALL_HOST,
-        ALL_DEVICE
-    };
+TEST_F(BaseAllReduceTest, timeout_interleaved) {
+    auto const mem_type = rapidsmpf::MemoryType::HOST;
+    auto const rank = comm->rank();
+    auto const size = comm->nranks();
+    std::vector<int> data1(1, rank + 1);
+    auto in_buffer1 = make_buffer<int>(br.get(), data1.data(), data1.size(), mem_type);
+    auto reservation = br->reserve_or_fail(in_buffer1->size, in_buffer1->mem_type());
+    auto out_buffer1 = br->allocate(in_buffer1->size, in_buffer1->stream(), reservation);
 
-    enum ReductionType {
-        HOST_REDUCTION,
-        DEVICE_REDUCTION
-    };
+    std::vector<float> data2(1, rank + 7);
+    auto in_buffer2 = make_buffer<float>(br.get(), data2.data(), data2.size(), mem_type);
+    reservation = br->reserve_or_fail(in_buffer2->size, in_buffer2->mem_type());
+    auto out_buffer2 = br->allocate(in_buffer2->size, in_buffer2->stream(), reservation);
 
-    BufferType buffer_type;
-    ReductionType reduction_type;
-
-    std::string ToString() const {
-        std::string buf_str = (buffer_type == ALL_HOST) ? "all_host" : "all_device";
-        std::string red_str =
-            (reduction_type == HOST_REDUCTION) ? "host_reduction" : "device_reduction";
-        return buf_str + "_" + red_str;
+    if (rank % 2 == 0) {
+        AllReduce allreduce1(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            std::move(in_buffer1),
+            std::move(out_buffer1),
+            OpID{0},
+            rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{})
+        );
+        // Odd ranks have not yet started the matching allreduce because they're doing the
+        // "second" one first.
+        EXPECT_THROW(
+            std::ignore = allreduce1.wait_and_extract(std::chrono::milliseconds{20}),
+            std::runtime_error
+        );
+        AllReduce allreduce2(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            std::move(in_buffer2),
+            std::move(out_buffer2),
+            OpID{1},
+            rapidsmpf::coll::detail::make_host_reduce_operator<float>(SumOp<float>{})
+        );
+        // OK, now we can get the result from the "second" allreduce
+        std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
+        // And now the odd ranks are release so they kick off the "first" reduce and this
+        // should succeed.
+        std::tie(in_buffer1, out_buffer1) = allreduce1.wait_and_extract();
+    } else {
+        AllReduce allreduce2(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            std::move(in_buffer2),
+            std::move(out_buffer2),
+            OpID{1},
+            rapidsmpf::coll::detail::make_host_reduce_operator<float>(SumOp<float>{})
+        );
+        std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
+        AllReduce allreduce1(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            std::move(in_buffer1),
+            std::move(out_buffer1),
+            OpID{0},
+            rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{})
+        );
+        std::tie(in_buffer1, out_buffer1) = allreduce1.wait_and_extract();
     }
-};
+    auto result1 = unpack_to_host<int>(*out_buffer1);
+    auto result2 = unpack_to_host<float>(*out_buffer2);
+    EXPECT_EQ(result1.size(), 1);
+    EXPECT_EQ(result2.size(), 1);
+    EXPECT_EQ(result1[0], size * (size + 1) / 2);
+    EXPECT_FLOAT_EQ(result2[0], static_cast<float>(6 * size + (size * (size + 1)) / 2));
+}
 
 class AllReduceIntSumTest
     : public BaseAllReduceTest,
-      public ::testing::WithParamInterface<std::tuple<int, MemoryReductionConfig>> {
+      public ::testing::WithParamInterface<std::tuple<int, MemoryType>> {
   protected:
     void SetUp() override {
         BaseAllReduceTest::SetUp();
         n_elements = std::get<0>(GetParam());
-        config = std::get<1>(GetParam());
+        mem_type = std::get<1>(GetParam());
     }
 
     int n_elements{};
-    MemoryReductionConfig config{};
+    MemoryType mem_type{};
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -242,20 +314,16 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(0, 1, 10, 100),  // n_elements
         ::testing::Values(
-            MemoryReductionConfig{
-                MemoryReductionConfig::ALL_HOST, MemoryReductionConfig::HOST_REDUCTION
-            }
+            MemoryType::HOST
 #ifdef __CUDACC__
             ,
-            MemoryReductionConfig{
-                MemoryReductionConfig::ALL_DEVICE, MemoryReductionConfig::DEVICE_REDUCTION
-            }
+            MemoryType::DEVICE
 #endif
         )
     ),
-    [](const ::testing::TestParamInfo<std::tuple<int, MemoryReductionConfig>>& info) {
+    [](const ::testing::TestParamInfo<std::tuple<int, MemoryType>>& info) {
         return "n_elements_" + std::to_string(std::get<0>(info.param)) + "_"
-               + std::get<1>(info.param).ToString();
+               + ToString(std::get<1>(info.param));
     }
 );
 
@@ -265,7 +333,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
 
     // Choose operator based on reduction type
     ReduceOperator kernel =
-        (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
+        mem_type == MemoryType::DEVICE
             ? rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
             : rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{});
 
@@ -273,11 +341,6 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     for (int j = 0; j < n_elements; j++) {
         data[j] = this_rank;
     }
-
-    // Choose buffer type based on config
-    MemoryType mem_type = (config.buffer_type == MemoryReductionConfig::ALL_HOST)
-                              ? MemoryType::HOST
-                              : MemoryType::DEVICE;
 
     auto in_buffer = make_buffer<int>(br.get(), data.data(), data.size(), mem_type);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
@@ -303,67 +366,23 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     EXPECT_TRUE(allreduce.finished());
 }
 
-template <
-    typename T,
-    typename Op,
-    MemoryReductionConfig::BufferType BufferType,
-    MemoryReductionConfig::ReductionType ReductionType>
+template <typename T, typename Op, MemoryType MemType>
 struct AllReduceCase {
     using value_type = T;
     using op_type = Op;
-    static constexpr MemoryReductionConfig::BufferType buffer_type = BufferType;
-    static constexpr MemoryReductionConfig::ReductionType reduction_type = ReductionType;
+    static constexpr MemoryType mem_type = MemType;
 };
 
-template <typename Op>
-constexpr const char* ToStringOp() {
-    return OpName<Op>::value();
-}
-
-constexpr const char* ToString(MemoryReductionConfig::BufferType bt) {
-    switch (bt) {
-    case MemoryReductionConfig::ALL_HOST:
-        return "all_host";
-    case MemoryReductionConfig::ALL_DEVICE:
-        return "all_device";
-    }
-    return "unknown_buffer";
-}
-
-constexpr const char* ToString(MemoryReductionConfig::ReductionType rt) {
-    switch (rt) {
-    case MemoryReductionConfig::HOST_REDUCTION:
-        return "host_red";
-    case MemoryReductionConfig::DEVICE_REDUCTION:
-        return "device_red";
-    }
-    return "unknown_reduction";
-}
-
-#define HOST_BUFFER_REDUCTION_CASES(T, OP) \
-    AllReduceCase<                         \
-        T,                                 \
-        OP,                                \
-        MemoryReductionConfig::ALL_HOST,   \
-        MemoryReductionConfig::HOST_REDUCTION>
+#define HOST_BUFFER_REDUCTION_CASES(T, OP) AllReduceCase<T, OP, MemoryType::HOST>
 
 #ifdef __CUDACC__
-#define DEVICE_BUFFER_REDUCTION_CASES(T, OP) \
-    AllReduceCase<                           \
-        T,                                   \
-        OP,                                  \
-        MemoryReductionConfig::ALL_DEVICE,   \
-        MemoryReductionConfig::DEVICE_REDUCTION>
+#define DEVICE_BUFFER_REDUCTION_CASES(T, OP) AllReduceCase<T, OP, MemoryType::DEVICE>
 #else
 #define DEVICE_BUFFER_REDUCTION_CASES(T, OP)
 #endif
 
-#ifdef __CUDACC__
 #define ALL_BUFFER_REDUCTION_CASES(T, OP) \
     HOST_BUFFER_REDUCTION_CASES(T, OP), DEVICE_BUFFER_REDUCTION_CASES(T, OP)
-#else
-#define ALL_BUFFER_REDUCTION_CASES(T, OP) HOST_BUFFER_REDUCTION_CASES(T, OP)
-#endif
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
@@ -392,8 +411,7 @@ class AllReduceTypedOpsTest : public BaseAllReduceTest {
   public:
     using value_type = typename Case::value_type;
     using op_type = typename Case::op_type;
-    static constexpr auto buffer_type = Case::buffer_type;
-    static constexpr auto reduction_type = Case::reduction_type;
+    static constexpr auto mem_type = Case::mem_type;
 };
 
 struct AllReduceTypedOpsTestName {
@@ -402,7 +420,7 @@ struct AllReduceTypedOpsTestName {
         std::string type_name =
             ::testing::internal::GetTypeName<typename Case::value_type>();
         return type_name + "_" + ToStringOp<typename Case::op_type>() + "_"
-               + ToString(Case::buffer_type) + "_" + ToString(Case::reduction_type);
+               + ToString(Case::mem_type);
     }
 };
 
@@ -418,7 +436,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
 
     // Convert op to device version if needed
     ReduceOperator kernel = [&]() -> ReduceOperator {
-        if constexpr (Case::reduction_type == MemoryReductionConfig::DEVICE_REDUCTION) {
+        if constexpr (Case::mem_type == MemoryType::DEVICE) {
             return rapidsmpf::coll::detail::make_device_reduce_operator<T>(Op{});
         }
 
@@ -432,9 +450,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         data[j] = make_input_value<T>(this_rank, j);
     }
 
-    MemoryType mem_type = (Case::buffer_type == MemoryReductionConfig::ALL_HOST)
-                              ? MemoryType::HOST
-                              : MemoryType::DEVICE;
+    MemoryType mem_type = Case::mem_type;
 
     auto in_buffer = make_buffer<T>(this->br.get(), data.data(), data.size(), mem_type);
     auto reservation = this->br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
@@ -459,7 +475,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
     for (int j = 0; j < n_elements; j++) {
         T value = make_input_value<T>(0, j);
         for (int r = 1; r < nranks; ++r) {
-            value = apply_op(op, value, make_input_value<T>(r, j));
+            value = op(value, make_input_value<T>(r, j));
         }
         expected.push_back(value);
     }
@@ -481,15 +497,8 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
  * @brief Test demonstrating AllReduce over a user-defined type with a custom
  * reduction operator.
  */
-struct CustomTypeTestConfig {
-    bool is_device;
-    MemoryType buffer_type;
-    const char* name;
-};
-
-class AllReduceCustomTypeTest
-    : public BaseAllReduceTest,
-      public ::testing::WithParamInterface<CustomTypeTestConfig> {};
+class AllReduceCustomTypeTest : public BaseAllReduceTest,
+                                public ::testing::WithParamInterface<MemoryType> {};
 
 TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     auto this_rank = comm->rank();
@@ -497,10 +506,11 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
 
     int constexpr n_elements{4};
 
-    auto const& config = GetParam();
+    auto const& mem_type = GetParam();
 
-    ReduceOperator kernel = config.is_device ? make_custom_value_reduce_operator_device()
-                                             : make_custom_value_reduce_operator_host();
+    ReduceOperator kernel = mem_type == MemoryType::DEVICE
+                                ? make_custom_value_reduce_operator_device()
+                                : make_custom_value_reduce_operator_host();
 
     // Each rank contributes the same logical layout of CustomValue
     std::vector<CustomValue> data(n_elements);
@@ -510,7 +520,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     }
 
     auto in_buffer =
-        make_buffer<CustomValue>(br.get(), data.data(), data.size(), config.buffer_type);
+        make_buffer<CustomValue>(br.get(), data.data(), data.size(), mem_type);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
     auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
@@ -542,7 +552,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
             expected_weight = std::min(expected_weight, r * 10 + j);
         }
 
-        expected.push_back(CustomValue{expected_value, expected_weight});
+        expected.emplace_back(expected_value, expected_weight);
     }
 
     auto eq_custom_value = ::testing::Truly([](auto const& pair) {
@@ -556,15 +566,8 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
 INSTANTIATE_TEST_SUITE_P(
     AllReduceCustomTypeConfigs,
     AllReduceCustomTypeTest,
-    ::testing::Values(
-        CustomTypeTestConfig{false, MemoryType::HOST, "host_reduction_with_host_buffers"},
-        CustomTypeTestConfig{
-            true, MemoryType::DEVICE, "device_reduction_with_device_buffers"
-        }
-    ),
-    [](const ::testing::TestParamInfo<CustomTypeTestConfig>& info) {
-        return std::string(info.param.name);
-    }
+    ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),
+    [](const ::testing::TestParamInfo<MemoryType>& info) { return ToString(info.param); }
 );
 
 class AllReduceFinishedCallbackTest : public BaseAllReduceTest {};

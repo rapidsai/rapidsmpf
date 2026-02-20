@@ -72,7 +72,6 @@ target_sources(
   test_sources
   PRIVATE test_allgather.cpp
           test_allreduce.cu
-          test_allreduce_custom_kernels.cu
           test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
