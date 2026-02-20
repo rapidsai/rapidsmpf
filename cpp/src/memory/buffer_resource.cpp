@@ -108,8 +108,8 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
     // reserve device memory with overbooking
     auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
 
-    // ask the spill manager to make room for overbooking
-    if (ob > 0) {
+    // ask the spill manager to make room for overbooking for non-empty reservation
+    if (size > 0 && ob > 0) {
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
             allow_overbooking == AllowOverbooking::YES || spilled >= ob,
