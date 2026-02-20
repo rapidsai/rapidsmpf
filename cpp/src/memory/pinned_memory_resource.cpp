@@ -77,9 +77,24 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-
-    return pinned_memory ? PinnedMemoryResource::make_if_available()
-                         : PinnedMemoryResource::Disabled;
+    if (pinned_memory) {
+        PinnedPoolProperties pool_properties{
+            .initial_pool_size = options.get<size_t>(
+                "pinned_initial_pool_size",
+                [](auto const& s) { return parse_string<size_t>(s.empty() ? "0" : s); }
+            ),
+            .max_pool_size = options.get<std::optional<size_t>>(
+                "pinned_max_pool_size", [](auto const& s) {
+                    return s.empty() ? std::nullopt
+                                     : std::optional<size_t>(parse_string<size_t>(s));
+                }
+            )
+        };
+        return PinnedMemoryResource::make_if_available(
+            get_current_numa_node(), std::move(pool_properties)
+        );
+    }
+    return PinnedMemoryResource::Disabled;
 }
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
