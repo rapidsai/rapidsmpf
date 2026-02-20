@@ -241,11 +241,11 @@ class Statistics {
      * @brief Record byte count for a memory copy operation.
      *
      * Records one statistics entry:
-     *  - `"copy-bytes-{src}-to-{dst}"` — the number of bytes copied.
+     *  - `"copy-{src}-to-{dst}"` — the number of bytes copied.
      *
      * Memory type names are lowercased with underscores replaced by hyphens
      * (e.g., `PINNED_HOST` → `"pinned-host"`), yielding names such as
-     * `"copy-bytes-device-to-pinned-host"`.
+     * `"copy-device-to-pinned-host"`.
      *
      * This is a no-op when statistics tracking is disabled.
      *

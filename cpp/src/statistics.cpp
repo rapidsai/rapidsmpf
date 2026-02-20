@@ -214,7 +214,7 @@ void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes)
         return s;
     };
     std::string const suffix = mem_type_label(src) + "-to-" + mem_type_label(dst);
-    add_bytes_stat("copy-bytes-" + suffix, nbytes);
+    add_bytes_stat("copy-" + suffix, nbytes);
 }
 
 }  // namespace rapidsmpf
