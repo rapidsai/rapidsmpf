@@ -619,9 +619,8 @@ int main(int argc, char** argv) {
                      ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
                      : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmpf::BufferResource br{
-        mr,
+        stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),

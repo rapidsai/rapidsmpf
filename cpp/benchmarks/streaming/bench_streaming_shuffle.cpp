@@ -360,12 +360,11 @@ int main(int argc, char** argv) {
         };
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     auto stats = args.enable_memory_profiler
                      ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
                      : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        mr,
+        stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),
