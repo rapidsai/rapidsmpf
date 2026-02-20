@@ -24,7 +24,6 @@ class Context:
         comm: Communicator,
         br: BufferResource,
         options: Options | None = None,
-        statistics: Statistics | None = None,
     ) -> None: ...
     @classmethod
     def from_options(

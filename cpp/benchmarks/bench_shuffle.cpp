@@ -290,7 +290,7 @@ rapidsmpf::Duration do_run(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics,
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
     auto&& shuffle_insert_fn
 ) {
     std::vector<std::unique_ptr<cudf::table>> output_partitions;
@@ -308,7 +308,6 @@ rapidsmpf::Duration do_run(
             0,  // op_id
             total_num_partitions,
             br,
-            statistics,
             rapidsmpf::shuffler::Shuffler::round_robin
         );
 
@@ -320,14 +319,10 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks),
-                    br,
-                    rapidsmpf::AllowOverbooking::YES,
-                    statistics
+                    std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,
-                br,
-                statistics
+                br
             );
             if (!args.enable_output_discard) {
                 output_partitions.emplace_back(std::move(output_partition));
@@ -459,7 +454,7 @@ rapidsmpf::Duration run_hash_partition_inline(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -476,8 +471,7 @@ rapidsmpf::Duration run_hash_partition_inline(
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            br,
-            statistics
+            br
         );
     };
 
@@ -520,7 +514,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -619,12 +613,22 @@ int main(int argc, char** argv) {
         };
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    // Create statistics (enabled from the start) and pass to BufferResource so that
+    // all components (Shuffler, SpillManager, etc.) share the same statistics object.
+    auto stats = args.enable_memory_profiler
+                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
+                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+
     rapidsmpf::BufferResource br{
-        mr,
+        stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
-        std::move(memory_available)
+        std::move(memory_available),
+        std::chrono::milliseconds{1},
+        std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        ),
+        stats
     };
 
     auto& log = comm->logger();
@@ -650,9 +654,6 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
-
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Create CUPTI monitor if enabled
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
@@ -666,13 +667,9 @@ int main(int argc, char** argv) {
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
-        // Enable statistics for the last run.
+        // Clear statistics before the last run so only last-run data is reported.
         if (i == total_num_runs - 1) {
-            if (args.enable_memory_profiler) {
-                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
-            } else {
-                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-            }
+            stats->clear();
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {

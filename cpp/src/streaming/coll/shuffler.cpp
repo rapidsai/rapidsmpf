@@ -120,7 +120,6 @@ ShufflerAsync::ShufflerAsync(
                   "failed to start task to notify waiters that the partition is ready"
               );
           },
-          ctx_->statistics(),
           std::move(partition_owner)
       ) {}
 

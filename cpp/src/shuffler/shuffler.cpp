@@ -39,8 +39,6 @@ namespace {
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for GPU data allocations.
- * @param statistics The statistics instance to use.
- * @param stream CUDA stream to use for memory and kernel operations.
  * @param amount The maximum amount of data (in bytes) to be spilled.
  *
  * @return The actual amount of data successfully spilled from the postbox.
@@ -391,7 +389,6 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     BufferResource* br,
     FinishedCallback&& finished_callback,
-    std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner_fn
 )
     : total_num_partitions{total_num_partitions},
@@ -412,10 +409,9 @@ Shuffler::Shuffler(
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
-      statistics_{std::move(statistics)} {
+      statistics_{br_->statistics()} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
