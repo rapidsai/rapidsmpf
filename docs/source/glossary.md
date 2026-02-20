@@ -49,7 +49,7 @@ Message
   A type-erased container for data payloads passed through {term}`Channel`s. Messages wrap arbitrary payload types (such as cuDF tables or buffers) along with metadata including a sequence number for ordering. Messages support deep-copy operations and can be spilled to different memory types when memory pressure occurs.
 
 Network
-  A directed graph of {term}`Actor`s connected by {term}`Channel`s representing a streaming data processing pipeline local to a single {term}`Rank`. From the network's point of view, all actors and channels are local, even if individual actors internally perform inter-rank communication. The network topology is identical on every participating rank, which ensures consistent execution semantics across the distributed system. The network remains in place for the duration of a workflow, with actors continuously processing data as data flows through.
+  A set of {term}`Actor`s connected by {term}`Channel`s, forming a streaming data processing pipeline local to a single {term}`Rank`. From the network's point of view, all actors and channels are local, even if individual actors internally perform inter-rank communication. The network topology is identical on every participating rank, which ensures consistent execution semantics across the distributed system. The network remains in place for the duration of a workflow, with actors continuously processing data as data flows through.
 
 Options
   A configuration container that stores key-value pairs controlling rapidsmpf behavior. Options can be populated from environment variables (prefixed with `RAPIDSMPF_`) or set programmatically. Common options include logging verbosity, memory limits, and integration-specific settings.

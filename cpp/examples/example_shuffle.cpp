@@ -68,7 +68,6 @@ int main(int argc, char** argv) {
         0,  // op_id
         total_num_partitions,
         &br,
-        stats,
         rapidsmpf::shuffler::Shuffler::round_robin  // partition owner
     );
 

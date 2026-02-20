@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 """Example performing a streaming shuffle."""
 
@@ -141,7 +141,6 @@ def streaming_shuffle(
         op_id=0,
         total_num_partitions=output_nparts,
         br=br,
-        statistics=stats,
     )
 
     # create a thread to consume the finished partitions. It is a daemon thread, so it

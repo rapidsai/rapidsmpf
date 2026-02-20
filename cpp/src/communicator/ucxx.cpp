@@ -11,6 +11,8 @@
 #include <mutex>
 #include <utility>
 
+#include <ucxx/request.h>
+
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -1300,6 +1302,41 @@ std::vector<std::size_t> UCXX::test_some(
         }
     }
     return completed;
+}
+
+bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    progress_worker();
+    auto flag = ucxx_future->req_->isCompleted();
+    ucxx_future->req_->checkError();
+    return flag;
+}
+
+std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(futures.size());
+    for (auto const& future : futures) {
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        reqs.push_back(ucxx_future->req_);
+    }
+    while (!std::ranges::all_of(reqs, [](auto&& req) {
+        auto flag = req->isCompleted();
+        req->checkError();
+        return flag;
+    }))
+    {
+        progress_worker();
+    }
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    for (auto&& future : futures) {
+        result.push_back(release_data(std::move(future)));
+    }
+    return result;
 }
 
 void UCXX::barrier() {

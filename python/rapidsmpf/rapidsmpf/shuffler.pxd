@@ -17,7 +17,6 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
-from rapidsmpf.statistics cimport cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
@@ -28,7 +27,6 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
             int32_t op_id,
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
-            shared_ptr[cpp_Statistics] statistics,
         ) except +ex_handler
         void shutdown() except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) \

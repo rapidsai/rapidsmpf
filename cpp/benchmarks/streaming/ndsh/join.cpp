@@ -116,14 +116,10 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result),
-                            ctx->br().get(),
-                            AllowOverbooking::YES,
-                            ctx->statistics()
+                            std::move(result), ctx->br().get(), AllowOverbooking::YES
                         ),
                         stream,
-                        ctx->br().get(),
-                        ctx->statistics()
+                        ctx->br().get()
                     ),
                     stream
                 )
@@ -572,8 +568,7 @@ streaming::Actor shuffle(
             cudf::hash_id::HASH_MURMUR3,
             0,
             chunk.stream(),
-            ctx->br().get(),
-            ctx->statistics()
+            ctx->br().get()
         );
         shuffler.insert(std::move(packed));
     }
@@ -590,12 +585,10 @@ streaming::Actor shuffle(
                         unspill_partitions(
                             std::move(*packed_data),
                             ctx->br().get(),
-                            AllowOverbooking::YES,
-                            ctx->statistics()
+                            AllowOverbooking::YES
                         ),
                         stream,
-                        ctx->br().get(),
-                        ctx->statistics()
+                        ctx->br().get()
                     ),
                     stream
                 )

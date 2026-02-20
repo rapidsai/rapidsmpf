@@ -45,8 +45,7 @@ Actor partition_and_pack(
                 hash_function,
                 seed,
                 tbl.stream(),
-                ctx->br().get(),
-                ctx->statistics()
+                ctx->br().get()
             )
         };
 
@@ -90,8 +89,7 @@ Actor unpack_and_concat(
                 std::move(data), ctx->br().get(), AllowOverbooking::NO
             ),
             stream,
-            ctx->br().get(),
-            ctx->statistics()
+            ctx->br().get()
         );
         co_await ch_out->send(
             to_message(seq, std::make_unique<TableChunk>(std::move(ret), stream))

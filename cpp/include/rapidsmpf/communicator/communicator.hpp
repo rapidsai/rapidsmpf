@@ -175,6 +175,15 @@ class Tag {
  * Provides an interface for sending and receiving messages between nodes, supporting
  * asynchronous operations, GPU data transfers, and custom logging. Implementations must
  * define the virtual methods to enable specific communication backends.
+ *
+ * The API of the `Communicator` is _not_ stream-ordered (since the concrete libraries we
+ * use to implement communication patterns are not stream-ordered). A consequence of this
+ * is that the user must ensure that any stream-ordered work on buffers is complete before
+ * passing a buffer into `send` or `recv`. As a corollary, after completing a future, the
+ * extracted `Buffer` is valid on its stream (it has no stream-ordered work queued up).
+ *
+ * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
+ * _must_ provide that there is no message overtaking.
  */
 class Communicator {
   public:
@@ -426,6 +435,9 @@ class Communicator {
      * This is used to send data that resides in host memory and is guaranteed
      * to be valid at the time of the call.
      *
+     * Use `release_sync_host_data` to obtain the data buffer again once the
+     * future is completed.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
@@ -438,7 +450,8 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Sends a message (device or host) to a specific rank.
+     * @brief Sends a message (device or host) to a specific rank. Use `release_data` to
+     * obtain the data buffer again once the future is completed.
      *
      * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
@@ -543,6 +556,25 @@ class Communicator {
     std::vector<std::size_t> virtual test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) = 0;
+
+    /**
+     * @brief Test for completion of a single future.
+     *
+     * @param future Future to test
+     * @return True if the future is completed. After `test` returns true, it is safe to
+     * call `release_data()`.
+     */
+    [[nodiscard]] virtual bool test(std::unique_ptr<Communicator::Future>& future) = 0;
+
+    /**
+     * @brief Wait for completion of all futures and return their data buffers.
+     *
+     * @param futures Futures to wait for completion of, consumed.
+     * @return A vector of the contained data buffers.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
     ) = 0;
 
     /**

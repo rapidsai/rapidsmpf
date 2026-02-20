@@ -201,7 +201,6 @@ def bulk_mpi_shuffle(
             op_id=0,
             total_num_partitions=total_num_partitions,
             br=br,
-            statistics=statistics,
         )
 
         # Read batches and submit them to the shuffler
@@ -233,7 +232,6 @@ def bulk_mpi_shuffle(
                     shuffler.extract(partition_id),
                     br=br,
                     allow_overbooking=True,
-                    statistics=statistics,
                 ),
                 br=br,
                 stream=DEFAULT_STREAM,

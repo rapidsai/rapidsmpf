@@ -117,7 +117,6 @@ void test_shuffler(
         seed,
         stream,
         br,
-        rapidsmpf::Statistics::disabled(),
         rapidsmpf::AllowOverbooking::YES
     );
 
@@ -148,7 +147,6 @@ void test_shuffler(
                 seed,
                 stream,
                 br,
-                rapidsmpf::Statistics::disabled(),
                 rapidsmpf::AllowOverbooking::YES
             );
             // Add the chunks to the shuffle
@@ -168,7 +166,6 @@ void test_shuffler(
             ),
             stream,
             br,
-            rapidsmpf::Statistics::disabled(),
             rapidsmpf::AllowOverbooking::YES
         );
 
@@ -672,7 +669,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         seed,
         stream,
         &br,
-        rapidsmpf::Statistics::disabled(),
         rapidsmpf::AllowOverbooking::YES
     );  // with overbooking
 
