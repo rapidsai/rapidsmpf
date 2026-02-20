@@ -180,16 +180,10 @@ cdef class Statistics:
             Name of the statistic.
         value
             Value to add.
-
-        Returns
-        -------
-        Updated total value.
         """
         cdef string name_ = str.encode(name)
-        cdef double ret
         with nogil:
-            ret = deref(self._handle).add_stat(name_, value)
-        return ret
+            deref(self._handle).add_stat(name_, value)
 
     @property
     def memory_profiling_enabled(self):

@@ -52,22 +52,22 @@ Statistics::Stat Statistics::get_stat(std::string const& name) const {
     return stats_.at(name);
 }
 
-double Statistics::add_stat(
+void Statistics::add_stat(
     std::string const& name, double value, Formatter const& formatter
 ) {
     if (!enabled()) {
-        return 0;
+        return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = stats_.find(name);
     if (it == stats_.end()) {
         it = stats_.insert({name, Stat(formatter)}).first;
     }
-    return it->second.add(value);
+    it->second.add(value);
 }
 
-std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
-    return add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
+void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
+    add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
         os << format_nbytes(val);
         if (count > 1) {
             os << " (avg " << format_nbytes(val / count) << ")";
@@ -75,15 +75,13 @@ std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbyt
     });
 }
 
-Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
-    return Duration(add_stat(
-        name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
-            os << format_duration(val);
-            if (count > 1) {
-                os << " (avg " << format_duration(val / count) << ")";
-            }
+void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
+    add_stat(name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
+        os << format_duration(val);
+        if (count > 1) {
+            os << " (avg " << format_duration(val / count) << ")";
         }
-    ));
+    });
 }
 
 std::vector<std::string> Statistics::list_stat_names() const {
