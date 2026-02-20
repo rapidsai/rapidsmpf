@@ -502,7 +502,8 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0 && packed_data.data->mem_type() != MemoryType::DEVICE) {
+        // Spill the chunk if it is in device memory and there is no headroom.
+        if (headroom < 0 && packed_data.data->mem_type() == MemoryType::DEVICE) {
             auto reservation =
                 br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));

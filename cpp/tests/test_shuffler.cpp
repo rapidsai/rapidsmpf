@@ -687,11 +687,13 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     device_memory_available = -1000;
 
     {
-        // Now extract triggers spilling of the partition not being extracted.
+        // Now unspill_partitions is supposed to spill non-device allocations
         std::vector<rapidsmpf::PackedData> output_chunks = rapidsmpf::unspill_partitions(
             shuffler.extract(0), &br, rapidsmpf::AllowOverbooking::YES
         );
-        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+        // but since both partitions are in device memory, we should still have 2 device
+        // allocations, they will not be spilled.
+        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
         // And insert also triggers spilling. We end up with zero device allocations.
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
