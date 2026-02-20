@@ -80,7 +80,7 @@ std::size_t SpillManager::spill(std::size_t amount) {
     if (spilled < amount) {
         // TODO: use a "max" statistic when it is available, for now we use the average.
         stats.add_stat(
-            "spill-breach-device-limit",
+            "spill-manager-limit-breach",
             amount - spilled,
             [](std::ostream& os, std::size_t count, double val) {
                 os << "avg " << format_nbytes(val / count);
