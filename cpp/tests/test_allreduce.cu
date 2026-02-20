@@ -86,9 +86,9 @@ constexpr const char* ToStringOp() {
 
 constexpr const char* ToString(MemoryType mem_type) {
     switch (mem_type) {
-    case rapidsmpf::MemoryType::HOST:
+    case MemoryType::HOST:
         return "host";
-    case rapidsmpf::MemoryType::DEVICE:
+    case MemoryType::DEVICE:
         return "device";
     default:
         return "unknown_mem_type";
@@ -225,16 +225,17 @@ class BaseAllReduceTest : public ::testing::Test {
 };
 
 TEST_F(BaseAllReduceTest, timeout_interleaved) {
-    auto const mem_type = rapidsmpf::MemoryType::HOST;
     auto const rank = comm->rank();
     auto const size = comm->nranks();
     std::vector<int> data1(1, rank + 1);
-    auto in_buffer1 = make_buffer<int>(br.get(), data1.data(), data1.size(), mem_type);
+    auto in_buffer1 =
+        make_buffer<int>(br.get(), data1.data(), data1.size(), MemoryType::HOST);
     auto reservation = br->reserve_or_fail(in_buffer1->size, in_buffer1->mem_type());
     auto out_buffer1 = br->allocate(in_buffer1->size, in_buffer1->stream(), reservation);
 
     std::vector<float> data2(1, rank + 7);
-    auto in_buffer2 = make_buffer<float>(br.get(), data2.data(), data2.size(), mem_type);
+    auto in_buffer2 =
+        make_buffer<float>(br.get(), data2.data(), data2.size(), MemoryType::DEVICE);
     reservation = br->reserve_or_fail(in_buffer2->size, in_buffer2->mem_type());
     auto out_buffer2 = br->allocate(in_buffer2->size, in_buffer2->stream(), reservation);
 
@@ -247,19 +248,21 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
             OpID{0},
             rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{})
         );
-        // Odd ranks have not yet started the matching allreduce because they're doing the
-        // "second" one first.
-        EXPECT_THROW(
-            std::ignore = allreduce1.wait_and_extract(std::chrono::milliseconds{20}),
-            std::runtime_error
-        );
+        if (size > 1) {
+            // Odd ranks have not yet started the matching allreduce because they're doing
+            // the "second" one first.
+            EXPECT_THROW(
+                std::ignore = allreduce1.wait_and_extract(std::chrono::milliseconds{20}),
+                std::runtime_error
+            );
+        }
         AllReduce allreduce2(
             GlobalEnvironment->comm_,
             GlobalEnvironment->progress_thread_,
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
-            rapidsmpf::coll::detail::make_host_reduce_operator<float>(SumOp<float>{})
+            rapidsmpf::coll::detail::make_device_reduce_operator<float>(SumOp<float>{})
         );
         // OK, now we can get the result from the "second" allreduce
         std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
@@ -273,7 +276,7 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
-            rapidsmpf::coll::detail::make_host_reduce_operator<float>(SumOp<float>{})
+            rapidsmpf::coll::detail::make_device_reduce_operator<float>(SumOp<float>{})
         );
         std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
         AllReduce allreduce1(
