@@ -6,12 +6,12 @@ on RAPIDS components.
 
 ## Documentation
 
-- [Getting Started](https://docs.rapids.ai/api/rapidsmpf/stable/getting-started/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/))
-- [Background](https://docs.rapids.ai/api/rapidsmpf/stable/background/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/background/))
-- [Configuration Options](https://docs.rapids.ai/api/rapidsmpf/stable/configuration/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/configuration/))
-- [Python API Reference](https://docs.rapids.ai/api/rapidsmpf/stable/python/api/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/python/api/))
-- [C++ API Reference](https://docs.rapids.ai/api/librapidsmpf/stable/) ([nightly](https://docs.rapids.ai/api/librapidsmpf/nightly/))
-- [Glossary](https://docs.rapids.ai/api/rapidsmpf/stable/glossary/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/glossary/))
+- [Getting Started](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/)
+- [Background](https://docs.rapids.ai/api/rapidsmpf/nightly/background/)
+- [Configuration Options](https://docs.rapids.ai/api/rapidsmpf/nightly/configuration/)
+- [Python API Reference](https://docs.rapids.ai/api/rapidsmpf/nightly/python/api/)
+- [C++ API Reference](https://docs.rapids.ai/api/librapidsmpf/nightly/)
+- [Glossary](https://docs.rapids.ai/api/rapidsmpf/nightly/glossary/)
 
 ## Build from Source
 
@@ -22,5 +22,5 @@ mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-131_arc
 ./build.sh
 ```
 
-See the [Getting Started guide](https://docs.rapids.ai/api/rapidsmpf/stable/getting-started/) ([nightly](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/))
+See the [Getting Started guide](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/)
 for debug builds, AddressSanitizer, MPI/UCX test suites, and rrun launcher details.
