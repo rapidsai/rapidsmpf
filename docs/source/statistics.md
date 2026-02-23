@@ -5,7 +5,7 @@ This table gives an overview of the different statistics collected.
 
 | Name | Description |
 | --- | --- |
-| `copy-{src}-to-{dst}` | Data copied between memory types. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. |
+| `copy-{src}-to-{dst}` | Amount of data copied between memory types by RapidsMPF. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. |
 | `event-loop-check-future-finish` | Time spent polling for completed data transfers. |
 | `event-loop-init-gpu-data-send` | Time spent initiating GPU data sends. Does not include actual transfer time. |
 | `event-loop-metadata-recv` | Time spent receiving chunk metadata from other ranks. |
