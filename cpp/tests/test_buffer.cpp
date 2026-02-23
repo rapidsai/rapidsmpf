@@ -122,7 +122,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     buffer1->rebind_stream(stream2);
     EXPECT_EQ(buffer1->stream().value(), stream2.value());
 
-    buffer_copy(*buffer2, *buffer1, buffer_size);
+    buffer_copy(br->statistics(), *buffer2, *buffer1, buffer_size);
 
     std::vector<std::uint8_t> result(buffer_size);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(

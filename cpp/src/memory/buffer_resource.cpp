@@ -191,11 +191,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        auto const src = buffer->mem_type();
         auto const nbytes = buffer->size;
         auto ret = allocate(nbytes, buffer->stream(), reservation);
-        buffer_copy(*ret, *buffer, nbytes);
-        statistics_->record_copy(src, reservation.mem_type_, nbytes);
+        buffer_copy(statistics_, *ret, *buffer, nbytes);
         return ret;
     }
     return buffer;

@@ -19,6 +19,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -376,17 +377,21 @@ class Buffer {
 /**
  * @brief Asynchronously copy data between buffers.
  *
- * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
+ * @p dst_offset.
  *
+ * @param statistics Statistics object used to record the copy operation. Use
+ * `Statistics::disabled()` to skip recording.
  * @param dst Destination buffer.
  * @param src Source buffer.
  * @param size Number of bytes to copy.
- * @param dst_offset Offset (in bytes) into the destination buffer.
- * @param src_offset Offset (in bytes) into the source buffer.
+ * @param dst_offset Byte offset into the destination buffer.
+ * @param src_offset Byte offset into the source buffer.
  *
- * @throws std::invalid_argument If out of bounds.
+ * @throws std::invalid_argument If the requested range is out of bounds.
  */
 void buffer_copy(
+    std::shared_ptr<Statistics> statistics,
     Buffer& dst,
     Buffer const& src,
     std::size_t size,

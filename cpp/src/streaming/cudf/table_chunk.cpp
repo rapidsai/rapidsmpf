@@ -224,12 +224,10 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
     // Case 3.
-    auto const src = packed_data_->data->mem_type();
     auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
     auto data = br->allocate(nbytes, packed_data_->stream(), reservation);
-    buffer_copy(*data, *packed_data_->data, nbytes);
-    br->statistics()->record_copy(src, reservation.mem_type(), nbytes);
+    buffer_copy(br->statistics(), *data, *packed_data_->data, nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 

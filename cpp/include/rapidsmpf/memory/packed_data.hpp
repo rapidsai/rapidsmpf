@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -89,7 +89,7 @@ struct PackedData {
      */
     PackedData copy(MemoryReservation& reservation) const {
         auto dst = reservation.br()->allocate(data->size, data->stream(), reservation);
-        buffer_copy(*dst, *data, data->size);
+        buffer_copy(reservation.br()->statistics(), *dst, *data, data->size);
         return PackedData{
             std::make_unique<std::vector<std::uint8_t>>(*metadata), std::move(dst)
         };
