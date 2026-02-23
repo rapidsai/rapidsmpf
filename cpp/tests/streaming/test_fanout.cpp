@@ -64,7 +64,9 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
         ContentDescription new_cd{
             {{buf_cpy->mem_type(), buf_cpy->size}}, ContentDescription::Spillable::YES
         };
-        rapidsmpf::buffer_copy(*buf_cpy, msg.get<Buffer>(), cd.content_size());
+        rapidsmpf::buffer_copy(
+            br.statistics(), *buf_cpy, msg.get<Buffer>(), cd.content_size()
+        );
         return Message{
             msg.sequence_number(), std::move(buf_cpy), std::move(new_cd), msg.copy_cb()
         };

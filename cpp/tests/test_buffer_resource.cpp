@@ -368,6 +368,7 @@ class BufferResourceCopySliceTest
     ) {
         auto slice = br->allocate(stream, br->reserve_or_fail(length, dest_type));
         buffer_copy(
+            br->statistics(),
             *slice,
             *source,
             length,
@@ -448,6 +449,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
     ) {
         auto length = source->size;
         buffer_copy(
+            br->statistics(),
             *dest,
             *source,
             source->size,
@@ -600,6 +602,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     // Create slice of buf1 on br2
     auto buf2 = br2->allocate(slice_length, stream, res2);
     buffer_copy(
+        br2->statistics(),
         *buf2,
         *buf1,
         slice_length,
@@ -620,7 +623,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
 
     // Create copy of buf1 on br2
     auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
-    buffer_copy(*buf2, *buf1, buffer_size);
+    buffer_copy(br2->statistics(), *buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->stream().synchronize();
 
@@ -637,26 +640,38 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
     auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Negative offsets
-    EXPECT_THROW(buffer_copy(*dst, *src, 10, -1, 0), std::invalid_argument);
-    EXPECT_THROW(buffer_copy(*dst, *src, 10, 0, -1), std::invalid_argument);
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *dst, *src, 10, -1, 0), std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *dst, *src, 10, 0, -1), std::invalid_argument
+    );
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
+        buffer_copy(
+            br->statistics(), *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0
+        ),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
+        buffer_copy(
+            br->statistics(), *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)
+        ),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
+        buffer_copy(
+            br->statistics(), *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0
+        ),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
+        buffer_copy(
+            br->statistics(), *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)
+        ),
         std::invalid_argument
     );
 }
@@ -674,7 +689,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
             cudaMemcpyAsync(dst_data, sent.data(), N, cudaMemcpyDefault, stream)
         );
     });
-    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
+    EXPECT_NO_THROW(buffer_copy(br->statistics(), *dst, *src, 0, 0, 0));
     dst->stream().synchronize();
 
     // dst unchanged
@@ -689,5 +704,7 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 
     auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
-    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0), std::invalid_argument);
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *buf, *buf, 16, 0, 0), std::invalid_argument
+    );
 }

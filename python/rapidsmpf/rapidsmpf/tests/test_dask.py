@@ -369,8 +369,6 @@ def test_gather_shuffle_statistics() -> None:
             "event-loop-total",
             "shuffle-payload-recv",
             "shuffle-payload-send",
-            "spill-bytes-host-to-device",
-            "spill-time-host-to-device",
         }
 
         assert set(stats) == expected_stats

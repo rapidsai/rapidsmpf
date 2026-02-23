@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -154,11 +155,10 @@ class Statistics {
          * Increments the update count and adds the given value.
          *
          * @param value The value to add.
-         * @return The updated total value.
          */
-        double add(double value) {
+        void add(double value) {
             ++count_;
-            return value_ += value;
+            value_ += value;
         }
 
         /**
@@ -210,9 +210,8 @@ class Statistics {
      * @param name Name of the statistic.
      * @param value Value to add.
      * @param formatter Optional formatter to use for this statistic.
-     * @return Updated total value.
      */
-    double add_stat(
+    void add_stat(
         std::string const& name,
         double value,
         Formatter const& formatter = FormatterDefault
@@ -225,9 +224,8 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param nbytes Number of bytes to add.
-     * @return The updated byte total.
      */
-    std::size_t add_bytes_stat(std::string const& name, std::size_t nbytes);
+    void add_bytes_stat(std::string const& name, std::size_t nbytes);
 
     /**
      * @brief Adds a duration to the named statistic.
@@ -236,9 +234,20 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param seconds Duration in seconds to add.
-     * @return The updated total duration.
      */
-    Duration add_duration_stat(std::string const& name, Duration seconds);
+    void add_duration_stat(std::string const& name, Duration seconds);
+
+    /**
+     * @brief Record byte count for a memory copy operation.
+     *
+     * Records one statistics entry:
+     *  - `"copy-{src}-to-{dst}"` — the number of bytes copied.
+     *
+     * @param src Source memory type.
+     * @param dst Destination memory type.
+     * @param nbytes Number of bytes copied.
+     */
+    void record_copy(MemoryType src, MemoryType dst, std::size_t nbytes);
 
     /**
      * @brief Get the names of all statistics.

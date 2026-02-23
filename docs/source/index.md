@@ -16,5 +16,6 @@ background/index.md
 python/index.md
 cpp/index.md
 configuration.md
+statistics.md
 glossary.md
 ```
