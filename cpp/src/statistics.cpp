@@ -212,7 +212,7 @@ void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes)
             auto const src_name = to_lower(to_string(s));
             for (MemoryType d : MEMORY_TYPES) {
                 auto const dst_name = to_lower(to_string(d));
-                ret.emplace(Key{s, d}, "copy-" + dst_name + "-to-" + dst_name);
+                ret.emplace(Key{s, d}, "copy-" + src_name + "-to-" + dst_name);
             }
         }
         return ret;
