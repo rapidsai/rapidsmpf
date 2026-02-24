@@ -19,7 +19,7 @@ ENV_YAML_DIR="$(mktemp -d)"
 
 rapids-logger "Downloading artifacts from previous jobs"
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
-PYTHON_CHANNEL=$(rapids-download-conda-from-github python)
+PYTHON_CHANNEL=$(rapids-download-from-github "$(rapids-package-name "conda_python" rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")")
 
 rapids-dependency-file-generator \
   --output conda \
