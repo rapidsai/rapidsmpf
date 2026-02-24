@@ -79,13 +79,13 @@ std::size_t SpillManager::spill(std::size_t amount) {
     auto& stats = *br_->statistics();
     if (spilled < amount) {
         // TODO: use a "max" statistic when it is available, for now we use the average.
-        stats.add_stat(
+        stats.register_formatter(
             "spill-manager-limit-breach",
-            amount - spilled,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << "avg " << format_nbytes(val / count);
+            [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+                os << "avg " << format_nbytes(s[0].value() / s[0].count());
             }
         );
+        stats.add_stat("spill-manager-limit-breach", amount - spilled);
     }
     return spilled;
 }

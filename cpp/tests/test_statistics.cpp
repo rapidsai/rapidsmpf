@@ -12,6 +12,7 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "utils.hpp"
 
@@ -33,12 +34,14 @@ TEST(Statistics, Communication) {
 
     EXPECT_THROW(stats.get_stat("unknown-name"), std::out_of_range);
 
-    auto custom_formatter = [](std::ostream& os, std::size_t /* count */, double val) {
-        os << val << " by custom formatter";
+    auto custom_formatter = [](std::ostream& os,
+                               std::vector<rapidsmpf::Statistics::Stat> const& s) {
+        os << s[0].value() << " by custom formatter";
     };
 
-    stats.add_stat("custom-formatter", 10, custom_formatter);
-    stats.add_stat("custom-formatter", 1, custom_formatter);
+    stats.register_formatter("custom-formatter", custom_formatter);
+    stats.add_stat("custom-formatter", 10);
+    stats.add_stat("custom-formatter", 1);
     EXPECT_EQ(stats.get_stat("custom-formatter").count(), 2);
     EXPECT_EQ(stats.get_stat("custom-formatter").value(), 11);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("custom-formatter"));
@@ -47,6 +50,109 @@ TEST(Statistics, Communication) {
     stats.add_bytes_stat("byte-statistics", 20);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
+}
+
+TEST(Statistics, ExistReportEntryName) {
+    rapidsmpf::Statistics stats;
+
+    // Unknown name returns false.
+    EXPECT_FALSE(stats.exist_report_entry_name("foo"));
+
+    // Returns true after registration.
+    stats.register_formatter(
+        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << s[0].value();
+        }
+    );
+    EXPECT_TRUE(stats.exist_report_entry_name("foo"));
+
+    // Unrelated name is still absent.
+    EXPECT_FALSE(stats.exist_report_entry_name("bar"));
+
+    // Disabled statistics always returns false (no formatters are ever registered).
+    rapidsmpf::Statistics disabled(false);
+    disabled.register_formatter(
+        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << s[0].value();
+        }
+    );
+    EXPECT_FALSE(disabled.exist_report_entry_name("foo"));
+}
+
+TEST(Statistics, RegisterFormatterFirstWins) {
+    rapidsmpf::Statistics stats;
+    // Register a custom formatter first.
+    stats.register_formatter(
+        "my-bytes",
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << "custom:" << s[0].value();
+        }
+    );
+    // add_bytes_stat tries to register a bytes formatter, but the custom one takes
+    // precedence because the first registered formatter is always used.
+    stats.add_bytes_stat("my-bytes", 1024);
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("custom:1024"));
+    EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("KiB")));
+}
+
+TEST(Statistics, MultiStatFormatter) {
+    rapidsmpf::Statistics stats;
+    stats.register_formatter(
+        "spill-summary",
+        {"spill-bytes", "spill-time"},
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << format_nbytes(s[0].value()) << " in " << format_duration(s[1].value());
+        }
+    );
+    stats.add_stat("spill-bytes", 1024 * 1024);
+    stats.add_stat("spill-time", 0.001);
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-summary"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("1 MiB"));
+    // The component stats should not appear as individual report entries.
+    EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("spill-bytes")));
+    EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("spill-time")));
+}
+
+TEST(Statistics, ReportSorting) {
+    rapidsmpf::Statistics stats;
+
+    // Register formatter entries for "banana" and "cherry".
+    stats.register_formatter(
+        "banana",
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << s[0].value();
+        }
+    );
+    stats.add_stat("banana", 2);
+
+    stats.register_formatter(
+        "cherry",
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << s[0].value();
+        }
+    );
+    stats.add_stat("cherry", 3);
+
+    // Add uncovered raw stats for "apple" and "date".
+    stats.add_stat("apple", 1);
+    stats.add_stat("date", 4);
+
+    // All four entries must appear.
+    auto const r = stats.report();
+    auto const pos_apple = r.find("apple");
+    auto const pos_banana = r.find("banana");
+    auto const pos_cherry = r.find("cherry");
+    auto const pos_date = r.find("date");
+
+    ASSERT_NE(pos_apple, std::string::npos);
+    ASSERT_NE(pos_banana, std::string::npos);
+    ASSERT_NE(pos_cherry, std::string::npos);
+    ASSERT_NE(pos_date, std::string::npos);
+
+    // They must appear in alphabetical order.
+    EXPECT_LT(pos_apple, pos_banana);
+    EXPECT_LT(pos_banana, pos_cherry);
+    EXPECT_LT(pos_cherry, pos_date);
 }
 
 TEST(Statistics, MemoryProfiler) {

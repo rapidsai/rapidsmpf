@@ -7,8 +7,10 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <ostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -19,8 +21,47 @@ namespace rapidsmpf {
 
 
 /**
- * @class Statistics
  * @brief Track statistics across rapidsmpf operations.
+ *
+ * Two distinct naming concepts are used throughout this class:
+ *
+ * - **Stat name**: the key used to identify an individual `Stat` accumulator,
+ *   as passed to `add_stat()`, `get_stat()`, `add_bytes_stat()`, and
+ *   `add_duration_stat()`. A stat name may be used exclusively — accumulated
+ *   via `add_stat()` and retrieved via `get_stat()` — without ever registering
+ *   a formatter or appearing in the report.
+ *   Examples: `"spill-time"`, `"spill-bytes"`.
+ *
+ * - **Report entry name**: the label of a formatted line in the output of
+ *   `report()`, passed to `register_formatter()`. A single report entry may
+ *   aggregate one or more stats. When using the single-stat overload of
+ *   `register_formatter()`, the report entry name and the stat name are the
+ *   same string.
+ *   Examples: `"spill"` (aggregating both `"spill-time"` and `"spill-bytes"`).
+ *
+ * Example:
+ * @code{.cpp}
+ * Statistics stats;
+ *
+ * // Register a report entry that aggregates two stats under one label.
+ * stats.register_formatter(
+ *     "spill",                              // report entry name
+ *     {"spill-bytes", "spill-time"},        // stat names
+ *     [](std::ostream& os, auto const& s) {
+ *         os << format_nbytes(s[0].value()) << " in " << format_duration(s[1].value());
+ *     }
+ * );
+ *
+ * // Accumulate values using stat names.
+ * stats.add_bytes_stat("spill-bytes", 1024);
+ * stats.add_duration_stat("spill-time", 0.5);
+ *
+ * // Retrieve a stat directly by stat name (no formatter needed).
+ * auto s = stats.get_stat("spill-bytes");
+ *
+ * // Produce the report (uses report entry names as labels).
+ * std::cout << stats.report();
+ * @endcode
  */
 class Statistics {
   public:
@@ -77,7 +118,9 @@ class Statistics {
      * @param o The Statistics object to move from.
      */
     Statistics(Statistics&& o) noexcept
-        : enabled_(o.enabled_), stats_{std::move(o.stats_)} {}
+        : enabled_(o.enabled_),
+          stats_{std::move(o.stats_)},
+          formatters_{std::move(o.formatters_)} {}
 
     /**
      * @brief Move assignment operator.
@@ -88,6 +131,7 @@ class Statistics {
     Statistics& operator=(Statistics&& o) noexcept {
         enabled_ = o.enabled_;
         stats_ = std::move(o.stats_);
+        formatters_ = std::move(o.formatters_);
         return *this;
     }
 
@@ -109,35 +153,14 @@ class Statistics {
     std::string report(std::string const& header = "Statistics:") const;
 
     /**
-     * @brief Type alias for a statistics formatting function.
-     *
-     * The formatter is called with the output stream, update count, and accumulated
-     * value.
-     */
-    using Formatter = std::function<void(std::ostream&, std::size_t, double)>;
-
-    /**
-     * @brief Default formatter for statistics output (implements `Formatter`).
-     *
-     * Prints the total value and, if count > 1, also prints the average.
-     *
-     * @param os Output stream to write the formatted result to.
-     * @param count Number of updates to the statistic.
-     * @param val Accumulated value.
-     */
-    static void FormatterDefault(std::ostream& os, std::size_t count, double val);
-
-    /**
      * @brief Represents a single tracked statistic.
      */
     class Stat {
       public:
         /**
-         * @brief Constructs a Stat with a specified formatter.
-         *
-         * @param formatter Function used to format this statistic when reporting.
+         * @brief Default-constructs a Stat.
          */
-        Stat(Formatter formatter) : formatter_{std::move(formatter)} {}
+        Stat() = default;
 
         /**
          * @brief Equality operator for Stat objects.
@@ -179,20 +202,17 @@ class Statistics {
             return value_;
         }
 
-        /**
-         * @brief Returns the formatter used by this statistic.
-         *
-         * @return A const reference to the formatter function.
-         */
-        [[nodiscard]] Formatter const& formatter() const noexcept {
-            return formatter_;
-        }
-
       private:
         std::size_t count_{0};
         double value_{0};
-        Formatter formatter_;
     };
+
+    /**
+     * @brief Type alias for a statistics formatting function.
+     *
+     * The formatter receives all the named stats it declared interest in as a vector.
+     */
+    using Formatter = std::function<void(std::ostream&, std::vector<Stat> const&)>;
 
     /**
      * @brief Retrieves a statistic by name.
@@ -209,18 +229,61 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param value Value to add.
-     * @param formatter Optional formatter to use for this statistic.
      */
-    void add_stat(
-        std::string const& name,
-        double value,
-        Formatter const& formatter = FormatterDefault
+    void add_stat(std::string const& name, double value);
+
+    /**
+     * @brief Check whether a report entry name already has a formatter registered.
+     *
+     * Intended as a cheap pre-check before constructing arguments to
+     * `register_formatter()`.
+     *
+     * @note The result may be outdated by the time it is acted upon. This method
+     * should only be used as an optimization hint to avoid unnecessary work, never
+     * for correctness decisions. Once this method returns `true` for a given name it
+     * will never return `false` again, because formatters cannot be unregistered.
+     *
+     * @param name Report entry name to look up.
+     * @return True if a formatter is registered under @p name, otherwise false.
+     */
+    bool exist_report_entry_name(std::string const& name) const;
+
+    /**
+     * @brief Register a formatter for a single named statistic.
+     *
+     * If a formatter is already registered under @p name, this call has no effect.
+     * The formatter is only invoked during `report()` if the named statistic has
+     * been recorded.
+     *
+     * @param name Report entry name (also used as the stat name to collect).
+     * @param formatter Function used to format this statistic when reporting.
+     */
+    void register_formatter(std::string const& name, Formatter formatter);
+
+    /**
+     * @brief Register a formatter that takes multiple named statistics.
+     *
+     * If a formatter is already registered under @p report_entry_name, this call has
+     * no effect. The formatter is only invoked during `report()` if all stats listed
+     * in @p stat_names have been recorded; if any are missing the entry is silently
+     * omitted.
+     *
+     * @param report_entry_name Report entry name.
+     * @param stat_names Names of the stats to collect and pass to the formatter.
+     * @param formatter Function called with all collected stats during reporting.
+     */
+    void register_formatter(
+        std::string const& report_entry_name,
+        std::vector<std::string> const& stat_names,
+        Formatter formatter
     );
 
     /**
      * @brief Adds a byte count to the named statistic.
      *
-     * Uses a formatter that formats values as human-readable byte sizes.
+     * Registers a formatter that formats values as human-readable byte sizes if no
+     * formatter is already registered for @p name, then adds @p nbytes to the
+     * named statistic.
      *
      * @param name Name of the statistic.
      * @param nbytes Number of bytes to add.
@@ -230,7 +293,9 @@ class Statistics {
     /**
      * @brief Adds a duration to the named statistic.
      *
-     * Uses a formatter that formats values as time durations in seconds.
+     * Registers a formatter that formats values as time durations in seconds if no
+     * formatter is already registered for @p name, then adds @p seconds to the
+     * named statistic.
      *
      * @param name Name of the statistic.
      * @param seconds Duration in seconds to add.
@@ -259,7 +324,7 @@ class Statistics {
     /**
      * @brief Clears all statistics.
      *
-     * Memory profiling records are not cleared.
+     * @note Memory profiling records and registered formatters are not cleared.
      */
     void clear();
 
@@ -338,9 +403,18 @@ class Statistics {
     std::unordered_map<std::string, MemoryRecord> const& get_memory_records() const;
 
   private:
+    /**
+     * @brief Associates a display name with a formatter and the stats it aggregates.
+     */
+    struct FormatterEntry {
+        std::vector<std::string> stat_names;  ///< Stats to collect and pass to fn.
+        Formatter fn;
+    };
+
     mutable std::mutex mutex_;
     bool enabled_;
     std::map<std::string, Stat> stats_;
+    std::map<std::string, FormatterEntry> formatters_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     RmmResourceAdaptor* mr_;
 };
