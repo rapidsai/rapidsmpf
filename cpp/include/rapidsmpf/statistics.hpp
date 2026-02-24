@@ -149,8 +149,14 @@ class Statistics {
     /**
      * @brief Generates a formatted report of all collected statistics.
      *
-     * @param header An optional header to prepend to the report.
-     * @return A string containing the formatted statistics.
+     * Registered formatters are applied when all their required statistics have been
+     * recorded. Multi-stat formatters are skipped if any of their stats are missing.
+     *
+     * Any statistic not covered by an applied formatter is shown as a plain numeric
+     * value.
+     *
+     * @param header Header line prepended to the report.
+     * @return Formatted statistics report.
      */
     std::string report(std::string const& header = "Statistics:") const;
 

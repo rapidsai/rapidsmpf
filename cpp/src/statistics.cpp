@@ -180,8 +180,7 @@ std::string Statistics::report(std::string const& header) const {
     std::unordered_set<std::string> consumed;
 
     // Returns true only if every stat name required by a formatter has been recorded.
-    // Formatters whose stats are partially missing are silently skipped so that a report
-    // produced mid-run does not contain misleading partial aggregates.
+    // Multi-stat formatters are skipped if any of their stats are missing.
     auto has_all_stats = [&](auto const& names) {
         return std::ranges::all_of(names, [&](auto const& sname) {
             return stats_.contains(sname);
