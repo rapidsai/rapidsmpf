@@ -11,7 +11,7 @@
 namespace rapidsmpf {
 
 
-Single::Single(config::Options options) : logger_{this, std::move(options)} {}
+Single::Single(config::Options options) : logger_{0, std::move(options)} {}
 
 std::unique_ptr<Communicator::Future> Single::send(
     std::unique_ptr<std::vector<std::uint8_t>>, Rank, Tag

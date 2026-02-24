@@ -1036,7 +1036,7 @@ UCXX::UCXX(
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_(this, options_) {
+      logger_(shared_resources_->rank(), options_) {
     shared_resources_->logger = &logger_;
 }
 
