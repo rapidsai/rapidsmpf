@@ -141,11 +141,10 @@ class Statistics {
     /**
      * @brief Generates a formatted report of all collected statistics.
      *
-     * Registered formatters are applied when all their required statistics have been
-     * recorded. Multi-stat formatters are skipped if any of their stats are missing.
-     *
-     * Any statistic not covered by an applied formatter is shown as a plain numeric
-     * value.
+     * Every registered formatter always produces an entry. If all its required
+     * statistics have been recorded the formatter renders the values; otherwise the
+     * entry reads "No data collected". Statistics not covered by any formatter are
+     * shown as plain numeric values. All entries are sorted alphabetically.
      *
      * @param header Header line prepended to the report.
      * @return Formatted statistics report.
@@ -273,9 +272,9 @@ class Statistics {
      * @brief Register a formatter that takes multiple named statistics.
      *
      * If a formatter is already registered under @p report_entry_name, this call has
-     * no effect. The formatter is only invoked during `report()` if all stats listed
-     * in @p stat_names have been recorded; if any are missing the formatter is skipped
-     * and its stats fall back to plain numeric rendering.
+     * no effect. The formatter is invoked during `report()` only if all stats in
+     * @p stat_names have been recorded; if any are missing the entry reads
+     * "No data collected".
      *
      * @param report_entry_name Report entry name.
      * @param stat_names Names of the stats to collect and pass to the formatter.

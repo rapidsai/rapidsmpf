@@ -180,16 +180,17 @@ std::string Statistics::report(std::string const& header) const {
     std::unordered_set<std::string> consumed;
 
     // Returns true only if every stat name required by a formatter has been recorded.
-    // Multi-stat formatters are skipped if any of their stats are missing.
+    // If false, the entry is rendered as "No data collected".
     auto has_all_stats = [&](auto const& names) {
         return std::ranges::all_of(names, [&](auto const& sname) {
             return stats_.contains(sname);
         });
     };
 
-    // Formatter-based lines. Only emit if all required stats exist.
+    // Formatter-based lines. Emit "No data collected" if any required stats are missing.
     for (auto const& [report_entry_name, entry] : formatters_) {
         if (!has_all_stats(entry.stat_names)) {
+            lines.emplace_back(report_entry_name, "No data collected");
             continue;
         }
 

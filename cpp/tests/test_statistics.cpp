@@ -129,6 +129,25 @@ TEST(Statistics, MultiStatFormatter) {
     EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("spill-time")));
 }
 
+TEST(Statistics, ReportNoDataCollected) {
+    rapidsmpf::Statistics stats;
+    stats.register_formatter(
+        "spill-summary",
+        {"spill-bytes", "spill-time"},
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << format_nbytes(s[0].value()) << " in " << format_duration(s[1].value());
+        }
+    );
+    // No stats recorded — formatter should still appear with "No data collected".
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-summary"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("No data collected"));
+
+    // Adding only one of the two required stats still yields "No data collected".
+    stats.add_stat("spill-bytes", 1024 * 1024);
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("No data collected"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-bytes"));  // uncovered
+}
+
 TEST(Statistics, ReportSorting) {
     rapidsmpf::Statistics stats;
 
