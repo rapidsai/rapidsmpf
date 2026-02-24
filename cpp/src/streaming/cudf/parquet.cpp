@@ -106,16 +106,19 @@ class FileCache {
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
         auto& stats = *ctx->statistics();
 
-        auto formatter = [](std::ostream& os, std::size_t count, double val) {
-            os << val << "/" << count << " (hits/lookups)";
-        };
+        stats.register_formatter(
+            "unbounded_file_read_cache hits",
+            [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+                os << s[0].value() << "/" << s[0].count() << " (hits/lookups)";
+            }
+        );
 
         SpillableMessages::MessageId mid;
         {
             std::lock_guard lock(mutex_);
             auto it = cache_.find(key);
             if (it == cache_.end()) {
-                stats.add_stat("unbounded_file_read_cache hits", 0, formatter);
+                stats.add_stat("unbounded_file_read_cache hits", 0);
                 return std::nullopt;
             }
             mid = it->second;
@@ -123,7 +126,7 @@ class FileCache {
         auto const size =
             ctx->spillable_messages()->get_content_description(mid).content_size();
 
-        stats.add_stat("unbounded_file_read_cache hits", 1, formatter);
+        stats.add_stat("unbounded_file_read_cache hits", 1);
         stats.add_bytes_stat("unbounded_file_read_cache saved", size);
         auto reservation = ctx->br()->reserve_or_fail(size, MEMORY_TYPES);
         return ctx->spillable_messages()->copy(mid, reservation);

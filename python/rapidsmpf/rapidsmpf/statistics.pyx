@@ -36,6 +36,11 @@ cdef extern from *:
     ) {
         return stats.get_stat(name).value();
     }
+    double cpp_get_statistic_max(
+        rapidsmpf::Statistics const& stats, std::string const& name
+    ) {
+        return stats.get_stat(name).max();
+    }
     std::vector<std::string> cpp_list_stat_names(rapidsmpf::Statistics const& stats) {
         return stats.list_stat_names();
     }
@@ -46,6 +51,8 @@ cdef extern from *:
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
         except +ex_handler nogil
     double cpp_get_statistic_value(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    double cpp_get_statistic_max(cpp_Statistics stats, string name) \
         except +ex_handler nogil
     vector[string] cpp_list_stat_names(cpp_Statistics stats) except +ex_handler nogil
     void cpp_clear_statistics(cpp_Statistics stats) except +ex_handler nogil
@@ -148,15 +155,17 @@ cdef class Statistics:
         cdef string name_ = str.encode(name)
         cdef size_t count
         cdef double value
+        cdef double max_val
         try:
             with nogil:
                 count = cpp_get_statistic_count(deref(self._handle), name_)
                 value = cpp_get_statistic_value(deref(self._handle), name_)
+                max_val = cpp_get_statistic_max(deref(self._handle), name_)
         except IndexError:
             # The C++ implementation throws a std::out_of_range exception
             # which we / Cython translate to a KeyError.
             raise KeyError(f"Statistic '{name}' does not exist") from None
-        return {"count": count, "value": value}
+        return {"count": count, "value": value, "max": max_val}
 
     def list_stat_names(self):
         """
