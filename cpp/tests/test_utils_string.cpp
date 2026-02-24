@@ -370,6 +370,57 @@ TEST(UtilsTest, ParseStringList) {
     EXPECT_THAT(parse_string_list("  a : b : c  ", ':'), ElementsAre("a", "b", "c"));
 }
 
+TEST(UtilsTest, EscapeCharsEmpty) {
+    EXPECT_EQ(escape_chars(""), "");
+    EXPECT_EQ(escape_chars("", "abc"), "");
+}
+
+TEST(UtilsTest, EscapeCharsCleanPassthrough) {
+    // Characters not in the escape set are copied verbatim.
+    EXPECT_EQ(escape_chars("hello world"), "hello world");
+    EXPECT_EQ(escape_chars("hello world", "xyz"), "hello world");
+}
+
+TEST(UtilsTest, EscapeCharsNamedSequences) {
+    // Default set: named control characters map to their two-char sequences.
+    EXPECT_EQ(escape_chars("\b"), "\\b");
+    EXPECT_EQ(escape_chars("\f"), "\\f");
+    EXPECT_EQ(escape_chars("\n"), "\\n");
+    EXPECT_EQ(escape_chars("\r"), "\\r");
+    EXPECT_EQ(escape_chars("\t"), "\\t");
+}
+
+TEST(UtilsTest, EscapeCharsQuoteAndBackslash) {
+    EXPECT_EQ(escape_chars("\""), "\\\"");
+    EXPECT_EQ(escape_chars("\\"), "\\\\");
+    EXPECT_EQ(escape_chars("say \"hi\""), "say \\\"hi\\\"");
+    EXPECT_EQ(escape_chars("a\\b"), "a\\\\b");
+}
+
+TEST(UtilsTest, EscapeCharsControlCharsUnicodeEscape) {
+    // Control characters without a named escape use \u00XX.
+    EXPECT_EQ(escape_chars(std::string(1, '\x00')), "\\u0000");
+    EXPECT_EQ(escape_chars(std::string(1, '\x01')), "\\u0001");
+    EXPECT_EQ(escape_chars(std::string(1, '\x1e')), "\\u001e");
+    EXPECT_EQ(escape_chars(std::string(1, '\x1f')), "\\u001f");
+    // 0x20 (space) is NOT a control character — passes through.
+    EXPECT_EQ(escape_chars(" "), " ");
+}
+
+TEST(UtilsTest, EscapeCharsMixed) {
+    // Mix of clean text, named escapes, and hex escapes.
+    EXPECT_EQ(escape_chars("a\nb"), "a\\nb");
+    EXPECT_EQ(escape_chars("ke\"y"), "ke\\\"y");
+    EXPECT_EQ(escape_chars("a\x01z"), "a\\u0001z");
+}
+
+TEST(UtilsTest, EscapeCharsCustomSet) {
+    // Only the characters in the custom set are escaped.
+    EXPECT_EQ(escape_chars("a@b", "@"), "a\\@b");
+    EXPECT_EQ(escape_chars("a\nb", "@"), "a\nb");  // \n not in set, passes through
+    EXPECT_EQ(escape_chars("a@b\nc", "@"), "a\\@b\nc");
+}
+
 TEST(UtilsTest, ParseStringListMemoryTypes) {
     using ::testing::ElementsAre;
 

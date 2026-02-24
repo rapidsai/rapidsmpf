@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import json
+import pathlib
 from typing import TYPE_CHECKING
 
 import pytest
@@ -99,3 +101,68 @@ def test_clear() -> None:
 
     stats.add_stat("stat1", 10.0)
     assert stats.get_stat("stat1") == {"count": 1, "value": 10.0, "max": 10.0}
+
+
+def test_write_json_string() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("foo", 10.0)
+    stats.add_stat("foo", 5.0)
+
+    data = json.loads(stats.write_json_string())
+    assert data["statistics"]["foo"]["count"] == 2
+    assert data["statistics"]["foo"]["value"] == 15.0
+    assert data["statistics"]["foo"]["max"] == 10.0
+    assert "memory_records" not in data
+
+
+def test_write_json_string_matches_file(tmp_path: pathlib.Path) -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("foo", 10.0)
+    stats.add_stat("foo", 5.0)
+
+    out = tmp_path / "stats.json"
+    stats.write_json(out)
+    assert out.read_text() == stats.write_json_string()
+
+
+def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
+    mr = RmmResourceAdaptor(device_mr)
+    stats = Statistics(enable=True, mr=mr)
+    with stats.memory_profiling("alloc"):
+        mr.deallocate(mr.allocate(1024), 1024)
+
+    data = json.loads(stats.write_json_string())
+    assert "memory_records" in data
+    rec = data["memory_records"]["alloc"]
+    assert rec["num_calls"] == 1
+    assert rec["peak_bytes"] > 0
+    assert rec["total_bytes"] > 0
+    assert rec["global_peak_bytes"] > 0
+
+
+def test_write_json_special_chars() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat('has"quote', 1.0)
+    stats.add_stat("has\\backslash", 2.0)
+    stats.add_stat("has\nnewline", 3.0)
+
+    data = json.loads(stats.write_json_string())
+    assert data["statistics"]['has"quote']["value"] == 1.0
+    assert data["statistics"]["has\\backslash"]["value"] == 2.0
+    assert data["statistics"]["has\nnewline"]["value"] == 3.0
+
+
+@pytest.mark.parametrize("as_type", [pathlib.Path, str], ids=["pathlib.Path", "str"])
+def test_write_json(tmp_path: pathlib.Path, as_type: type) -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("foo", 10.0)
+    stats.add_stat("foo", 5.0)
+
+    out = tmp_path / "stats.json"
+    stats.write_json(as_type(out))
+
+    data = json.loads(out.read_text())
+    assert data["statistics"]["foo"]["count"] == 2
+    assert data["statistics"]["foo"]["value"] == 15.0
+    assert data["statistics"]["foo"]["max"] == 10.0
+    assert "memory_records" not in data

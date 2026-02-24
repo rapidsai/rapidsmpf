@@ -5,6 +5,7 @@
 #pragma once
 #include <compare>
 #include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <limits>
 #include <map>
@@ -150,6 +151,26 @@ class Statistics {
      * @return Formatted statistics report.
      */
     std::string report(std::string const& header = "Statistics:") const;
+
+    /**
+     * @brief Writes a JSON representation of all collected statistics to a stream.
+     *
+     * Values are written as raw numbers (count, sum, max). Registered formatters,
+     * which produce human-readable strings such as "1.0 KiB" or "3.5 ms" in the
+     * text report, are not applied so that the output remains machine-parseable
+     * with consistent numeric types.
+     *
+     * @param os Output stream to write to.
+     */
+    void write_json(std::ostream& os) const;
+
+    /**
+     * @brief Writes a JSON report of all collected statistics to a file.
+     *
+     * @param filepath Path to the output file. Created or overwritten.
+     * @throws std::ios_base::failure If the file cannot be opened or writing fails.
+     */
+    void write_json(std::filesystem::path const& filepath) const;
 
     /**
      * @brief Represents a single tracked statistic.

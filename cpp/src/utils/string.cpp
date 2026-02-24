@@ -404,4 +404,80 @@ std::vector<std::string> parse_string_list(std::string_view text, char delimiter
     return ret;
 }
 
+namespace {
+
+constexpr std::array<char, 2 + 0x20> make_default_escape_set() {
+    std::array<char, 2 + 0x20> arr{};
+    arr[0] = '"';
+    arr[1] = '\\';
+    for (std::size_t i = 0; i < 0x20; ++i) {
+        arr[2 + i] = static_cast<char>(i);
+    }
+    return arr;
+}
+
+constexpr auto default_escape_set = make_default_escape_set();
+constexpr std::string_view default_escape_chars{
+    default_escape_set.data(), default_escape_set.size()
+};
+
+}  // namespace
+
+std::string escape_chars(std::string_view text, std::string_view chars_to_escape) {
+    // Build a membership table for O(1) "should escape" checks.
+    std::array<bool, 256> should_escape{};
+    for (char const c : chars_to_escape) {
+        should_escape[static_cast<unsigned char>(c)] = true;
+    }
+
+    // Short escape sequences for named control characters; empty means none.
+    static constexpr std::array<std::string_view, 256> short_escape = [] {
+        std::array<std::string_view, 256> t{};
+        t[static_cast<unsigned char>('\b')] = "\\b";
+        t[static_cast<unsigned char>('\f')] = "\\f";
+        t[static_cast<unsigned char>('\n')] = "\\n";
+        t[static_cast<unsigned char>('\r')] = "\\r";
+        t[static_cast<unsigned char>('\t')] = "\\t";
+        t[static_cast<unsigned char>('"')] = "\\\"";
+        t[static_cast<unsigned char>('\\')] = "\\\\";
+        return t;
+    }();
+
+    // Appends a \uXXXX Unicode escape for control characters that have no named
+    // sequence (e.g. \n, \t). The format encodes the codepoint as exactly four
+    // lowercase hex digits. Since this is only called for bytes in U+0000–U+001F,
+    // the first two digits are always "00" and only the last two vary.
+    auto append_u00xx = [](std::string& ret, unsigned char v) {
+        static constexpr std::string_view hex = "0123456789abcdef";
+        ret += "\\u00";
+        ret.push_back(hex[(v >> 4) & 0xF]);
+        ret.push_back(hex[v & 0xF]);
+    };
+
+    // Walk every character: copy it verbatim if not in the escape set, otherwise
+    // emit the shortest applicable representation — a named sequence (e.g. \n),
+    // a \u00XX Unicode escape for other control characters, or \<char> for anything
+    // else that the caller asked to escape.
+    std::string ret;
+    ret.reserve(text.size());
+    for (char const raw : text) {
+        auto const uc = static_cast<unsigned char>(raw);
+        if (!should_escape[uc]) {
+            ret.push_back(raw);
+        } else if (auto const esc = short_escape[uc]; !esc.empty()) {
+            ret.append(esc);
+        } else if (uc <= 0x1F) {
+            append_u00xx(ret, uc);
+        } else {
+            ret.push_back('\\');
+            ret.push_back(raw);
+        }
+    }
+    return ret;
+}
+
+std::string escape_chars(std::string_view text) {
+    return escape_chars(text, default_escape_chars);
+}
+
 }  // namespace rapidsmpf

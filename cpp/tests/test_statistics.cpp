@@ -4,6 +4,8 @@
  */
 
 
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
 #include <gmock/gmock.h>
@@ -282,4 +284,84 @@ TEST(Statistics, MemoryProfilerMacroDisabled) {
     }
     auto const& records = stats.get_memory_records();
     EXPECT_TRUE(records.empty());
+}
+
+TEST(Statistics, JsonStream) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("foo", 10.0);
+    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats.add_bytes_stat("bar", 1024);
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    auto const& s = ss.str();
+
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("foo")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("count": 2)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("value": 15)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("max": 10)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("bar")"));
+    EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("memory_records")));
+}
+
+TEST(Statistics, JsonSpecialChars) {
+    rapidsmpf::Statistics stats;
+    // Stat names with characters that must be escaped in JSON.
+    stats.add_stat("has\"quote", 1.0);
+    stats.add_stat("has\\backslash", 2.0);
+    stats.add_stat("has\nnewline", 3.0);
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    auto const& s = ss.str();
+
+    // Escaped sequences must appear in output.
+    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\"quote)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\\backslash)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\nnewline)"));
+
+    // Raw unescaped characters must NOT appear.
+    EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("has\"quote")));
+}
+
+TEST(Statistics, JsonMemoryRecords) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::Statistics stats(&mr);
+    {
+        auto rec = stats.create_memory_recorder("alloc");
+        mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
+    }
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    auto const& s = ss.str();
+
+    EXPECT_THAT(s, ::testing::HasSubstr("memory_records"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("alloc")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("num_calls": 1)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("peak_bytes")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("total_bytes")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("global_peak_bytes")"));
+}
+
+TEST(Statistics, JsonReport) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("foo", 10.0);
+    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats.add_bytes_stat("bar", 1024);
+
+    auto const path = std::filesystem::path(testing::TempDir()) / "test_stats.json";
+    stats.write_json(path);
+
+    std::ifstream f(path);
+    ASSERT_TRUE(f.is_open());
+    std::string file_contents(
+        (std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()
+    );
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    EXPECT_EQ(file_contents, ss.str());
+
+    std::filesystem::remove(path);
 }
