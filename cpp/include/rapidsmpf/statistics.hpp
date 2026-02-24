@@ -167,7 +167,9 @@ class Statistics {
         /**
          * @brief Three-way comparison operator.
          *
-         * Performs lexicographical comparison of all data members.
+         * Performs memberwise comparison of all data members.
+         *
+         * @return The ordering result of the memberwise comparison.
          */
         auto operator<=>(Stat const&) const noexcept = default;
 

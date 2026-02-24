@@ -85,7 +85,7 @@ void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
             auto const count = stats[0].count();
             os << format_nbytes(val);
             if (count > 1) {
-                os << " (avg " << format_nbytes(val / count) << ")";
+                os << " | avg " << format_nbytes(val / count);
             }
         });
     }
@@ -99,7 +99,7 @@ void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
             auto const count = stats[0].count();
             os << format_duration(val);
             if (count > 1) {
-                os << " (avg " << format_duration(val / count) << ")";
+                os << " | avg " << format_duration(val / count);
             }
         });
     }

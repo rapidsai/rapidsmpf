@@ -23,15 +23,15 @@ Statistics are available in both C++ and [Python](#api-statistics).
 
 ```
 Statistics:
- - copy-device-to-device:                2.79 GiB (avg 28.61 MiB)
- - copy-pinned_host-to-pinned_host:      2.79 GiB (avg 28.61 MiB)
- - event-loop-check-future-finish:       462.50 us (avg 24.97 ns)
- - event-loop-init-gpu-data-send:        546.70 us (avg 29.52 ns)
- - event-loop-metadata-recv:             2.81 ms (avg 151.47 ns)
- - event-loop-metadata-send:             1.20 ms (avg 64.81 ns)
- - event-loop-post-incoming-chunk-recv:  415.83 us (avg 22.45 ns)
- - event-loop-total:                     32.55 ms (avg 1.76 us)
- - shuffle-payload-recv:                 2.79 GiB (avg 28.61 MiB)
- - shuffle-payload-send:                 2.79 GiB (avg 28.61 MiB)
+ - copy-device-to-device:                2.79 GiB | avg 28.61 MiB
+ - copy-pinned_host-to-pinned_host:      2.79 GiB | avg 28.61 MiB
+ - event-loop-check-future-finish:       462.50 us | avg 24.97 ns
+ - event-loop-init-gpu-data-send:        546.70 us | avg 29.52 ns
+ - event-loop-metadata-recv:             2.81 ms | avg 151.47 ns
+ - event-loop-metadata-send:             1.20 ms | avg 64.81 ns
+ - event-loop-post-incoming-chunk-recv:  415.83 us | avg 22.45 ns
+ - event-loop-total:                     32.55 ms | avg 1.76 us
+ - shuffle-payload-recv:                 2.79 GiB | avg 28.61 MiB
+ - shuffle-payload-send:                 2.79 GiB | avg 28.61 MiB
  - spill-manager-limit-breach:           max 3.26 GiB | avg 2.93 GiB | count 981
 ```
