@@ -26,19 +26,18 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
+    // Create a statistics instance for the shuffler that tracks useful information.
+    auto stats = std::make_shared<rapidsmpf::Statistics>();
+
     // First, we have to create a Communicator, which we will use throughout the
     // example. Notice, if you want to do multiple shuffles concurrently, each shuffle
     // should use its own Communicator backed by its own MPI communicator.
     std::shared_ptr<rapidsmpf::Communicator> comm =
-        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, stats);
 
-    // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = std::make_shared<rapidsmpf::Statistics>();
-
-    // Then a progress thread where the shuffler event loop executes is created. A single
-    // progress thread may be used by multiple shufflers simultaneously.
-    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
+    // The communicator has a progress thread where the shuffler event loop executes is
+    // created. A single progress thread may be used by multiple shufflers simultaneously.
+    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread = comm->progress_thread();
 
     // The Communicator provides a logger.
     auto& log = comm->logger();
