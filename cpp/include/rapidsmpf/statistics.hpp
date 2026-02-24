@@ -23,29 +23,25 @@ namespace rapidsmpf {
 
 
 /**
- * @brief Track statistics across rapidsmpf operations.
+ * @brief Tracks statistics across rapidsmpf operations.
  *
- * Two distinct naming concepts are used throughout this class:
+ * Two naming concepts are used throughout this class:
  *
- * - **Stat name**: the key used to identify an individual `Stat` accumulator,
- *   as passed to `add_stat()`, `get_stat()`, `add_bytes_stat()`, and
- *   `add_duration_stat()`. A stat name may be used exclusively — accumulated
- *   via `add_stat()` and retrieved via `get_stat()` — without ever registering
- *   a formatter or appearing in the report.
+ * - **Stat name**: identifies an individual `Stat` accumulator, as passed to
+ *   `add_stat()`, `get_stat()`, `add_bytes_stat()`, and `add_duration_stat()`.
+ *   Stats can be accumulated and retrieved without registering a formatter.
  *   Examples: `"spill-time"`, `"spill-bytes"`.
  *
- * - **Report entry name**: the label of a formatted line in the output of
- *   `report()`, passed to `register_formatter()`. A single report entry may
- *   aggregate one or more stats. When using the single-stat overload of
- *   `register_formatter()`, the report entry name and the stat name are the
- *   same string.
- *   Examples: `"spill"` (aggregating both `"spill-time"` and `"spill-bytes"`).
+ * - **Report entry name**: the label of a formatted line in `report()`, passed
+ *   to `register_formatter()`. An entry may aggregate one or more stats. For
+ *   the single-stat overload of `register_formatter()`, the report entry name
+ *   and stat name are identical.
+ *   Example: `"spill"` (aggregating `"spill-bytes"` and `"spill-time"`).
  *
- * Example:
  * @code{.cpp}
  * Statistics stats;
  *
- * // Register a report entry that aggregates two stats under one label.
+ * // Register a multi-stat formatter under a single report entry name.
  * stats.register_formatter(
  *     "spill",                              // report entry name
  *     {"spill-bytes", "spill-time"},        // stat names
@@ -54,14 +50,10 @@ namespace rapidsmpf {
  *     }
  * );
  *
- * // Accumulate values using stat names.
  * stats.add_bytes_stat("spill-bytes", 1024);
  * stats.add_duration_stat("spill-time", 0.5);
  *
- * // Retrieve a stat directly by stat name (no formatter needed).
- * auto s = stats.get_stat("spill-bytes");
- *
- * // Produce the report (uses report entry names as labels).
+ * auto s = stats.get_stat("spill-bytes");  // retrieve without formatter
  * std::cout << stats.report();
  * @endcode
  */
@@ -282,8 +274,8 @@ class Statistics {
      *
      * If a formatter is already registered under @p report_entry_name, this call has
      * no effect. The formatter is only invoked during `report()` if all stats listed
-     * in @p stat_names have been recorded; if any are missing the entry is silently
-     * omitted.
+     * in @p stat_names have been recorded; if any are missing the formatter is skipped
+     * and its stats fall back to plain numeric rendering.
      *
      * @param report_entry_name Report entry name.
      * @param stat_names Names of the stats to collect and pass to the formatter.
