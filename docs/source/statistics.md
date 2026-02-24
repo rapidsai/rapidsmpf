@@ -15,7 +15,7 @@ This table gives an overview of the different statistics collected.
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
 | `shuffle-payload-recv` | Shuffle data received by this rank, including self-transfers. |
 | `shuffle-payload-send` | Shuffle data sent from this rank, including self-transfers. |
-| `spill-manager-limit-breach` | Average shortfall when the spill manager could not free enough memory. Only recorded when spilling falls short of the requested amount. |
+| `spill-manager-limit-breach` | Shortfall statistics when the spill manager could not free enough memory. Reports the maximum, average, and count of breach events. Only recorded when spilling falls short of the requested amount. |
 
 Statistics are available in both C++ and [Python](#api-statistics).
 
@@ -33,5 +33,5 @@ Statistics:
  - event-loop-total:                     32.55 ms (avg 1.76 us)
  - shuffle-payload-recv:                 2.79 GiB (avg 28.61 MiB)
  - shuffle-payload-send:                 2.79 GiB (avg 28.61 MiB)
- - spill-manager-limit-breach:           avg 2.93 GiB
+ - spill-manager-limit-breach:           max 3.26 GiB | avg 2.93 GiB | count 981
 ```

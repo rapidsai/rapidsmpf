@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#include <compare>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <ostream>
@@ -163,25 +165,21 @@ class Statistics {
         Stat() = default;
 
         /**
-         * @brief Equality operator for Stat objects.
+         * @brief Three-way comparison operator.
          *
-         * @param o Another Stat instance to compare with.
-         * @return True if both the count and value are equal.
+         * Performs lexicographical comparison of all data members.
          */
-        bool operator==(Stat const& o) const noexcept {
-            return count_ == o.count() && value_ == o.value();
-        }
+        auto operator<=>(Stat const&) const noexcept = default;
 
         /**
          * @brief Adds a value to this statistic.
-         *
-         * Increments the update count and adds the given value.
          *
          * @param value The value to add.
          */
         void add(double value) {
             ++count_;
             value_ += value;
+            max_ = std::max(max_, value);
         }
 
         /**
@@ -202,9 +200,20 @@ class Statistics {
             return value_;
         }
 
+        /**
+         * @brief Returns the maximum value seen across all `add()` calls.
+         *
+         * @return The maximum value added, or negative infinity if `add()` was never
+         * called.
+         */
+        [[nodiscard]] double max() const noexcept {
+            return max_;
+        }
+
       private:
         std::size_t count_{0};
         double value_{0};
+        double max_{-std::numeric_limits<double>::infinity()};
     };
 
     /**

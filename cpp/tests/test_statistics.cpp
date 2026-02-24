@@ -4,6 +4,8 @@
  */
 
 
+#include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -50,6 +52,20 @@ TEST(Statistics, Communication) {
     stats.add_bytes_stat("byte-statistics", 20);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
+}
+
+TEST(Statistics, StatMax) {
+    Statistics::Stat s;
+    EXPECT_EQ(s.max(), -std::numeric_limits<double>::infinity());
+
+    s.add(5.0);
+    EXPECT_EQ(s.max(), 5.0);
+
+    s.add(10.0);
+    EXPECT_EQ(s.max(), 10.0);
+
+    s.add(3.0);
+    EXPECT_EQ(s.max(), 10.0);  // max stays at 10
 }
 
 TEST(Statistics, ExistReportEntryName) {
