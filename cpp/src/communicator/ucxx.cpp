@@ -1032,11 +1032,14 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 }
 
 UCXX::UCXX(
-    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+    config::Options options,
+    std::shared_ptr<Statistics> statistics
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_(shared_resources_->rank(), options_) {
+      logger_(shared_resources_->rank(), options_),
+      progress_thread_{std::make_shared<ProgressThread>(logger_, std::move(statistics))} {
     shared_resources_->logger = &logger_;
 }
 
@@ -1433,7 +1436,9 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
+    return std::make_shared<UCXX>(
+        std::move(initialized_rank), options_, Statistics::disabled()
+    );
 }
 
 }  // namespace ucxx

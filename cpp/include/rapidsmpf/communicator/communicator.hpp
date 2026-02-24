@@ -24,6 +24,8 @@
  */
 namespace rapidsmpf {
 
+class ProgressThread;
+
 /**
  * @typedef Rank
  * @brief The rank of a node (e.g. the rank of a MPI process), or world size (total number
@@ -611,6 +613,12 @@ class Communicator {
      * @return Reference to the logger.
      */
     [[nodiscard]] virtual Logger& logger() = 0;
+
+    /**
+     * @brief Retrieves the progress thread associated with this communicator.
+     * @return Shared pointer to the progress thread.
+     */
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() = 0;
 
     /**
      * @brief Provides a string representation of the communicator.

@@ -96,7 +96,7 @@ void check_mpi_thread_support() {
 }
 }  // namespace
 
-MPI::MPI(MPI_Comm comm, config::Options options)
+MPI::MPI(MPI_Comm comm, config::Options options, std::shared_ptr<Statistics> statistics)
     : comm_{comm},
       rank_{[&]() {
           int r;
@@ -108,7 +108,8 @@ MPI::MPI(MPI_Comm comm, config::Options options)
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);
       }()},
-      logger_{rank_, std::move(options)} {
+      logger_{rank_, std::move(options)},
+      progress_thread_{std::make_shared<ProgressThread>(logger_, std::move(statistics))} {
     check_mpi_thread_support();
 }
 
