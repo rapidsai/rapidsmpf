@@ -319,6 +319,7 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
@@ -330,16 +331,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm =
+                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;

@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -96,19 +97,24 @@ void check_mpi_thread_support() {
 }
 }  // namespace
 
-MPI::MPI(MPI_Comm comm, config::Options options)
+MPI::MPI(
+    MPI_Comm comm,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
+)
     : comm_{comm},
-      rank_{[&]() {
+      rank_{[comm]() {
           int r;
           RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
           return Rank(r);
       }()},
-      nranks_{[&]() {
+      nranks_{[comm]() {
           int n;
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);
       }()},
-      logger_{rank_, std::move(options)} {
+      logger_{rank_, std::move(options)},
+      progress_thread_{std::move(progress_thread)} {
     check_mpi_thread_support();
 }
 

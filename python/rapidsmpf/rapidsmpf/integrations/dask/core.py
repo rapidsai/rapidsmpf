@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Shuffler integration for Dask Distributed clusters."""
 
@@ -19,6 +19,7 @@ from rapidsmpf.config import (
 )
 from rapidsmpf.integrations import WorkerContext
 from rapidsmpf.integrations.core import rmpf_worker_setup
+from rapidsmpf.progress_thread import ProgressThread
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -110,7 +111,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     """
     with WorkerContext.lock:
         worker = get_worker()
-        comm = new_communicator(n_ranks, None, None, options)
+        comm = new_communicator(n_ranks, None, None, options, ProgressThread())
         worker._rapidsmpf_comm = comm
         comm.logger.trace(f"Rank {comm.rank} created")
         return get_root_ucxx_address(comm)
@@ -136,7 +137,9 @@ async def rapidsmpf_ucxx_rank_setup_node(
         if not hasattr(worker, "_rapidsmpf_comm"):
             # Not the root rank
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-            comm = new_communicator(n_ranks, None, root_address, options)
+            comm = new_communicator(
+                n_ranks, None, root_address, options, ProgressThread()
+            )
             worker._rapidsmpf_comm = comm
             comm.logger.trace(f"Rank {comm.rank} created")
         comm = worker._rapidsmpf_comm

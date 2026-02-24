@@ -16,6 +16,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -610,6 +611,12 @@ class Communicator {
      * @return Reference to the logger.
      */
     [[nodiscard]] virtual Logger& logger() = 0;
+
+    /**
+     * @brief Retrieves the progress thread associated with this communicator.
+     * @return Shared pointer to the progress thread.
+     */
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() const = 0;
 
     /**
      * @brief Provides a string representation of the communicator.
