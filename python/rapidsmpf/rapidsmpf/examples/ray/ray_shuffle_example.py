@@ -32,9 +32,6 @@ class ShufflingActor(RapidsMPFActor):
     """
     An example of a Ray actor that performs a shuffle operation.
 
-    It makes use of the BaseShufflingActor class to initiate a shuffler,
-    and uses that for cudf dataframe example.
-
     Parameters
     ----------
     nranks
@@ -54,7 +51,7 @@ class ShufflingActor(RapidsMPFActor):
         batch_size: int = -1,
         total_nparts: int = -1,
     ):
-        super().__init__(nranks)
+        super().__init__(nranks, statistics=None)
         self._num_rows: int = num_rows
         self._batch_size: int = batch_size
         self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
@@ -91,7 +88,7 @@ class ShufflingActor(RapidsMPFActor):
         columns_to_hash = (df.columns.get_loc("b"),)
         column_names = list(df.columns)
 
-        mr = rmm.mr.get_current_device_resource()  # use the current device resource
+        mr = rmm.mr.get_current_device_resource()
         br = BufferResource(mr)
         stream = DEFAULT_STREAM  # use the default stream
 

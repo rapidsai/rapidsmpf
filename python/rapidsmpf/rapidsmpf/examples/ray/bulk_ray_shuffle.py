@@ -71,14 +71,35 @@ class BulkRayShufflerActor(RapidsMPFActor):
         *,
         enable_statistics: bool = False,
     ):
-        super().__init__(nranks)
         self.batchsize = batchsize
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
         self.rmm_pool_size = rmm_pool_size
         self.spill_device = spill_device
-        self.enable_statistics = enable_statistics
+
+        # Initialize actor-local resources (statistics, memory resource)
+        self.mr = RmmResourceAdaptor(
+            rmm.mr.PoolMemoryResource(
+                rmm.mr.CudaMemoryResource(),
+                initial_pool_size=self.rmm_pool_size,
+                maximum_pool_size=self.rmm_pool_size,
+            )
+        )
+        rmm.mr.set_current_device_resource(self.mr)
+        # Create a buffer resource that limits device memory if `--spill-device`
+        memory_available = (
+            None
+            if self.spill_device is None
+            else {
+                MemoryType.DEVICE: LimitAvailableMemory(
+                    self.mr, limit=self.spill_device
+                )
+            }
+        )
+        br = BufferResource(self.mr, memory_available=memory_available)
+        self.br = br
+        super().__init__(nranks, Statistics(enable=enable_statistics, mr=self.mr))
 
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """
@@ -90,38 +111,17 @@ class BulkRayShufflerActor(RapidsMPFActor):
             Address of the root worker for UCXX initialization.
         """
         super().setup_worker(root_address_bytes)
-
-        # Initialize the RMM memory resource
-        mr = RmmResourceAdaptor(
-            rmm.mr.PoolMemoryResource(
-                rmm.mr.CudaMemoryResource(),
-                initial_pool_size=self.rmm_pool_size,
-                maximum_pool_size=self.rmm_pool_size,
-            )
-        )
-        rmm.mr.set_current_device_resource(mr)
-        # Create a buffer resource that limits device memory if `--spill-device`
-        memory_available = (
-            None
-            if self.spill_device is None
-            else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_device)}
-        )
-        br = BufferResource(mr, memory_available=memory_available)
-        # Create a statistics object
-        self.stats = Statistics(enable=self.enable_statistics, mr=mr)
-        self.br = br
         self.shuffler: Shuffler = Shuffler(
             self.comm,
             self.comm.progress_thread,
             0,
             total_num_partitions=self.total_nparts,
-            br=br,
+            br=self.br,
         )
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
-        if self.enable_statistics and self.stats is not None:
-            self.comm.logger.info(self.stats.report())
+        self.comm.logger.info(self.statistics.report())
         if self.shuffler is not None:
             self.shuffler.shutdown()
 
