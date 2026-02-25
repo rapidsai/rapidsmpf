@@ -9,6 +9,8 @@ import dask
 import dask.dataframe as dd
 import pytest
 
+import rmm.mr
+
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
@@ -17,6 +19,7 @@ from rapidsmpf.examples.dask import (
     dask_cudf_join,
     dask_cudf_shuffle,
 )
+from rapidsmpf.integrations.core import setup_rmm_pool
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import (
     clear_shuffle_statistics,
@@ -80,6 +83,134 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
         result = client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))
+
+
+def assert_workers_contain_mr_type(
+    client: Client, resource_type: type[rmm.mr.MemoryResource]
+) -> None:
+    """Assert that all workers contain the given resource type."""
+
+    def _has_rmm_resource_type() -> bool:
+        # The given resource type must be in the resource chain.
+        mr = rmm.mr.get_current_device_resource()
+        while mr is not None:
+            if isinstance(mr, resource_type):
+                return True
+            mr = getattr(mr, "upstream_mr", None)
+        return False
+
+    result = client.run(_has_rmm_resource_type)
+    for worker_addr, has_type in result.items():
+        assert has_type, (
+            f"Worker {worker_addr} does not have {resource_type.__name__} in chain."
+        )
+
+
+@gen_test(timeout=30)
+async def test_dask_rmm_setup_async() -> None:
+    """Test that rapidsmpf can set up RMM async pool during bootstrap."""
+    with (
+        LocalCUDACluster(
+            scheduler_port=0,
+            device_memory_limit=1,
+            # Don't let dask-cuda set up RMM - rapidsmpf will do it
+            rmm_pool_size=None,
+            rmm_async=False,
+        ) as cluster,
+        Client(cluster) as client,
+    ):
+        bootstrap_dask_cluster(
+            client,
+            options=Options(
+                {
+                    "dask_spill_device": "0.1",
+                    "dask_rmm_async": "true",
+                    "dask_rmm_pool_size": "0.1",  # 10% of device memory
+                }
+            ),
+        )
+        assert_workers_contain_mr_type(client, rmm.mr.CudaAsyncMemoryResource)
+
+
+@gen_test(timeout=30)
+async def test_dask_rmm_setup_pool() -> None:
+    """Test that rapidsmpf can set up RMM pool (non-async) during bootstrap."""
+    with (
+        LocalCUDACluster(
+            scheduler_port=0,
+            device_memory_limit=1,
+            # Don't let dask-cuda set up RMM - rapidsmpf will do it
+            rmm_pool_size=None,
+            rmm_async=False,
+        ) as cluster,
+        Client(cluster) as client,
+    ):
+        bootstrap_dask_cluster(
+            client,
+            options=Options(
+                {
+                    "dask_spill_device": "0.1",
+                    "dask_rmm_async": "false",
+                    "dask_rmm_pool_size": "0.1",  # 10% of device memory
+                }
+            ),
+        )
+
+        assert_workers_contain_mr_type(client, rmm.mr.PoolMemoryResource)
+
+
+@gen_test(timeout=30)
+async def test_dask_rmm_setup_track_allocations() -> None:
+    """Test that rapidsmpf can enable RMM tracking during bootstrap."""
+    with (
+        LocalCUDACluster(
+            scheduler_port=0,
+            device_memory_limit=1,
+            rmm_pool_size=None,
+            rmm_async=False,
+        ) as cluster,
+        Client(cluster) as client,
+    ):
+        bootstrap_dask_cluster(
+            client,
+            options=Options(
+                {
+                    "dask_spill_device": "0.1",
+                    "dask_rmm_track_allocations": "true",
+                }
+            ),
+        )
+
+        assert_workers_contain_mr_type(client, rmm.mr.TrackingResourceAdaptor)
+
+
+def test_rmm_setup_validation_errors() -> None:
+    """Test that invalid RMM option combinations raise errors."""
+
+    # rmm_managed_memory is incompatible with rmm_async
+    with pytest.raises(ValueError, match="incompatible"):
+        setup_rmm_pool(
+            "test_",
+            Options(
+                {
+                    "test_rmm_async": "true",
+                    "test_rmm_managed_memory": "true",
+                }
+            ),
+        )
+
+    # rmm_release_threshold requires rmm_async
+    with pytest.raises(ValueError, match="requires"):
+        setup_rmm_pool(
+            "test_",
+            Options(
+                {
+                    "test_rmm_async": "false",
+                    "test_rmm_pool_size": "0.1",  # 10% of device memory
+                    "test_rmm_release_threshold": "0.05",  # 5% of device memory
+                }
+            ),
+        )
 
 
 @pytest.mark.parametrize("partition_count", [None, 3])
