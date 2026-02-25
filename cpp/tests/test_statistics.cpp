@@ -350,7 +350,8 @@ TEST(Statistics, JsonReport) {
     stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
     stats.add_bytes_stat("bar", 1024);
 
-    auto const path = std::filesystem::path(testing::TempDir()) / "test_stats.json";
+    TempDir tmp_dir;
+    auto const path = tmp_dir.path() / "stats.json";
     stats.write_json(path);
 
     std::ifstream f(path);
@@ -362,6 +363,4 @@ TEST(Statistics, JsonReport) {
     std::ostringstream ss;
     stats.write_json(ss);
     EXPECT_EQ(file_contents, ss.str());
-
-    std::filesystem::remove(path);
 }
