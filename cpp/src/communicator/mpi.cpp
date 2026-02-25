@@ -98,12 +98,12 @@ void check_mpi_thread_support() {
 
 MPI::MPI(MPI_Comm comm, config::Options options, std::shared_ptr<Statistics> statistics)
     : comm_{comm},
-      rank_{[&]() {
+      rank_{[comm]() {
           int r;
           RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
           return Rank(r);
       }()},
-      nranks_{[&]() {
+      nranks_{[comm]() {
           int n;
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);

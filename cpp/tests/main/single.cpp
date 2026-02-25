@@ -23,11 +23,9 @@ void Environment::SetUp() {
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(options_);
     split_comm_ = comm_;
-    progress_thread_ = comm_->progress_thread();
 }
 
 void Environment::TearDown() {
-    progress_thread_ = nullptr;  // Stop the progress thread.
     split_comm_ = nullptr;  // Clean up the split communicator.
     comm_ = nullptr;  // Clean up the communicator.
 }

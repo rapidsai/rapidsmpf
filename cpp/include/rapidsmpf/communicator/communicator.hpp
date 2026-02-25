@@ -618,7 +618,7 @@ class Communicator {
      * @brief Retrieves the progress thread associated with this communicator.
      * @return Shared pointer to the progress thread.
      */
-    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() = 0;
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() const = 0;
 
     /**
      * @brief Provides a string representation of the communicator.

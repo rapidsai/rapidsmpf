@@ -35,8 +35,8 @@ int main(int argc, char** argv) {
     std::shared_ptr<rapidsmpf::Communicator> comm =
         std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, stats);
 
-    // The communicator has a progress thread where the shuffler event loop executes is
-    // created. A single progress thread may be used by multiple shufflers simultaneously.
+    // The communicator has a progress thread where the shuffler event loop executes. A
+    // single progress thread may be used by multiple shufflers simultaneously.
     std::shared_ptr<rapidsmpf::ProgressThread> progress_thread = comm->progress_thread();
 
     // The Communicator provides a logger.

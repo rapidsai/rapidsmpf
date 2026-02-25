@@ -296,7 +296,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::progress_thread
      */
-    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() override {
+    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const override {
         return progress_thread_;
     }
 
