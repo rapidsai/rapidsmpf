@@ -1308,13 +1308,13 @@ int launch_ranks_fork_based(
         });
     };
 
-    // Include pre-launched process first (e.g. rank 0 in Slurm hybrid).
+    // Skip rank 0 when we already have it in pre_launched_process (e.g. Slurm hybrid).
+    int start_local_rank = pre_launched_process.has_value() ? 1 : 0;
+
+    // Include pre-launched process first.
     if (pre_launched_process) {
         processes.insert(processes.begin(), std::move(*pre_launched_process));
     }
-
-    // Launch remaining ranks (skip rank 0 if we already have it in pre_launched_process)
-    int start_local_rank = pre_launched_process.has_value() ? 1 : 0;
 
     for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
         int global_rank = rank_offset + local_rank;
