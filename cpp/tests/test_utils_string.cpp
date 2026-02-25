@@ -11,11 +11,24 @@
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+#include "environment.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf;
 
-TEST(UtilsTest, FormatsByteCount) {
+/// @brief Test fixture that skips all tests on non-zero MPI ranks.
+///
+/// Utils tests are all rank-independent.
+class UtilsTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        if (GlobalEnvironment->comm_->rank() != 0) {
+            GTEST_SKIP() << "Test only runs on rank 0";
+        }
+    }
+};
+
+TEST_F(UtilsTest, FormatsByteCount) {
     EXPECT_EQ(format_nbytes(0, 2, TrimZeroFraction::NO), "0.00 B");
     EXPECT_EQ(format_nbytes(0, 2, TrimZeroFraction::YES), "0 B");
     EXPECT_EQ(format_nbytes(1, 2, TrimZeroFraction::NO), "1.00 B");
@@ -44,7 +57,7 @@ TEST(UtilsTest, FormatsByteCount) {
     EXPECT_EQ(format_nbytes(-10 * (1 << 20), 1, TrimZeroFraction::YES), "-10 MiB");
 }
 
-TEST(UtilsTest, FormatsDuration) {
+TEST_F(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(0.0, 2, TrimZeroFraction::NO), "0.00 s");
     EXPECT_EQ(format_duration(0.0, 2, TrimZeroFraction::YES), "0 s");
     EXPECT_EQ(format_duration(1.0, 2, TrimZeroFraction::NO), "1.00 s");
@@ -75,7 +88,7 @@ TEST(UtilsTest, FormatsDuration) {
     EXPECT_EQ(format_duration(-60.0, 2, TrimZeroFraction::YES), "-1 min");
 }
 
-TEST(UtilsTest, ParseNBytes) {
+TEST_F(UtilsTest, ParseNBytes) {
     EXPECT_EQ(parse_nbytes("0"), 0);
     EXPECT_EQ(parse_nbytes("1024"), 1_KiB);
     EXPECT_EQ(parse_nbytes("  42  "), 42);
@@ -121,7 +134,7 @@ TEST(UtilsTest, ParseNBytes) {
     EXPECT_THROW(parse_nbytes("inf B"), std::invalid_argument);
 }
 
-TEST(UtilsTest, ParseNBytesUnsigned) {
+TEST_F(UtilsTest, ParseNBytesUnsigned) {
     EXPECT_EQ(parse_nbytes_unsigned("0"), 0u);
     EXPECT_EQ(parse_nbytes_unsigned("1024"), std::size_t{1_KiB});
     EXPECT_EQ(parse_nbytes_unsigned("1 KiB"), std::size_t{1_KiB});
@@ -139,7 +152,7 @@ TEST(UtilsTest, ParseNBytesUnsigned) {
     EXPECT_THROW(parse_nbytes_unsigned("1e309 B"), std::out_of_range);
 }
 
-TEST(UtilsTest, ParseNBytesOrPercent) {
+TEST_F(UtilsTest, ParseNBytesOrPercent) {
     // Absolute byte quantity: total_bytes is ignored (but must be > 0)
     EXPECT_EQ(parse_nbytes_or_percent("0", 1), std::size_t{0});
     EXPECT_EQ(parse_nbytes_or_percent("1024", 1), std::size_t{1024});
@@ -172,7 +185,7 @@ TEST(UtilsTest, ParseNBytesOrPercent) {
     EXPECT_THROW(parse_nbytes_or_percent("1e309%", 1), std::out_of_range);
 }
 
-TEST(UtilsTest, ParseDuration) {
+TEST_F(UtilsTest, ParseDuration) {
     EXPECT_DOUBLE_EQ(parse_duration("0").count(), 0.0);
     EXPECT_DOUBLE_EQ(parse_duration("1").count(), 1.0);
     EXPECT_DOUBLE_EQ(parse_duration("  1.5  ").count(), 1.5);
@@ -231,7 +244,7 @@ TEST(UtilsTest, ParseDuration) {
     EXPECT_THROW(parse_duration("inf s"), std::invalid_argument);
 }
 
-TEST(UtilsTest, ParseStringTest) {
+TEST_F(UtilsTest, ParseStringTest) {
     // Integers
     EXPECT_EQ(parse_string<int>("42"), 42);
     EXPECT_EQ(parse_string<int>("-7"), -7);
@@ -263,7 +276,7 @@ TEST(UtilsTest, ParseStringTest) {
     EXPECT_THROW(parse_string<bool>("not_a_bool"), std::invalid_argument);
 }
 
-TEST(UtilsTest, ParseOptional) {
+TEST_F(UtilsTest, ParseOptional) {
     // Pass-through
     EXPECT_EQ(parse_optional(""), std::optional<std::string>{""});
     EXPECT_EQ(parse_optional("foo"), std::optional<std::string>{"foo"});
@@ -292,7 +305,7 @@ TEST(UtilsTest, ParseOptional) {
     EXPECT_EQ(parse_optional("naive"), std::optional<std::string>{"naive"});
 }
 
-TEST(UtilsTest, ParseMemoryTypeFromStream) {
+TEST_F(UtilsTest, ParseMemoryTypeFromStream) {
     {
         std::stringstream ss("DEVICE");
         MemoryType v{};
@@ -330,7 +343,7 @@ TEST(UtilsTest, ParseMemoryTypeFromStream) {
     }
 }
 
-TEST(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
+TEST_F(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
     {
         std::stringstream ss("GPU");
         MemoryType v{};
@@ -345,7 +358,7 @@ TEST(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
     }
 }
 
-TEST(UtilsTest, ParseStringMemoryType) {
+TEST_F(UtilsTest, ParseStringMemoryType) {
     EXPECT_EQ(parse_string<MemoryType>("DEVICE"), MemoryType::DEVICE);
     EXPECT_EQ(parse_string<MemoryType>("device"), MemoryType::DEVICE);
     EXPECT_EQ(parse_string<MemoryType>(" PINNED_HOST "), MemoryType::PINNED_HOST);
@@ -357,7 +370,7 @@ TEST(UtilsTest, ParseStringMemoryType) {
     EXPECT_THROW(parse_string<MemoryType>("   "), std::invalid_argument);
 }
 
-TEST(UtilsTest, ParseStringList) {
+TEST_F(UtilsTest, ParseStringList) {
     using ::testing::ElementsAre;
 
     EXPECT_THAT(parse_string_list("a,b,c"), ElementsAre("a", "b", "c"));
@@ -370,18 +383,18 @@ TEST(UtilsTest, ParseStringList) {
     EXPECT_THAT(parse_string_list("  a : b : c  ", ':'), ElementsAre("a", "b", "c"));
 }
 
-TEST(UtilsTest, EscapeCharsEmpty) {
+TEST_F(UtilsTest, EscapeCharsEmpty) {
     EXPECT_EQ(escape_chars(""), "");
     EXPECT_EQ(escape_chars("", "abc"), "");
 }
 
-TEST(UtilsTest, EscapeCharsCleanPassthrough) {
+TEST_F(UtilsTest, EscapeCharsCleanPassthrough) {
     // Characters not in the escape set are copied verbatim.
     EXPECT_EQ(escape_chars("hello world"), "hello world");
     EXPECT_EQ(escape_chars("hello world", "xyz"), "hello world");
 }
 
-TEST(UtilsTest, EscapeCharsNamedSequences) {
+TEST_F(UtilsTest, EscapeCharsNamedSequences) {
     // Default set: named control characters map to their two-char sequences.
     EXPECT_EQ(escape_chars("\b"), "\\b");
     EXPECT_EQ(escape_chars("\f"), "\\f");
@@ -390,14 +403,14 @@ TEST(UtilsTest, EscapeCharsNamedSequences) {
     EXPECT_EQ(escape_chars("\t"), "\\t");
 }
 
-TEST(UtilsTest, EscapeCharsQuoteAndBackslash) {
+TEST_F(UtilsTest, EscapeCharsQuoteAndBackslash) {
     EXPECT_EQ(escape_chars("\""), "\\\"");
     EXPECT_EQ(escape_chars("\\"), "\\\\");
     EXPECT_EQ(escape_chars("say \"hi\""), "say \\\"hi\\\"");
     EXPECT_EQ(escape_chars("a\\b"), "a\\\\b");
 }
 
-TEST(UtilsTest, EscapeCharsControlCharsUnicodeEscape) {
+TEST_F(UtilsTest, EscapeCharsControlCharsUnicodeEscape) {
     // Control characters without a named escape use \u00XX.
     EXPECT_EQ(escape_chars(std::string(1, '\x00')), "\\u0000");
     EXPECT_EQ(escape_chars(std::string(1, '\x01')), "\\u0001");
@@ -407,21 +420,21 @@ TEST(UtilsTest, EscapeCharsControlCharsUnicodeEscape) {
     EXPECT_EQ(escape_chars(" "), " ");
 }
 
-TEST(UtilsTest, EscapeCharsMixed) {
+TEST_F(UtilsTest, EscapeCharsMixed) {
     // Mix of clean text, named escapes, and hex escapes.
     EXPECT_EQ(escape_chars("a\nb"), "a\\nb");
     EXPECT_EQ(escape_chars("ke\"y"), "ke\\\"y");
     EXPECT_EQ(escape_chars("a\x01z"), "a\\u0001z");
 }
 
-TEST(UtilsTest, EscapeCharsCustomSet) {
+TEST_F(UtilsTest, EscapeCharsCustomSet) {
     // Only the characters in the custom set are escaped.
     EXPECT_EQ(escape_chars("a@b", "@"), "a\\@b");
     EXPECT_EQ(escape_chars("a\nb", "@"), "a\nb");  // \n not in set, passes through
     EXPECT_EQ(escape_chars("a@b\nc", "@"), "a\\@b\nc");
 }
 
-TEST(UtilsTest, ParseStringListMemoryTypes) {
+TEST_F(UtilsTest, ParseStringListMemoryTypes) {
     using ::testing::ElementsAre;
 
     {

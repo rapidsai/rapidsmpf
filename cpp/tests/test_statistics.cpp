@@ -25,8 +25,7 @@ using namespace rapidsmpf;
 
 /// @brief Test fixture that skips all tests on non-zero MPI ranks.
 ///
-/// Statistics tests are rank-independent; running them on every rank would
-/// produce redundant work and noisy output when using more than one rank.
+/// Statistics tests are all rank-independent.
 class StatisticsTest : public ::testing::Test {
   protected:
     void SetUp() override {
