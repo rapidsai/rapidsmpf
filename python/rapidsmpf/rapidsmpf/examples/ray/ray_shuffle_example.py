@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 """Example running a RapidsMPF Shuffle operation using Ray and UCXX communication."""
 
@@ -18,17 +18,17 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,
     pylibcudf_to_cudf_dataframe,
 )
-from rapidsmpf.utils.ray_utils import BaseShufflingActor
 
 
-class ShufflingActor(BaseShufflingActor):
+class ShufflingActor(RapidsMPFActor):
     """
     An example of a Ray actor that performs a shuffle operation.
 
@@ -114,9 +114,12 @@ class ShufflingActor(BaseShufflingActor):
             ).items()
         }
 
-        # initialize a shuffler with the default buffer resource
-        shuffler = self.create_shuffler(
-            0, total_num_partitions=self._total_nparts, stream=stream
+        shuffler = Shuffler(
+            self.comm,
+            self.comm.progress_thread,
+            0,
+            total_num_partitions=self._total_nparts,
+            br=br,
         )
 
         # Slice df and submit local slices to shuffler

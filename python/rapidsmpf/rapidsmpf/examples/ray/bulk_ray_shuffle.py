@@ -21,23 +21,21 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
-from rapidsmpf.utils.ray_utils import BaseShufflingActor
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from rapidsmpf.shuffler import Shuffler
-
 
 @ray.remote(num_gpus=1, num_cpus=4)
-class BulkRayShufflerActor(BaseShufflingActor):
+class BulkRayShufflerActor(RapidsMPFActor):
     """
     Actor that performs a bulk shuffle operation using Ray.
 
@@ -111,11 +109,14 @@ class BulkRayShufflerActor(BaseShufflingActor):
         br = BufferResource(mr, memory_available=memory_available)
         # Create a statistics object
         self.stats = Statistics(enable=self.enable_statistics, mr=mr)
-        # Create a shuffler
-        self.shuffler: Shuffler = self.create_shuffler(
-            0, total_num_partitions=self.total_nparts, buffer_resource=br
-        )
         self.br = br
+        self.shuffler: Shuffler = Shuffler(
+            self.comm,
+            self.comm.progress_thread,
+            0,
+            total_num_partitions=self.total_nparts,
+            br=br,
+        )
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
