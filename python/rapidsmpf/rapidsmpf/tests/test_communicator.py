@@ -1,10 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import pytest
 
 MPI = pytest.importorskip("mpi4py.MPI")
+from typing import TYPE_CHECKING  # noqa: E402
+
 from rapidsmpf.communicator.communicator import LOG_LEVEL  # noqa: E402
 from rapidsmpf.communicator.mpi import new_communicator  # noqa: E402
 from rapidsmpf.communicator.single import (  # noqa: E402
@@ -12,6 +14,9 @@ from rapidsmpf.communicator.single import (  # noqa: E402
 )
 from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup  # noqa: E402
 from rapidsmpf.config import Options, get_environment_variables  # noqa: E402
+
+if TYPE_CHECKING:
+    from rapidsmpf.communicator.communicator import Logger
 
 
 @pytest.mark.parametrize(
@@ -58,3 +63,12 @@ def test_single_process() -> None:
     comm = single_process_comm(Options(get_environment_variables()))
     assert comm.nranks == 1
     assert comm.rank == 0
+
+
+def test_logger_weakref_raises() -> None:
+    def get_logger() -> Logger:
+        comm = single_process_comm(Options())
+        return comm.logger
+
+    with pytest.raises(RuntimeError):
+        get_logger().print("Reference should be dead")
