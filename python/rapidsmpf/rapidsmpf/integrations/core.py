@@ -8,7 +8,6 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from functools import cached_property, partial
-from numbers import Number  # noqa: TC003
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar
 
 import rmm.mr
@@ -115,7 +114,7 @@ class WorkerContext:
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
 
-    def get_statistics(self) -> dict[str, dict[str, Number]]:
+    def get_statistics(self) -> dict[str, dict[str, int | float]]:
         """
         Get the statistics from the worker context.
 
