@@ -1136,8 +1136,16 @@ AddressAndProcess launch_rank0_and_get_address(
     // Read the hex-encoded address and remove file
     std::string encoded_address;
     std::ifstream addr_stream(address_file);
+    if (!addr_stream) {
+        throw std::runtime_error("Failed to open root address file: " + address_file);
+    }
     std::getline(addr_stream, encoded_address);
     addr_stream.close();
+    if (encoded_address.empty()) {
+        throw std::runtime_error(
+            "Root address file is empty or invalid: " + address_file
+        );
+    }
     std::filesystem::remove(address_file);
 
     if (cfg.verbose) {
