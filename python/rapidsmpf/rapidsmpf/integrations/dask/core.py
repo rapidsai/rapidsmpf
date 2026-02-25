@@ -18,7 +18,7 @@ from rapidsmpf.config import (
     get_environment_variables,
 )
 from rapidsmpf.integrations import WorkerContext
-from rapidsmpf.integrations.core import rmpf_worker_setup
+from rapidsmpf.integrations.core import rmpf_worker_local_setup
 from rapidsmpf.progress_thread import ProgressThread
 
 if TYPE_CHECKING:
@@ -108,13 +108,25 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     -------
     bytes
         The UCXX address of the root node.
+
+    Note
+    ----
+    This functions requires that the local worker setup has already run,
+    via :func:`~.dask_worker_local_setup`.
     """
     with WorkerContext.lock:
         worker = get_worker()
-        comm = new_communicator(n_ranks, None, None, options, ProgressThread())
-        worker._rapidsmpf_comm = comm
-        comm.logger.trace(f"Rank {comm.rank} created")
-        return get_root_ucxx_address(comm)
+        try:
+            ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
+        except AttributeError:
+            raise RuntimeError(
+                "Local worker context not yet bootstrapped,  missing rapidsmpf_worker_local_setup"
+            ) from None
+        ctx.comm = new_communicator(
+            n_ranks, None, None, ctx.options, ProgressThread(ctx.statistics)
+        )
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+        return get_root_ucxx_address(ctx.comm)
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
@@ -131,24 +143,33 @@ async def rapidsmpf_ucxx_rank_setup_node(
         The UCXX address of the root node.
     options
         Configuration options.
+
+    Note
+    ----
+    This functions requires that the local worker setup has already run,
+    via :func:`~.dask_worker_local_setup`.
     """
     with WorkerContext.lock:
         worker = get_worker()
-        if not hasattr(worker, "_rapidsmpf_comm"):
+        try:
+            ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
+        except AttributeError:
+            raise RuntimeError(
+                "Local worker context not yet bootstrapped,  missing rapidsmpf_worker_local_setup"
+            ) from None
+        if ctx.comm is None:
             # Not the root rank
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-            comm = new_communicator(
-                n_ranks, None, root_address, options, ProgressThread()
+            ctx.comm = new_communicator(
+                n_ranks, None, root_address, ctx.options, ProgressThread(ctx.statistics)
             )
-            worker._rapidsmpf_comm = comm
-            comm.logger.trace(f"Rank {comm.rank} created")
-        comm = worker._rapidsmpf_comm
-        comm.logger.trace(f"Rank {comm.rank} setup barrier")
-        barrier(comm)
-        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
+            ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
+        barrier(ctx.comm)
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier passed")
 
 
-def dask_worker_setup(
+def dask_worker_local_setup(
     dask_worker: distributed.Worker,
     *,
     options: Options,
@@ -177,16 +198,11 @@ def dask_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    try:
-        comm = dask_worker._rapidsmpf_comm
-    except AttributeError:
-        raise RuntimeError("Dask cluster not yet bootstrapped") from None
     with WorkerContext.lock:
         if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
-            dask_worker._rapidsmpf_worker_context = rmpf_worker_setup(
+            dask_worker._rapidsmpf_worker_context = rmpf_worker_local_setup(  # type:ignore[invalid-assignment]
                 dask_worker,
                 "dask_",
-                comm=comm,
                 options=options,
             )
 
@@ -258,11 +274,17 @@ def bootstrap_dask_cluster(
         scheduler_plugin = RMPFSchedulerPlugin()
         client.register_plugin(scheduler_plugin)
 
-        workers = sorted(info["workers"])
-        n_ranks = len(workers)
-
         # Insert missing config options from environment variables.
         options.insert_if_absent(get_environment_variables())
+
+        # First, prepare the per-process RapidsMPF resources
+        client.run(
+            dask_worker_local_setup,
+            options=options,
+        )
+
+        workers = sorted(info["workers"])
+        n_ranks = len(workers)
         # Set up the comms for the root worker
         root_address_bytes = client.submit(
             rapidsmpf_ucxx_rank_setup_root,
@@ -285,12 +307,6 @@ def bootstrap_dask_cluster(
             for worker in workers
         ]
         wait(ucxx_setup_futures)
-
-        # Finally, prepare the RapidsMPF resources on top of the UCXX comms
-        client.run(
-            dask_worker_setup,
-            options=options,
-        )
 
         # Only run the above steps once
         _initialized_clusters.add(info["id"])

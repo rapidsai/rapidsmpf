@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.progress_thread import ProgressThread
 
 
 DataFrameT = TypeVar("DataFrameT")
@@ -96,12 +95,10 @@ class WorkerContext:
         that might be modified while the worker is running such as the shufflers.
     br
         The buffer resource used by the worker exclusively.
-    progress_thread
-        The progress thread used by the worker.
-    comm
-        The communicator connected to all other workers.
     statistics
         The statistics used by the worker. If None, statistics is disabled.
+    comm
+        The communicator connected to all other workers.
     spill_collection
         A collection of Python objects that can be spilled to free up device memory.
     shufflers
@@ -112,9 +109,8 @@ class WorkerContext:
 
     lock: ClassVar[threading.RLock] = threading.RLock()
     br: BufferResource
-    progress_thread: ProgressThread
-    comm: Communicator
     statistics: Statistics
+    comm: Communicator | None = None
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
@@ -244,10 +240,9 @@ def get_shuffler(
                 )
             assert ctx.br is not None
             assert ctx.comm is not None
-            assert ctx.progress_thread is not None
             ctx.shufflers[shuffle_id] = Shuffler(
                 ctx.comm,
-                ctx.progress_thread,
+                ctx.comm.progress_thread,
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 br=ctx.br,
@@ -670,15 +665,16 @@ def spill_func(
     return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
-def rmpf_worker_setup(
+def rmpf_worker_local_setup(
     worker: Any,
     option_prefix: str,
     *,
-    comm: Communicator,
     options: Options,
 ) -> WorkerContext:
     """
-    Attach RapidsMPF shuffling attributes to a worker process.
+    Create per-worker local RapidsMPF attributes on a remote worker.
+
+    After creating the local context, a communicator must be bootstrapped.
 
     Parameters
     ----------
@@ -686,20 +682,13 @@ def rmpf_worker_setup(
         The current worker process.
     option_prefix
         Prefix for config-option names.
-    comm
-        Communicator for shufflers.
     options
         Configuration options.
 
     Returns
     -------
     WorkerContext
-        New worker context set up for shuffling.
-
-    Warnings
-    --------
-    This function creates a new RMM memory pool, and
-    sets it as the current device resource.
+        New local worker context
     """
     # Insert RMM resource adaptor on top of the current RMM resource stack.
     mr = RmmResourceAdaptor(
@@ -775,8 +764,6 @@ def rmpf_worker_setup(
     )
     ctx = WorkerContext(
         br=br,
-        progress_thread=comm.progress_thread,
-        comm=comm,
         statistics=statistics,
         options=options,
     )
