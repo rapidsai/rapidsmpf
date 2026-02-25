@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -16,10 +17,29 @@ namespace rapidsmpf {
 
 namespace {
 
+// Timing holds the state for one in-flight StreamOrderedTiming instance.
+//
+// Two time points are recorded:
+//   host_start            - captured on the CPU when the StreamOrderedTiming object is
+//                           constructed.
+//   stream_ordered_start  - captured inside the start callback that CUDA executes on the
+//                           stream, so it reflects when the GPU actually reached that
+//                           point in the stream.
+//
+// The gap (stream_ordered_start - host_start) is the launch delay: how far ahead the CPU
+// ran relative to the GPU.  The gap (stop_cb time - stream_ordered_start) is the stream-
+// ordered duration of the enclosed work.
+//
+// Note, the host_start is always recorded, but is only used when stream_delay_name is
+// specified.
 struct Timing {
     std::weak_ptr<Statistics> statistics;
-    TimePoint start_time;
-    std::string name;
+
+    TimePoint stream_ordered_start{};
+    std::string stream_ordered_name;
+
+    TimePoint host_start{};
+    std::optional<std::string> stream_delay_name;
 };
 
 // The global map owns the `Timing` state for all in-flight stream-ordered timers.
@@ -42,7 +62,7 @@ void timing_start_cb(void* data) {
     auto const uid = reinterpret_cast<std::uintptr_t>(data);
     auto it = global_timings_.find(uid);
     if (it != global_timings_.end()) {
-        it->second.start_time = now;
+        it->second.stream_ordered_start = now;
     }
 }
 
@@ -64,7 +84,15 @@ void timing_stop_cb(void* data) {
         // to this stream operation.
         return;
     }
-    statistics->add_stat(timing.name, (now - timing.start_time).count());
+    statistics->add_stat(
+        timing.stream_ordered_name, (now - timing.stream_ordered_start).count()
+    );
+    if (timing.stream_delay_name) {
+        statistics->add_stat(
+            *timing.stream_delay_name,
+            (timing.stream_ordered_start - timing.host_start).count()
+        );
+    }
 }
 
 }  // namespace
@@ -77,9 +105,10 @@ StreamOrderedTiming::StreamOrderedTiming(
     if (statistics_ == Statistics::disabled()) {
         return;
     }
+    TimePoint const now = Clock::now();
     std::unique_lock lock(global_mutex_);
     uid_ = global_uid_counter_++;
-    global_timings_.insert({uid_, Timing{.statistics = statistics_}});
+    global_timings_.insert({uid_, Timing{.statistics = statistics_, .host_start = now}});
     lock.unlock();
 
     RAPIDSMPF_CUDA_TRY(
@@ -87,13 +116,17 @@ StreamOrderedTiming::StreamOrderedTiming(
     );
 }
 
-void StreamOrderedTiming::stop_and_record(std::string const& name) {
+void StreamOrderedTiming::stop_and_record(
+    std::string const& name, std::optional<std::string> stream_delay_name
+) {
     if (statistics_ == Statistics::disabled()) {
         return;
     }
     {
         std::lock_guard lock(global_mutex_);
-        global_timings_.at(uid_).name = name;
+        auto& entry = global_timings_.at(uid_);
+        entry.stream_ordered_name = name;
+        entry.stream_delay_name = std::move(stream_delay_name);
     }
 
     RAPIDSMPF_CUDA_TRY(

@@ -107,6 +107,30 @@ TEST(StreamOrderedTiming, Cancel) {
     EXPECT_NO_THROW(StreamOrderedTiming::cancel_inflight_timings(stats_a.get()));
 }
 
+TEST(StreamOrderedTiming, StreamDelay) {
+    rmm::cuda_stream stream;
+    auto stats = std::make_shared<Statistics>();
+
+    // With a stream_delay_name, the delay stat is recorded and is >= 0.
+    {
+        StreamOrderedTiming timing{stream.view(), stats};
+        timing.stop_and_record("my-timing", "my-stream-delay");
+    }
+    stream.synchronize();
+    auto const delay = stats->get_stat("my-stream-delay");
+    EXPECT_EQ(delay.count(), 1);
+    EXPECT_GE(delay.value(), 0.0);
+
+    // With std::nullopt (the default), no stream-delay stat is written.
+    auto stats2 = std::make_shared<Statistics>();
+    {
+        StreamOrderedTiming timing{stream.view(), stats2};
+        timing.stop_and_record("my-timing");
+    }
+    stream.synchronize();
+    EXPECT_THROW(stats2->get_stat("my-stream-delay"), std::out_of_range);
+}
+
 TEST(StreamOrderedTiming, StatisticsDestroyedBeforeStreamSync) {
     // If the Statistics object is destroyed before the stream callbacks execute,
     // the callbacks detect the expired weak_ptr and return without crashing.

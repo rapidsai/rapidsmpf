@@ -369,6 +369,7 @@ void Statistics::record_copy(
         std::string base;  // "copy-<src>-to-<dst>"
         std::string nbytes;  // "<base>-bytes"
         std::string time;  // "<base>-time"
+        std::string stream_delay;  // "<base>-stream-delay"
     };
 
     // Construct all stat names once, at first call.
@@ -385,6 +386,7 @@ void Statistics::record_copy(
                         .base = base,
                         .nbytes = base + "-bytes",
                         .time = base + "-time",
+                        .stream_delay = base + "-stream-delay",
                     }
                 );
             }
@@ -394,7 +396,7 @@ void Statistics::record_copy(
 
     auto const& names = name_map.at({src, dst});
 
-    timing.stop_and_record(names.time);
+    timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, nbytes);
 
     if (exist_report_entry_name(names.base)) {
@@ -403,24 +405,25 @@ void Statistics::record_copy(
 
     register_formatter(
         names.base,
-        {names.nbytes, names.time},
+        {names.nbytes, names.time, names.stream_delay},
         [](std::ostream& os, std::vector<Stat> const& stats) {
             auto const nbytes = stats.at(0);
             auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
 
             RAPIDSMPF_EXPECTS(
-                nbytes.count() == time.count(),
-                "record_copy() expects the number of nbytes and timing recordings match"
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_copy() expects the number of nbytes, timing, and stream_delay "
+                "recordings match"
             );
 
             os << format_nbytes(nbytes.value());
-            if (time.value() > 0) {
-                os << " (" << format_nbytes(nbytes.value() / time.value()) << "/s)";
-            }
-            if (nbytes.count() > 1) {
-                os << " | avg "
-                   << format_nbytes(nbytes.value() / static_cast<double>(nbytes.count()));
-            }
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
         }
     );
 }

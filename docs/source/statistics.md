@@ -5,7 +5,7 @@ This table gives an overview of the different statistics collected.
 
 | Name | Description |
 | --- | --- |
-| `copy-{src}-to-{dst}` | Amount of data copied between memory types by RapidsMPF. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. |
+| `copy-{src}-to-{dst}` | Amount of data copied between memory types by RapidsMPF. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. Shows total bytes, total copy time, throughput, and average stream delay (time between CPU submission and GPU execution of the copy). |
 | `event-loop-check-future-finish` | Time spent polling for completed data transfers. |
 | `event-loop-init-gpu-data-send` | Time spent initiating GPU data sends. Does not include actual transfer time. |
 | `event-loop-metadata-recv` | Time spent receiving chunk metadata from other ranks. |
@@ -25,17 +25,17 @@ Statistics are available in both C++ and [Python](#api-statistics).
 
 ```
 Statistics:
- - copy-device-to-device:                2.79 GiB | avg 28.61 MiB
- - copy-pinned_host-to-pinned_host:      2.79 GiB | avg 28.61 MiB
- - event-loop-check-future-finish:       462.50 us | avg 24.97 ns
- - event-loop-init-gpu-data-send:        546.70 us | avg 29.52 ns
- - event-loop-metadata-recv:             2.81 ms | avg 151.47 ns
- - event-loop-metadata-send:             1.20 ms | avg 64.81 ns
- - event-loop-post-incoming-chunk-recv:  415.83 us | avg 22.45 ns
- - event-loop-total:                     32.55 ms | avg 1.76 us
+ - copy-device-to-pinned_host:           2.79 GiB | 473.25 ms | 5.90 GiB/s | avg-stream-delay 21.39 ms
+ - copy-pinned_host-to-device:           2.79 GiB | 487.96 ms | 5.73 GiB/s | avg-stream-delay 26.74 ms
+ - event-loop-check-future-finish:       715.55 us | avg 40.14 ns
+ - event-loop-init-gpu-data-send:        715.54 us | avg 40.14 ns
+ - event-loop-metadata-recv:             5.33 ms | avg 298.80 ns
+ - event-loop-metadata-send:             1.88 ms | avg 105.46 ns
+ - event-loop-post-incoming-chunk-recv:  613.30 us | avg 34.40 ns
+ - event-loop-total:                     52.84 ms | avg 2.96 us
  - shuffle-payload-recv:                 2.79 GiB | avg 28.61 MiB
  - shuffle-payload-send:                 2.79 GiB | avg 28.61 MiB
- - spill-manager-limit-breach:           max 3.26 GiB | avg 2.93 GiB | count 981
+ - spill-manager-limit-breach:           max 3.26 GiB | avg 2.93 GiB | count 1016
 ```
 
 ### JSON (`write_json()`)

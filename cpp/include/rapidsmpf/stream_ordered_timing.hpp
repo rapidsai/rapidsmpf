@@ -5,6 +5,8 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <string>
 
 #include <rapidsmpf/statistics.hpp>
 
@@ -46,7 +48,13 @@ class StreamOrderedTiming {
      * @brief Marks the stop position in the stream and schedules recording of the
      * duration.
      *
-     * The duration is written to the Statistics object in stream order — i.e. only after
+     * The stream-ordered duration (time between the start and stop stream positions) is
+     * recorded under @p name. If @p stream_delay_name is set, the **stream delay**
+     * — the wall-clock time between object construction and when the stream actually
+     * executed the start callback — is also recorded under that name. The stream delay
+     * reveals how far ahead the CPU is running relative to the GPU stream.
+     *
+     * Both values are written to the Statistics object in stream order — i.e. only after
      * all work enqueued between construction and this call has been reached by the
      * stream. If the Statistics object is destroyed before that point, the recording is
      * silently skipped.
@@ -54,9 +62,14 @@ class StreamOrderedTiming {
      * Behaviour is undefined if this method is called more than once per
      * `StreamOrderedTiming` instance.
      *
-     * @param name Name of the duration statistic to update in the Statistics object.
+     * @param name Name of the stream-ordered duration statistic.
+     * @param stream_delay_name Name of the stream-delay statistic. If `std::nullopt`
+     * (the default), no stream-delay entry is written.
      */
-    void stop_and_record(std::string const& name);
+    void stop_and_record(
+        std::string const& name,
+        std::optional<std::string> stream_delay_name = std::nullopt
+    );
 
     /**
      * @brief Cancel all in-flight timings associated with a Statistics object.

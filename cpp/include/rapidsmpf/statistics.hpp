@@ -343,12 +343,15 @@ class Statistics {
     /**
      * @brief Record byte count and wall-clock duration for a memory copy operation.
      *
-     * Records two statistics entries:
-     *  - `"copy-{src}-to-{dst}-bytes"` — the number of bytes copied.
-     *  - `"copy-{src}-to-{dst}-time"`   — the copy duration, recorded in stream order.
+     * Records three statistics entries for `"copy-{src}-to-{dst}"`:
+     *  - `"-bytes"`        — the number of bytes copied.
+     *  - `"-time"`         — the copy duration, recorded in stream order.
+     *  - `"-stream-delay"` — time between CPU submission and GPU execution of the copy,
+     *                        recorded in stream order.
      *
-     * Both entries are aggregated into a single combined report line under the name
-     * `"copy-{src}-to-{dst}"`, which shows total bytes and bandwidth.
+     * All three entries are aggregated into a single combined report line under the name
+     * `"copy-{src}-to-{dst}"`, showing total bytes, total time, bandwidth, and average
+     * stream delay.
      *
      * @param src Source memory type.
      * @param dst Destination memory type.
