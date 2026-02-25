@@ -16,7 +16,6 @@ from rapidsmpf.coll import AllGather
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,
@@ -133,13 +132,12 @@ def test_basic_allgather(
     should receive all data from all ranks.
     """
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread()
     statistics = Statistics(enable=False)
 
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
-        progress_thread=progress_thread,
+        progress_thread=comm.progress_thread,
         op_id=0,  # Use operation ID 0
         br=br,
         statistics=statistics,

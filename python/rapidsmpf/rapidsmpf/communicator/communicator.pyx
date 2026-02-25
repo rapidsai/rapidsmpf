@@ -7,6 +7,8 @@ from libcpp.string cimport string
 from libcpp.utility cimport move
 import weakref
 
+from rapidsmpf.progress_thread cimport ProgressThread
+
 
 # Since a rapids::Communicator::Logger doesn't have a default ctor, we use
 # these C++ functions to call the logger instance. This way Cython doesn't
@@ -189,6 +191,19 @@ cdef class Communicator:
             A logger instance.
         """
         return self._logger
+
+    @property
+    def progress_thread(self):
+        """
+        Get the communicator's progress thread
+
+        Returns
+        -------
+        The progress thread.
+        """
+        cdef ProgressThread pt = ProgressThread.__new__(ProgressThread)
+        pt._handle = deref(self._handle).progress_thread()
+        return pt
 
     def get_str(self):
         """

@@ -4,19 +4,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import rmm
 import rmm.pylibrmm
 import rmm.pylibrmm.stream
 
 from rapidsmpf.integrations.ray import RapidsMPFActor
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import Shuffler
-
-if TYPE_CHECKING:
-    from rapidsmpf.statistics import Statistics
 
 
 class BaseShufflingActor(RapidsMPFActor):
@@ -58,7 +52,6 @@ class BaseShufflingActor(RapidsMPFActor):
         total_num_partitions: int | None = None,
         stream: rmm.pylibrmm.stream.Stream | None = None,
         buffer_resource: BufferResource | None = None,
-        statistics: Statistics | None = None,
     ) -> Shuffler:
         """
         Create a Shuffler using the communicator and buffer resource.
@@ -74,8 +67,6 @@ class BaseShufflingActor(RapidsMPFActor):
             Stream to use for the shuffle operation. If None, the default stream will be used.
         buffer_resource
             The buffer resource to use for the shuffle operation. If None, the default buffer resource will be used.
-        statistics
-            Statistics object to use.
 
         Returns
         -------
@@ -86,11 +77,10 @@ class BaseShufflingActor(RapidsMPFActor):
             raise RuntimeError("Communicator not initialized")
 
         assert self._comm is not None
-        progress_thread = ProgressThread(statistics)
 
         return Shuffler(
             self.comm,
-            progress_thread,
+            self.comm.progress_thread,
             op_id,
             total_num_partitions if total_num_partitions is not None else self.nranks(),
             buffer_resource

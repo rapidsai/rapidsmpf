@@ -6,6 +6,7 @@ from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
 cdef class Logger:
@@ -37,6 +38,7 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
         Rank rank() except +ex_handler
         Rank nranks() except +ex_handler
         string str() except +ex_handler
+        shared_ptr[cpp_ProgressThread] progress_thread() except +ex_handler
         cpp_Logger logger()
 
 cdef class Communicator:
