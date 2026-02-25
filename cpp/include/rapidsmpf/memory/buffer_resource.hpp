@@ -137,6 +137,22 @@ class BufferResource {
     [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
+     * @brief Get the RMM pinned host memory resource as a device resource reference.
+     *
+     * @return Reference to the RMM resource used for pinned host allocations.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref pinned_mr_as_device();
+
+    /**
+     * @brief Check if pinned memory is available.
+     *
+     * @return true if pinned memory is available, false otherwise.
+     */
+    [[nodiscard]] bool is_pinned_memory_available() const noexcept {
+        return pinned_mr_ != PinnedMemoryResource::Disabled;
+    }
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
@@ -311,6 +327,28 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    );
+
+    /**
+     * @brief Move host buffer data into a Buffer.
+     *
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * host memory.
+     *
+     * If @p stream differs from the device buffer's current stream:
+     *   - @p stream is synchronized with the device buffer's current stream, and
+     *   - the device buffer's current stream is updated to @p stream.
+     *
+     * @param data Unique pointer to the host buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * @param host_mem_type The memory type of the underlying @p host_buffer.
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
+     */
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<HostBuffer> data,
+        rmm::cuda_stream_view stream,
+        MemoryType host_mem_type
     );
 
     /**

@@ -7,6 +7,7 @@
 
 #include <cudf/contiguous_split.hpp>
 
+#include <rapidsmpf/integrations/cudf/pack.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -181,41 +182,20 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 br->release(reservation, nbytes);
                 return TableChunk(std::move(table), stream());
             }
-        case MemoryType::HOST:
         case MemoryType::PINNED_HOST:
-            // Case 2.
+            // if data is not in a packed format (cudf table, non-owning table_view,
+            // etc), use packing; otherwise use buffer_copy below.
             if (packed_data_ == nullptr) {
-                // We use libcudf's pack() to serialize `table_view()` into a
-                // packed_columns and then we move the packed_columns' gpu_data to a
-                // new host buffer.
-                // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
-                // `cudf::pack()` allocates device memory we haven't reserved.
-                auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr());
-                auto packed_data = std::make_unique<PackedData>(
-                    std::move(packed_columns.metadata),
-                    br->move(std::move(packed_columns.gpu_data), stream())
-                );
-
-                // Handle the case where `cudf::pack` allocates slightly more than the
-                // input size. This can occur because cudf uses aligned allocations,
-                // which may exceed the requested size. To accommodate this, we
-                // allow some wiggle room.
-                if (packed_data->data->size > reservation.size()) {
-                    auto const wiggle_room =
-                        1024 * static_cast<std::size_t>(table_view().num_columns());
-                    if (packed_data->data->size <= reservation.size() + wiggle_room) {
-                        reservation = br->reserve(
-                                            reservation.mem_type(),
-                                            packed_data->data->size,
-                                            AllowOverbooking::YES
-                        )
-                                          .first;
-                    }
-                }
-                packed_data->data = br->move(std::move(packed_data->data), reservation);
-                return TableChunk(std::move(packed_data));
+                return detail::pack_pinned_host(table_view(), stream(), reservation);
             }
-            break;
+            break;  // use buffer_copy below.
+        case MemoryType::HOST:
+            // if data is not in a packed format (cudf table, non-owning table_view,
+            // etc), use packing; otherwise use buffer_copy below.
+            if (packed_data_ == nullptr) {
+                return detail::pack_host(table_view(), stream(), reservation);
+            }
+            break;  // use buffer_copy below.
         default:
             RAPIDSMPF_FAIL("MemoryType: unknown");
         }

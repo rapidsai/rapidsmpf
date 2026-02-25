@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cuda/memory>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -30,6 +32,16 @@ auto add_missing_availability_functions(
     }
     return memory_available;
 }
+
+// Helper function to join the stream of a buffer with a new stream.
+void buffer_stream_join(auto& data, rmm::cuda_stream_view stream) {
+    auto const& upstream = data->stream();
+    if (upstream.value() != stream.value()) {
+        cuda_stream_join(stream, upstream);
+        data->set_stream(stream);
+    }
+}
+
 }  // namespace
 
 BufferResource::BufferResource(
@@ -74,6 +86,13 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
 }
 
 rmm::host_async_resource_ref BufferResource::pinned_mr() {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
+rmm::device_async_resource_ref BufferResource::pinned_mr_as_device() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
@@ -179,12 +198,17 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
-    auto upstream = data->stream();
-    if (upstream.value() != stream.value()) {
-        cuda_stream_join(stream, upstream);
-        data->set_stream(stream);
-    }
+    buffer_stream_join(data, stream);
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+}
+
+std::unique_ptr<Buffer> BufferResource::move(
+    std::unique_ptr<HostBuffer> data,
+    rmm::cuda_stream_view stream,
+    MemoryType host_mem_type
+) {
+    buffer_stream_join(data, stream);
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, host_mem_type));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(

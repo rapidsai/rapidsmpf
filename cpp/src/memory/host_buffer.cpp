@@ -141,7 +141,7 @@ HostBuffer HostBuffer::from_owned_vector(
 HostBuffer HostBuffer::from_rmm_device_buffer(
     std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
     rmm::cuda_stream_view stream,
-    PinnedMemoryResource& mr
+    rmm::host_async_resource_ref mr
 ) {
     RAPIDSMPF_EXPECTS(
         pinned_host_buffer != nullptr,
@@ -149,8 +149,10 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
         std::invalid_argument
     );
 
+    // if the buffer is not empty, it must be host accessible
     RAPIDSMPF_EXPECTS(
-        cuda::is_host_accessible(pinned_host_buffer->data()),
+        pinned_host_buffer->size() == 0
+            || cuda::is_host_accessible(pinned_host_buffer->data()),
         "pinned_host_buffer must be host accessible",
         std::logic_error
     );
