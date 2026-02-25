@@ -18,11 +18,25 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+#include "environment.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf;
 
-TEST(Statistics, Disabled) {
+/// @brief Test fixture that skips all tests on non-zero MPI ranks.
+///
+/// Statistics tests are rank-independent; running them on every rank would
+/// produce redundant work and noisy output when using more than one rank.
+class StatisticsTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        if (GlobalEnvironment->comm_->rank() != 0) {
+            GTEST_SKIP() << "Test only runs on rank 0";
+        }
+    }
+};
+
+TEST_F(StatisticsTest, Disabled) {
     rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.enabled());
 
@@ -32,7 +46,7 @@ TEST(Statistics, Disabled) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics: disabled"));
 }
 
-TEST(Statistics, Communication) {
+TEST_F(StatisticsTest, Communication) {
     rapidsmpf::Statistics stats;
     EXPECT_TRUE(stats.enabled());
 
@@ -56,7 +70,7 @@ TEST(Statistics, Communication) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
 }
 
-TEST(Statistics, StatMax) {
+TEST_F(StatisticsTest, StatMax) {
     Statistics::Stat s;
     EXPECT_EQ(s.max(), -std::numeric_limits<double>::infinity());
 
@@ -70,7 +84,7 @@ TEST(Statistics, StatMax) {
     EXPECT_EQ(s.max(), 10.0);  // max stays at 10
 }
 
-TEST(Statistics, ExistReportEntryName) {
+TEST_F(StatisticsTest, ExistReportEntryName) {
     rapidsmpf::Statistics stats;
 
     // Unknown name returns false.
@@ -97,7 +111,7 @@ TEST(Statistics, ExistReportEntryName) {
     EXPECT_FALSE(disabled.exist_report_entry_name("foo"));
 }
 
-TEST(Statistics, RegisterFormatterFirstWins) {
+TEST_F(StatisticsTest, RegisterFormatterFirstWins) {
     rapidsmpf::Statistics stats;
     // Register a custom formatter first.
     stats.register_formatter(
@@ -113,7 +127,7 @@ TEST(Statistics, RegisterFormatterFirstWins) {
     EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("KiB")));
 }
 
-TEST(Statistics, MultiStatFormatter) {
+TEST_F(StatisticsTest, MultiStatFormatter) {
     rapidsmpf::Statistics stats;
     stats.register_formatter(
         "spill-summary",
@@ -131,7 +145,7 @@ TEST(Statistics, MultiStatFormatter) {
     EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("spill-time")));
 }
 
-TEST(Statistics, ReportNoDataCollected) {
+TEST_F(StatisticsTest, ReportNoDataCollected) {
     rapidsmpf::Statistics stats;
     stats.register_formatter(
         "spill-summary",
@@ -150,7 +164,7 @@ TEST(Statistics, ReportNoDataCollected) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-bytes"));  // uncovered
 }
 
-TEST(Statistics, ReportSorting) {
+TEST_F(StatisticsTest, ReportSorting) {
     rapidsmpf::Statistics stats;
 
     // Register formatter entries for "banana" and "cherry".
@@ -192,7 +206,7 @@ TEST(Statistics, ReportSorting) {
     EXPECT_LT(pos_cherry, pos_date);
 }
 
-TEST(Statistics, MemoryProfiler) {
+TEST_F(StatisticsTest, MemoryProfiler) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
 
@@ -236,7 +250,7 @@ TEST(Statistics, MemoryProfiler) {
     EXPECT_EQ(records.at("outer").scoped.total(), 4_MiB);
 }
 
-TEST(Statistics, MemoryProfilerDisabled) {
+TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.is_memory_profiling_enabled());
@@ -260,7 +274,7 @@ TEST(Statistics, MemoryProfilerDisabled) {
     EXPECT_TRUE(records.empty());
 }
 
-TEST(Statistics, MemoryProfilerMacro) {
+TEST_F(StatisticsTest, MemoryProfilerMacro) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
     {
@@ -275,7 +289,7 @@ TEST(Statistics, MemoryProfilerMacro) {
     EXPECT_EQ(entry.second.scoped.total(), 1_MiB);
 }
 
-TEST(Statistics, MemoryProfilerMacroDisabled) {
+TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(false);
     {
@@ -286,7 +300,7 @@ TEST(Statistics, MemoryProfilerMacroDisabled) {
     EXPECT_TRUE(records.empty());
 }
 
-TEST(Statistics, JsonStream) {
+TEST_F(StatisticsTest, JsonStream) {
     rapidsmpf::Statistics stats;
     stats.add_stat("foo", 10.0);
     stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
@@ -304,7 +318,7 @@ TEST(Statistics, JsonStream) {
     EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("memory_records")));
 }
 
-TEST(Statistics, JsonSpecialChars) {
+TEST_F(StatisticsTest, JsonSpecialChars) {
     rapidsmpf::Statistics stats;
     // Stat names with characters that must be escaped in JSON.
     stats.add_stat("has\"quote", 1.0);
@@ -324,7 +338,7 @@ TEST(Statistics, JsonSpecialChars) {
     EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("has\"quote")));
 }
 
-TEST(Statistics, JsonMemoryRecords) {
+TEST_F(StatisticsTest, JsonMemoryRecords) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
     {
@@ -344,7 +358,7 @@ TEST(Statistics, JsonMemoryRecords) {
     EXPECT_THAT(s, ::testing::HasSubstr(R"("global_peak_bytes")"));
 }
 
-TEST(Statistics, JsonReport) {
+TEST_F(StatisticsTest, JsonReport) {
     rapidsmpf::Statistics stats;
     stats.add_stat("foo", 10.0);
     stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
