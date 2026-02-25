@@ -113,6 +113,27 @@ MPI::MPI(MPI_Comm comm, config::Options options, std::shared_ptr<Statistics> sta
     check_mpi_thread_support();
 }
 
+MPI::MPI(
+    MPI_Comm comm,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
+)
+    : comm_{comm},
+      rank_{[&]() {
+          int r;
+          RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
+          return Rank(r);
+      }()},
+      nranks_{[&]() {
+          int n;
+          RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
+          return Rank(n);
+      }()},
+      logger_{rank_, std::move(options)},
+      progress_thread_{std::move(progress_thread)} {
+    check_mpi_thread_support();
+}
+
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
 ) {

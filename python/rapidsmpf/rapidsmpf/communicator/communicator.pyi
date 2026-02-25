@@ -1,7 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import IntEnum
+
+from rapidsmpf.progress_thread import ProgressThread
 
 class LOG_LEVEL(IntEnum):
     NONE = ...
@@ -27,6 +29,8 @@ class Communicator:
     def nranks(self) -> int: ...
     @property
     def logger(self) -> Logger: ...
+    @property
+    def progress_thread(self) -> ProgressThread: ...
     def get_str(self) -> str: ...
 
 def _available_communicators() -> tuple[str, ...]: ...

@@ -1043,6 +1043,18 @@ UCXX::UCXX(
     shared_resources_->logger = &logger_;
 }
 
+UCXX::UCXX(
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
+)
+    : shared_resources_(ucxx_initialized_rank->shared_resources_),
+      options_{std::move(options)},
+      logger_(shared_resources_->rank(), options_),
+      progress_thread_{std::move(progress_thread)} {
+    shared_resources_->logger = &logger_;
+}
+
 [[nodiscard]] Rank UCXX::rank() const {
     return shared_resources_->rank();
 }
@@ -1434,10 +1446,10 @@ std::shared_ptr<UCXX> UCXX::split() {
         shared_resources->get_control_callback_info(), control_callback
     );
 
-    // Create the new UCXX instance
+    // Create the new UCXX instance, sharing the progress thread with the parent.
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
     return std::make_shared<UCXX>(
-        std::move(initialized_rank), options_, Statistics::disabled()
+        std::move(initialized_rank), options_, progress_thread_
     );
 }
 

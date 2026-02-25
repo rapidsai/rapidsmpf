@@ -43,6 +43,8 @@ class Single final : public Communicator {
     /**
      * @brief Construct a single process communicator.
      *
+     * Creates a new `ProgressThread` using the provided statistics instance.
+     *
      * @param options Configuration options.
      * @param statistics Statistics instance for the progress thread.
      */
@@ -50,6 +52,14 @@ class Single final : public Communicator {
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
+
+    /**
+     * @brief Construct a single process communicator with a shared progress thread.
+     *
+     * @param options Configuration options.
+     * @param progress_thread The progress thread to use.
+     */
+    Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread);
 
     ~Single() noexcept override = default;
 

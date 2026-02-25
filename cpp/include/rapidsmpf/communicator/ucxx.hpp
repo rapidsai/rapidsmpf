@@ -158,7 +158,7 @@ class UCXX final : public Communicator {
      * @brief Construct the UCXX rank.
      *
      * Construct the UCXX rank using the context previously returned from the call to
-     * `init()`.
+     * `init()`. Creates a new `ProgressThread` using the provided statistics instance.
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
      * @param options Configuration options.
@@ -168,6 +168,19 @@ class UCXX final : public Communicator {
         std::unique_ptr<InitializedRank> ucxx_initialized_rank,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    );
+
+    /**
+     * @brief Construct the UCXX rank with a shared progress thread.
+     *
+     * @param ucxx_initialized_rank The previously initialized UCXX rank.
+     * @param options Configuration options.
+     * @param progress_thread The progress thread to use.
+     */
+    UCXX(
+        std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+        config::Options options,
+        std::shared_ptr<ProgressThread> progress_thread
     );
 
     ~UCXX() noexcept override;

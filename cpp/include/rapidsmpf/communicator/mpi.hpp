@@ -119,6 +119,8 @@ class MPI final : public Communicator {
     /**
      * @brief Construct an MPI communicator.
      *
+     * Creates a new `ProgressThread` using the provided statistics instance.
+     *
      * @param comm The MPI communicator to be used for communication.
      * @param options Configuration options.
      * @param statistics Statistics instance for the progress thread.
@@ -126,6 +128,17 @@ class MPI final : public Communicator {
     MPI(MPI_Comm comm,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled());
+
+    /**
+     * @brief Construct an MPI communicator with a shared progress thread.
+     *
+     * @param comm The MPI communicator to be used for communication.
+     * @param options Configuration options.
+     * @param progress_thread The progress thread to use.
+     */
+    MPI(MPI_Comm comm,
+        config::Options options,
+        std::shared_ptr<ProgressThread> progress_thread);
 
     ~MPI() noexcept override = default;
 
