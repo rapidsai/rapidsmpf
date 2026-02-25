@@ -11,7 +11,7 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
-from rmm.pylibrmm.cuda_stream import CudaStreamFlags
+from rmm.pylibrmm.stream import CudaStreamFlags
 
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
