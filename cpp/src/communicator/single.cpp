@@ -13,8 +13,7 @@ namespace rapidsmpf {
 
 Single::Single(config::Options options, std::shared_ptr<Statistics> statistics)
     : logger_{0, std::move(options)},
-      progress_thread_{std::make_shared<ProgressThread>(logger_, std::move(statistics))} {
-}
+      progress_thread_{std::make_shared<ProgressThread>(std::move(statistics))} {}
 
 Single::Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread)
     : logger_{0, std::move(options)}, progress_thread_{std::move(progress_thread)} {}

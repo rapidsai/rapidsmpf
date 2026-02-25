@@ -109,7 +109,7 @@ MPI::MPI(MPI_Comm comm, config::Options options, std::shared_ptr<Statistics> sta
           return Rank(n);
       }()},
       logger_{rank_, std::move(options)},
-      progress_thread_{std::make_shared<ProgressThread>(logger_, std::move(statistics))} {
+      progress_thread_{std::make_shared<ProgressThread>(std::move(statistics))} {
     check_mpi_thread_support();
 }
 

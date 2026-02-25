@@ -1039,7 +1039,7 @@ UCXX::UCXX(
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
       logger_(shared_resources_->rank(), options_),
-      progress_thread_{std::make_shared<ProgressThread>(logger_, std::move(statistics))} {
+      progress_thread_{std::make_shared<ProgressThread>(std::move(statistics))} {
     shared_resources_->logger = &logger_;
 }
 

@@ -193,7 +193,7 @@ def bulk_mpi_shuffle(
             )
     else:
         br = BufferResource(rmm.mr.get_current_device_resource())
-        progress_thread = ProgressThread(comm)
+        progress_thread = ProgressThread()
 
         shuffler = Shuffler(
             comm,
