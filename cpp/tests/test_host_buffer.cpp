@@ -6,17 +6,21 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <ranges>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/pinned_host_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/memory/fixed_sized_host_buffer.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -201,4 +205,158 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
+// Test for various vector sizes with a fixed block size
+class FixedSizedHostBufferTest : public ::testing::TestWithParam<size_t> {
+  public:
+    static constexpr size_t block_size = 32;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    VariableSizes,
+    FixedSizedHostBufferTest,
+    ::testing::Values(0, 1, 10, FixedSizedHostBufferTest::block_size, 1000),
+    [](const ::testing::TestParamInfo<size_t>& info) {
+        return std::to_string(info.param);
+    }
+);
+
+TEST_P(FixedSizedHostBufferTest, from_vector) {
+    auto source_data = iota_vector<std::byte>(GetParam());
+    auto const expected = source_data;
+
+    auto check_buf = [&](auto const& buf) {
+        EXPECT_EQ(expected.size(), buf.total_size());
+        EXPECT_EQ(block_size, buf.block_size());
+        EXPECT_EQ((expected.size() + block_size - 1) / block_size, buf.num_blocks());
+        for (size_t i = 0; i < buf.num_blocks(); ++i) {
+            auto const offset = i * block_size;
+            EXPECT_TRUE(
+                std::ranges::equal(
+                    std::span<const std::byte>(
+                        expected.begin() + offset,
+                        std::min(block_size, expected.size() - offset)
+                    ),
+                    buf.block_data(i)
+                )
+            );
+        }
+    };
+
+    auto buf0 =
+        rapidsmpf::FixedSizedHostBuffer::from_vector(std::move(source_data), block_size);
+    check_buf(buf0);
+
+    rapidsmpf::FixedSizedHostBuffer buf1(std::move(buf0));
+    EXPECT_TRUE(buf0.empty());
+    check_buf(buf1);
+
+    buf0 = std::move(buf1);
+    EXPECT_TRUE(buf1.empty());
+    check_buf(buf0);
+}
+
+TEST_P(FixedSizedHostBufferTest, from_vectors) {
+    size_t const num_vectors = GetParam();
+
+    std::vector<std::vector<std::byte>> vecs;
+    vecs.reserve(num_vectors);
+    for (size_t i = 0; i < num_vectors; ++i) {
+        vecs.emplace_back(
+            iota_vector<std::byte>(
+                block_size, static_cast<std::byte>(i * block_size & 0xff)
+            )
+        );
+    }
+    auto const expected_vecs = vecs;
+
+    auto check_buf = [&](auto const& buf) {
+        EXPECT_EQ(num_vectors * block_size, buf.total_size());
+        EXPECT_EQ(num_vectors > 0 ? block_size : 0, buf.block_size());
+        EXPECT_EQ(num_vectors, buf.num_blocks());
+        for (size_t i = 0; i < buf.num_blocks(); ++i) {
+            EXPECT_EQ(block_size, buf.block_data(i).size());
+            EXPECT_TRUE(
+                std::equal(
+                    expected_vecs[i].begin(),
+                    expected_vecs[i].end(),
+                    buf.block_data(i).data()
+                )
+            );
+        }
+    };
+
+    auto buf0 = rapidsmpf::FixedSizedHostBuffer::from_vectors(std::move(vecs));
+    check_buf(buf0);
+
+    rapidsmpf::FixedSizedHostBuffer buf1(std::move(buf0));
+    EXPECT_TRUE(buf0.empty());
+    check_buf(buf1);
+
+    buf0 = std::move(buf1);
+    EXPECT_TRUE(buf1.empty());
+    check_buf(buf0);
+}
+
+TEST_P(FixedSizedHostBufferTest, from_multi_blocks_alloc) {
+    size_t const num_buffers = GetParam();
+
+    rmm::mr::pinned_host_memory_resource upstream_mr;
+    constexpr std::size_t mem_limit = 4 * 1024 * 1024;
+    constexpr std::size_t capacity = 4 * 1024 * 1024;
+    cucascade::memory::fixed_size_host_memory_resource host_mr(
+        0, upstream_mr, mem_limit, capacity, block_size
+    );
+
+    std::size_t const allocation_size = num_buffers * block_size;
+    auto allocation = host_mr.allocate_multiple_blocks(allocation_size);
+
+    std::vector<std::vector<std::byte>> vecs;
+    for (size_t i = 0; i < allocation->size(); ++i) {
+        auto block = (*allocation)[i];
+        auto& fill = vecs.emplace_back(
+            iota_vector<std::byte>(
+                block_size, static_cast<std::byte>(i * block_size & 0xff)
+            )
+        );
+        std::ranges::copy(fill, block.begin());
+    }
+
+    auto check_buf = [&](auto const& buf) {
+        EXPECT_EQ(num_buffers * block_size, buf.total_size());
+        EXPECT_EQ(num_buffers > 0 ? block_size : 0, buf.block_size());
+        EXPECT_EQ(num_buffers, buf.num_blocks());
+        for (size_t i = 0; i < buf.num_blocks(); ++i) {
+            EXPECT_EQ(block_size, buf.block_data(i).size());
+            EXPECT_TRUE(std::ranges::equal(vecs[i], buf.block_data(i)));
+        }
+    };
+
+    auto buf0 =
+        rapidsmpf::FixedSizedHostBuffer::from_multi_blocks_alloc(std::move(allocation));
+    check_buf(buf0);
+
+    rapidsmpf::FixedSizedHostBuffer buf1(std::move(buf0));
+    EXPECT_TRUE(buf0.empty());
+    check_buf(buf1);
+
+    buf0 = std::move(buf1);
+    EXPECT_TRUE(buf1.empty());
+    check_buf(buf0);
+}
+
+TEST(FixedSizedHostBufferTest, empty_equality) {
+    std::array bufs{
+        rapidsmpf::FixedSizedHostBuffer{},
+        rapidsmpf::FixedSizedHostBuffer::from_vector({}, 10),
+        rapidsmpf::FixedSizedHostBuffer::from_vectors({}),
+        rapidsmpf::FixedSizedHostBuffer::from_multi_blocks_alloc({})
+    };
+
+    for (size_t i = 0; i < bufs.size(); ++i) {
+        for (size_t j = i; j < bufs.size(); ++j) {
+            EXPECT_EQ(bufs[i], bufs[j]);
+        }
+    }
 }

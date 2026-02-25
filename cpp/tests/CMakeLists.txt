@@ -62,7 +62,7 @@ target_compile_options(
 )
 target_link_libraries(
   test_sources
-  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
+  PRIVATE rapidsmpf::rapidsmpf cuCascade::cucascade cudf::cudftestutil cudf::cudftestutil_impl
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
   PUBLIC GTest::gmock GTest::gtest
 )
