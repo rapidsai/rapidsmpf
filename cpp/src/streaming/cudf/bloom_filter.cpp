@@ -17,7 +17,7 @@
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
-Node BloomFilter::build(
+Actor BloomFilter::build(
     std::shared_ptr<Channel> ch_in, std::shared_ptr<Channel> ch_out, OpID tag
 ) {
     ShutdownAtExit c{ch_in, ch_out};
@@ -79,7 +79,7 @@ Node BloomFilter::build(
     co_await ch_out->drain(ctx_->executor());
 }
 
-Node BloomFilter::apply(
+Actor BloomFilter::apply(
     std::shared_ptr<Channel> bloom_filter,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,

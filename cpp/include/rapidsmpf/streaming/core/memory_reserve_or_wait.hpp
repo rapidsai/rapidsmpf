@@ -12,9 +12,9 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::streaming {
@@ -74,7 +74,7 @@ class MemoryReserveOrWait {
      * @return A coroutine that completes only after all pending requests have been
      * cancelled and the periodic memory check task has exited.
      */
-    Node shutdown();
+    Actor shutdown();
 
     /**
      * @brief Attempts to reserve memory or waits until progress can be made.
@@ -306,7 +306,7 @@ class MemoryReserveOrWait {
  * a heuristic to prefer eligible requests that are expected to reduce memory pressure
  * sooner. Smaller values have higher priority.
  *
- * @param ctx Node context used to obtain the memory reservation handle.
+ * @param ctx Actor context used to obtain the memory reservation handle.
  * @param size Number of bytes to reserve.
  * @param net_memory_delta Estimated net change in memory usage after the reservation is
  * allocated and the dependent operation completes. Smaller values have higher priority.
@@ -325,7 +325,7 @@ class MemoryReserveOrWait {
  * `allow_overbooking` resolves to `AllowOverbooking::NO`.
  *
  * @code{.cpp}
- * // Reserve memory inside a node:
+ * // Reserve memory inside an actor:
  * auto res = co_await reserve_memory(
  *     ctx,
  *     1024,

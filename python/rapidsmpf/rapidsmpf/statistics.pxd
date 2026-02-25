@@ -18,7 +18,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
         bool enabled() except +ex_handler
         string report() except +ex_handler
-        double add_stat(
+        void add_stat(
             string name,
             double value
         ) except +ex_handler

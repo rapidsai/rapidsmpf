@@ -18,12 +18,12 @@ from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
     MemoryReserveOrWait,
     reserve_memory,
 )
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
@@ -49,14 +49,14 @@ def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(context.options(), MemoryType.DEVICE, context)
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             res = await mrow.reserve_or_wait(size=1024, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 1024
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -67,16 +67,16 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
             Options({"memory_reserve_timeout": "10m"}), MemoryType.DEVICE, context
         )
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             t0 = time.time()
             res = await mrow.reserve_or_wait(size=0, net_memory_delta=0)
             assert time.time() - t0 < 10  #  Should complete before timeout.
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -87,14 +87,14 @@ def test_timeout(py_executor: ThreadPoolExecutor) -> None:
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             res = await mrow.reserve_or_wait(size=2048, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -105,20 +105,20 @@ def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
             Options({"memory_reserve_timeouts": "10m"}), MemoryType.DEVICE, context
         )
 
-        @define_py_node()
-        async def node1(ctx: Context) -> None:
+        @define_actor()
+        async def actor1(ctx: Context) -> None:
             with pytest.raises(RuntimeError, match="memory reservation failed"):
                 await mrow.reserve_or_wait(size=2048, net_memory_delta=0)
 
-        @define_py_node()
-        async def node2(ctx: Context) -> None:
-            # Wait until `node1()` has submitted its reservation request.
+        @define_actor()
+        async def actor2(ctx: Context) -> None:
+            # Wait until `actor1()` has submitted its reservation request.
             while mrow.size() == 0:
                 await asyncio.sleep(0)
             await mrow.shutdown()
 
-        run_streaming_pipeline(
-            nodes=[node1(context), node2(context)],
+        run_actor_network(
+            actors=[actor1(context), actor2(context)],
             py_executor=py_executor,
         )
 
@@ -128,15 +128,15 @@ def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
         mrow = context.memory(MemoryType.DEVICE)
         assert isinstance(mrow, MemoryReserveOrWait)
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             assert ctx.memory(MemoryType.DEVICE) is mrow
             res = await mrow.reserve_or_wait(size=512, net_memory_delta=0)
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 512
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -147,8 +147,8 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             # No overbooking
             res, overbooked = await mrow.reserve_or_wait_or_overbook(
                 size=1024, net_memory_delta=0
@@ -165,8 +165,8 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
             assert res.size == 2048
             assert overbooked == 1024
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -177,14 +177,14 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
         )
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             # Request cannot be satisfied and overbooking is not allowed.
             with pytest.raises(RuntimeError):
                 await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -194,8 +194,8 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
         dev_limit=1024, overwrite_options={"memory_reserve_timeout": "1ms"}
     ) as context:
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             # Fits within limit, should always succeed.
             res = await reserve_memory(
                 ctx,
@@ -228,8 +228,8 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
                     allow_overbooking=False,
                 )
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -246,8 +246,8 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
         },
     ) as context:
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             res = await reserve_memory(
                 ctx,
                 2048,
@@ -258,8 +258,8 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 2048
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )
 
@@ -272,8 +272,8 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
         },
     ) as context:
 
-        @define_py_node()
-        async def node(ctx: Context) -> None:
+        @define_actor()
+        async def actor(ctx: Context) -> None:
             with pytest.raises(RuntimeError):
                 await reserve_memory(
                     ctx,
@@ -283,7 +283,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
                     allow_overbooking=None,
                 )
 
-        run_streaming_pipeline(
-            nodes=[node(context)],
+        run_actor_network(
+            actors=[actor(context)],
             py_executor=py_executor,
         )

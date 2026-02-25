@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -66,7 +66,7 @@ class Single final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+        std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
     ) override;
 
     // clang-format off
@@ -92,14 +92,14 @@ class Single final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
+     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer)
      *
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+        Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
     ) override;
 
     /**
@@ -108,7 +108,7 @@ class Single final : public Communicator {
      * @note Always returns a nullptr for the received message, indicating that no message
      * is available.
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> recv_any(
         Tag tag
     ) override;
 
@@ -118,7 +118,7 @@ class Single final : public Communicator {
      * @note Always returns a nullptr for the received message, indicating that no message
      * is available.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> recv_from(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> recv_from(
         Rank src, Tag tag
     ) override;
 
@@ -143,6 +143,13 @@ class Single final : public Communicator {
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) override;
+
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
     ) override;
 
     /**
@@ -171,7 +178,7 @@ class Single final : public Communicator {
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_sync_host_data(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 

@@ -34,9 +34,9 @@ class HostBuffer {
      *
      * This deleter holds a callable that releases the underlying storage when invoked.
      * It enables `HostBuffer` to take ownership of different storage types
-     * (e.g., `rmm::device_buffer`, `std::vector<uint8_t>`) without exposing their types.
-     * The deleter captures the owned object and destroys it when the deleter itself
-     * is destroyed (the `void*` parameter is ignored).
+     * (e.g., `rmm::device_buffer`, `std::vector<std::uint8_t>`) without exposing their
+     * types. The deleter captures the owned object and destroys it when the deleter
+     * itself is destroyed (the `void*` parameter is ignored).
      */
     using OwnedStorageDeleter = std::function<void(void*)>;
 

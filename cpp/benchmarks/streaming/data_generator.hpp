@@ -8,14 +8,14 @@
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils/random_data.hpp"
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 /**
  * @brief Asynchronously generates and sends a sequence of random numeric tables.
@@ -23,12 +23,12 @@ namespace rapidsmpf::streaming::node {
  * This is a streaming version of `rapidsmpf::random_table_generator` that operates on
  * table chunks using channels.
  *
- * It creates a specified number of cuDF tables with random `int32_t` values, each
+ * It creates a specified number of cuDF tables with random `std::int32_t` values, each
  * consisting of `ncolumns` columns and `nrows` rows. The values are uniformly
  * distributed in the range [`min_val`, `max_val`]. Each generated table is wrapped
  * in a `TableChunk` and sent to the provided output channel in streaming fashion.
  *
- * @param ctx The node context to use.
+ * @param ctx The actor context to use.
  * @param stream The CUDA stream on which to create the random tables. TODO: use a pool
  * of CUDA streams.
  * @param ch_out Output channel to which generated `TableChunk` objects are sent.
@@ -37,11 +37,10 @@ namespace rapidsmpf::streaming::node {
  * @param nrows Number of rows per column in each table.
  * @param min_val Minimum inclusive value for the generated random integers.
  * @param max_val Maximum inclusive value for the generated random integers.
- *
- * @return A streaming node that completes once all random tables have been generated
- *         and sent, and the channel has been drained.
+ * @return A streaming actor that completes once all random tables have been generated
+ * and sent, and the channel has been drained.
  */
-inline Node random_table_generator(
+inline Actor random_table_generator(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_out,
@@ -71,4 +70,4 @@ inline Node random_table_generator(
 }
 
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

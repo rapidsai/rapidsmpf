@@ -14,6 +14,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {
 
@@ -129,6 +130,7 @@ void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
 }
 
 void buffer_copy(
+    std::shared_ptr<Statistics> statistics,
     Buffer& dst,
     Buffer const& src,
     std::size_t size,
@@ -169,6 +171,9 @@ void buffer_copy(
     // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
     // we need the src.stream() to wait for that event.
     dst.latest_write_event().stream_wait(src.stream());
+    if (statistics) {
+        statistics->record_copy(src.mem_type(), dst.mem_type(), size);
+    }
 }
 
 }  // namespace rapidsmpf

@@ -71,8 +71,7 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
-          test_allreduce.cpp
-          test_allreduce_custom_kernels.cu
+          test_allreduce.cu
           test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
@@ -105,7 +104,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
-            streaming/test_leaf_node.cpp
+            streaming/test_leaf_actor.cpp
             streaming/test_lineariser.cpp
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp

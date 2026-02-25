@@ -36,9 +36,9 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -70,7 +70,7 @@ class StreamingReadParquet : public BaseStreamingFixture {
             int start = 0;
             for (auto& file : source_files) {
                 auto values = std::ranges::iota_view(start, start + nrows);
-                cudf::test::fixed_width_column_wrapper<int32_t> col(
+                cudf::test::fixed_width_column_wrapper<std::int32_t> col(
                     values.begin(), values.end()
                 );
 
@@ -116,7 +116,7 @@ class StreamingReadParquet : public BaseStreamingFixture {
 };
 
 using ReadParquetParams =
-    std::tuple<std::optional<int64_t>, std::optional<int64_t>, bool, bool>;
+    std::tuple<std::optional<std::int64_t>, std::optional<std::int64_t>, bool, bool>;
 
 class StreamingReadParquetParams
     : public StreamingReadParquet,
@@ -129,17 +129,17 @@ INSTANTIATE_TEST_SUITE_P(
         // skip_rows
         ::testing::Values(
             std::nullopt,
-            std::optional<int64_t>{7},
-            std::optional<int64_t>{19},
-            std::optional<int64_t>{113}
+            std::optional<std::int64_t>{7},
+            std::optional<std::int64_t>{19},
+            std::optional<std::int64_t>{113}
         ),
         // num_rows
         ::testing::Values(
             std::nullopt,
-            std::optional<int64_t>{0},
-            std::optional<int64_t>{3},
-            std::optional<int64_t>{31},
-            std::optional<int64_t>{83}
+            std::optional<std::int64_t>{0},
+            std::optional<std::int64_t>{3},
+            std::optional<std::int64_t>{31},
+            std::optional<std::int64_t>{83}
         ),
         // use_filter
         ::testing::Values(false, true),
@@ -187,11 +187,11 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         auto stream = ctx->br()->stream_pool().get_stream();
         auto owner = new std::vector<std::any>;
         owner->push_back(
-            std::make_shared<cudf::numeric_scalar<int32_t>>(15, true, stream)
+            std::make_shared<cudf::numeric_scalar<std::int32_t>>(15, true, stream)
         );
         owner->push_back(
             std::make_shared<cudf::ast::literal>(
-                *std::any_cast<std::shared_ptr<cudf::numeric_scalar<int32_t>>>(
+                *std::any_cast<std::shared_ptr<cudf::numeric_scalar<std::int32_t>>>(
                     owner->at(0)
                 )
             )
@@ -227,21 +227,21 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         }
     }();
     auto ch = ctx->create_channel();
-    std::vector<Node> nodes;
+    std::vector<Actor> actors;
 
-    nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
+    actors.push_back(actor::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
 
     std::vector<Message> messages;
-    nodes.push_back(node::pull_from_channel(ctx, ch, messages));
+    actors.push_back(actor::pull_from_channel(ctx, ch, messages));
 
     if (GlobalEnvironment->comm_->nranks() > 1
         && (skip_rows.value_or(0) > 0 || num_rows.has_value()))
     {
         // We don't yet implement skip_rows/num_rows in multi-rank mode
-        EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+        EXPECT_THROW(run_actor_network(std::move(actors)), std::logic_error);
         return;
     }
-    run_streaming_pipeline(std::move(nodes));
+    run_actor_network(std::move(actors));
 
     coll::AllGather allgather(
         GlobalEnvironment->comm_,

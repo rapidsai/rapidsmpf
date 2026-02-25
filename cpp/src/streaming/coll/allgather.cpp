@@ -54,8 +54,8 @@ coro::task<std::vector<PackedData>> AllGather::extract_all(AllGather::Ordered or
     co_return gatherer_.wait_and_extract(ordered);
 }
 
-namespace node {
-Node allgather(
+namespace actor {
+Actor allgather(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -82,5 +82,5 @@ Node allgather(
     }
     co_await ch_out->drain(ctx->executor());
 }
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

@@ -20,16 +20,16 @@
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/lineariser.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 namespace {
 
 /**
@@ -50,8 +50,8 @@ class FileCache {
         std::vector<std::string> filepaths;
         std::int64_t skip_rows;
         std::size_t skip_bytes;
-        std::optional<int64_t> num_rows;
-        std::optional<int64_t> num_bytes;
+        std::optional<std::int64_t> num_rows;
+        std::optional<std::int64_t> num_bytes;
         std::optional<std::vector<std::string>> column_names;
         std::optional<std::vector<cudf::size_type>> column_indices;
         std::vector<std::vector<cudf::size_type>> row_groups;
@@ -106,16 +106,19 @@ class FileCache {
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
         auto& stats = *ctx->statistics();
 
-        auto formatter = [](std::ostream& os, std::size_t count, double val) {
-            os << val << "/" << count << " (hits/lookups)";
-        };
+        stats.register_formatter(
+            "unbounded_file_read_cache hits",
+            [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+                os << s[0].value() << "/" << s[0].count() << " (hits/lookups)";
+            }
+        );
 
         SpillableMessages::MessageId mid;
         {
             std::lock_guard lock(mutex_);
             auto it = cache_.find(key);
             if (it == cache_.end()) {
-                stats.add_stat("unbounded_file_read_cache hits", 0, formatter);
+                stats.add_stat("unbounded_file_read_cache hits", 0);
                 return std::nullopt;
             }
             mid = it->second;
@@ -123,7 +126,7 @@ class FileCache {
         auto const size =
             ctx->spillable_messages()->get_content_description(mid).content_size();
 
-        stats.add_stat("unbounded_file_read_cache hits", 1, formatter);
+        stats.add_stat("unbounded_file_read_cache hits", 1);
         stats.add_bytes_stat("unbounded_file_read_cache saved", size);
         auto reservation = ctx->br()->reserve_or_fail(size, MEMORY_TYPES);
         return ctx->spillable_messages()->copy(mid, reservation);
@@ -247,7 +250,7 @@ struct ChunkDesc {
  *
  * @return Coroutine representing the processing of all chunks.
  */
-Node produce_chunks(
+Actor produce_chunks(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<BoundedQueue> ch_out,
     std::vector<ChunkDesc>& chunks,
@@ -294,7 +297,7 @@ Node produce_chunks(
 }
 }  // namespace
 
-Node read_parquet(
+Actor read_parquet(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
@@ -364,7 +367,8 @@ Node read_parquet(
             safe_cast<std::size_t>(std::max(num_rows_per_chunk / nrows, 1l));
     }
     auto to_skip = options.get_skip_rows();
-    auto to_read = options.get_num_rows().value_or(std::numeric_limits<int64_t>::max());
+    auto to_read =
+        options.get_num_rows().value_or(std::numeric_limits<std::int64_t>::max());
     for (std::size_t file_offset = 0; file_offset < num_files;
          file_offset += files_per_chunk)
     {
@@ -384,8 +388,9 @@ Node read_parquet(
         // remainder.
         to_skip = std::max(0l, -chunk_rows);
         while (chunk_rows > 0 && to_read > 0) {
-            auto rows_read =
-                std::min({safe_cast<int64_t>(num_rows_per_chunk), chunk_rows, to_read});
+            auto rows_read = std::min(
+                {safe_cast<std::int64_t>(num_rows_per_chunk), chunk_rows, to_read}
+            );
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 sequence_number, chunk_skip_rows, rows_read, source
             );
@@ -409,7 +414,7 @@ Node read_parquet(
             )));
         }
     } else {
-        std::vector<Node> read_tasks;
+        std::vector<Actor> read_tasks;
         read_tasks.reserve(1 + num_producers);
         auto lineariser = Lineariser(ctx, ch_out, num_producers);
         auto queues = lineariser.get_queues();
@@ -436,4 +441,4 @@ Node read_parquet(
         );
     }
 }
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

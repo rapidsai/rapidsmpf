@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -169,11 +170,15 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
         case MemoryType::DEVICE:  // Case 1.
             {
                 // Use libcudf to copy the table_view().
+                auto const nbytes = data_alloc_size(MemoryType::DEVICE);
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
+                br->statistics()->record_copy(
+                    MemoryType::DEVICE, MemoryType::DEVICE, nbytes
+                );
                 // And update the provided `reservation`.
-                br->release(reservation, data_alloc_size(MemoryType::DEVICE));
+                br->release(reservation, nbytes);
                 return TableChunk(std::move(table), stream());
             }
         case MemoryType::HOST:
@@ -219,10 +224,10 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
     // Case 3.
+    auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
-    auto data =
-        br->allocate(packed_data_->data->size, packed_data_->stream(), reservation);
-    buffer_copy(*data, *packed_data_->data, packed_data_->data->size);
+    auto data = br->allocate(nbytes, packed_data_->stream(), reservation);
+    buffer_copy(br->statistics(), *data, *packed_data_->data, nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 

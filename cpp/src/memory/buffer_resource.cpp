@@ -103,7 +103,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    size_t size, AllowOverbooking allow_overbooking
+    std::size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
     auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
@@ -191,8 +191,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        auto ret = allocate(buffer->size, buffer->stream(), reservation);
-        buffer_copy(*ret, *buffer, buffer->size);
+        auto const nbytes = buffer->size;
+        auto ret = allocate(nbytes, buffer->stream(), reservation);
+        buffer_copy(statistics_, *ret, *buffer, nbytes);
         return ret;
     }
     return buffer;

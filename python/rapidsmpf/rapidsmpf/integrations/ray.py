@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Integration for Ray clusters."""
 
@@ -84,8 +84,7 @@ class RapidsMPFActor:
 
         if self._nranks != self._comm.nranks:
             raise RuntimeError(
-                f"Number of ranks mismatch in the communicator: \
-                               {self._nranks} != {self._comm.nranks}"
+                f"Number of ranks mismatch in the communicator: {self._nranks} != {self._comm.nranks}"
             )
 
     def to_string(self) -> str:
@@ -98,11 +97,14 @@ class RapidsMPFActor:
 
         Raises
         ------
-        RuntimeError if the communicator is not initialized
+        RuntimeError
+            If the communicator is not initialized.
         """
         if self._comm:
-            return f"RapidsMPFActor(rank:{self._rank}, nranks:{self._nranks}, \
-                                Communicator:{self._comm.get_str()})"
+            return (
+                f"RapidsMPFActor(rank:{self._rank}, nranks:{self._nranks},"
+                f" Communicator:{self._comm.get_str()})"
+            )
         else:
             raise RuntimeError("Communicator not initialized")
 
@@ -147,7 +149,8 @@ class RapidsMPFActor:
 
         Raises
         ------
-        RuntimeError if the communicator is not initialized
+        RuntimeError
+            If the communicator is not initialized.
 
         Notes
         -----

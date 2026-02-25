@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <ranges>
 #include <sstream>
+#include <unordered_set>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -39,50 +40,70 @@ std::shared_ptr<Statistics> Statistics::disabled() {
     return ret;
 }
 
-void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
-    os << val;
-    if (count > 1) {
-        os << " (avg " << (val / count) << ")";
-    }
-};
-
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return stats_.at(name);
 }
 
-double Statistics::add_stat(
-    std::string const& name, double value, Formatter const& formatter
-) {
+void Statistics::add_stat(std::string const& name, double value) {
     if (!enabled()) {
-        return 0;
+        return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = stats_.find(name);
-    if (it == stats_.end()) {
-        it = stats_.insert({name, Stat(formatter)}).first;
+    auto [it, _] = stats_.try_emplace(name);
+    it->second.add(value);
+}
+
+bool Statistics::exist_report_entry_name(std::string const& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return formatters_.contains(name);
+}
+
+void Statistics::register_formatter(std::string const& name, Formatter formatter) {
+    if (!enabled() || exist_report_entry_name(name)) {
+        return;
     }
-    return it->second.add(value);
+    register_formatter(name, {name}, std::move(formatter));
 }
 
-std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
-    return add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
-        os << format_nbytes(val);
-        if (count > 1) {
-            os << " (avg " << format_nbytes(val / count) << ")";
-        }
-    });
+void Statistics::register_formatter(
+    std::string const& report_entry_name,
+    std::vector<std::string> const& stat_names,
+    Formatter formatter
+) {
+    if (!enabled() || exist_report_entry_name(report_entry_name)) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    formatters_.try_emplace(report_entry_name, stat_names, std::move(formatter));
 }
 
-Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
-    return Duration(add_stat(
-        name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
+void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
+    if (!exist_report_entry_name(name)) {
+        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const val = stats[0].value();
+            auto const count = stats[0].count();
+            os << format_nbytes(val);
+            if (count > 1) {
+                os << " | avg " << format_nbytes(val / count);
+            }
+        });
+    }
+    add_stat(name, static_cast<double>(nbytes));
+}
+
+void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
+    if (!exist_report_entry_name(name)) {
+        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const val = stats[0].value();
+            auto const count = stats[0].count();
             os << format_duration(val);
             if (count > 1) {
-                os << " (avg " << format_duration(val / count) << ")";
+                os << " | avg " << format_duration(val / count);
             }
-        }
-    ));
+        });
+    }
+    add_stat(name, seconds.count());
 }
 
 std::vector<std::string> Statistics::list_stat_names() const {
@@ -138,21 +159,79 @@ Statistics::get_memory_records() const {
 std::string Statistics::report(std::string const& header) const {
     std::stringstream ss;
     ss << header;
+
     if (!enabled()) {
         ss << " disabled.";
         return ss.str();
     }
+
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::size_t max_length{0};
-    for (auto const& [name, _] : stats_) {
+    // Reporting strategy:
+    //
+    // Each registered formatter claims one or more stat names and renders them into a
+    // single labelled entry line using a custom function.  Any stat that is not claimed
+    // by any formatter is rendered with a plain numeric default entry line.  All entry
+    // lines are then sorted alphabetically by their label and printed together.
+
+    using EntryLine = std::pair<std::string, std::string>;
+
+    std::vector<EntryLine> lines;
+    std::unordered_set<std::string> consumed;
+
+    // Returns true only if every stat name required by a formatter has been recorded.
+    // If false, the entry is rendered as "No data collected".
+    auto has_all_stats = [&](auto const& names) {
+        return std::ranges::all_of(names, [&](auto const& sname) {
+            return stats_.contains(sname);
+        });
+    };
+
+    // Formatter-based lines. Emit "No data collected" if any required stats are missing.
+    for (auto const& [report_entry_name, entry] : formatters_) {
+        if (!has_all_stats(entry.stat_names)) {
+            lines.emplace_back(report_entry_name, "No data collected");
+            continue;
+        }
+
+        std::vector<Stat> stat_vec;
+        stat_vec.reserve(entry.stat_names.size());
+        for (auto const& sname : entry.stat_names) {
+            stat_vec.push_back(stats_.at(sname));
+        }
+
+        for (auto const& sname : entry.stat_names) {
+            consumed.insert(sname);
+        }
+
+        std::ostringstream line;
+        entry.fn(line, stat_vec);
+        lines.emplace_back(report_entry_name, std::move(line).str());
+    }
+
+    // Uncovered stats get a default raw-value format.
+    for (auto const& [name, stat] : stats_) {
+        if (consumed.contains(name)) {
+            continue;
+        }
+        std::ostringstream line;
+        line << stat.value();
+        if (stat.count() > 1) {
+            line << " (count " << stat.count() << ")";
+        }
+        lines.emplace_back(name, std::move(line).str());
+    }
+
+    std::ranges::sort(lines, {}, &EntryLine::first);
+    std::size_t max_length = 0;
+    for (auto const& [name, _] : lines) {
         max_length = std::max(max_length, name.size());
     }
+
     ss << "\n";
-    for (auto const& [name, stat] : stats_) {
-        ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
-        stat.formatter()(ss, stat.count(), stat.value());
-        ss << "\n";
+    for (auto const& [name, text] : lines) {
+        ss << " - " << std::setw(max_length + 3) << std::left << name + ": " << text
+           << "\n";
     }
     ss << "\n";
 
@@ -205,5 +284,21 @@ std::string Statistics::report(std::string const& header) const {
     return ss.str();
 }
 
+void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
+    using Key = std::pair<MemoryType, MemoryType>;
+    // Use a lambda to construct all stat names once at first call.
+    static std::map<Key, std::string> const name_map = [] {
+        std::map<Key, std::string> ret;
+        for (MemoryType s : MEMORY_TYPES) {
+            auto const src_name = to_lower(to_string(s));
+            for (MemoryType d : MEMORY_TYPES) {
+                auto const dst_name = to_lower(to_string(d));
+                ret.emplace(Key{s, d}, "copy-" + src_name + "-to-" + dst_name);
+            }
+        }
+        return ret;
+    }();
+    add_bytes_stat(name_map.at({src, dst}), nbytes);
+}
 
 }  // namespace rapidsmpf

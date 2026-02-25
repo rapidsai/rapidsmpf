@@ -69,27 +69,24 @@ std::size_t SpillManager::spill(std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spilled{0};
     std::unique_lock<std::mutex> lock(mutex_);
-    auto const t0_elapsed = Clock::now();
     for (auto const [_, fid] : spill_function_priorities_) {
         if (spilled >= amount) {
             break;
         }
         spilled += spill_functions_.at(fid)(amount - spilled);
     }
-    auto const t1_elapsed = Clock::now();
     lock.unlock();
-    auto& stats = *br_->statistics();
-    stats.add_duration_stat("spill-time-device-to-host", t1_elapsed - t0_elapsed);
-    stats.add_bytes_stat("spill-bytes-device-to-host", spilled);
     if (spilled < amount) {
-        // TODO: use a "max" statistic when it is available, for now we use the average.
-        stats.add_stat(
-            "spill-breach-device-limit",
-            amount - spilled,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << "avg " << format_nbytes(val / count);
+        auto& stats = *br_->statistics();
+        stats.register_formatter(
+            "spill-manager-limit-breach",
+            [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& stat) {
+                auto const s = stat[0];
+                os << "max " << format_nbytes(s.max()) << " | avg "
+                   << format_nbytes(s.value() / s.count()) << " | count " << s.count();
             }
         );
+        stats.add_stat("spill-manager-limit-breach", amount - spilled);
     }
     return spilled;
 }

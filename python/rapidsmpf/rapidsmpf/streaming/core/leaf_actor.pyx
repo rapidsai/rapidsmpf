@@ -6,22 +6,22 @@ from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
-cdef extern from "<rapidsmpf/streaming/core/leaf_node.hpp>" nogil:
-    cdef cpp_Node cpp_push_to_channel \
-        "rapidsmpf::streaming::node::push_to_channel"(
+cdef extern from "<rapidsmpf/streaming/core/leaf_actor.hpp>" nogil:
+    cdef cpp_Actor cpp_push_to_channel \
+        "rapidsmpf::streaming::actor::push_to_channel"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_out,
             vector[cpp_Message] messages,
         ) except +ex_handler
 
-    cdef cpp_Node cpp_pull_from_channel \
-        "rapidsmpf::streaming::node::pull_from_channel"(
+    cdef cpp_Actor cpp_pull_from_channel \
+        "rapidsmpf::streaming::actor::pull_from_channel"(
             shared_ptr[cpp_Context] ctx,
             shared_ptr[cpp_Channel] ch_in,
             vector[cpp_Message] out_messages,
@@ -46,7 +46,7 @@ def push_to_channel(Context ctx, Channel ch_out, object messages):
 
     Returns
     -------
-    Streaming node representing the asynchronous operation.
+    Streaming actor representing the asynchronous operation.
 
     Warnings
     --------
@@ -63,12 +63,12 @@ def push_to_channel(Context ctx, Channel ch_out, object messages):
         owner.append(msg)
         _messages.emplace_back(move((<Message?>msg)._handle))
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_push_to_channel(
             ctx._handle, ch_out._handle, move(_messages)
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)
 
 
 cdef class DeferredMessages:
@@ -110,23 +110,23 @@ def pull_from_channel(Context ctx, Channel ch_in):
 
     Returns
     -------
-    node
-        Streaming node representing the asynchronous receive.
+    actor
+        Streaming actor representing the asynchronous receive.
     messages
         Deferred collection that will be populated with the received messages
-        as the node runs.
+        as the actor runs.
 
     Warnings
     --------
-    The returned messages container is initially empty; schedule the node to
+    The returned messages container is initially empty; schedule the actor to
     execute in order to populate it.
     """
     cdef DeferredMessages _ret_messages = DeferredMessages()
-    cdef cpp_Node _ret_node
+    cdef cpp_Actor _ret_actor
     with nogil:
-        _ret_node = cpp_pull_from_channel(
+        _ret_actor = cpp_pull_from_channel(
             ctx._handle, ch_in._handle, _ret_messages._messages
         )
-    return CppNode.from_handle(
-        make_unique[cpp_Node](move(_ret_node)), owner=_ret_messages
+    return CppActor.from_handle(
+        make_unique[cpp_Actor](move(_ret_actor)), owner=_ret_messages
     ), _ret_messages

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -22,10 +22,10 @@ using random_data_t = std::int32_t;
  * @param ncolumns The number of columns in the table.
  * @param nrows The number of rows in the table.
  */
-size_t constexpr random_table_size_lower_bound(
+std::size_t constexpr random_table_size_lower_bound(
     cudf::size_type ncolumns, cudf::size_type nrows
 ) {
-    return static_cast<size_t>(ncolumns * nrows) * sizeof(random_data_t);
+    return static_cast<std::size_t>(ncolumns * nrows) * sizeof(random_data_t);
 }
 
 /**

@@ -91,17 +91,17 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
 
     // Create a reserve request while no memory is available.
     set_mem_avail(0);
-    std::vector<Node> nodes;
-    nodes.push_back([](MemoryReserveOrWait& mrow) -> Node {
+    std::vector<Actor> actors;
+    actors.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         EXPECT_THROW(
             std::ignore = co_await mrow.reserve_or_wait(10, 0), std::runtime_error
         );
     }(mrow));
 
     // Run the pipeline on a dedicated thread.
-    std::thread thd(run_streaming_pipeline, std::move(nodes));
+    std::thread thd(run_actor_network, std::move(actors));
 
-    // Wait until the node has submitted its request (`mrow.size() == 1`).
+    // Wait until the actor has submitted its request (`mrow.size() == 1`).
     while (mrow.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -112,7 +112,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
 }
 
 struct ReserveLog {
-    void add(uint64_t uid, MemoryReservation&& res) {
+    void add(std::uint64_t uid, MemoryReservation&& res) {
         std::lock_guard<std::mutex> lock(mutex);
         log.emplace_back(uid, std::move(res));
     }
@@ -123,7 +123,7 @@ struct ReserveLog {
     }
 
     std::mutex mutex;
-    std::vector<std::pair<uint64_t, MemoryReservation>> log;
+    std::vector<std::pair<std::uint64_t, MemoryReservation>> log;
 };
 
 TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
@@ -141,22 +141,22 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
 
     // Create two reserve requests while no memory is available.
     set_mem_avail(0);
-    std::vector<Node> nodes;
+    std::vector<Actor> actors;
     // One request with `net_memory_delta = 1`.
-    nodes.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Node {
+    actors.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Actor {
         auto res = co_await mrow.reserve_or_wait(10, 1);
         EXPECT_EQ(res.size(), 10);
         log.add(1, std::move(res));
     }(log, mrow));
     // And one request with `net_memory_delta = 2`.
-    nodes.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Node {
+    actors.push_back([](ReserveLog& log, MemoryReserveOrWait& mrow) -> Actor {
         auto res = co_await mrow.reserve_or_wait(10, 2);
         EXPECT_EQ(res.size(), 10);
         log.add(2, std::move(res));
     }(log, mrow));
 
     // Run the pipeline on a dedicated thread.
-    std::thread thd(run_streaming_pipeline, std::move(nodes));
+    std::thread thd(run_actor_network, std::move(actors));
 
     // Ensure both requests are submitted and periodic_memory_check has run at least once.
     while (mrow.size() < 2) {
@@ -206,13 +206,13 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
 
     // Round 1: create a request, then make memory available.
     set_mem_avail(0);
-    std::vector<Node> nodes1;
-    nodes1.push_back([](MemoryReserveOrWait& mrow) -> Node {
+    std::vector<Actor> actors1;
+    actors1.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         auto res = co_await mrow.reserve_or_wait(10, 0);
         EXPECT_EQ(res.size(), 10);
     }(mrow));
 
-    std::thread thd1(run_streaming_pipeline, std::move(nodes1));
+    std::thread thd1(run_actor_network, std::move(actors1));
     while (mrow.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -228,13 +228,13 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
 
     // Round 2: make memory unavailable again, submit a new request, then satisfy it.
     set_mem_avail(0);
-    std::vector<Node> nodes2;
-    nodes2.push_back([](MemoryReserveOrWait& mrow) -> Node {
+    std::vector<Actor> actors2;
+    actors2.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         auto res = co_await mrow.reserve_or_wait(10, 0);
         EXPECT_EQ(res.size(), 10);
     }(mrow));
 
-    std::thread thd2(run_streaming_pipeline, std::move(nodes2));
+    std::thread thd2(run_actor_network, std::move(actors2));
     while (mrow.size() < 1) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -258,13 +258,13 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     // Do multiple rounds to increase the chance we hit the "task exiting" window.
     for (int i = 0; i < 50; ++i) {
         set_mem_avail(0);
-        std::vector<Node> nodes;
-        nodes.push_back([](MemoryReserveOrWait& mrow) -> Node {
+        std::vector<Actor> actors;
+        actors.push_back([](MemoryReserveOrWait& mrow) -> Actor {
             auto res = co_await mrow.reserve_or_wait(10, 0);
             EXPECT_EQ(res.size(), 10);
         }(mrow));
 
-        std::thread thd(run_streaming_pipeline, std::move(nodes));
+        std::thread thd(run_actor_network, std::move(actors));
 
         while (mrow.size() < 1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -278,7 +278,7 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     // Start with no available memory so the request cannot be satisfied normally.
     set_mem_avail(0);
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
@@ -296,7 +296,7 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
     // Start with no available memory so the request cannot be satisfied.
     set_mem_avail(0);
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
@@ -315,7 +315,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWithOverbookingEnabled) 
     // Start with no available memory so the request cannot be satisfied normally.
     set_mem_avail(0);
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should succeed with overbooking enabled.
         auto res = co_await reserve_memory(
             ctx,
@@ -333,7 +333,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWithOverbookingDisabled)
     // Start with no available memory so the request cannot be satisfied.
     set_mem_avail(0);
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should fail with overbooking disabled.
         EXPECT_THROW(
             std::ignore = co_await reserve_memory(
@@ -352,7 +352,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperWhenMemoryAvailable) {
     // Make memory available.
     set_mem_avail(1024);
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should succeed without overbooking.
         auto res = co_await reserve_memory(
             ctx,
@@ -376,15 +376,10 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingEnable
          {"allow_overbooking_by_default", config::OptionValue("true")}}
     };
     auto ctx_with_overbook = std::make_shared<Context>(
-        options,
-        ctx->comm(),
-        ctx->progress_thread(),
-        ctx->executor(),
-        ctx->br(),
-        ctx->statistics()
+        options, ctx->comm(), ctx->progress_thread(), ctx->executor(), ctx->br()
     );
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should succeed because default is to allow overbooking.
         auto res = co_await reserve_memory(
             ctx,
@@ -408,15 +403,10 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabl
          {"allow_overbooking_by_default", config::OptionValue("false")}}
     };
     auto ctx_with_no_overbook = std::make_shared<Context>(
-        options,
-        ctx->comm(),
-        ctx->progress_thread(),
-        ctx->executor(),
-        ctx->br(),
-        ctx->statistics()
+        options, ctx->comm(), ctx->progress_thread(), ctx->executor(), ctx->br()
     );
 
-    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Node {
+    coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should fail because default is to disallow overbooking.
         EXPECT_THROW(
             std::ignore = co_await reserve_memory(

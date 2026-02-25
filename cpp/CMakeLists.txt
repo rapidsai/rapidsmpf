@@ -46,6 +46,7 @@ option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
 option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
 option(BUILD_NUMA_SUPPORT "Build RapidsMPF with NUMA support" ON)
+option(BUILD_SLURM_SUPPORT "Build RapidsMPF with Slurm/PMIx bootstrap support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -62,6 +63,7 @@ message(STATUS "  BUILD_UCXX_SUPPORT      : ${BUILD_UCXX_SUPPORT}")
 message(STATUS "  BUILD_STREAMING_SUPPORT : ${BUILD_STREAMING_SUPPORT}")
 message(STATUS "  BUILD_CUPTI_SUPPORT     : ${BUILD_CUPTI_SUPPORT}")
 message(STATUS "  BUILD_NUMA_SUPPORT      : ${BUILD_NUMA_SUPPORT}")
+message(STATUS "  BUILD_SLURM_SUPPORT     : ${BUILD_SLURM_SUPPORT}")
 message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
@@ -77,6 +79,7 @@ set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
 set(RAPIDSMPF_HAVE_CUPTI ${BUILD_CUPTI_SUPPORT})
 set(RAPIDSMPF_HAVE_NUMA ${BUILD_NUMA_SUPPORT})
+set(RAPIDSMPF_HAVE_SLURM OFF) # Will be set to ON if PMIx is found
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
@@ -153,6 +156,18 @@ endif()
 if(RAPIDSMPF_HAVE_STREAMING)
   include(../cmake/thirdparty/get_libcoro.cmake)
 endif()
+if(BUILD_SLURM_SUPPORT)
+  include(../cmake/thirdparty/get_pmix.cmake)
+  find_and_configure_pmix()
+  if(PMIx_FOUND)
+    set(RAPIDSMPF_HAVE_SLURM ON)
+    message(STATUS "PMIx found (version ${PMIx_VERSION}) - Slurm bootstrap backend enabled")
+  else()
+    message(WARNING "PMIx not found - Slurm bootstrap backend will be disabled. "
+                    "Set PMIx_ROOT or PMIX_ROOT to the PMIx installation directory."
+    )
+  endif()
+endif()
 
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
@@ -207,13 +222,13 @@ if(RAPIDSMPF_HAVE_STREAMING)
     PRIVATE src/streaming/chunks/partition.cpp
             src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
+            src/streaming/core/actor.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
             src/streaming/core/coro_executor.cpp
             src/streaming/core/fanout.cpp
-            src/streaming/core/leaf_node.cpp
+            src/streaming/core/leaf_actor.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
-            src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/bloom_filter.cpp
             src/streaming/cudf/partition.cpp
@@ -233,6 +248,9 @@ if(RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX)
 endif()
 if(RAPIDSMPF_HAVE_CUPTI)
   target_sources(rapidsmpf PRIVATE src/cupti.cpp)
+endif()
+if(RAPIDSMPF_HAVE_SLURM)
+  target_sources(rapidsmpf PRIVATE src/bootstrap/slurm_backend.cpp)
 endif()
 
 set_target_properties(
@@ -298,6 +316,7 @@ target_link_libraries(
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           ${CMAKE_DL_LIBS}
@@ -312,6 +331,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+         $<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:RAPIDSMPF_HAVE_SLURM>
          $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
@@ -431,6 +451,7 @@ string(
   "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
   "set(RAPIDSMPF_HAVE_STREAMING [=[${RAPIDSMPF_HAVE_STREAMING}]=])"
   "set(RAPIDSMPF_HAVE_CUPTI [=[${RAPIDSMPF_HAVE_CUPTI}]=])"
+  "set(RAPIDSMPF_HAVE_SLURM [=[${RAPIDSMPF_HAVE_SLURM}]=])"
 )
 
 rapids_export(

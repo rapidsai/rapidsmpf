@@ -369,8 +369,6 @@ def test_gather_shuffle_statistics() -> None:
             "event-loop-total",
             "shuffle-payload-recv",
             "shuffle-payload-send",
-            "spill-bytes-host-to-device",
-            "spill-time-host-to-device",
         }
 
         assert set(stats) == expected_stats
@@ -487,9 +485,12 @@ def test_dask_cudf_join(
             # a RMPF shuffle multiple times. Therefore, we use left0
             # and right0 to generate the expected result (left and
             # right may be "pre-shuffled").
-            expected = left0.merge(
-                right0, left_on=left_on, right_on=right_on, how=how
-            ).compute()
+            expected = left0.compute().merge(
+                right0.compute(),
+                left_on=left_on,
+                right_on=right_on,
+                how=how,
+            )
             dd.assert_eq(joined, expected, check_index=False)
 
 

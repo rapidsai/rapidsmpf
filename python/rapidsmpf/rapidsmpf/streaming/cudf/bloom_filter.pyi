@@ -4,10 +4,10 @@
 from collections.abc import Iterable
 from typing import Self
 
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import CppNode
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class BloomFilterChunk:
@@ -27,11 +27,11 @@ class BloomFilter:
         ch_in: Channel[TableChunk],
         ch_out: Channel[BloomFilterChunk],
         tag: int,
-    ) -> CppNode: ...
+    ) -> CppActor: ...
     def apply(
         self,
         bloom_filter: Channel[BloomFilterChunk],
         ch_in: Channel[TableChunk],
         ch_out: Channel[TableChunk],
         keys: Iterable[int],
-    ) -> CppNode: ...
+    ) -> CppActor: ...
