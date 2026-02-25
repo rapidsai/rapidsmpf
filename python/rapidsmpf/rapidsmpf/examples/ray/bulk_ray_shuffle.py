@@ -113,10 +113,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
         self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler
         self.shuffler: Shuffler = self.create_shuffler(
-            0,
-            total_num_partitions=self.total_nparts,
-            buffer_resource=br,
-            statistics=self.stats,
+            0, total_num_partitions=self.total_nparts, buffer_resource=br
         )
         self.br = br
 

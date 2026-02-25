@@ -23,7 +23,6 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.spill_collection import SpillCollection
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.progress_thread import ProgressThread
 
 
 DataFrameT = TypeVar("DataFrameT")
@@ -775,7 +775,7 @@ def rmpf_worker_setup(
     )
     ctx = WorkerContext(
         br=br,
-        progress_thread=ProgressThread(statistics),
+        progress_thread=comm.progress_thread,
         comm=comm,
         statistics=statistics,
         options=options,

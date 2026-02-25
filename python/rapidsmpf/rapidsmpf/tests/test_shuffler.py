@@ -17,7 +17,6 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import (
     Shuffler,
 )
@@ -42,11 +41,10 @@ def test_shuffler_single_nonempty_partition(
     wait_on: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread()
 
     shuffler = Shuffler(
         comm,
-        progress_thread,
+        comm.progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,
@@ -138,11 +136,9 @@ def test_shuffler_uniform(
         ).items()
     }
 
-    progress_thread = ProgressThread()
-
     shuffler = Shuffler(
         comm,
-        progress_thread,
+        comm.progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,

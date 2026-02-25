@@ -26,7 +26,6 @@ from rapidsmpf.integrations.cudf.partition import (
 )
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
@@ -193,11 +192,9 @@ def bulk_mpi_shuffle(
             )
     else:
         br = BufferResource(rmm.mr.get_current_device_resource())
-        progress_thread = ProgressThread()
-
         shuffler = Shuffler(
             comm,
-            progress_thread,
+            comm.progress_thread,
             op_id=0,
             total_num_partitions=total_num_partitions,
             br=br,
