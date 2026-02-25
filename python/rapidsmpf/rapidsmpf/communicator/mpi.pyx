@@ -9,6 +9,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
+from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
@@ -20,6 +21,11 @@ cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
         cpp_MPI_Communicator(
             libmpi.MPI_Comm comm,
             cpp_Options options,
+            shared_ptr[cpp_Statistics] statistics,
+        ) except +ex_handler
+        cpp_MPI_Communicator(
+            libmpi.MPI_Comm comm,
+            cpp_Options options,
             shared_ptr[cpp_ProgressThread] progress_thread,
         ) except +ex_handler
 
@@ -27,7 +33,7 @@ cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
 def new_communicator(
     Intracomm comm not None,
     Options options not None,
-    ProgressThread progress_thread = None,
+    progress=None,
 ):
     """
     Create a new RapidsMPF-MPI communicator based on an existing mpi4py communicator.
@@ -38,22 +44,36 @@ def new_communicator(
         The existing mpi communicator from mpi4py.
     options
         Configuration options.
-    progress_thread
-        An existing progress thread to share. If None, a new one is created.
+    progress
+        Either a :class:`~rapidsmpf.statistics.Statistics` instance (to
+        create a new progress thread with those statistics) or a
+        :class:`~rapidsmpf.progress_thread.ProgressThread` instance (to
+        share an existing progress thread). If ``None``, a new progress
+        thread with disabled statistics is created.
 
     Returns
     -------
         A new RapidsMPF-MPI communicator.
     """
     cdef Communicator ret = Communicator.__new__(Communicator)
-    if progress_thread is not None:
-        with nogil:
-            ret._handle = make_shared[cpp_MPI_Communicator](
-                comm.ob_mpi, options._handle, progress_thread._handle
-            )
-    else:
+    if progress is None:
         with nogil:
             ret._handle = make_shared[cpp_MPI_Communicator](
                 comm.ob_mpi, options._handle
             )
+    elif isinstance(progress, ProgressThread):
+        with nogil:
+            ret._handle = make_shared[cpp_MPI_Communicator](
+                comm.ob_mpi, options._handle, (<ProgressThread>progress)._handle
+            )
+    elif isinstance(progress, Statistics):
+        with nogil:
+            ret._handle = make_shared[cpp_MPI_Communicator](
+                comm.ob_mpi, options._handle, (<Statistics>progress)._handle
+            )
+    else:
+        raise TypeError(
+            f"progress must be a ProgressThread, Statistics, or None, "
+            f"got {type(progress).__name__}"
+        )
     return ret

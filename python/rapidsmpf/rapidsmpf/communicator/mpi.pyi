@@ -6,9 +6,10 @@ from mpi4py.MPI import Intracomm
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.statistics import Statistics
 
 def new_communicator(
     comm: Intracomm,
     options: Options,
-    progress_thread: ProgressThread | None = None,
+    progress: ProgressThread | Statistics | None = None,
 ) -> Communicator: ...

@@ -16,6 +16,7 @@ from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
+from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from "<variant>" namespace "std" nogil:
@@ -62,6 +63,11 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
         cpp_UCXX_Communicator(
             unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
             cpp_Options options,
+            shared_ptr[cpp_Statistics] statistics,
+        ) except +ex_handler
+        cpp_UCXX_Communicator(
+            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
+            cpp_Options options,
             shared_ptr[cpp_ProgressThread] progress_thread,
         ) except +ex_handler
         cpp_UCXX_ListenerAddress listener_address()
@@ -73,7 +79,7 @@ cdef Communicator cpp_new_communicator(
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
     Options options,
-    ProgressThread progress_thread = None,
+    object progress = None,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
@@ -82,16 +88,30 @@ cdef Communicator cpp_new_communicator(
             ucxx_initialized_rank = init(worker, nranks, nullopt, options._handle)
         else:
             ucxx_initialized_rank = init(worker, nranks, root_address, options._handle)
-    if progress_thread is not None:
-        with nogil:
-            ret._handle = make_shared[cpp_UCXX_Communicator](
-                move(ucxx_initialized_rank), options._handle, progress_thread._handle
-            )
-    else:
+    if progress is None:
         with nogil:
             ret._handle = make_shared[cpp_UCXX_Communicator](
                 move(ucxx_initialized_rank), options._handle
             )
+    elif isinstance(progress, ProgressThread):
+        with nogil:
+            ret._handle = make_shared[cpp_UCXX_Communicator](
+                move(ucxx_initialized_rank),
+                options._handle,
+                (<ProgressThread>progress)._handle,
+            )
+    elif isinstance(progress, Statistics):
+        with nogil:
+            ret._handle = make_shared[cpp_UCXX_Communicator](
+                move(ucxx_initialized_rank),
+                options._handle,
+                (<Statistics>progress)._handle,
+            )
+    else:
+        raise TypeError(
+            f"progress must be a ProgressThread, Statistics, or None, "
+            f"got {type(progress).__name__}"
+        )
     return ret
 
 
@@ -100,7 +120,7 @@ def new_communicator(
     UCXWorker ucx_worker,
     UCXAddress root_ucxx_address,
     Options options not None,
-    ProgressThread progress_thread = None,
+    progress=None,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -119,8 +139,12 @@ def new_communicator(
         The UCXX address of the root rank (only specified for non-root ranks).
     options
         Configuration options.
-    progress_thread
-        An existing progress thread to share. If None, a new one is created.
+    progress
+        Either a :class:`~rapidsmpf.statistics.Statistics` instance (to
+        create a new progress thread with those statistics) or a
+        :class:`~rapidsmpf.progress_thread.ProgressThread` instance (to
+        share an existing progress thread). If ``None``, a new progress
+        thread with disabled statistics is created.
 
     Returns
     -------
@@ -140,7 +164,7 @@ def new_communicator(
         ucx_worker_ptr,
         root_ucxx_address_ptr,
         options,
-        progress_thread,
+        progress,
     )
 
 
