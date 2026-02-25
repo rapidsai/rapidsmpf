@@ -10,7 +10,10 @@ from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
 cdef class Logger:
-    cdef Communicator _comm
+    # We hold a weakref to the communicator so that we can report a useful
+    # error if attempting to log from a dead communicator
+    cdef object _comm
+    cdef shared_ptr[cpp_Communicator] handle(self)
 
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
   "rapidsmpf" nogil:
@@ -41,3 +44,4 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle
     cdef Logger _logger
+    cdef object __weakref__

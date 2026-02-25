@@ -5,7 +5,7 @@ from cython.operator cimport dereference as deref
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 from libcpp.utility cimport move
-
+import weakref
 from rapidsmpf.progress_thread cimport ProgressThread
 
 
@@ -17,7 +17,7 @@ cdef extern from *:
     template<typename T>
     void cpp_log(
         rapidsmpf::Communicator::Logger::LOG_LEVEL level,
-        std::shared_ptr<rapidsmpf::Communicator> &comm,
+        std::shared_ptr<rapidsmpf::Communicator> comm,
         T && msg)
     {
         comm->logger().log(level, msg);
@@ -47,7 +47,13 @@ cdef class Logger:
     """
 
     def __init__(self):
-        raise TypeError("Please get a `Logger` from a communicater instance")
+        raise TypeError("Please get a `Logger` from a communicator instance")
+
+    cdef shared_ptr[cpp_Communicator] handle(self):
+        comm = self._comm()
+        if comm is None:
+            raise RuntimeError("Attempting to log from destroyed communicator")
+        return (<Communicator?>comm)._handle
 
     @property
     def verbosity_level(self):
@@ -58,7 +64,7 @@ cdef class Logger:
         -------
             The verbosity level.
         """
-        return cpp_verbosity_level(self._comm._handle)
+        return cpp_verbosity_level(self.handle())
 
     def print(self, str msg not None):
         """
@@ -70,7 +76,7 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.PRINT, self._comm._handle, move(_msg))
+        cpp_log(LOG_LEVEL.PRINT, self.handle(), move(_msg))
 
     def warn(self, str msg not None):
         """
@@ -82,7 +88,7 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.WARN, self._comm._handle, move(_msg))
+        cpp_log(LOG_LEVEL.WARN, self.handle(), move(_msg))
 
     def info(self, str msg not None):
         """
@@ -94,7 +100,7 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.INFO, self._comm._handle, move(_msg))
+        cpp_log(LOG_LEVEL.INFO, self.handle(), move(_msg))
 
     def debug(self, str msg not None):
         """
@@ -106,7 +112,7 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.DEBUG, self._comm._handle, move(_msg))
+        cpp_log(LOG_LEVEL.DEBUG, self.handle(), move(_msg))
 
     def trace(self, str msg not None):
         """
@@ -118,7 +124,7 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.TRACE, self._comm._handle, move(_msg))
+        cpp_log(LOG_LEVEL.TRACE, self.handle(), move(_msg))
 
 
 cdef class Communicator:
@@ -139,14 +145,13 @@ cdef class Communicator:
     def __init__(self):
         raise TypeError(
             "Communicator is an abstract base case, please create a "
-            "communicater through a concrete implementation such as "
+            "communicator through a concrete implementation such as "
             "`rapidsmpf.mpi.new_communicator()`"
         )
 
     def __cinit__(self):
         self._logger = Logger.__new__(Logger)
-        # TODO: Don't have a refcycle here.
-        self._logger._comm = self
+        self._logger._comm = weakref.ref(self)
 
     def __dealloc__(self):
         self._logger = None
