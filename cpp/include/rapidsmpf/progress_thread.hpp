@@ -10,7 +10,6 @@
 #include <mutex>
 #include <unordered_map>
 
-#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 
