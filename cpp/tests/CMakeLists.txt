@@ -31,8 +31,8 @@ function(rapidsmpf_mpirun_test_add)
   foreach(np IN ITEMS ${nranks_to_run})
     # add the test using the relative path of the target
     add_test(
-      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
-      COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}" COMMAND mpirun --map-by node --bind-to none -np
+                                                       ${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
     )
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
