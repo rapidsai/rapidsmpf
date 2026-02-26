@@ -251,7 +251,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     rmm.mr.set_current_device_resource(mr)
 
     stats = Statistics(enable=args.statistics, mr=mr)
-    progress_thread = ProgressThread(comm, stats)
+    progress_thread = ProgressThread(stats)
 
     # Create a buffer resource that limits device memory if `--spill-device`
     # is not None.

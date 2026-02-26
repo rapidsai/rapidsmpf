@@ -86,7 +86,7 @@ class BaseShufflingActor(RapidsMPFActor):
             raise RuntimeError("Communicator not initialized")
 
         assert self._comm is not None
-        progress_thread = ProgressThread(self._comm, statistics)
+        progress_thread = ProgressThread(statistics)
 
         return Shuffler(
             self.comm,

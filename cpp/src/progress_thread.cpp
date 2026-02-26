@@ -5,7 +5,6 @@
 
 #include <utility>
 
-#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -24,11 +23,8 @@ void ProgressThread::FunctionState::operator()() {
     }
 }
 
-ProgressThread::ProgressThread(
-    Communicator::Logger& logger, std::shared_ptr<Statistics> statistics, Duration sleep
-)
-    : logger_(logger),
-      statistics_(std::move(statistics)),
+ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration sleep)
+    : statistics_(std::move(statistics)),
       thread_(
           [this]() {
               if (!is_thread_initialized_) {
@@ -49,9 +45,7 @@ ProgressThread::~ProgressThread() {
 }
 
 void ProgressThread::stop() {
-    logger_.debug("ProgressThread.stop() - initiate");
     thread_.stop();
-    logger_.debug("ProgressThread.stop() - done");
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
