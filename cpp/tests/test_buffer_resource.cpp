@@ -241,6 +241,71 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, AllocStatistics) {
+    rmm::mr::cuda_memory_resource mr_cuda;
+    RmmResourceAdaptor mr{mr_cuda};
+    auto stats = std::make_shared<Statistics>(&mr);
+    auto pinned_mr = PinnedMemoryResource::make_if_available();
+    BufferResource br{
+        mr,
+        pinned_mr,
+        {},
+        std::nullopt,
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
+        stats
+    };
+    auto stream = cudf::get_default_stream();
+
+    constexpr std::size_t device_size = 4_KiB;
+    constexpr std::size_t pinned_size = 8_KiB;
+    constexpr std::size_t host_size = 16_KiB;
+
+    // Allocate device memory twice.
+    {
+        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br.allocate(device_size, stream, r);
+    }
+    {
+        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br.allocate(device_size, stream, r);
+    }
+    // Allocate pinned_host memory once (if available).
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        auto [r, _] =
+            br.reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
+        br.allocate(pinned_size, stream, r);
+    }
+    // Allocate host memory once.
+    {
+        auto [r, _] = br.reserve(MemoryType::HOST, host_size, AllowOverbooking::YES);
+        br.allocate(host_size, stream, r);
+    }
+
+    stream.synchronize();
+
+    // device: 2 allocations of device_size each.
+    auto const dev_bytes = stats->get_stat("alloc-device-bytes");
+    EXPECT_EQ(dev_bytes.count(), 2u);
+    EXPECT_EQ(dev_bytes.value(), static_cast<double>(2 * device_size));
+
+    // pinned_host: 1 allocation of pinned_size (if available).
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        auto const pinned_bytes = stats->get_stat("alloc-pinned_host-bytes");
+        EXPECT_EQ(pinned_bytes.count(), 1u);
+        EXPECT_EQ(pinned_bytes.value(), static_cast<double>(pinned_size));
+        EXPECT_EQ(stats->get_stat("alloc-pinned_host-time").count(), 1u);
+    }
+
+    // host: 1 allocation of host_size.
+    auto const host_bytes = stats->get_stat("alloc-host-bytes");
+    EXPECT_EQ(host_bytes.count(), 1u);
+    EXPECT_EQ(host_bytes.value(), static_cast<double>(host_size));
+
+    // timing stats should have the same count as bytes stats.
+    EXPECT_EQ(stats->get_stat("alloc-device-time").count(), 2u);
+    EXPECT_EQ(stats->get_stat("alloc-host-time").count(), 1u);
+}
+
 class BufferResourceReserveOrFailTest : public ::testing::Test {
   protected:
     void SetUp() override {

@@ -428,4 +428,63 @@ void Statistics::record_copy(
     );
 }
 
+void Statistics::record_alloc(
+    MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
+    struct Names {
+        std::string base;  // "alloc-{memtype}"
+        std::string nbytes;  // "alloc-{memtype}-bytes"
+        std::string time;  // "alloc-{memtype}-time"
+        std::string stream_delay;  // "alloc-{memtype}-stream-delay"
+    };
+
+    // Construct all stat names once.
+    static std::array<Names, MEMORY_TYPES.size()> const names = [] {
+        std::array<Names, MEMORY_TYPES.size()> ret;
+        for (MemoryType mt : MEMORY_TYPES) {
+            auto base = "alloc-" + to_lower(to_string(mt));
+            ret[static_cast<std::size_t>(mt)] = Names{
+                .base = base,
+                .nbytes = base + "-bytes",
+                .time = base + "-time",
+                .stream_delay = base + "-stream-delay",
+            };
+        }
+        return ret;
+    }();
+
+    auto const& n = names[static_cast<std::size_t>(mem_type)];
+
+    timing.stop_and_record(n.time, n.stream_delay);
+    add_stat(n.nbytes, nbytes);
+
+    if (exist_report_entry_name(n.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        n.base,
+        {n.nbytes, n.time, n.stream_delay},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_alloc() expects the number of nbytes, timing, and stream_delay "
+                "recordings match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
+        }
+    );
+}
+
 }  // namespace rapidsmpf

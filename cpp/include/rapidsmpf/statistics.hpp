@@ -365,6 +365,27 @@ class Statistics {
     );
 
     /**
+     * @brief Record size and wall-clock duration for a buffer allocation.
+     *
+     * Records three statistics entries for `"alloc-{memtype}"`:
+     *  - `"-bytes"`        — the number of bytes allocated.
+     *  - `"-time"`         — the allocation duration, recorded in stream order.
+     *  - `"-stream-delay"` — time between CPU submission and GPU execution,
+     *                        recorded in stream order.
+     *
+     * All three entries are aggregated into a single combined report line showing
+     * total bytes, total time, throughput, and average stream delay.
+     *
+     * @param mem_type Memory type of the allocation.
+     * @param nbytes Number of bytes allocated.
+     * @param timing A `StreamOrderedTiming` constructed just before the allocation
+     * was issued. Its `stop_and_record()` is called here.
+     */
+    void record_alloc(
+        MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+    );
+
+    /**
      * @brief Get the names of all statistics.
      *
      * @return A vector of all statistic names.
