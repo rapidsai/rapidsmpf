@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -35,9 +35,9 @@ def test_send_table_chunks(
 
     ch1: Channel[TableChunk] = context.create_channel()
 
-    # The node access `ch1` both through the `ch_out` parameter and the closure.
-    @define_py_node(extra_channels=(ch1,))
-    async def node1(ctx: Context, /, ch_out: Channel) -> None:
+    # The actor access `ch1` both through the `ch_out` parameter and the closure.
+    @define_actor(extra_channels=(ch1,))
+    async def actor1(ctx: Context, /, ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
                 context,
@@ -52,12 +52,12 @@ def test_send_table_chunks(
             )
         await ch_out.drain(context)
 
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_streaming_pipeline(
-        nodes=[
-            node1(context, ch_out=ch1),
-            node2,
+    run_actor_network(
+        actors=[
+            actor1(context, ch_out=ch1),
+            actor2,
         ],
         py_executor=py_executor,
     )
@@ -70,19 +70,19 @@ def test_send_table_chunks(
 
 
 def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node()
-    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
+    @define_actor()
+    async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         await ch_out.shutdown(ctx)
         # Calling shutdown multiple times is allowed.
         await ch_out.shutdown(ctx)
 
     ch1: Channel[TableChunk] = context.create_channel()
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    run_streaming_pipeline(
-        nodes=[
-            node1(context, ch_out=ch1),
-            node2,
+    run_actor_network(
+        actors=[
+            actor1(context, ch_out=ch1),
+            actor2,
         ],
         py_executor=py_executor,
     )
@@ -91,21 +91,21 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
 
 
 def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node()
-    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
+    @define_actor()
+    async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
     ch1: Channel[TableChunk] = context.create_channel()
-    node2, output = pull_from_channel(context, ch_in=ch1)
+    actor2, output = pull_from_channel(context, ch_in=ch1)
 
     with pytest.raises(
         RuntimeError,
         match="MyError",
     ):
-        run_streaming_pipeline(
-            nodes=[
-                node1(context, ch_out=ch1),
-                node2,
+        run_actor_network(
+            actors=[
+                actor1(context, ch_out=ch1),
+                actor2,
             ],
             py_executor=py_executor,
         )
@@ -129,8 +129,8 @@ def test_recv_table_chunks(
 
     results: list[Message[TableChunk]] = []
 
-    @define_py_node()
-    async def node1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
+    @define_actor()
+    async def actor1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
         while True:
             chunk = await ch_in.recv(context)
             if chunk is None:
@@ -139,10 +139,10 @@ def test_recv_table_chunks(
 
     ch1: Channel[TableChunk] = context.create_channel()
 
-    run_streaming_pipeline(
-        nodes=[
+    run_actor_network(
+        actors=[
             push_to_channel(context, ch_out=ch1, messages=table_chunks),
-            node1(context, ch_in=ch1),
+            actor1(context, ch_in=ch1),
         ],
         py_executor=py_executor,
     )

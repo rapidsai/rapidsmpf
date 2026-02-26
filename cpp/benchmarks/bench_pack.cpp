@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -127,7 +127,7 @@ void run_chunked_pack(
     auto table = random_table(1, nrows, 0, 1000, stream, table_mr);
 
     // Create the chunked_pack instance to get total output size
-    size_t total_size;
+    std::size_t total_size;
     {
         cudf::chunked_pack packer(table.view(), bounce_buffer_size, stream, table_mr);
         total_size = packer.get_total_contiguous_size();

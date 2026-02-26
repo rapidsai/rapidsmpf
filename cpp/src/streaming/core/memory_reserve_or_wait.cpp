@@ -11,12 +11,12 @@
 #include <stdexcept>
 #include <utility>
 
+#include <coro/sync_wait.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/utils/string.hpp>
-
-#include <coro/sync_wait.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -40,7 +40,7 @@ MemoryReserveOrWait::~MemoryReserveOrWait() noexcept {
     coro::sync_wait(shutdown());
 }
 
-Node MemoryReserveOrWait::shutdown() {
+Actor MemoryReserveOrWait::shutdown() {
     // Move the pending requests and joinable periodic task out under the mutex,
     // then release the lock. Both the queue shutdown and the task await can block
     // or suspend, so they must not run while holding the mutex.
@@ -53,11 +53,11 @@ Node MemoryReserveOrWait::shutdown() {
     // Shut down all request queues so any waiters are unblocked, then wait for
     // the periodic task to exit (if one was running).
     if (!reservation_requests.empty()) {
-        std::vector<Node> nodes;
+        std::vector<Actor> actors;
         for (Request const& request : reservation_requests) {
-            nodes.push_back(request.queue.shutdown());
+            actors.push_back(request.queue.shutdown());
         }
-        coro_results(co_await coro::when_all(std::move(nodes)));
+        coro_results(co_await coro::when_all(std::move(actors)));
     }
     if (periodic_memory_check_task.has_value()) {
         co_await *periodic_memory_check_task;
@@ -167,7 +167,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // Helper that returns available memory, clamped so negative values become zero.
     auto memory_available = [f = br_->memory_available(mem_type_)]() -> std::size_t {
         std::int64_t const ret = f();
-        return static_cast<std::size_t>(std::max(ret, std::int64_t{0}));
+        return safe_cast<std::size_t>(std::max(ret, std::int64_t{0}));
     };
 
     // Helper that returns the subrange of reservation requests with size <= max_size.
@@ -187,7 +187,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     auto push_into_queue =
         [this](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> void {
         auto err = executor_->spawn_detached(
-            [](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> Node {
+            [](coro::queue<MemoryReservation>& queue, MemoryReservation res) -> Actor {
                 RAPIDSMPF_EXPECTS(
                     co_await queue.push(std::move(res))
                         == coro::queue_produce_result::produced,

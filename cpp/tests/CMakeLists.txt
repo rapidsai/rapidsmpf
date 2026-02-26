@@ -31,8 +31,8 @@ function(rapidsmpf_mpirun_test_add)
   foreach(np IN ITEMS ${nranks_to_run})
     # add the test using the relative path of the target
     add_test(
-      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
-      COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}" COMMAND mpirun --map-by node --bind-to none -np
+                                                       ${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
     )
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
@@ -71,8 +71,7 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
-          test_allreduce.cpp
-          test_allreduce_custom_kernels.cu
+          test_allreduce.cu
           test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
@@ -84,6 +83,7 @@ target_sources(
           test_error_macros.cpp
           test_host_buffer.cpp
           test_metadata_payload_exchange.cpp
+          test_misc.cpp
           test_partition.cpp
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
@@ -104,7 +104,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
-            streaming/test_leaf_node.cpp
+            streaming/test_leaf_actor.cpp
             streaming/test_lineariser.cpp
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp

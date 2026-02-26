@@ -16,9 +16,9 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -27,7 +27,7 @@
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
-namespace node = rapidsmpf::streaming::node;
+namespace actor = rapidsmpf::streaming::actor;
 
 class BaseStreamingShuffle : public BaseStreamingFixture {};
 
@@ -52,7 +52,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
         BaseStreamingShuffle::TearDown();
     }
 
-    void run_test(auto make_shuffler_node_fn) {
+    void run_test(auto make_shuffler_actor_fn) {
         // Create the full input table and slice it into chunks.
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<Message> input_chunks;
@@ -79,26 +79,26 @@ class StreamingShuffler : public BaseStreamingShuffle,
         // Create and run the streaming pipeline.
         std::vector<Message> output_chunks;
         {
-            std::vector<Node> nodes;
+            std::vector<Actor> actors;
             auto ch1 = ctx->create_channel();
-            nodes.push_back(node::push_to_channel(ctx, ch1, std::move(input_chunks)));
+            actors.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
 
             auto ch2 = ctx->create_channel();
-            nodes.push_back(
-                node::partition_and_pack(
+            actors.push_back(
+                actor::partition_and_pack(
                     ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
                 )
             );
 
             auto ch3 = ctx->create_channel();
-            nodes.emplace_back(make_shuffler_node_fn(ch2, ch3));
+            actors.emplace_back(make_shuffler_actor_fn(ch2, ch3));
 
             auto ch4 = ctx->create_channel();
-            nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
+            actors.push_back(actor::unpack_and_concat(ctx, ch3, ch4));
 
-            nodes.push_back(node::pull_from_channel(ctx, ch4, output_chunks));
+            actors.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
 
-            run_streaming_pipeline(std::move(nodes));
+            run_actor_network(std::move(actors));
         }
 
         std::unique_ptr<cudf::table> expected_table;
@@ -150,22 +150,22 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingShuffler, basic_shuffler) {
-    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return node::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Actor {
+        return actor::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
     }));
 }
 
-class ShufflerAsyncTest
-    : public BaseStreamingShuffle,
-      public ::testing::WithParamInterface<std::tuple<int, size_t, uint32_t, int>> {
+class ShufflerAsyncTest : public BaseStreamingShuffle,
+                          public ::testing::WithParamInterface<
+                              std::tuple<int, std::size_t, std::uint32_t, int>> {
   protected:
     int n_threads;
-    size_t n_inserts;
-    uint32_t n_partitions;
+    std::size_t n_inserts;
+    std::uint32_t n_partitions;
     int n_consumers;
 
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_elements = 100;
+    static constexpr std::size_t n_elements = 100;
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
@@ -205,7 +205,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            auto* ctx,
                            std::mutex& mtx,
                            std::vector<shuffler::PartID>& finished_pids,
-                           size_t& n_chunks_received) -> Node {
+                           std::size_t& n_chunks_received) -> Actor {
         co_await ctx->executor()->schedule();
         ctx->comm()->logger().debug(tid, " extract task started");
 
@@ -222,7 +222,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
-    for (size_t i = 0; i < n_inserts; ++i) {
+    for (std::size_t i = 0; i < n_inserts; ++i) {
         std::unordered_map<shuffler::PartID, PackedData> data;
         data.reserve(n_partitions);
         for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
@@ -235,15 +235,15 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
-    size_t n_chunks_received = 0;
-    std::vector<Node> tasks;
+    std::size_t n_chunks_received = 0;
+    std::vector<Actor> tasks;
     for (int i = 0; i < n_consumers; ++i) {
         tasks.emplace_back(extract_task(
             i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
         ));
     }
     tasks.push_back(ctx->executor()->schedule(std::move(finish_token)));
-    run_streaming_pipeline(std::move(tasks));
+    run_actor_network(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
@@ -257,7 +257,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_partitions = 10;
+    static constexpr std::size_t n_partitions = 10;
     {
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
@@ -268,7 +268,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
             ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
         );
 
-        size_t parts_extracted = 0;
+        std::size_t parts_extracted = 0;
         // For this test we need to await the shuffler being finished and drained, i.e.
         // ensure all insertion notifications have been received before extracting. This
         // is only because we sync_wait each individual extract_any_async.

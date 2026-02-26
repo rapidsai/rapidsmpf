@@ -75,8 +75,6 @@ class ArgumentParser {
                               "unlimited)\n"
                            << "  -L         Disable Pinned host memory (default: "
                               " unlimited)\n"
-                           << "  -i         Use `concat_insert` method, instead of "
-                              "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
                            << "  -s         Discard output chunks to simulate streaming "
@@ -154,9 +152,6 @@ class ArgumentParser {
                     break;
                 case 'L':
                     pinned_mem_disable = true;
-                    break;
-                case 'i':
-                    use_concat_insert = true;
                     break;
                 case 'g':
                     hash_partition_with_datagen = true;
@@ -249,9 +244,6 @@ class ArgumentParser {
         if (hash_partition_with_datagen) {
             ss << "  -g (use pre-partitioned input tables)\n";
         }
-        if (use_concat_insert) {
-            ss << "  -i (use concat insert)\n";
-        }
         if (enable_cupti_monitoring) {
             ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
         }
@@ -276,7 +268,6 @@ class ArgumentParser {
     };
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
-    bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
     bool pinned_mem_disable{false};
     bool enable_cupti_monitoring{false};
@@ -299,7 +290,7 @@ rapidsmpf::Duration do_run(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics,
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
     auto&& shuffle_insert_fn
 ) {
     std::vector<std::unique_ptr<cudf::table>> output_partitions;
@@ -317,7 +308,6 @@ rapidsmpf::Duration do_run(
             0,  // op_id
             total_num_partitions,
             br,
-            statistics,
             rapidsmpf::shuffler::Shuffler::round_robin
         );
 
@@ -329,14 +319,10 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks),
-                    br,
-                    rapidsmpf::AllowOverbooking::YES,
-                    statistics
+                    std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,
-                br,
-                statistics
+                br
             );
             if (!args.enable_output_discard) {
                 output_partitions.emplace_back(std::move(output_partition));
@@ -393,7 +379,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
     std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        size_t size_lb = random_table_size_lower_bound(
+        std::size_t size_lb = random_table_size_lower_bound(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows)
         );
@@ -417,8 +403,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
 }
 
 /**
- * Helper function to iterate over input partitions and insert them into the shuffler by
- * branching on use_concat_insert.
+ * Helper function to iterate over input partitions and insert them into the shuffler.
  *
  * @param shuffler Shuffler to insert the partitions into.
  * @param input_partitions This is either a vector<cudf::table> or
@@ -426,24 +411,16 @@ std::vector<InputPartitionsT> generate_input_partitions(
  * partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
  * @param total_num_partitions Total number of partitions in the shuffler.
  * @param make_chunk_fn Function to make a chunk from a partition.
- * @param use_concat_insert Whether to use concat insert.
  */
 void do_insert(
     rapidsmpf::shuffler::Shuffler& shuffler,
     auto&& input_partitions,
     rapidsmpf::shuffler::PartID const total_num_partitions,
-    auto&& make_chunk_fn,
-    bool use_concat_insert
+    auto&& make_chunk_fn
 ) {
     // Convert a partition into chunks and insert into the shuffler.
-    if (use_concat_insert) {
-        for (auto&& partition : input_partitions) {
-            shuffler.concat_insert(std::move(make_chunk_fn(partition)));
-        }
-    } else {
-        for (auto&& partition : input_partitions) {
-            shuffler.insert(std::move(make_chunk_fn(partition)));
-        }
+    for (auto&& partition : input_partitions) {
+        shuffler.insert(std::move(make_chunk_fn(partition)));
     }
 
     // Tell the shuffler that we have no more data.
@@ -477,7 +454,7 @@ rapidsmpf::Duration run_hash_partition_inline(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -494,8 +471,7 @@ rapidsmpf::Duration run_hash_partition_inline(
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            br,
-            statistics
+            br
         );
     };
 
@@ -512,8 +488,7 @@ rapidsmpf::Duration run_hash_partition_inline(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::move(make_chunk_fn),
-                args.use_concat_insert
+                std::move(make_chunk_fn)
             );
         }
     );
@@ -539,7 +514,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics>& statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -572,8 +547,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                 shuffler,
                 std::move(input_partitions),
                 total_num_partitions,
-                std::identity{},
-                args.use_concat_insert
+                std::identity{}
             );
         }
     );
@@ -614,7 +588,7 @@ int main(int argc, char** argv) {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::Backend::AUTO, options
+                rapidsmpf::bootstrap::BackendType::AUTO, options
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
@@ -639,12 +613,22 @@ int main(int argc, char** argv) {
         };
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    // Create statistics (enabled from the start) and pass to BufferResource so that
+    // all components (Shuffler, SpillManager, etc.) share the same statistics object.
+    auto stats = args.enable_memory_profiler
+                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
+                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+
     rapidsmpf::BufferResource br{
-        mr,
+        stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
-        std::move(memory_available)
+        std::move(memory_available),
+        std::chrono::milliseconds{1},
+        std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        ),
+        stats
     };
 
     auto& log = comm->logger();
@@ -670,9 +654,6 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
-
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Create CUPTI monitor if enabled
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
@@ -686,13 +667,9 @@ int main(int argc, char** argv) {
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
-        // Enable statistics for the last run.
+        // Clear statistics before the last run so only last-run data is reported.
         if (i == total_num_runs - 1) {
-            if (args.enable_memory_profiler) {
-                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
-            } else {
-                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-            }
+            stats->clear();
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {

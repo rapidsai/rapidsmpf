@@ -1,4 +1,4 @@
-# API Reference
+# Python API Reference
 
 This page contains the API reference for `rapidsmpf`.
 

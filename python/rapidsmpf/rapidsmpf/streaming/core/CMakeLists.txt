@@ -5,8 +5,8 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules channel.pyx context.pyx fanout.pyx leaf_node.pyx memory_reserve_or_wait.pyx
-                   message.pyx spillable_messages.pyx node.pyx
+set(cython_modules actor.pyx channel.pyx context.pyx fanout.pyx leaf_actor.pyx
+                   memory_reserve_or_wait.pyx message.pyx spillable_messages.pyx
 )
 
 rapids_cython_create_modules(

@@ -9,14 +9,14 @@
 #include <memory>
 #include <vector>
 
+#include <coro/event.hpp>
+#include <coro/task.hpp>
+
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-
-#include <coro/event.hpp>
-#include <coro/task.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -84,10 +84,10 @@ class AllGather {
     coll::AllGather gatherer_;  ///< Underlying collective allgather.
 };
 
-namespace node {
+namespace actor {
 
 /**
- * @brief Create an allgather node for a single allgather operation.
+ * @brief Create an allgather actor for a single allgather operation.
  *
  * This is a streaming version of `rapidsmpf::coll::AllGather` that operates on
  * packed data received through `Channel`s.
@@ -102,15 +102,15 @@ namespace node {
  * sequence number. If no, the sequence number of the extracted chunks will have no
  * relation to any input sequence order.
  *
- * @return A streaming node that completes when the allgather is finished and the output
+ * @return A streaming actor that completes when the allgather is finished and the output
  * channel is drained.
  */
-Node allgather(
+Actor allgather(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     AllGather::Ordered ordered = AllGather::Ordered::YES
 );
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

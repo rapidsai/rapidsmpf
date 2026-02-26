@@ -89,11 +89,10 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 
     // Calculate the available memory _after_ the memory has been reserved.
     std::int64_t headroom =
-        available()
-        - (static_cast<std::int64_t>(reserved) + static_cast<std::int64_t>(size));
+        available() - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
     // If negative, we are overbooking.
     std::size_t overbooking =
-        headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
+        headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
     if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
         // Cancel the reservation, overbooking isn't allowed.
         return {MemoryReservation(mem_type, this, 0), overbooking};
@@ -104,7 +103,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    size_t size, AllowOverbooking allow_overbooking
+    std::size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
     auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
@@ -192,8 +191,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        auto ret = allocate(buffer->size, buffer->stream(), reservation);
-        buffer_copy(*ret, *buffer, buffer->size);
+        auto const nbytes = buffer->size;
+        auto ret = allocate(nbytes, buffer->stream(), reservation);
+        buffer_copy(statistics_, *ret, *buffer, nbytes);
         return ret;
     }
     return buffer;

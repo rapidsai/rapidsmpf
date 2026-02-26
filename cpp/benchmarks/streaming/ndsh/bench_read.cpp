@@ -23,21 +23,22 @@
 #include <rmm/detail/format.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 
+#include <coro/when_all.hpp>
+
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
 
-#include <coro/when_all.hpp>
-
 namespace {
 
-rapidsmpf::streaming::Node read_parquet(
+rapidsmpf::streaming::Actor read_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
@@ -54,19 +55,19 @@ rapidsmpf::streaming::Node read_parquet(
     if (columns.has_value()) {
         options.set_column_names(*columns);
     }
-    return rapidsmpf::streaming::node::read_parquet(
+    return rapidsmpf::streaming::actor::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node consume_channel_parallel(
+rapidsmpf::streaming::Actor consume_channel_parallel(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::size_t num_consumers
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in};
     std::atomic<std::size_t> estimated_total_bytes{0};
-    auto task = [&]() -> rapidsmpf::streaming::Node {
+    auto task = [&]() -> rapidsmpf::streaming::Actor {
         co_await ctx->executor()->schedule();
         while (true) {
             auto msg = co_await ch_in->receive();
@@ -89,7 +90,7 @@ rapidsmpf::streaming::Node consume_channel_parallel(
             }
         }
     };
-    std::vector<rapidsmpf::streaming::Node> tasks;
+    std::vector<rapidsmpf::streaming::Actor> tasks;
     for (std::size_t i = 0; i < num_consumers; i++) {
         tasks.push_back(task());
     }
@@ -378,14 +379,14 @@ int main(int argc, char** argv) {
     auto ctx = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> actors;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing read_parquet pipeline");
 
             // Input data channels
             auto ch_out = ctx->create_channel();
-            nodes.push_back(read_parquet(
+            actors.push_back(read_parquet(
                 ctx,
                 ch_out,
                 arguments.num_producers,
@@ -394,7 +395,7 @@ int main(int argc, char** argv) {
                 arguments.input_directory,
                 arguments.input_file
             ));
-            nodes.push_back(
+            actors.push_back(
                 consume_channel_parallel(ctx, ch_out, arguments.num_consumers)
             );
         }
@@ -403,7 +404,7 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("read_parquet iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_network(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;
@@ -419,10 +420,13 @@ int main(int argc, char** argv) {
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
-                timings[size_t(2 * i)]
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
             ctx->comm()->logger().print(
-                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+                "Iteration ",
+                i,
+                " compute time [s]: ",
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i + 1)]
             );
         }
     }

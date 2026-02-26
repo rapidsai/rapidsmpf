@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 """Example running a Bulk RapidsMPF Shuffle operation using Ray and UCXX communication."""
 
@@ -239,7 +239,6 @@ class BulkRayShufflerActor(BaseShufflingActor):
                     packed_chunks,
                     br=self.br,
                     allow_overbooking=True,
-                    statistics=self.stats,
                 ),
                 br=self.br,
                 stream=DEFAULT_STREAM,

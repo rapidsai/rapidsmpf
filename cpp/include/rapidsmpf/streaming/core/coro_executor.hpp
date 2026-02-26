@@ -7,11 +7,11 @@
 #include <memory>
 #include <thread>
 
+#include <coro/coro.hpp>
+
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
-
-#include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming {
 
