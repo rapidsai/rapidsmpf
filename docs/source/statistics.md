@@ -47,10 +47,6 @@ the output machine-parseable. For example, a bytes statistic that reads
 `"3.00001e+09"` is three billion bytes; the text report would show `"2.79 GiB"`
 for the same figure.
 
-> **Note:** Stat names and memory record names must not contain characters that
-> require JSON escaping (double quotes, backslashes, or ASCII control characters).
-> Using such names is undefined behavior.
-
 Raw units: memory sizes are in **bytes** (float), timings are in **seconds** (float).
 
 ```json

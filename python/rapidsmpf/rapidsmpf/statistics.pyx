@@ -206,6 +206,12 @@ cdef class Statistics:
             Name of the statistic.
         value
             Value to add.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` contains a double quote, backslash, or ASCII control
+            character (0x00–0x1F).
         """
         cdef string name_ = str.encode(name)
         with nogil:
@@ -265,6 +271,13 @@ cdef class Statistics:
         name
             A unique identifier for the profiling scope. Used as a key
             when accessing profiling data via :meth:`Statistics.get_memory_records`.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` contains a double quote, backslash, or ASCII control
+            character (0x00–0x1F). Raised when the context is entered (i.e.
+            inside the ``with`` block), not at construction time.
 
         Returns
         -------

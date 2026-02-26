@@ -140,16 +140,25 @@ def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None
     assert rec["global_peak_bytes"] > 0
 
 
-def test_write_json_special_chars() -> None:
-    stats = Statistics(enable=True)
-    stats.add_stat('has"quote', 1.0)
-    stats.add_stat("has\\backslash", 2.0)
-    stats.add_stat("has\nnewline", 3.0)
+def test_invalid_memory_record_names(device_mr: rmm.mr.CudaMemoryResource) -> None:
+    mr = RmmResourceAdaptor(device_mr)
+    stats = Statistics(enable=True, mr=mr)
+    with pytest.raises(ValueError), stats.memory_profiling('bad"name'):
+        pass
+    with pytest.raises(ValueError), stats.memory_profiling("bad\nnewline"):
+        pass
 
-    data = json.loads(stats.write_json_string())
-    assert data["statistics"]['has"quote']["value"] == 1.0
-    assert data["statistics"]["has\\backslash"]["value"] == 2.0
-    assert data["statistics"]["has\nnewline"]["value"] == 3.0
+
+def test_invalid_stat_names() -> None:
+    stats = Statistics(enable=True)
+    with pytest.raises(ValueError):
+        stats.add_stat('has"quote', 1.0)
+    with pytest.raises(ValueError):
+        stats.add_stat("has\\backslash", 2.0)
+    with pytest.raises(ValueError):
+        stats.add_stat("has\nnewline", 3.0)
+    with pytest.raises(ValueError):
+        stats.add_stat("has\x01ctrl", 4.0)
 
 
 @pytest.mark.parametrize("as_type", [pathlib.Path, str], ids=["pathlib.Path", "str"])
