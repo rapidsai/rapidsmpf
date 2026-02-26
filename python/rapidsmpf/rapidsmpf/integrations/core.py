@@ -775,7 +775,7 @@ def rmpf_worker_setup(
     )
     ctx = WorkerContext(
         br=br,
-        progress_thread=ProgressThread(comm, statistics),
+        progress_thread=ProgressThread(statistics),
         comm=comm,
         statistics=statistics,
         options=options,

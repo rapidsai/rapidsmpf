@@ -15,6 +15,7 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 

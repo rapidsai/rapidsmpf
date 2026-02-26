@@ -417,9 +417,7 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
-            GlobalEnvironment->comm_->logger()
-        );
+        progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
 
         GlobalEnvironment->barrier();
     }
@@ -650,7 +648,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(comm->nranks(), 1);
 
     std::shared_ptr<rapidsmpf::ProgressThread> progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
+        std::make_shared<rapidsmpf::ProgressThread>();
 
     // Create a shuffler and input chunks.
     rapidsmpf::shuffler::Shuffler shuffler(
@@ -1063,8 +1061,7 @@ TEST_F(PostBoxTest, ThreadSafety) {
 }
 
 TEST(Shuffler, ShutdownWhilePaused) {
-    auto progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger());
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
     auto mr = cudf::get_current_device_resource_ref();
 
     auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
