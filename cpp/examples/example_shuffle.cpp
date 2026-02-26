@@ -27,8 +27,8 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // First, we have to create a Communicator, which we will use throughout the
-    // example. Notice, if you want to do multiple shuffles concurrently, each shuffle
-    // should use its own Communicator backed by its own MPI communicator.
+    // example. Multiple concurrent shuffles are possible on the same communicator by
+    // providing differentiating "OpID" arguments.
     std::shared_ptr<rapidsmpf::Communicator> comm =
         std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
 
@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
     // Then a progress thread where the shuffler event loop executes is created. A single
     // progress thread may be used by multiple shufflers simultaneously.
     std::shared_ptr<rapidsmpf::ProgressThread> progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
+        std::make_shared<rapidsmpf::ProgressThread>(stats);
 
     // The Communicator provides a logger.
     auto& log = comm->logger();

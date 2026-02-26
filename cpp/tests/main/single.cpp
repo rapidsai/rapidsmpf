@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,7 +23,7 @@ void Environment::SetUp() {
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(options_);
     split_comm_ = comm_;
-    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
+    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>();
 }
 
 void Environment::TearDown() {

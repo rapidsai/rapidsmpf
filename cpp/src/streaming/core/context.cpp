@@ -102,7 +102,7 @@ Context::Context(
     : Context(
           options,
           comm,
-          std::make_shared<ProgressThread>(comm->logger(), br->statistics()),
+          std::make_shared<ProgressThread>(br->statistics()),
           std::make_shared<CoroThreadPoolExecutor>(options),
           br
       ) {}

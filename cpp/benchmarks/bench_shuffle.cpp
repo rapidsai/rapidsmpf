@@ -601,7 +601,7 @@ int main(int argc, char** argv) {
 
     args.pprint(*comm);
 
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     auto stat_enabled_mr = set_device_mem_resource_with_stats();
 

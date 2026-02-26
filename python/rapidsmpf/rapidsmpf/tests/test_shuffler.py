@@ -42,7 +42,7 @@ def test_shuffler_single_nonempty_partition(
     wait_on: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread(comm)
+    progress_thread = ProgressThread()
 
     shuffler = Shuffler(
         comm,
@@ -138,7 +138,7 @@ def test_shuffler_uniform(
         ).items()
     }
 
-    progress_thread = ProgressThread(comm)
+    progress_thread = ProgressThread()
 
     shuffler = Shuffler(
         comm,
