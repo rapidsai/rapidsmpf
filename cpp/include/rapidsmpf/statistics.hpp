@@ -161,6 +161,9 @@ class Statistics {
      * with consistent numeric types.
      *
      * @param os Output stream to write to.
+     * @throws std::invalid_argument If any stat name or memory record name contains
+     * characters that require JSON escaping (double quotes, backslashes, or ASCII
+     * control characters 0x00–0x1F).
      */
     void write_json(std::ostream& os) const;
 

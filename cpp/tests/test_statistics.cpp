@@ -319,17 +319,18 @@ TEST_F(StatisticsTest, JsonStream) {
 
 TEST_F(StatisticsTest, InvalidStatNames) {
     rapidsmpf::Statistics stats;
-    EXPECT_THROW(stats.add_stat("has\"quote", 1.0), std::invalid_argument);
-    EXPECT_THROW(stats.add_stat("has\\backslash", 1.0), std::invalid_argument);
-    EXPECT_THROW(stats.add_stat("has\nnewline", 1.0), std::invalid_argument);
-    EXPECT_THROW(stats.add_stat("has\x01ctrl", 1.0), std::invalid_argument);
+    stats.add_stat("has\"quote", 1.0);
+    stats.add_stat("has\\backslash", 2.0);
+    std::ostringstream ss;
+    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
 }
 
 TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
-    EXPECT_THROW(stats.create_memory_recorder("bad\"name"), std::invalid_argument);
-    EXPECT_THROW(stats.create_memory_recorder("bad\nnewline"), std::invalid_argument);
+    std::ignore = stats.create_memory_recorder("bad\"name");
+    std::ostringstream ss;
+    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
 }
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {

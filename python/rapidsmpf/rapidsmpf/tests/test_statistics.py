@@ -143,22 +143,18 @@ def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None
 def test_invalid_memory_record_names(device_mr: rmm.mr.CudaMemoryResource) -> None:
     mr = RmmResourceAdaptor(device_mr)
     stats = Statistics(enable=True, mr=mr)
-    with pytest.raises(ValueError), stats.memory_profiling('bad"name'):
+    with stats.memory_profiling('bad"name'):
         pass
-    with pytest.raises(ValueError), stats.memory_profiling("bad\nnewline"):
-        pass
+    with pytest.raises(ValueError):
+        stats.write_json_string()
 
 
 def test_invalid_stat_names() -> None:
     stats = Statistics(enable=True)
+    stats.add_stat('has"quote', 1.0)
+    stats.add_stat("has\\backslash", 2.0)
     with pytest.raises(ValueError):
-        stats.add_stat('has"quote', 1.0)
-    with pytest.raises(ValueError):
-        stats.add_stat("has\\backslash", 2.0)
-    with pytest.raises(ValueError):
-        stats.add_stat("has\nnewline", 3.0)
-    with pytest.raises(ValueError):
-        stats.add_stat("has\x01ctrl", 4.0)
+        stats.write_json_string()
 
 
 @pytest.mark.parametrize("as_type", [pathlib.Path, str], ids=["pathlib.Path", "str"])

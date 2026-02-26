@@ -206,12 +206,6 @@ cdef class Statistics:
             Name of the statistic.
         value
             Value to add.
-
-        Raises
-        ------
-        ValueError
-            If ``name`` contains a double quote, backslash, or ASCII control
-            character (0x00–0x1F).
         """
         cdef string name_ = str.encode(name)
         with nogil:
@@ -272,13 +266,6 @@ cdef class Statistics:
             A unique identifier for the profiling scope. Used as a key
             when accessing profiling data via :meth:`Statistics.get_memory_records`.
 
-        Raises
-        ------
-        ValueError
-            If ``name`` contains a double quote, backslash, or ASCII control
-            character (0x00–0x1F). Raised when the context is entered (i.e.
-            inside the ``with`` block), not at construction time.
-
         Returns
         -------
         A context manager that collects memory profiling data.
@@ -323,6 +310,9 @@ cdef class Statistics:
         ------
         OSError
             If the file cannot be opened or writing fails.
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
         """
         cdef string path = <bytes>os.fsencode(filepath)
         with nogil:
@@ -335,6 +325,12 @@ cdef class Statistics:
         Returns
         -------
         A JSON-formatted string.
+
+        Raises
+        ------
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
         """
         cdef string result
         with nogil:

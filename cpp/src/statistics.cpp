@@ -55,11 +55,6 @@ Statistics::Stat Statistics::get_stat(std::string const& name) const {
 }
 
 void Statistics::add_stat(std::string const& name, double value) {
-    RAPIDSMPF_EXPECTS(
-        !has_json_unsafe_chars(name),
-        "stat name cannot contains characters that require JSON escaping: " + name,
-        std::invalid_argument
-    );
     if (!enabled()) {
         return;
     }
@@ -141,12 +136,6 @@ Statistics::MemoryRecorder::MemoryRecorder(
     : stats_{stats}, mr_{mr}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     RAPIDSMPF_EXPECTS(mr != nullptr, "the memory resource cannot be null");
-    RAPIDSMPF_EXPECTS(
-        !has_json_unsafe_chars(name_),
-        "memory record name cannot contains characters that require JSON escaping: "
-            + name_,
-        std::invalid_argument
-    );
     mr_->begin_scoped_memory_record();
     main_record_ = mr_->get_main_record();
 }
@@ -306,6 +295,22 @@ std::string Statistics::report(std::string const& header) const {
 
 void Statistics::write_json(std::ostream& os) const {
     std::lock_guard<std::mutex> lock(mutex_);
+
+    for (auto const& [name, _] : stats_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "stat name cannot contains characters that require JSON escaping: " + name,
+            std::invalid_argument
+        );
+    }
+    for (auto const& [name, _] : memory_records_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "memory record name cannot contains characters that require JSON escaping: "
+                + name,
+            std::invalid_argument
+        );
+    }
 
     os << "{\n";
     os << "  \"statistics\": {";
