@@ -413,8 +413,7 @@ void Statistics::record_copy(
 
             RAPIDSMPF_EXPECTS(
                 nbytes.count() == time.count() && time.count() == stream_delay.count(),
-                "record_copy() expects the number of nbytes, timing, and stream_delay "
-                "recordings match"
+                "record_copy() expects the record counters to match"
             );
 
             os << format_nbytes(nbytes.value());
@@ -472,8 +471,7 @@ void Statistics::record_alloc(
 
             RAPIDSMPF_EXPECTS(
                 nbytes.count() == time.count() && time.count() == stream_delay.count(),
-                "record_alloc() expects the number of nbytes, timing, and stream_delay "
-                "recordings match"
+                "record_copy() expects the record counters to match"
             );
 
             os << format_nbytes(nbytes.value());
