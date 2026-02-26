@@ -89,7 +89,7 @@ std::map<std::string, cudf::data_type> get_column_types(
 
     std::map<std::string, cudf::data_type> result;
     for (std::size_t i = 0; i < root.num_children(); ++i) {
-        auto const& column = root.child(static_cast<int>(i));
+        auto const& column = root.child(safe_cast<int>(i));
         result.emplace(column.name(), column.cudf_type());
     }
     return result;

@@ -62,6 +62,7 @@ namespace detail {
  * @brief Get cudf data types for all columns from parquet metadata.
  *
  * Reads parquet metadata to determine the cudf data type for each column.
+ * The data types are inferred from the first file found for the given table.
  *
  * @param input_directory Directory containing input parquet files
  * @param table_name Name of the table (e.g., "lineitem")
