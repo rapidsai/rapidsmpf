@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace {
@@ -23,6 +24,10 @@ bool has_json_unsafe_chars(std::string_view s) {
 }  // namespace
 
 namespace rapidsmpf {
+
+Statistics::~Statistics() noexcept {
+    StreamOrderedTiming::cancel_inflight_timings(this);
+}
 
 // Setting `mr_ = nullptr` disables memory profiling.
 Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
@@ -355,21 +360,69 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
     );
 }
 
-void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
+void Statistics::record_copy(
+    MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
     using Key = std::pair<MemoryType, MemoryType>;
-    // Use a lambda to construct all stat names once at first call.
-    static std::map<Key, std::string> const name_map = [] {
-        std::map<Key, std::string> ret;
+
+    struct Names {
+        std::string base;  // "copy-<src>-to-<dst>"
+        std::string nbytes;  // "<base>-bytes"
+        std::string time;  // "<base>-time"
+    };
+
+    // Construct all stat names once, at first call.
+    static std::map<Key, Names> const name_map = [] {
+        std::map<Key, Names> ret;
         for (MemoryType s : MEMORY_TYPES) {
             auto const src_name = to_lower(to_string(s));
             for (MemoryType d : MEMORY_TYPES) {
                 auto const dst_name = to_lower(to_string(d));
-                ret.emplace(Key{s, d}, "copy-" + src_name + "-to-" + dst_name);
+                auto base = "copy-" + src_name + "-to-" + dst_name;
+                ret.emplace(
+                    Key{s, d},
+                    Names{
+                        .base = base,
+                        .nbytes = base + "-bytes",
+                        .time = base + "-time",
+                    }
+                );
             }
         }
         return ret;
     }();
-    add_bytes_stat(name_map.at({src, dst}), nbytes);
+
+    auto const& names = name_map.at({src, dst});
+
+    timing.stop_and_record(names.time);
+    add_stat(names.nbytes, nbytes);
+
+    if (exist_report_entry_name(names.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        names.base,
+        {names.nbytes, names.time},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count(),
+                "record_copy() expects the number of nbytes and timing recordings match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            if (time.value() > 0) {
+                os << " (" << format_nbytes(nbytes.value() / time.value()) << "/s)";
+            }
+            if (nbytes.count() > 1) {
+                os << " | avg "
+                   << format_nbytes(nbytes.value() / static_cast<double>(nbytes.count()));
+            }
+        }
+    );
 }
 
 }  // namespace rapidsmpf
