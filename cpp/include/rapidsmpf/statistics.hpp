@@ -151,7 +151,7 @@ class Statistics {
      * @note If any statistics are collected via stream-ordered timing (e.g. through
      * `record_copy()`), all relevant CUDA streams must be synchronized before calling
      * this method. Otherwise, some timing statistics may not yet have been recorded,
-     * causing entries to read "No data collected" or incorrect statistics.
+     * causing entries to read "No data collected" or imprecise statistics.
      *
      * @param header Header line prepended to the report.
      * @return Formatted statistics report.
