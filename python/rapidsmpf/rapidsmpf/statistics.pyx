@@ -16,6 +16,8 @@ from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
 
+import os
+
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
@@ -26,6 +28,8 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
 cdef extern from *:
     """
+    #include <filesystem>
+    #include <sstream>
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name
     ) {
@@ -47,6 +51,16 @@ cdef extern from *:
     void cpp_clear_statistics(rapidsmpf::Statistics& stats) {
         stats.clear();
     }
+    void cpp_write_json(
+        rapidsmpf::Statistics const& stats, std::string const& filepath
+    ) {
+        stats.write_json(std::filesystem::path(filepath));
+    }
+    std::string cpp_write_json_string(rapidsmpf::Statistics const& stats) {
+        std::ostringstream ss;
+        stats.write_json(ss);
+        return ss.str();
+    }
     """
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
         except +ex_handler nogil
@@ -56,6 +70,9 @@ cdef extern from *:
         except +ex_handler nogil
     vector[string] cpp_list_stat_names(cpp_Statistics stats) except +ex_handler nogil
     void cpp_clear_statistics(cpp_Statistics stats) except +ex_handler nogil
+    void cpp_write_json(cpp_Statistics stats, string filepath) \
+        except +ex_handler nogil
+    string cpp_write_json_string(cpp_Statistics stats) except +ex_handler nogil
 
 cdef class Statistics:
     """
@@ -279,6 +296,46 @@ cdef class Statistics:
         """
         with nogil:
             cpp_clear_statistics(deref(self._handle))
+
+    def write_json(self, filepath) -> None:
+        """
+        Writes a JSON report of all collected statistics to a file.
+
+        Parameters
+        ----------
+        filepath
+            Path to the output file. Created or overwritten.
+
+        Raises
+        ------
+        OSError
+            If the file cannot be opened or writing fails.
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
+        """
+        cdef string path = <bytes>os.fsencode(filepath)
+        with nogil:
+            cpp_write_json(deref(self._handle), path)
+
+    def write_json_string(self) -> str:
+        """
+        Returns a JSON representation of all collected statistics as a string.
+
+        Returns
+        -------
+        A JSON-formatted string.
+
+        Raises
+        ------
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
+        """
+        cdef string result
+        with nogil:
+            result = cpp_write_json_string(deref(self._handle))
+        return result.decode("utf-8")
 
 
 @dataclass

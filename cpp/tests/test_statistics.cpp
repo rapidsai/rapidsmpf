@@ -4,6 +4,8 @@
  */
 
 
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
 #include <gmock/gmock.h>
@@ -16,11 +18,24 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+#include "environment.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf;
 
-TEST(Statistics, Disabled) {
+/// @brief Test fixture that skips all tests on non-zero MPI ranks.
+///
+/// Statistics tests are all rank-independent.
+class StatisticsTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        if (GlobalEnvironment->comm_->rank() != 0) {
+            GTEST_SKIP() << "Test only runs on rank 0";
+        }
+    }
+};
+
+TEST_F(StatisticsTest, Disabled) {
     rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.enabled());
 
@@ -30,7 +45,7 @@ TEST(Statistics, Disabled) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics: disabled"));
 }
 
-TEST(Statistics, Communication) {
+TEST_F(StatisticsTest, Communication) {
     rapidsmpf::Statistics stats;
     EXPECT_TRUE(stats.enabled());
 
@@ -54,7 +69,7 @@ TEST(Statistics, Communication) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
 }
 
-TEST(Statistics, StatMax) {
+TEST_F(StatisticsTest, StatMax) {
     Statistics::Stat s;
     EXPECT_EQ(s.max(), -std::numeric_limits<double>::infinity());
 
@@ -68,7 +83,7 @@ TEST(Statistics, StatMax) {
     EXPECT_EQ(s.max(), 10.0);  // max stays at 10
 }
 
-TEST(Statistics, ExistReportEntryName) {
+TEST_F(StatisticsTest, ExistReportEntryName) {
     rapidsmpf::Statistics stats;
 
     // Unknown name returns false.
@@ -95,7 +110,7 @@ TEST(Statistics, ExistReportEntryName) {
     EXPECT_FALSE(disabled.exist_report_entry_name("foo"));
 }
 
-TEST(Statistics, RegisterFormatterFirstWins) {
+TEST_F(StatisticsTest, RegisterFormatterFirstWins) {
     rapidsmpf::Statistics stats;
     // Register a custom formatter first.
     stats.register_formatter(
@@ -111,7 +126,7 @@ TEST(Statistics, RegisterFormatterFirstWins) {
     EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("KiB")));
 }
 
-TEST(Statistics, MultiStatFormatter) {
+TEST_F(StatisticsTest, MultiStatFormatter) {
     rapidsmpf::Statistics stats;
     stats.register_formatter(
         "spill-summary",
@@ -129,7 +144,7 @@ TEST(Statistics, MultiStatFormatter) {
     EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("spill-time")));
 }
 
-TEST(Statistics, ReportNoDataCollected) {
+TEST_F(StatisticsTest, ReportNoDataCollected) {
     rapidsmpf::Statistics stats;
     stats.register_formatter(
         "spill-summary",
@@ -148,7 +163,7 @@ TEST(Statistics, ReportNoDataCollected) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-bytes"));  // uncovered
 }
 
-TEST(Statistics, ReportSorting) {
+TEST_F(StatisticsTest, ReportSorting) {
     rapidsmpf::Statistics stats;
 
     // Register formatter entries for "banana" and "cherry".
@@ -190,7 +205,7 @@ TEST(Statistics, ReportSorting) {
     EXPECT_LT(pos_cherry, pos_date);
 }
 
-TEST(Statistics, MemoryProfiler) {
+TEST_F(StatisticsTest, MemoryProfiler) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
 
@@ -234,7 +249,7 @@ TEST(Statistics, MemoryProfiler) {
     EXPECT_EQ(records.at("outer").scoped.total(), 4_MiB);
 }
 
-TEST(Statistics, MemoryProfilerDisabled) {
+TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.is_memory_profiling_enabled());
@@ -258,7 +273,7 @@ TEST(Statistics, MemoryProfilerDisabled) {
     EXPECT_TRUE(records.empty());
 }
 
-TEST(Statistics, MemoryProfilerMacro) {
+TEST_F(StatisticsTest, MemoryProfilerMacro) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(&mr);
     {
@@ -273,7 +288,7 @@ TEST(Statistics, MemoryProfilerMacro) {
     EXPECT_EQ(entry.second.scoped.total(), 1_MiB);
 }
 
-TEST(Statistics, MemoryProfilerMacroDisabled) {
+TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     rapidsmpf::Statistics stats(false);
     {
@@ -282,4 +297,79 @@ TEST(Statistics, MemoryProfilerMacroDisabled) {
     }
     auto const& records = stats.get_memory_records();
     EXPECT_TRUE(records.empty());
+}
+
+TEST_F(StatisticsTest, JsonStream) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("foo", 10.0);
+    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats.add_bytes_stat("bar", 1024);
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    auto const& s = ss.str();
+
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("foo")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("count": 2)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("value": 15)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("max": 10)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("bar")"));
+    EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("memory_records")));
+}
+
+TEST_F(StatisticsTest, InvalidStatNames) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("has\"quote", 1.0);
+    stats.add_stat("has\\backslash", 2.0);
+    std::ostringstream ss;
+    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
+}
+
+TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::Statistics stats(&mr);
+    std::ignore = stats.create_memory_recorder("bad\"name");
+    std::ostringstream ss;
+    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
+}
+
+TEST_F(StatisticsTest, JsonMemoryRecords) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::Statistics stats(&mr);
+    {
+        auto rec = stats.create_memory_recorder("alloc");
+        mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
+    }
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    auto const& s = ss.str();
+
+    EXPECT_THAT(s, ::testing::HasSubstr("memory_records"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("alloc")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("num_calls": 1)"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("peak_bytes")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("total_bytes")"));
+    EXPECT_THAT(s, ::testing::HasSubstr(R"("global_peak_bytes")"));
+}
+
+TEST_F(StatisticsTest, JsonReport) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("foo", 10.0);
+    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats.add_bytes_stat("bar", 1024);
+
+    TempDir tmp_dir;
+    auto const path = tmp_dir.path() / "stats.json";
+    stats.write_json(path);
+
+    std::ifstream f(path);
+    ASSERT_TRUE(f.is_open());
+    std::string file_contents(
+        (std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()
+    );
+
+    std::ostringstream ss;
+    stats.write_json(ss);
+    EXPECT_EQ(file_contents, ss.str());
 }

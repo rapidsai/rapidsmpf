@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Number
+from os import PathLike
 from typing import Any, Self
 
 from rapidsmpf.config import Options
@@ -32,6 +33,8 @@ class Statistics:
     def get_memory_records(self) -> dict[str, MemoryRecord]: ...
     def memory_profiling(self, name: str) -> MemoryRecorder: ...
     def clear(self) -> None: ...
+    def write_json(self, filepath: str | PathLike[str]) -> None: ...
+    def write_json_string(self) -> str: ...
 
 @dataclass
 class MemoryRecord:

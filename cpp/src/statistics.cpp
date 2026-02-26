@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <ranges>
 #include <sstream>
@@ -12,6 +13,14 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
+
+namespace {
+bool has_json_unsafe_chars(std::string_view s) {
+    return std::ranges::any_of(s, [](unsigned char c) {
+        return c == '"' || c == '\\' || c < 0x20;
+    });
+}
+}  // namespace
 
 namespace rapidsmpf {
 
@@ -282,6 +291,68 @@ std::string Statistics::report(std::string const& header) const {
     ss << "\nLimitation:\n"
        << "  - A scope only tracks allocations made by the thread that entered it.\n";
     return ss.str();
+}
+
+void Statistics::write_json(std::ostream& os) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    for (auto const& [name, _] : stats_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "stat name cannot contains characters that require JSON escaping: " + name,
+            std::invalid_argument
+        );
+    }
+    for (auto const& [name, _] : memory_records_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "memory record name cannot contains characters that require JSON escaping: "
+                + name,
+            std::invalid_argument
+        );
+    }
+
+    os << "{\n";
+    os << "  \"statistics\": {";
+    for (std::string sep; auto const& [name, stat] : stats_) {
+        os << std::exchange(sep, ",") << "\n    \"" << name << "\": {"
+           << "\"count\": " << stat.count() << ", "
+           << "\"value\": " << stat.value() << ", "
+           << "\"max\": " << stat.max() << "}";
+    }
+    os << (stats_.empty() ? "" : "\n  ") << "}";
+
+    if (!memory_records_.empty()) {
+        // Sort by name for deterministic output (unordered_map has no order).
+        std::vector<std::string> names;
+        names.reserve(memory_records_.size());
+        for (auto const& [n, _] : memory_records_)
+            names.push_back(n);
+        std::ranges::sort(names);
+
+        os << ",\n  \"memory_records\": {";
+        for (std::string sep; auto const& n : names) {
+            auto const& rec = memory_records_.at(n);
+            os << std::exchange(sep, ",") << "\n    \"" << n << "\": {"
+               << "\"num_calls\": " << rec.num_calls << ", "
+               << "\"peak_bytes\": " << rec.scoped.peak() << ", "
+               << "\"total_bytes\": " << rec.scoped.total() << ", "
+               << "\"global_peak_bytes\": " << rec.global_peak << "}";
+        }
+        os << "\n  }";
+    }
+    os << "\n}\n";
+}
+
+void Statistics::write_json(std::filesystem::path const& filepath) const {
+    std::ofstream f(filepath);
+    RAPIDSMPF_EXPECTS(
+        f.is_open(), "Cannot open file: " + filepath.string(), std::ios_base::failure
+    );
+    write_json(f);
+    RAPIDSMPF_EXPECTS(
+        !f.fail(), "Failed writing to: " + filepath.string(), std::ios_base::failure
+    );
 }
 
 void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
