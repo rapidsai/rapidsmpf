@@ -14,6 +14,14 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+namespace {
+bool has_json_unsafe_chars(std::string_view s) {
+    return std::ranges::any_of(s, [](unsigned char c) {
+        return c == '"' || c == '\\' || c < 0x20;
+    });
+}
+}  // namespace
+
 namespace rapidsmpf {
 
 // Setting `mr_ = nullptr` disables memory profiling.
@@ -47,6 +55,11 @@ Statistics::Stat Statistics::get_stat(std::string const& name) const {
 }
 
 void Statistics::add_stat(std::string const& name, double value) {
+    RAPIDSMPF_EXPECTS(
+        !has_json_unsafe_chars(name),
+        "stat name cannot contains characters that require JSON escaping: " + name,
+        std::invalid_argument
+    );
     if (!enabled()) {
         return;
     }
@@ -149,6 +162,12 @@ Statistics::MemoryRecorder Statistics::create_memory_recorder(std::string name) 
     if (mr_ == nullptr) {
         return MemoryRecorder{};
     }
+    RAPIDSMPF_EXPECTS(
+        !has_json_unsafe_chars(name),
+        "memory record name cannot contains characters that require JSON escaping: "
+            + name,
+        std::invalid_argument
+    );
     return MemoryRecorder{this, mr_, std::move(name)};
 }
 
@@ -291,7 +310,7 @@ void Statistics::write_json(std::ostream& os) const {
     os << "{\n";
     os << "  \"statistics\": {";
     for (std::string sep; auto const& [name, stat] : stats_) {
-        os << std::exchange(sep, ",") << "\n    \"" << escape_chars(name) << "\": {"
+        os << std::exchange(sep, ",") << "\n    \"" << name << "\": {"
            << "\"count\": " << stat.count() << ", "
            << "\"value\": " << stat.value() << ", "
            << "\"max\": " << stat.max() << "}";
@@ -309,7 +328,7 @@ void Statistics::write_json(std::ostream& os) const {
         os << ",\n  \"memory_records\": {";
         for (std::string sep; auto const& n : names) {
             auto const& rec = memory_records_.at(n);
-            os << std::exchange(sep, ",") << "\n    \"" << escape_chars(n) << "\": {"
+            os << std::exchange(sep, ",") << "\n    \"" << n << "\": {"
                << "\"num_calls\": " << rec.num_calls << ", "
                << "\"peak_bytes\": " << rec.scoped.peak() << ", "
                << "\"total_bytes\": " << rec.scoped.total() << ", "

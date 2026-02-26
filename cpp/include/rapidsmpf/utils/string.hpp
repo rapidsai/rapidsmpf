@@ -296,44 +296,4 @@ std::optional<std::string> parse_optional(std::string text);
  */
 std::vector<std::string> parse_string_list(std::string_view text, char delimiter = ',');
 
-/**
- * @brief Escape special characters in a string.
- *
- * Scans @p text character by character. Any character found in @p chars_to_escape
- * is replaced by its escape sequence:
- *
- * | Input char            | Output      |
- * |-----------------------|-------------|
- * | `\b`                  | `\\b`       |
- * | `\f`                  | `\\f`       |
- * | `\n`                  | `\\n`       |
- * | `\r`                  | `\\r`       |
- * | `\t`                  | `\\t`       |
- * | `"`                   | `\\\"`      |
- * | `\\`                  | `\\\\`      |
- * | U+0000–U+001F (other) | `\\u00XX`   |
- * | anything else         | `\\` + char |
- *
- * Characters not in @p chars_to_escape are copied verbatim.
- *
- * @param text The input string to escape.
- * @param chars_to_escape The set of characters that must be escaped.
- * @return A new string with all matching characters replaced by their escape
- * sequences.
- */
-std::string escape_chars(std::string_view text, std::string_view chars_to_escape);
-
-/**
- * @brief Escape special characters in a string using RFC 8259 defaults.
- *
- * Equivalent to calling `escape_chars(text, chars_to_escape)` with a
- * @p chars_to_escape set containing `"`, `\\`, and all 32 ASCII control
- * characters (U+0000–U+001F), which is sufficient for producing
- * RFC 8259-compliant JSON string values.
- *
- * @param text The input string to escape.
- * @return A new string with all RFC 8259 special characters escaped.
- */
-std::string escape_chars(std::string_view text);
-
 }  // namespace rapidsmpf

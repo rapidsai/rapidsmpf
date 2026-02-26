@@ -317,24 +317,19 @@ TEST_F(StatisticsTest, JsonStream) {
     EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("memory_records")));
 }
 
-TEST_F(StatisticsTest, JsonSpecialChars) {
+TEST_F(StatisticsTest, InvalidStatNames) {
     rapidsmpf::Statistics stats;
-    // Stat names with characters that must be escaped in JSON.
-    stats.add_stat("has\"quote", 1.0);
-    stats.add_stat("has\\backslash", 2.0);
-    stats.add_stat("has\nnewline", 3.0);
+    EXPECT_THROW(stats.add_stat("has\"quote", 1.0), std::invalid_argument);
+    EXPECT_THROW(stats.add_stat("has\\backslash", 1.0), std::invalid_argument);
+    EXPECT_THROW(stats.add_stat("has\nnewline", 1.0), std::invalid_argument);
+    EXPECT_THROW(stats.add_stat("has\x01ctrl", 1.0), std::invalid_argument);
+}
 
-    std::ostringstream ss;
-    stats.write_json(ss);
-    auto const& s = ss.str();
-
-    // Escaped sequences must appear in output.
-    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\"quote)"));
-    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\\backslash)"));
-    EXPECT_THAT(s, ::testing::HasSubstr(R"(has\nnewline)"));
-
-    // Raw unescaped characters must NOT appear.
-    EXPECT_THAT(s, ::testing::Not(::testing::HasSubstr("has\"quote")));
+TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::Statistics stats(&mr);
+    EXPECT_THROW(stats.create_memory_recorder("bad\"name"), std::invalid_argument);
+    EXPECT_THROW(stats.create_memory_recorder("bad\nnewline"), std::invalid_argument);
 }
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {
