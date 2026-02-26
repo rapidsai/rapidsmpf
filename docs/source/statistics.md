@@ -15,7 +15,6 @@ This table gives an overview of the different statistics collected.
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
 | `shuffle-payload-recv` | Shuffle data received by this rank, including self-transfers. |
 | `shuffle-payload-send` | Shuffle data sent from this rank, including self-transfers. |
-| `spill-manager-limit-breach` | Shortfall statistics when the spill manager could not free enough memory. Reports the maximum, average, and count of breach events. Only recorded when spilling falls short of the requested amount. |
 
 Statistics are available in both C++ and [Python](#api-statistics).
 
@@ -35,8 +34,7 @@ Statistics:
  - event-loop-total:                     52.84 ms | avg 2.96 us
  - shuffle-payload-recv:                 2.79 GiB | avg 28.61 MiB
  - shuffle-payload-send:                 2.79 GiB | avg 28.61 MiB
- - spill-manager-limit-breach:           max 3.26 GiB | avg 2.93 GiB | count 1016
-```
+ ```
 
 ### JSON (`write_json()`)
 
@@ -61,8 +59,7 @@ Raw units: memory sizes are in **bytes** (float), timings are in **seconds** (fl
     "event-loop-post-incoming-chunk-recv": {"count": 17860, "value": 0.00041276, "max": 2.286e-06},
     "event-loop-total": {"count": 17860, "value": 0.0416019, "max": 0.000181082},
     "shuffle-payload-recv": {"count": 100, "value": 3.00001e+09, "max": 3.0029e+07},
-    "shuffle-payload-send": {"count": 100, "value": 3.00001e+09, "max": 3.0029e+07},
-    "spill-manager-limit-breach": {"count": 988, "value": 3.11398e+12, "max": 3.49572e+09}
+    "shuffle-payload-send": {"count": 100, "value": 3.00001e+09, "max": 3.0029e+07}
   },
   "memory_records": {
     "benchmarks/bench_shuffle.cpp:304(shuffling)": {"num_calls": 2, "peak_bytes": 600580452, "total_bytes": 28010554440, "global_peak_bytes": 600580452},

@@ -75,19 +75,6 @@ std::size_t SpillManager::spill(std::size_t amount) {
         }
         spilled += spill_functions_.at(fid)(amount - spilled);
     }
-    lock.unlock();
-    if (spilled < amount) {
-        auto& stats = *br_->statistics();
-        stats.register_formatter(
-            "spill-manager-limit-breach",
-            [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& stat) {
-                auto const s = stat[0];
-                os << "max " << format_nbytes(s.max()) << " | avg "
-                   << format_nbytes(s.value() / s.count()) << " | count " << s.count();
-            }
-        );
-        stats.add_stat("spill-manager-limit-breach", amount - spilled);
-    }
     return spilled;
 }
 
