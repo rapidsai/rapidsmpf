@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -201,4 +203,84 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
+namespace {
+
+/// Discover the actual pool size the driver creates when a small max is requested.
+/// Creates a pool with \p requested_max_pool_size (e.g. 1 MiB), then uses recursive
+/// doubling of allocation size until allocation fails; returns the last successful size.
+std::size_t discover_pinned_pool_actual_size(
+    rmm::cuda_stream_view stream, std::size_t requested_max_pool_size = 1_MiB
+) {
+    rapidsmpf::PinnedMemoryResource pinned_mr{
+        rapidsmpf::get_current_numa_node(),
+        rapidsmpf::PinnedPoolProperties{.max_pool_size = requested_max_pool_size}
+    };
+
+    auto can_allocate = [&](size_t size) -> bool {
+        try {
+            void* ptr = pinned_mr.allocate(stream, size);
+            pinned_mr.deallocate(stream, ptr, size);
+            return true;
+        } catch (cuda::cuda_error const&) {
+            return false;
+        }
+    };
+
+    constexpr std::size_t alignment = cuda::mr::default_cuda_malloc_alignment;
+
+    // Advance max size until we can't allocate using recursive doubling (guard overflow).
+    std::size_t max_size = requested_max_pool_size;
+    while (can_allocate(max_size)
+           && max_size <= std::numeric_limits<std::size_t>::max() / 2)
+    {
+        max_size *= 2;
+    }
+    max_size = std::max(max_size / 2, requested_max_pool_size);
+
+    // Bisection search for the actual pool size; min_size is a known-good lower bound.
+    std::size_t min_size = std::max(max_size / 2, requested_max_pool_size);
+    while (min_size + alignment <= max_size) {
+        std::size_t mid_size = std::midpoint(min_size, max_size);
+        mid_size = ((mid_size + alignment - 1) / alignment) * alignment;
+        mid_size = std::min(mid_size, max_size);  // clamp after rounding
+        if (can_allocate(mid_size)) {
+            min_size = mid_size;
+        } else {
+            max_size = mid_size - alignment;
+        }
+    }
+    return min_size;
+}
+
+}  // namespace
+
+TEST(PinnedResourceMaxSize, max_pool_size_limit) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+
+    // Ensure a current device context so driver APIs
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+    auto stream = cudf::get_default_stream();
+
+    // Create a PinnedMemoryResource with max pool size of 1 MiB; driver may round up.
+    rapidsmpf::PinnedMemoryResource pinned_mr{
+        rapidsmpf::get_current_numa_node(),
+        rapidsmpf::PinnedPoolProperties{.initial_pool_size = 0, .max_pool_size = 1_MiB}
+    };
+
+    auto alloc_and_dealloc = [&](std::size_t size) {
+        void* ptr = pinned_mr.allocate(stream, size);
+        EXPECT_NE(nullptr, ptr);
+        pinned_mr.deallocate(stream, ptr, size);
+    };
+
+    alloc_and_dealloc(512_KiB);
+
+    // Find the actual pool size (driver may round up, e.g. to 32 MiB) experimentally.
+    std::size_t const actual_pool_size = discover_pinned_pool_actual_size(stream, 1_MiB);
+    EXPECT_THROW(alloc_and_dealloc(actual_pool_size + 1), cuda::cuda_error);
+    stream.synchronize();
 }
