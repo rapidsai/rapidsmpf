@@ -31,7 +31,7 @@ namespace rapidsmpf {
 using Clock = std::chrono::high_resolution_clock;
 /// Alias for a duration type representing time in seconds as a double.
 using Duration = std::chrono::duration<double>;
-/// Alias for a time point using Clock with double-second precision.
+/// Alias for a time point with double precision in seconds.
 using TimePoint = std::chrono::time_point<Clock, Duration>;
 
 /**
