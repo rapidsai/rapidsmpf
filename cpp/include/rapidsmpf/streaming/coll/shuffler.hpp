@@ -16,19 +16,13 @@
 
 namespace rapidsmpf::streaming {
 
-class ShufflerAsync;
+/** Partition assignment policy for ShufflerAsync. */
+enum class PartitionAssignment {
+    round_robin,
+    contiguous,
+};
 
-/**
- * @brief Factory that creates a ShufflerAsync with contiguous partition assignment.
- *
- * @param ctx The streaming context to use.
- * @param op_id Unique operation ID for this shuffle.
- * @param total_num_partitions Total number of partitions.
- * @return A ShufflerAsync that assigns contiguous partition ID ranges to ranks.
- */
-[[nodiscard]] std::unique_ptr<ShufflerAsync> make_shuffler_async_contiguous(
-    std::shared_ptr<Context> ctx, OpID op_id, shuffler::PartID total_num_partitions
-);
+class ShufflerAsync;
 
 /**
  * @brief An asynchronous shuffler that allows concurrent insertion and extraction of
@@ -71,8 +65,7 @@ class ShufflerAsync {
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
      * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
-     * @param partition_owner Function that maps a partition ID to its owning rank/node.
-     * Defaults to round-robin distribution.
+     * @param partition_assignment Policy for assigning partitions to ranks.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -82,8 +75,23 @@ class ShufflerAsync {
         std::shared_ptr<Context> ctx,
         OpID op_id,
         shuffler::PartID total_num_partitions,
-        shuffler::Shuffler::PartitionOwner partition_owner =
-            shuffler::Shuffler::round_robin
+        PartitionAssignment partition_assignment = PartitionAssignment::round_robin
+    );
+
+    /**
+     * @brief Constructs a new ShufflerAsync instance with a custom partition owner.
+     *
+     * @param ctx The streaming context to use.
+     * @param op_id Unique operation ID for this shuffle.
+     * @param total_num_partitions Total number of partitions to shuffle data into.
+     * @param partition_owner Function that maps (comm, partition ID, total partitions)
+     * to the owning rank.
+     */
+    ShufflerAsync(
+        std::shared_ptr<Context> ctx,
+        OpID op_id,
+        shuffler::PartID total_num_partitions,
+        shuffler::Shuffler::PartitionOwner partition_owner
     );
 
     // Prevent copying

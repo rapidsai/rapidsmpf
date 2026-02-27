@@ -118,7 +118,9 @@ class Shuffler::Progress {
                 // All messages in the chunk maps to the same key (checked by the PostBox)
                 // thus we can use the partition ID of the first message in the chunk to
                 // determine the source rank of all of them.
-                auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id());
+                auto dst = shuffler_.partition_owner(
+                    shuffler_.comm_, chunk.part_id(), shuffler_.total_num_partitions
+                );
                 log.trace("send metadata to ", dst, ": ", chunk);
                 RAPIDSMPF_EXPECTS(
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
@@ -165,8 +167,11 @@ class Shuffler::Progress {
                     // PostBox) thus we can use the partition ID of the first message in
                     // the chunk to determine the source rank of all of them.
                     RAPIDSMPF_EXPECTS(
-                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id())
-                            == shuffler_.comm_->rank(),
+                        shuffler_.partition_owner(
+                            shuffler_.comm_,
+                            chunk.part_id(),
+                            shuffler_.total_num_partitions
+                        ) == shuffler_.comm_->rank(),
                         "receiving chunk not owned by us"
                     );
                     incoming_chunks_.emplace(src, std::move(chunk));
@@ -375,24 +380,22 @@ std::vector<PartID> Shuffler::local_partitions(
 ) {
     std::vector<PartID> ret;
     for (PartID i = 0; i < total_num_partitions; ++i) {
-        if (partition_owner(comm, i) == comm->rank()) {
+        if (partition_owner(comm, i, total_num_partitions) == comm->rank()) {
             ret.push_back(i);
         }
     }
     return ret;
 }
 
-Shuffler::PartitionOwner Shuffler::contiguous(PartID total_num_partitions) {
-    return [total_num_partitions](
-               std::shared_ptr<Communicator> const& comm, PartID pid
-           ) -> Rank {
-        if (total_num_partitions == 0) {
-            return 0;
-        }
-        return safe_cast<Rank>(
-            pid * safe_cast<PartID>(comm->nranks()) / total_num_partitions
-        );
-    };
+Rank Shuffler::contiguous(
+    std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
+) {
+    if (total_num_partitions == 0) {
+        return 0;
+    }
+    return safe_cast<Rank>(
+        pid * safe_cast<PartID>(comm->nranks()) / total_num_partitions
+    );
 }
 
 Shuffler::Shuffler(
@@ -409,8 +412,8 @@ Shuffler::Shuffler(
       br_{br},
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
-              return this->partition_owner(this->comm_, pid);
-          },  // extract Rank from pid
+              return this->partition_owner(this->comm_, pid, this->total_num_partitions);
+          },
           safe_cast<std::size_t>(comm->nranks())
       },
       ready_postbox_{
@@ -486,7 +489,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         ++outbound_chunk_counter_[chunk.part_id()];
     }
 
-    Rank p0_target_rank = partition_owner(comm_, chunk.part_id());
+    Rank p0_target_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
     if (p0_target_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
         if (chunk.is_data_buffer_set()) {

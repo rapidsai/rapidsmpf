@@ -24,16 +24,18 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
         ) except +ex_handler
 
-    unique_ptr[cpp_ShufflerAsync] make_shuffler_async_contiguous \
-        "rapidsmpf::streaming::make_shuffler_async_contiguous"(
-            shared_ptr[cpp_Context] ctx,
-            int32_t op_id,
-            uint32_t total_num_partitions,
-        ) except +ex_handler
+    cdef enum cpp_PartitionAssignment "rapidsmpf::streaming::PartitionAssignment":
+        cpp_PartitionAssignment_round_robin \
+            "rapidsmpf::streaming::PartitionAssignment::round_robin"
+        cpp_PartitionAssignment_contiguous \
+            "rapidsmpf::streaming::PartitionAssignment::contiguous"
 
     cdef cppclass cpp_ShufflerAsync"rapidsmpf::streaming::ShufflerAsync":
         cpp_ShufflerAsync(
-            shared_ptr[cpp_Context] ctx, int32_t op_id, uint32_t total_num_partitions
+            shared_ptr[cpp_Context] ctx,
+            int32_t op_id,
+            uint32_t total_num_partitions,
+            cpp_PartitionAssignment partition_assignment,
         ) except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +ex_handler
         span[const uint32_t] local_partitions() except +ex_handler

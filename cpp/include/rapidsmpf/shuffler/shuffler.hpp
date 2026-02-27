@@ -44,32 +44,40 @@ namespace rapidsmpf::shuffler {
 class Shuffler {
   public:
     /**
-     * @brief Function that given a `Communicator` and a `PartID`, returns the
-     * `rapidsmpf::Rank` of the _owning_ node.
+     * @brief Function that given a `Communicator`, `PartID`, and total partition count,
+     * returns the `rapidsmpf::Rank` of the _owning_ node.
      */
-    using PartitionOwner = std::function<Rank(std::shared_ptr<Communicator>, PartID)>;
+    using PartitionOwner =
+        std::function<Rank(std::shared_ptr<Communicator>, PartID, PartID)>;
 
     /**
-     * @brief A `PartitionOwner` that distribute the partition using round robin.
+     * @brief A `PartitionOwner` that distributes partitions using round robin.
      *
      * @param comm The communicator to use.
      * @param pid The partition ID to query.
+     * @param total_num_partitions Total number of partitions (unused).
      * @return The rank owning the partition.
      */
-    static Rank round_robin(std::shared_ptr<Communicator> const& comm, PartID pid) {
+    static Rank round_robin(
+        std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
+    ) {
+        (void)total_num_partitions;
         return safe_cast<Rank>(pid % safe_cast<PartID>(comm->nranks()));
     }
 
     /**
-     * @brief Returns a `PartitionOwner` that assigns contiguous partition ID ranges
-     * to ranks. Rank 0 gets partitions [0, k), rank 1 gets [k, 2k), etc., with
-     * k = ceil(total_num_partitions / nranks). Use for sort so that each rank's
+     * @brief A `PartitionOwner` that assigns contiguous partition ID ranges to ranks.
+     * Rank 0 gets [0, k), rank 1 gets [k, 2k), etc. Use for sort so that each rank's
      * local_partitions() are adjacent and in order.
      *
+     * @param comm The communicator to use.
+     * @param pid The partition ID to query.
      * @param total_num_partitions Total number of partitions (must match the shuffle).
-     * @return A partition owner function.
+     * @return The rank owning the partition.
      */
-    static PartitionOwner contiguous(PartID total_num_partitions);
+    static Rank contiguous(
+        std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
+    );
 
     /**
      * @brief Returns the local partition IDs owned by the current node.

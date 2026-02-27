@@ -83,16 +83,20 @@ coro::task<void> insert_and_notify(
 
 }  // namespace
 
-std::unique_ptr<ShufflerAsync> make_shuffler_async_contiguous(
-    std::shared_ptr<Context> ctx, OpID op_id, shuffler::PartID total_num_partitions
-) {
-    return std::make_unique<ShufflerAsync>(
-        std::move(ctx),
-        op_id,
-        total_num_partitions,
-        shuffler::Shuffler::contiguous(total_num_partitions)
-    );
-}
+ShufflerAsync::ShufflerAsync(
+    std::shared_ptr<Context> ctx,
+    OpID op_id,
+    shuffler::PartID total_num_partitions,
+    PartitionAssignment partition_assignment
+)
+    : ShufflerAsync(
+          std::move(ctx),
+          op_id,
+          total_num_partitions,
+          partition_assignment == PartitionAssignment::contiguous
+              ? shuffler::Shuffler::PartitionOwner{&shuffler::Shuffler::contiguous}
+              : shuffler::Shuffler::PartitionOwner{&shuffler::Shuffler::round_robin}
+      ) {}
 
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
@@ -107,7 +111,9 @@ ShufflerAsync::ShufflerAsync(
           // partitions sui generis.
           std::int64_t npart{0};
           for (shuffler::PartID i = 0; i < total_num_partitions; i++) {
-              if (partition_owner(ctx_->comm(), i) == ctx_->comm()->rank()) {
+              if (partition_owner(ctx_->comm(), i, total_num_partitions)
+                  == ctx_->comm()->rank())
+              {
                   npart++;
               }
           }
@@ -170,7 +176,8 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
-        shuffler_.partition_owner(ctx_->comm(), pid) == ctx_->comm()->rank(),
+        shuffler_.partition_owner(ctx_->comm(), pid, shuffler_.total_num_partitions)
+            == ctx_->comm()->rank(),
         "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
         std::out_of_range
     );

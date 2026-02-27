@@ -19,13 +19,22 @@ from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
-from rapidsmpf.streaming.coll.shuffler cimport (cpp_ShufflerAsync,
-                                                make_shuffler_async_contiguous)
+from rapidsmpf.streaming.coll.shuffler cimport (
+    cpp_PartitionAssignment, cpp_PartitionAssignment_contiguous,
+    cpp_PartitionAssignment_round_robin, cpp_ShufflerAsync)
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 import asyncio
+from enum import Enum
+
+
+class PartitionAssignment(str, Enum):
+    """Partition assignment policy for :class:`ShufflerAsync`."""
+
+    ROUND_ROBIN = "round_robin"
+    CONTIGUOUS = "contiguous"
 
 
 cdef extern from * nogil:
@@ -208,32 +217,37 @@ cdef class ShufflerAsync:
     total_num_partitions
         Global number of output partitions in the shuffle.
     partition_assignment
-        How to assign partition IDs to ranks: "round_robin" (default) for
-        load balance (e.g. hash shuffle), or "contiguous" so each rank gets
-        a contiguous range of partition IDs (e.g. for sort so concatenation
-        order matches global order).
+        How to assign partition IDs to ranks: :attr:`PartitionAssignment.ROUND_ROBIN`
+        or ``"round_robin"`` (default) for load balance (e.g. hash shuffle), or
+        :attr:`PartitionAssignment.CONTIGUOUS` or ``"contiguous"`` so each rank gets
+        a contiguous range of partition IDs (e.g. for sort so concatenation order
+        matches global order).
     """
     def __init__(
         self,
         Context ctx not None,
         int32_t op_id,
         uint32_t total_num_partitions,
-        str partition_assignment = "round_robin",
+        partition_assignment = "round_robin",
     ):
         cdef shared_ptr[cpp_Context] ctx_handle = ctx._handle
-        cdef unique_ptr[cpp_ShufflerAsync] new_handle
-        if partition_assignment == "contiguous":
-            with nogil:
-                new_handle = make_shuffler_async_contiguous(
-                    ctx_handle, op_id, total_num_partitions
-                )
-            self._handle = move(new_handle)
+        cdef cpp_PartitionAssignment c_policy
+        if isinstance(partition_assignment, PartitionAssignment):
+            c_policy = (
+                cpp_PartitionAssignment_contiguous
+                if partition_assignment is PartitionAssignment.CONTIGUOUS
+                else cpp_PartitionAssignment_round_robin
+            )
+        elif partition_assignment == "contiguous":
+            c_policy = cpp_PartitionAssignment_contiguous
         else:
-            with nogil:
-                new_handle = make_unique[cpp_ShufflerAsync](
-                    ctx_handle, op_id, total_num_partitions
-                )
-            self._handle = move(new_handle)
+            c_policy = cpp_PartitionAssignment_round_robin
+        cdef unique_ptr[cpp_ShufflerAsync] new_handle
+        with nogil:
+            new_handle = make_unique[cpp_ShufflerAsync](
+                ctx_handle, op_id, total_num_partitions, c_policy
+            )
+        self._handle = move(new_handle)
 
     def __dealloc__(self):
         with nogil:
