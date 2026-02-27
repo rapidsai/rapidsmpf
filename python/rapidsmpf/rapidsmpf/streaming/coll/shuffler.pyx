@@ -187,13 +187,21 @@ def shuffler(
     -------
     A streaming actor that finishes when shuffling is complete and `ch_out` has
     been drained.
+
+    Notes
+    -----
+    Partition ownership is assigned per the underlying C++ implementation's default
+    policy (round-robin across ranks/nodes).
     """
-    cdef shared_ptr[cpp_Context] ctx_h = ctx._handle
-    cdef shared_ptr[cpp_Channel] ch_in_h = ch_in._handle
-    cdef shared_ptr[cpp_Channel] ch_out_h = ch_out._handle
-    cdef cpp_Actor _ret
+
     with nogil:
-        _ret = cpp_shuffler(ctx_h, ch_in_h, ch_out_h, op_id, total_num_partitions)
+        _ret = cpp_shuffler(
+            ctx._handle,
+            ch_in._handle,
+            ch_out._handle,
+            op_id,
+            total_num_partitions,
+        )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
 

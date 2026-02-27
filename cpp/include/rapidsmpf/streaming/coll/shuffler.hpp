@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <memory>
 #include <unordered_set>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -54,10 +53,15 @@ class ShufflerAsync {
      * @brief Constructs a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
-     * @param op_id Unique operation ID for this shuffle.
+     * @param op_id Unique operation ID for this shuffle. Must not be reused until all
+     * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
-     * @param partition_owner Function that maps (comm, partition ID, total partitions)
-     * to the owning rank. Defaults to round-robin.
+     * @param partition_owner Function that maps a partition ID to its owning rank/node.
+     * Defaults to round-robin distribution.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
