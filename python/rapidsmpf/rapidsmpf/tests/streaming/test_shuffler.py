@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import cupy as cp
 import numpy as np
@@ -13,7 +13,11 @@ import cudf
 import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
-from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
+from rapidsmpf.streaming.coll.shuffler import (
+    PartitionAssignment,
+    ShufflerAsync,
+    shuffler,
+)
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -152,7 +156,7 @@ async def do_shuffle(
     num_partitions: int,
     *,
     use_extract_any: bool,
-    partition_assignment: Literal["round_robin", "contiguous"] = "round_robin",
+    partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
 ) -> None:
     shuffle = ShufflerAsync(
         context, op_id, num_partitions, partition_assignment=partition_assignment
@@ -166,7 +170,9 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    use_any = use_extract_any or (partition_assignment == "contiguous")
+    use_any = use_extract_any or (
+        partition_assignment is PartitionAssignment.CONTIGUOUS
+    )
     if use_any:
         while (out := await shuffle.extract_any_async(context)) is not None:
             pid, data = out
@@ -214,7 +220,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
             op_id,
             num_partitions,
             use_extract_any=False,
-            partition_assignment="contiguous",
+            partition_assignment=PartitionAssignment.CONTIGUOUS,
         )
     )
     actor, deferred = pull_from_channel(context, ch_shuffled)

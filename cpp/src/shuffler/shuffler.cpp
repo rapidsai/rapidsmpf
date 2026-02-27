@@ -413,7 +413,7 @@ Shuffler::Shuffler(
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
               return this->partition_owner(this->comm_, pid, this->total_num_partitions);
-          },
+          },  // extract Rank from pid
           safe_cast<std::size_t>(comm->nranks())
       },
       ready_postbox_{

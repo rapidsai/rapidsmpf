@@ -5,7 +5,7 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint32_t
-from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
@@ -30,11 +30,10 @@ import asyncio
 from enum import Enum
 
 
-class PartitionAssignment(str, Enum):
+class PartitionAssignment(Enum):
     """Partition assignment policy for :class:`ShufflerAsync`."""
-
-    ROUND_ROBIN = "round_robin"
-    CONTIGUOUS = "contiguous"
+    ROUND_ROBIN = 0
+    CONTIGUOUS = 1
 
 
 cdef extern from * nogil:
@@ -218,36 +217,26 @@ cdef class ShufflerAsync:
         Global number of output partitions in the shuffle.
     partition_assignment
         How to assign partition IDs to ranks: :attr:`PartitionAssignment.ROUND_ROBIN`
-        or ``"round_robin"`` (default) for load balance (e.g. hash shuffle), or
-        :attr:`PartitionAssignment.CONTIGUOUS` or ``"contiguous"`` so each rank gets
-        a contiguous range of partition IDs (e.g. for sort so concatenation order
-        matches global order).
+        (default) for load balance (e.g. hash shuffle), or
+        :attr:`PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        of partition IDs (e.g. for sort so concatenation order matches global order).
     """
     def __init__(
         self,
         Context ctx not None,
         int32_t op_id,
         uint32_t total_num_partitions,
-        partition_assignment = "round_robin",
+        partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
     ):
-        cdef shared_ptr[cpp_Context] ctx_handle = ctx._handle
-        cdef cpp_PartitionAssignment c_policy
-        if isinstance(partition_assignment, PartitionAssignment):
-            c_policy = (
-                cpp_PartitionAssignment_contiguous
-                if partition_assignment is PartitionAssignment.CONTIGUOUS
-                else cpp_PartitionAssignment_round_robin
-            )
-        elif partition_assignment == "contiguous":
-            c_policy = cpp_PartitionAssignment_contiguous
-        else:
-            c_policy = cpp_PartitionAssignment_round_robin
-        cdef unique_ptr[cpp_ShufflerAsync] new_handle
+        cdef cpp_PartitionAssignment c_policy = (
+            cpp_PartitionAssignment_contiguous
+            if partition_assignment is PartitionAssignment.CONTIGUOUS
+            else cpp_PartitionAssignment_round_robin
+        )
         with nogil:
-            new_handle = make_unique[cpp_ShufflerAsync](
-                ctx_handle, op_id, total_num_partitions, c_policy
+            self._handle = make_unique[cpp_ShufflerAsync](
+                ctx._handle, op_id, total_num_partitions, c_policy
             )
-        self._handle = move(new_handle)
 
     def __dealloc__(self):
         with nogil:
