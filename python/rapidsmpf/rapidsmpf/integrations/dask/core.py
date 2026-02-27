@@ -93,7 +93,7 @@ def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
 
 
-async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> bytes:
+async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
     """
     Set up the UCXX comm for the root worker.
 
@@ -101,8 +101,6 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     ----------
     n_ranks
         Number of ranks in the cluster / UCXX comm.
-    options
-        Configuration options.
 
     Returns
     -------
@@ -120,7 +118,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
             ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
         except AttributeError:
             raise RuntimeError(
-                "Local worker context not yet bootstrapped,  missing rapidsmpf_worker_local_setup"
+                "Local worker context not yet bootstrapped, missing rapidsmpf_worker_local_setup"
             ) from None
         ctx.comm = new_communicator(
             n_ranks, None, None, ctx.options, ProgressThread(ctx.statistics)
@@ -130,7 +128,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
-    n_ranks: int, root_address_bytes: bytes, options: Options
+    n_ranks: int, root_address_bytes: bytes
 ) -> None:
     """
     Set up the UCXX comms for a Dask worker.
@@ -141,8 +139,6 @@ async def rapidsmpf_ucxx_rank_setup_node(
         Number of ranks in the cluster / UCXX comm.
     root_address_bytes
         The UCXX address of the root node.
-    options
-        Configuration options.
 
     Note
     ----
@@ -155,7 +151,7 @@ async def rapidsmpf_ucxx_rank_setup_node(
             ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
         except AttributeError:
             raise RuntimeError(
-                "Local worker context not yet bootstrapped,  missing rapidsmpf_worker_local_setup"
+                "Local worker context not yet bootstrapped, missing rapidsmpf_worker_local_setup"
             ) from None
         if ctx.comm is None:
             # Not the root rank
@@ -289,7 +285,6 @@ def bootstrap_dask_cluster(
         root_address_bytes = client.submit(
             rapidsmpf_ucxx_rank_setup_root,
             n_ranks=n_ranks,
-            options=options,
             workers=workers[0],
             pure=False,
         ).result()
@@ -300,7 +295,6 @@ def bootstrap_dask_cluster(
                 rapidsmpf_ucxx_rank_setup_node,
                 n_ranks=n_ranks,
                 root_address_bytes=root_address_bytes,
-                options=options,
                 workers=worker,
                 pure=False,
             )

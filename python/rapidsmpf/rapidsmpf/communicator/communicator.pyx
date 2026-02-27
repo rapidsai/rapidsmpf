@@ -195,7 +195,7 @@ cdef class Communicator:
     @property
     def progress_thread(self):
         """
-        Get the communicator's progress thread
+        Get the communicator's progress thread.
 
         Returns
         -------
