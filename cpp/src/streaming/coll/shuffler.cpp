@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
 #include <memory>
 #include <numeric>
 
@@ -87,38 +88,16 @@ ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
     OpID op_id,
     shuffler::PartID total_num_partitions,
-    PartitionAssignment partition_assignment
-)
-    : ShufflerAsync(
-          std::move(ctx),
-          op_id,
-          total_num_partitions,
-          partition_assignment == PartitionAssignment::contiguous
-              ? shuffler::Shuffler::PartitionOwner{&shuffler::Shuffler::contiguous}
-              : shuffler::Shuffler::PartitionOwner{&shuffler::Shuffler::round_robin}
-      ) {}
-
-ShufflerAsync::ShufflerAsync(
-    std::shared_ptr<Context> ctx,
-    OpID op_id,
-    shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 )
     : ctx_(std::move(ctx)),
       notifications_(ctx_->executor()->get()),
-      latch_{[&]() {
-          // Need to initialise before shuffler_, so need to determine number of local
-          // partitions sui generis.
-          std::int64_t npart{0};
-          for (shuffler::PartID i = 0; i < total_num_partitions; i++) {
-              if (partition_owner(ctx_->comm(), i, total_num_partitions)
-                  == ctx_->comm()->rank())
-              {
-                  npart++;
-              }
-          }
-          return npart;
-      }()},
+      latch_{static_cast<std::int64_t>(
+          shuffler::Shuffler::local_partitions(
+              ctx_->comm(), total_num_partitions, partition_owner
+          )
+              .size()
+      )},
       shuffler_(
           ctx_->comm(),
           ctx_->progress_thread(),

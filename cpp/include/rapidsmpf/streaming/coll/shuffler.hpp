@@ -16,14 +16,6 @@
 
 namespace rapidsmpf::streaming {
 
-/** Partition assignment policy for ShufflerAsync. */
-enum class PartitionAssignment {
-    round_robin,
-    contiguous,
-};
-
-class ShufflerAsync;
-
 /**
  * @brief An asynchronous shuffler that allows concurrent insertion and extraction of
  * data.
@@ -62,36 +54,17 @@ class ShufflerAsync {
      * @brief Constructs a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
-     * @param op_id Unique operation ID for this shuffle. Must not be reused until all
-     * participants have completed the shuffle operation.
-     * @param total_num_partitions Total number of partitions to shuffle data into.
-     * @param partition_assignment Policy for assigning partitions to ranks.
-     *
-     * @note The caller promises that inserted buffers are stream-ordered with respect
-     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
-     * ordered with respect to their own stream.
-     */
-    ShufflerAsync(
-        std::shared_ptr<Context> ctx,
-        OpID op_id,
-        shuffler::PartID total_num_partitions,
-        PartitionAssignment partition_assignment = PartitionAssignment::round_robin
-    );
-
-    /**
-     * @brief Constructs a new ShufflerAsync instance with a custom partition owner.
-     *
-     * @param ctx The streaming context to use.
      * @param op_id Unique operation ID for this shuffle.
      * @param total_num_partitions Total number of partitions to shuffle data into.
      * @param partition_owner Function that maps (comm, partition ID, total partitions)
-     * to the owning rank.
+     * to the owning rank. Defaults to round-robin.
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
         OpID op_id,
         shuffler::PartID total_num_partitions,
-        shuffler::Shuffler::PartitionOwner partition_owner
+        shuffler::Shuffler::PartitionOwner partition_owner =
+            shuffler::Shuffler::round_robin
     );
 
     // Prevent copying

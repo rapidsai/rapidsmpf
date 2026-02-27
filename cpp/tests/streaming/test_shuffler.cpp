@@ -111,7 +111,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
             );
 
             auto local_pids = shuffler::Shuffler::local_partitions(
-                ctx->comm(), num_partitions, &shuffler::Shuffler::round_robin
+                ctx->comm(), num_partitions, shuffler::Shuffler::round_robin
             );
 
             // every partition is replicated on all ranks

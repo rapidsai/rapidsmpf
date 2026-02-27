@@ -48,7 +48,7 @@ class Shuffler {
      * returns the `rapidsmpf::Rank` of the _owning_ node.
      */
     using PartitionOwner =
-        std::function<Rank(std::shared_ptr<Communicator>, PartID, PartID)>;
+        std::function<Rank(std::shared_ptr<Communicator> const&, PartID, PartID)>;
 
     /**
      * @brief A `PartitionOwner` that distributes partitions using round robin.
@@ -59,9 +59,10 @@ class Shuffler {
      * @return The rank owning the partition.
      */
     static Rank round_robin(
-        std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
+        std::shared_ptr<Communicator> const& comm,
+        PartID pid,
+        [[maybe_unused]] PartID total_num_partitions
     ) {
-        (void)total_num_partitions;
         return safe_cast<Rank>(pid % safe_cast<PartID>(comm->nranks()));
     }
 
@@ -77,7 +78,13 @@ class Shuffler {
      */
     static Rank contiguous(
         std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
-    );
+    ) {
+        auto const n_ranks = safe_cast<PartID>(comm->nranks());
+        if (n_ranks == 1 || total_num_partitions <= 1) {
+            return 0;
+        }
+        return safe_cast<Rank>(pid * n_ranks / total_num_partitions);
+    }
 
     /**
      * @brief Returns the local partition IDs owned by the current node.

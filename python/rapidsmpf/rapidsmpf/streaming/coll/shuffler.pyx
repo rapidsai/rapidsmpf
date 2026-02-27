@@ -19,9 +19,9 @@ from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
-from rapidsmpf.streaming.coll.shuffler cimport (
-    cpp_PartitionAssignment, cpp_PartitionAssignment_contiguous,
-    cpp_PartitionAssignment_round_robin, cpp_ShufflerAsync)
+from rapidsmpf.streaming.coll.shuffler cimport (cpp_Shuffler_contiguous,
+                                                cpp_Shuffler_round_robin,
+                                                cpp_ShufflerAsync)
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
@@ -187,11 +187,6 @@ def shuffler(
     -------
     A streaming actor that finishes when shuffling is complete and `ch_out` has
     been drained.
-
-    Notes
-    -----
-    Partition ownership is assigned per the underlying C++ implementation's default
-    policy (round-robin across ranks/nodes).
     """
     cdef shared_ptr[cpp_Context] ctx_h = ctx._handle
     cdef shared_ptr[cpp_Channel] ch_in_h = ch_in._handle
@@ -220,6 +215,7 @@ cdef class ShufflerAsync:
         (default) for load balance (e.g. hash shuffle), or
         :attr:`PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
+        A custom callable may be supported in the future.
     """
     def __init__(
         self,
@@ -228,15 +224,19 @@ cdef class ShufflerAsync:
         uint32_t total_num_partitions,
         partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
     ):
-        cdef cpp_PartitionAssignment c_policy = (
-            cpp_PartitionAssignment_contiguous
-            if partition_assignment is PartitionAssignment.CONTIGUOUS
-            else cpp_PartitionAssignment_round_robin
+        # Choose partition-owner before releasing GIL (C type for nogil).
+        cdef bint use_contiguous = (
+            partition_assignment is PartitionAssignment.CONTIGUOUS
         )
         with nogil:
-            self._handle = make_unique[cpp_ShufflerAsync](
-                ctx._handle, op_id, total_num_partitions, c_policy
-            )
+            if use_contiguous:
+                self._handle = make_unique[cpp_ShufflerAsync](
+                    ctx._handle, op_id, total_num_partitions, cpp_Shuffler_contiguous
+                )
+            else:
+                self._handle = make_unique[cpp_ShufflerAsync](
+                    ctx._handle, op_id, total_num_partitions, cpp_Shuffler_round_robin
+                )
 
     def __dealloc__(self):
         with nogil:
