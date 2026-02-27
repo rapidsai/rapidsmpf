@@ -22,6 +22,7 @@
 
 namespace rapidsmpf {
 
+class StreamOrderedTiming;
 
 /**
  * @brief Tracks statistics across rapidsmpf operations.
@@ -93,7 +94,7 @@ class Statistics {
         RmmResourceAdaptor* mr, config::Options options
     );
 
-    ~Statistics() noexcept = default;
+    ~Statistics() noexcept;
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
 
@@ -160,6 +161,11 @@ class Statistics {
      * statistics have been recorded the formatter renders the values; otherwise the
      * entry reads "No data collected". Statistics not covered by any formatter are
      * shown as plain numeric values. All entries are sorted alphabetically.
+     *
+     * @note If any statistics are collected via stream-ordered timing (e.g. through
+     * `record_copy()`), all relevant CUDA streams must be synchronized before calling
+     * this method. Otherwise, some timing statistics may not yet have been recorded,
+     * causing entries to read "No data collected" or imprecise statistics.
      *
      * @param header Header line prepended to the report.
      * @return Formatted statistics report.
@@ -349,16 +355,49 @@ class Statistics {
     void add_duration_stat(std::string const& name, Duration seconds);
 
     /**
-     * @brief Record byte count for a memory copy operation.
+     * @brief Record byte count and wall-clock duration for a memory copy operation.
      *
-     * Records one statistics entry:
-     *  - `"copy-{src}-to-{dst}"` — the number of bytes copied.
+     * Records three statistics entries for `"copy-{src}-to-{dst}"`:
+     *  - `"-bytes"`        — the number of bytes copied.
+     *  - `"-time"`         — the copy duration, recorded in stream order.
+     *  - `"-stream-delay"` — time between CPU submission and GPU execution of the copy,
+     *                        recorded in stream order.
+     *
+     * All three entries are aggregated into a single combined report line under the name
+     * `"copy-{src}-to-{dst}"`, showing total bytes, total time, bandwidth, and average
+     * stream delay.
      *
      * @param src Source memory type.
      * @param dst Destination memory type.
      * @param nbytes Number of bytes copied.
+     * @param timing A `StreamOrderedTiming` that should be started just before the copy
+     * was enqueued on the stream. Its `stop_and_record()` is called here to enqueue the
+     * stop callback.
      */
-    void record_copy(MemoryType src, MemoryType dst, std::size_t nbytes);
+    void record_copy(
+        MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
+    );
+
+    /**
+     * @brief Record size and wall-clock duration for a buffer allocation.
+     *
+     * Records three statistics entries for `"alloc-{memtype}"`:
+     *  - `"-bytes"`        — the number of bytes allocated.
+     *  - `"-time"`         — the allocation duration, recorded in stream order.
+     *  - `"-stream-delay"` — time between CPU submission and GPU execution,
+     *                        recorded in stream order.
+     *
+     * All three entries are aggregated into a single combined report line showing
+     * total bytes, total time, throughput, and average stream delay.
+     *
+     * @param mem_type Memory type of the allocation.
+     * @param nbytes Number of bytes allocated.
+     * @param timing A `StreamOrderedTiming` constructed just before the allocation
+     * was issued. Its `stop_and_record()` is called here.
+     */
+    void record_alloc(
+        MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+    );
 
     /**
      * @brief Get the names of all statistics.
