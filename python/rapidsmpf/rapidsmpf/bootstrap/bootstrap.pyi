@@ -1,16 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-
 from enum import IntEnum
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
+from rapidsmpf.progress_thread import ProgressThread
 
 class BackendType(IntEnum):
     AUTO = ...
     FILE = ...
 
 def create_ucxx_comm(
+    progress_thread: ProgressThread,
     type: BackendType = ...,
     options: Options | None = ...,
 ) -> Communicator: ...

@@ -16,6 +16,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -262,10 +263,10 @@ class Communicator {
          *  - DEBUG: Debug messages.
          *  - TRACE: Trace messages.
          *
-         * @param comm The `Communicator` to use.
+         * @param rank The rank of the calling process.
          * @param options Configuration options.
          */
-        Logger(Communicator* comm, config::Options options);
+        Logger(Rank rank, config::Options options);
         virtual ~Logger() noexcept = default;
 
         /**
@@ -382,24 +383,15 @@ class Communicator {
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
             std::ostringstream full_log_msg;
-            full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
+            full_log_msg << "[" << level_name(level) << ":" << rank_ << ":"
                          << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }
 
-        /**
-         * @brief Get the communicator used by the logger.
-         *
-         * @return Pointer to the Communicator instance.
-         */
-        Communicator* get_communicator() const {
-            return comm_;
-        }
-
       private:
         std::mutex mutex_;
-        Communicator* comm_;
+        Rank rank_;
         LOG_LEVEL const level_;
 
         /// Counter used by `std::this_thread::get_id()` to abbreviate the large
@@ -619,6 +611,12 @@ class Communicator {
      * @return Reference to the logger.
      */
     [[nodiscard]] virtual Logger& logger() = 0;
+
+    /**
+     * @brief Retrieves the progress thread associated with this communicator.
+     * @return Shared pointer to the progress thread.
+     */
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() const = 0;
 
     /**
      * @brief Provides a string representation of the communicator.

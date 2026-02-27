@@ -17,6 +17,7 @@ from rapidsmpf.communicator.single import (
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
@@ -36,7 +37,7 @@ def make_context(
     if overwrite_options is not None:
         env.update(overwrite_options)
     options = Options(env)
-    comm = single_process_comm(options)
+    comm = single_process_comm(options, ProgressThread())
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
         mr,

@@ -137,7 +137,7 @@ cdef class Communicator:
     def __init__(self):
         raise TypeError(
             "Communicator is an abstract base case, please create a "
-            "communicater through a concrete implementation such as "
+            "communicator through a concrete implementation such as "
             "`rapidsmpf.mpi.new_communicator()`"
         )
 
@@ -190,7 +190,7 @@ cdef class Communicator:
 
         Returns
         -------
-            A string describing the communicater
+            A string describing the communicator
         """
         cdef string s = deref(self._handle).str()
         return s.decode('utf-8')

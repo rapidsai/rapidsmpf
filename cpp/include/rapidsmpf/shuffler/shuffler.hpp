@@ -26,9 +26,6 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-
-class ShuffleInsertGroupedTest;
-
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -45,8 +42,6 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
-    friend class ::ShuffleInsertGroupedTest;
-
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the

@@ -1,8 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import pytest
+
+from rapidsmpf.progress_thread import ProgressThread
 
 MPI = pytest.importorskip("mpi4py.MPI")
 from rapidsmpf.communicator.communicator import LOG_LEVEL  # noqa: E402
@@ -21,7 +23,9 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
-        comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
+        comm = new_communicator(
+            MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+        )
         assert comm.logger.verbosity_level is level
         comm.logger.print("PRINT")
         comm.logger.warn("WARN")
@@ -41,20 +45,24 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
 
 
 def test_mpi() -> None:
-    comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
+    comm = new_communicator(
+        MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+    )
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
 
 
 def test_ucxx() -> None:
     ucxx_worker = initialize_ucxx()
-    comm = ucxx_mpi_setup(ucxx_worker, Options(get_environment_variables()))
+    comm = ucxx_mpi_setup(
+        ucxx_worker, Options(get_environment_variables()), ProgressThread()
+    )
     assert comm.nranks == MPI.COMM_WORLD.size
 
     ucxx_worker.stop_progress_thread()
 
 
 def test_single_process() -> None:
-    comm = single_process_comm(Options(get_environment_variables()))
+    comm = single_process_comm(Options(get_environment_variables()), ProgressThread())
     assert comm.nranks == 1
     assert comm.rank == 0
