@@ -31,8 +31,8 @@ function(rapidsmpf_mpirun_test_add)
   foreach(np IN ITEMS ${nranks_to_run})
     # add the test using the relative path of the target
     add_test(
-      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
-      COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}" COMMAND mpirun --map-by node --bind-to none -np
+                                                       ${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
     )
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
@@ -71,8 +71,7 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
-          test_allreduce.cpp
-          test_allreduce_custom_kernels.cu
+          test_allreduce.cu
           test_buffer.cpp
           test_buffer_resource.cpp
           test_chunk.cpp
@@ -93,6 +92,7 @@ target_sources(
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
+          test_stream_ordered_timing.cpp
           test_system_info.cpp
           test_utils_string.cpp
 )

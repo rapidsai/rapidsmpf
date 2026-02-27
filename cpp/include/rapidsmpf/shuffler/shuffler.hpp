@@ -26,9 +26,6 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-
-class ShuffleInsertGroupedTest;
-
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -45,8 +42,6 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
-    friend class ::ShuffleInsertGroupedTest;
-
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -92,7 +87,6 @@ class Shuffler {
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when a partition is finished.
-     * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -106,7 +100,6 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         FinishedCallback&& finished_callback,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -119,7 +112,6 @@ class Shuffler {
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -132,7 +124,6 @@ class Shuffler {
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     )
         : Shuffler(
@@ -142,7 +133,6 @@ class Shuffler {
               total_num_partitions,
               br,
               nullptr,
-              statistics,
               partition_owner
           ) {}
 
@@ -239,9 +229,6 @@ class Shuffler {
      *    device memory.
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
-     *
-     * In both modes, it adds to the "spill-device-limit-breach" statistic if not
-     * enough memory could be spilled.
      *
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.

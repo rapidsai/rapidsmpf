@@ -15,6 +15,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -161,8 +162,13 @@ class UCXX final : public Communicator {
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
      * @param options Configuration options.
+     * @param progress_thread Progress thread for this communicator
      */
-    UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options);
+    UCXX(
+        std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+        config::Options options,
+        std::shared_ptr<ProgressThread> progress_thread
+    );
 
     ~UCXX() noexcept override;
 
@@ -250,6 +256,13 @@ class UCXX final : public Communicator {
             future_map
     ) override;
 
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) override;
+
     /**
      * @copydoc Communicator::wait
      *
@@ -278,6 +291,13 @@ class UCXX final : public Communicator {
      */
     [[nodiscard]] Logger& logger() override {
         return logger_;
+    }
+
+    /**
+     * @copydoc Communicator::progress_thread
+     */
+    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const override {
+        return progress_thread_;
     }
 
     /**
@@ -318,6 +338,7 @@ class UCXX final : public Communicator {
     std::shared_ptr<SharedResources> shared_resources_;
     config::Options options_;
     Logger logger_;
+    std::shared_ptr<ProgressThread> progress_thread_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

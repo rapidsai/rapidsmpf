@@ -193,7 +193,7 @@ def bulk_mpi_shuffle(
             )
     else:
         br = BufferResource(rmm.mr.get_current_device_resource())
-        progress_thread = ProgressThread(comm)
+        progress_thread = ProgressThread()
 
         shuffler = Shuffler(
             comm,
@@ -201,7 +201,6 @@ def bulk_mpi_shuffle(
             op_id=0,
             total_num_partitions=total_num_partitions,
             br=br,
-            statistics=statistics,
         )
 
         # Read batches and submit them to the shuffler
@@ -233,7 +232,6 @@ def bulk_mpi_shuffle(
                     shuffler.extract(partition_id),
                     br=br,
                     allow_overbooking=True,
-                    statistics=statistics,
                 ),
                 br=br,
                 stream=DEFAULT_STREAM,
@@ -247,16 +245,21 @@ def bulk_mpi_shuffle(
         shuffler.shutdown()
 
 
-def ucxx_mpi_setup(options: Options) -> Communicator:
+def ucxx_mpi_setup(options: Options, progress_thread: ProgressThread) -> Communicator:
     """
     Bootstrap UCXX cluster using MPI.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+    progress_thread
+        Progress thread for the initialized communicator.
 
     Returns
     -------
     Communicator
         A new ucxx communicator.
-    options
-        Configuration options.
     """
     import ucxx._lib.libucxx as ucx_api
 
@@ -267,7 +270,9 @@ def ucxx_mpi_setup(options: Options) -> Communicator:
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size, None, None, options)
+        comm = new_communicator(
+            MPI.COMM_WORLD.size, None, None, options, progress_thread
+        )
         root_address_bytes = get_root_ucxx_address(comm)
     else:
         root_address_bytes = None
@@ -276,7 +281,9 @@ def ucxx_mpi_setup(options: Options) -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address, options)
+        comm = new_communicator(
+            MPI.COMM_WORLD.size, None, root_address, options, progress_thread
+        )
 
     assert comm.nranks == MPI.COMM_WORLD.size
     barrier(comm)
@@ -293,16 +300,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
         Command-line arguments containing the configuration for the shuffle example.
     """
     options = Options(get_environment_variables())
-
-    if args.cluster_type == "mpi":
-        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
-    elif args.cluster_type == "ucxx":
-        if rapidsmpf.bootstrap.is_running_with_rrun():
-            comm = rapidsmpf.bootstrap.create_ucxx_comm(
-                type=rapidsmpf.bootstrap.BackendType.AUTO, options=options
-            )
-        else:
-            comm = ucxx_mpi_setup(options)
 
     # Create a RMM stack with both a device pool and statistics.
     mr = RmmResourceAdaptor(
@@ -325,6 +322,20 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     stats = Statistics(enable=args.statistics, mr=mr)
 
+    progress_thread = ProgressThread(stats)
+    if args.cluster_type == "mpi":
+        comm = rapidsmpf.communicator.mpi.new_communicator(
+            MPI.COMM_WORLD, options, progress_thread
+        )
+    elif args.cluster_type == "ucxx":
+        if rapidsmpf.bootstrap.is_running_with_rrun():
+            comm = rapidsmpf.bootstrap.create_ucxx_comm(
+                progress_thread,
+                type=rapidsmpf.bootstrap.BackendType.AUTO,
+                options=options,
+            )
+        else:
+            comm = ucxx_mpi_setup(options, progress_thread)
     cupti_monitor = None
     if args.monitor_memory is not None:
         if not CUPTI_AVAILABLE:

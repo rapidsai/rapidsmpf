@@ -45,7 +45,7 @@ in the {term}`Network`: push_to_channel->count_num_rows->pull_from_channel.
 
 *note: push_to_channel/pull_from_channel are convenience functions which simulate scans/writes*
 
-```{literalinclude} ../../python/rapidsmpf/rapidsmpf/examples/streaming/basic_example.py
+```{literalinclude} ../../../python/rapidsmpf/rapidsmpf/examples/streaming/basic_example.py
 :language: python
 :lines: 34-
 ```

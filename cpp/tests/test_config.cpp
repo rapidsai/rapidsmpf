@@ -733,7 +733,8 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
-    auto comm = std::make_shared<Single>(opts);
+    auto comm =
+        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -747,7 +748,8 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
-    auto comm = std::make_shared<Single>(opts);
+    auto comm =
+        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -762,7 +764,8 @@ TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
-    auto comm = std::make_shared<Single>(opts);
+    auto comm =
+        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -774,7 +777,8 @@ TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
-    auto comm = std::make_shared<Single>(opts);
+    auto comm =
+        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -786,7 +790,8 @@ TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{&cuda_mr};
-    auto comm = std::make_shared<Single>(opts);
+    auto comm =
+        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);

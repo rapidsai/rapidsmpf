@@ -11,6 +11,8 @@
 #include <mutex>
 #include <utility>
 
+#include <ucxx/request.h>
+
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -1030,11 +1032,14 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 }
 
 UCXX::UCXX(
-    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_(this, options_) {
+      logger_(shared_resources_->rank(), options_),
+      progress_thread_{std::move(progress_thread)} {
     shared_resources_->logger = &logger_;
 }
 
@@ -1302,6 +1307,41 @@ std::vector<std::size_t> UCXX::test_some(
     return completed;
 }
 
+bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    progress_worker();
+    auto flag = ucxx_future->req_->isCompleted();
+    ucxx_future->req_->checkError();
+    return flag;
+}
+
+std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(futures.size());
+    for (auto const& future : futures) {
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        reqs.push_back(ucxx_future->req_);
+    }
+    while (!std::ranges::all_of(reqs, [](auto&& req) {
+        auto flag = req->isCompleted();
+        req->checkError();
+        return flag;
+    }))
+    {
+        progress_worker();
+    }
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    for (auto&& future : futures) {
+        result.push_back(release_data(std::move(future)));
+    }
+    return result;
+}
+
 void UCXX::barrier() {
     Logger& log = logger();
     log.trace("Barrier started on rank ", shared_resources_->rank());
@@ -1396,7 +1436,9 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
+    return std::make_shared<UCXX>(
+        std::move(initialized_rank), options_, progress_thread_
+    );
 }
 
 }  // namespace ucxx

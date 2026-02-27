@@ -11,7 +11,8 @@
 namespace rapidsmpf {
 
 
-Single::Single(config::Options options) : logger_{this, std::move(options)} {}
+Single::Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread)
+    : logger_{0, std::move(options)}, progress_thread_{std::move(progress_thread)} {}
 
 std::unique_ptr<Communicator::Future> Single::send(
     std::unique_ptr<std::vector<std::uint8_t>>, Rank, Tag
@@ -50,6 +51,16 @@ std::vector<std::size_t> Single::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
 ) {
     RAPIDSMPF_FAIL("Unexpected test_some from self", std::runtime_error);
+}
+
+bool Single::test(std::unique_ptr<Communicator::Future>&) {
+    RAPIDSMPF_FAIL("Unexpected test from self", std::runtime_error);
+}
+
+std::vector<std::unique_ptr<Buffer>> Single::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&&
+) {
+    RAPIDSMPF_FAIL("Unexpected wait_all from self", std::runtime_error);
 }
 
 std::unique_ptr<Buffer> Single::wait(std::unique_ptr<Communicator::Future>) {

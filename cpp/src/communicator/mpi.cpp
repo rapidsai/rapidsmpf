@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -96,14 +97,24 @@ void check_mpi_thread_support() {
 }
 }  // namespace
 
-MPI::MPI(MPI_Comm comm, config::Options options)
-    : comm_{comm}, logger_{this, std::move(options)} {
-    int rank;
-    int nranks;
-    RAPIDSMPF_MPI(MPI_Comm_rank(comm_, &rank));
-    RAPIDSMPF_MPI(MPI_Comm_size(comm_, &nranks));
-    rank_ = rank;
-    nranks_ = nranks;
+MPI::MPI(
+    MPI_Comm comm,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
+)
+    : comm_{comm},
+      rank_{[comm]() {
+          int r;
+          RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
+          return Rank(r);
+      }()},
+      nranks_{[comm]() {
+          int n;
+          RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
+          return Rank(n);
+      }()},
+      logger_{rank_, std::move(options)},
+      progress_thread_{std::move(progress_thread)} {
     check_mpi_thread_support();
 }
 
@@ -306,6 +317,35 @@ std::vector<std::size_t> MPI::test_some(
         ret.push_back(key_reqs.at(safe_cast<std::size_t>(i)));
     }
     return ret;
+}
+
+bool MPI::test(std::unique_ptr<Communicator::Future>& future) {
+    auto mpi_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+    int flag{0};
+    RAPIDSMPF_MPI(MPI_Test(&mpi_future->req_, &flag, MPI_STATUS_IGNORE));
+    return flag != 0;
+}
+
+std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<MPI_Request> reqs;
+    reqs.reserve(futures.size());
+    for (auto const& future : futures) {
+        auto mpi_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+        reqs.push_back(mpi_future->req_);
+    }
+    RAPIDSMPF_MPI(
+        MPI_Waitall(static_cast<int>(reqs.size()), reqs.data(), MPI_STATUSES_IGNORE)
+    );
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    for (auto&& future : futures) {
+        result.push_back(release_data(std::move(future)));
+    }
+    return result;
 }
 
 std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) {

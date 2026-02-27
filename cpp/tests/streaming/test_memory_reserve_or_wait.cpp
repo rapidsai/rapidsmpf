@@ -376,12 +376,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingEnable
          {"allow_overbooking_by_default", config::OptionValue("true")}}
     };
     auto ctx_with_overbook = std::make_shared<Context>(
-        options,
-        ctx->comm(),
-        ctx->progress_thread(),
-        ctx->executor(),
-        ctx->br(),
-        ctx->statistics()
+        options, ctx->comm(), ctx->progress_thread(), ctx->executor(), ctx->br()
     );
 
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
@@ -408,12 +403,7 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabl
          {"allow_overbooking_by_default", config::OptionValue("false")}}
     };
     auto ctx_with_no_overbook = std::make_shared<Context>(
-        options,
-        ctx->comm(),
-        ctx->progress_thread(),
-        ctx->executor(),
-        ctx->br(),
-        ctx->statistics()
+        options, ctx->comm(), ctx->progress_thread(), ctx->executor(), ctx->br()
     );
 
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {

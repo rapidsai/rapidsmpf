@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -10,7 +10,6 @@
 #include <mutex>
 #include <unordered_map>
 
-#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -118,7 +117,6 @@ class ProgressThread {
     /**
      * @brief Construct a new progress thread that can handle multiple functions.
      *
-     * @param logger The logger instance to use.
      * @param statistics The statistics instance to use (disabled by default).
      * @param sleep The duration to sleep between each progress loop iteration.
      * If 0, the thread yields execution instead of sleeping. Anecdotally, a 1 us
@@ -126,7 +124,6 @@ class ProgressThread {
      * progress.
      */
     ProgressThread(
-        Communicator::Logger& logger,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         Duration sleep = std::chrono::microseconds{1}
     );
@@ -181,6 +178,11 @@ class ProgressThread {
      */
     bool is_running() const;
 
+    /**
+     * @brief @return The statistics instance on this progress thread.
+     */
+    std::shared_ptr<Statistics> statistics() const noexcept;
+
   private:
     /**
      * @brief The event loop progressing each of the functions.
@@ -190,7 +192,6 @@ class ProgressThread {
      */
     void event_loop();
 
-    Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
     bool is_thread_initialized_{false};
     bool active_{false};

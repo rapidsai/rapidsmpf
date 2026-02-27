@@ -16,7 +16,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -175,6 +175,15 @@ class Tag {
  * Provides an interface for sending and receiving messages between nodes, supporting
  * asynchronous operations, GPU data transfers, and custom logging. Implementations must
  * define the virtual methods to enable specific communication backends.
+ *
+ * The API of the `Communicator` is _not_ stream-ordered (since the concrete libraries we
+ * use to implement communication patterns are not stream-ordered). A consequence of this
+ * is that the user must ensure that any stream-ordered work on buffers is complete before
+ * passing a buffer into `send` or `recv`. As a corollary, after completing a future, the
+ * extracted `Buffer` is valid on its stream (it has no stream-ordered work queued up).
+ *
+ * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
+ * _must_ provide that there is no message overtaking.
  */
 class Communicator {
   public:
@@ -254,10 +263,10 @@ class Communicator {
          *  - DEBUG: Debug messages.
          *  - TRACE: Trace messages.
          *
-         * @param comm The `Communicator` to use.
+         * @param rank The rank of the calling process.
          * @param options Configuration options.
          */
-        Logger(Communicator* comm, config::Options options);
+        Logger(Rank rank, config::Options options);
         virtual ~Logger() noexcept = default;
 
         /**
@@ -374,24 +383,15 @@ class Communicator {
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
             std::ostringstream full_log_msg;
-            full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
+            full_log_msg << "[" << level_name(level) << ":" << rank_ << ":"
                          << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }
 
-        /**
-         * @brief Get the communicator used by the logger.
-         *
-         * @return Pointer to the Communicator instance.
-         */
-        Communicator* get_communicator() const {
-            return comm_;
-        }
-
       private:
         std::mutex mutex_;
-        Communicator* comm_;
+        Rank rank_;
         LOG_LEVEL const level_;
 
         /// Counter used by `std::this_thread::get_id()` to abbreviate the large
@@ -426,6 +426,9 @@ class Communicator {
      * This is used to send data that resides in host memory and is guaranteed
      * to be valid at the time of the call.
      *
+     * Use `release_sync_host_data` to obtain the data buffer again once the
+     * future is completed.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
@@ -438,7 +441,8 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Sends a message (device or host) to a specific rank.
+     * @brief Sends a message (device or host) to a specific rank. Use `release_data` to
+     * obtain the data buffer again once the future is completed.
      *
      * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
@@ -546,6 +550,25 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Test for completion of a single future.
+     *
+     * @param future Future to test
+     * @return True if the future is completed. After `test` returns true, it is safe to
+     * call `release_data()`.
+     */
+    [[nodiscard]] virtual bool test(std::unique_ptr<Communicator::Future>& future) = 0;
+
+    /**
+     * @brief Wait for completion of all futures and return their data buffers.
+     *
+     * @param futures Futures to wait for completion of, consumed.
+     * @return A vector of the contained data buffers.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) = 0;
+
+    /**
      * @brief Wait for a future to complete and return the data buffer.
      *
      * @param future The future to wait for completion of.
@@ -588,6 +611,12 @@ class Communicator {
      * @return Reference to the logger.
      */
     [[nodiscard]] virtual Logger& logger() = 0;
+
+    /**
+     * @brief Retrieves the progress thread associated with this communicator.
+     * @return Shared pointer to the progress thread.
+     */
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> progress_thread() const = 0;
 
     /**
      * @brief Provides a string representation of the communicator.

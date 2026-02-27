@@ -319,6 +319,7 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
@@ -330,16 +331,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm =
+                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
@@ -360,12 +362,19 @@ int main(int argc, char** argv) {
         };
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    auto stats = args.enable_memory_profiler
+                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
+                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        mr,
+        stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
-        std::move(memory_available)
+        std::move(memory_available),
+        std::nullopt,
+        std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        ),
+        stats
     );
 
     auto& log = comm->logger();
@@ -391,21 +400,14 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
-
-    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br, stats);
+    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
-        // Enable statistics for the last run.
+        // Clear statistics before the last run so only the final run is reported.
         if (i == total_num_runs - 1) {
-            if (args.enable_memory_profiler) {
-                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
-            } else {
-                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-            }
+            ctx->statistics()->clear();
         }
         double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
@@ -451,7 +453,7 @@ int main(int argc, char** argv) {
         }
         log.print(ss.str());
     }
-    log.print(stats->report("Statistics (of the last run):"));
+    log.print(ctx->statistics()->report("Statistics (of the last run):"));
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Finalize());
     }

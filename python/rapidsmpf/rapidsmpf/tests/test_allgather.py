@@ -133,7 +133,7 @@ def test_basic_allgather(
     should receive all data from all ranks.
     """
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread(comm)
+    progress_thread = ProgressThread()
     statistics = Statistics(enable=False)
 
     # Create AllGather instance

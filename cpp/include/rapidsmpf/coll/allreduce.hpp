@@ -5,38 +5,25 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <concepts>
 #include <condition_variable>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <optional>
-#include <ranges>
 #include <span>
-#include <type_traits>
 #include <utility>
-#include <vector>
 
 #ifdef __CUDACC__
 #include <thrust/execution_policy.h>
 #include <thrust/transform.h>
 #endif
 
-#include <cuda_runtime.h>
-
-#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/buffer_resource.hpp>
-#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -45,85 +32,36 @@ namespace rapidsmpf::coll {
 /**
  * @brief Type alias for the reduction function signature.
  *
- * The operator must update the left operand in place by combining it with the right
- * operand. The left operand is passed by lvalue reference and the right operand is
- * passed as an rvalue reference.
+ * A reduction function is a binary operator `left \oplus right`. The function
+ * implementing the operation must update `right` in place. That is, the result of calling
+ * the reduction should be as if we do `right <- left \oplus right`.
  */
-using ReduceOperatorFunction = std::function<void(PackedData& left, PackedData&& right)>;
-
-/**
- * @brief Enumeration indicating whether a reduction operator runs on host or device.
- */
-enum class ReduceOperatorType {
-    Host,  ///< Host-side reduction operator
-    Device  ///< Device-side reduction operator
-};
-
-/**
- * @brief Reduction operator that preserves type information.
- *
- * This class allows AllReduce to determine whether an operator is host- or device-based
- * without requiring runtime checks.
- */
-class ReduceOperator {
-  public:
-    /**
-     * @brief Construct a new ReduceOperator.
-     *
-     * @param fn The reduction function to wrap.
-     * @param type The type of reduction operator (Host or Device).
-     *
-     * @throw std::runtime_error if fn is empty/invalid.
-     */
-    ReduceOperator(ReduceOperatorFunction fn, ReduceOperatorType type)
-        : fn(std::move(fn)), type_(type) {
-        RAPIDSMPF_EXPECTS(
-            static_cast<bool>(this->fn), "ReduceOperator requires a valid function"
-        );
-    }
-
-    /**
-     * @brief Call the wrapped operator.
-     *
-     * @param left The left PackedData that will hold the result (updated in place).
-     * @param right The right PackedData to combine into the left operand.
-     */
-    void operator()(PackedData& left, PackedData&& right) const {
-        fn(left, std::move(right));
-    }
-
-    /**
-     * @brief Check if this operator is device-based.
-     *
-     * @return True if this is a device-based operator, false if host-based.
-     */
-    [[nodiscard]] bool is_device() const noexcept {
-        return type_ == ReduceOperatorType::Device;
-    }
-
-  private:
-    ReduceOperatorFunction fn;  ///< The reduction function
-    ReduceOperatorType type_;  ///< The type of reduction (host or device)
-};
+using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
 
 /**
  * @brief AllReduce collective.
  *
- * The current implementation is built using `coll::AllGather` and performs
- * the reduction locally after allgather completes. Considering `R` is the number of
- * ranks, and `N` is the number of bytes of data, per rank this incurs `O(R * N)` bytes of
- * memory consumption and `O(R)` communication operations.
+ * The implementation uses a butterfly recursive doubling scheme for message exchange,
+ * using no extra memory and `O(log P)` rounds for `P` ranks.
  *
- * Semantics:
- *  - Each rank calls `insert` exactly once to contribute data to the reduction.
- *  - Once all ranks call `insert`, `wait_and_extract` returns the
- *    globally-reduced `PackedData`.
+ * The actual reduction is implemented via a type-erased `ReduceOperator` that is supplied
+ * at construction time. Helper factories such as `detail::make_host_reduce_operator` or
+ * `detail::make_device_reduce_operator` can be used to build range-based reductions over
+ * contiguous arrays.
  *
- * The actual reduction is implemented via a type-erased `ReduceOperator` that is
- * supplied at construction time. Helper factories such as
- * `detail::make_host_reduce_operator` or
- * `detail::make_device_reduce_operator` can be used to build range-based
- * reductions over contiguous arrays.
+ * @note No internal allocations are made. The memory types and sizes of the two provided
+ * buffers must match, and the provided reduction operator must be valid for the memory
+ * type of the buffers.
+ *
+ * @note The reduction is safe to use with both non-associative and non-commutative
+ * reduction operations in the sense that all participating ranks are guaranteed to
+ * receive the same answer even if the operator is not associative or commutative.
+ *
+ * @note It is safe to reuse the `op_id` passed to the `AllReduce` construction locally as
+ * soon as `wait_and_extract` is complete.
+ *
+ * @warning Behaviour of this object is undefined if it is destructed without first
+ * ensuring that `wait_and_extract` completes successfully.
  */
 class AllReduce {
   public:
@@ -132,27 +70,25 @@ class AllReduce {
      *
      * @param comm The communicator for communication.
      * @param progress_thread The progress thread used by the underlying AllGather.
+     * @param input Local data to contribute to the reduction.
+     * @param output Allocated buffer in which to place reduction result. Must be the same
+     * size and memory type as `input`. Overwritten with the reduction result (values
+     * already in the buffer are ignored).
      * @param op_id Unique operation identifier for this allreduce.
-     * @param br Buffer resource for memory allocation.
-     * @param statistics Statistics collection instance (disabled by default).
-     * @param reduce_operator Type-erased reduction operator to use. Callers provide a
-     * binary operator that acts on the underlying bytes of each element. Use
-     * `ReduceOperatorType::Device` for device-side reduction and
-     * `ReduceOperatorType::Host` for host-side reduction when constructing the
-     * ReduceOperator.
+     * @param reduce_operator Type-erased reduction operator to use. See `ReduceOperator`.
      * @param finished_callback Optional callback run once locally when the allreduce
      * is finished and results are ready for extraction.
      *
-     * @note This constructor internally creates an `AllGather` instance
-     * that uses the same communicator, progress thread, and buffer resource.
+     * @throws std::invalid_argument If the input and output buffers do not match
+     * appropriately (same size, same memory type).
      */
     AllReduce(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
+        std::unique_ptr<Buffer> input,
+        std::unique_ptr<Buffer> output,
         OpID op_id,
         ReduceOperator reduce_operator,
-        BufferResource* br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::function<void(void)> finished_callback = nullptr
     );
 
@@ -168,16 +104,7 @@ class AllReduce {
      * destructed before `wait_and_extract` is called, there is no guarantee
      * that in-flight communication will be completed.
      */
-    ~AllReduce() = default;
-
-    /**
-     * @brief Insert packed data into the allreduce operation.
-     *
-     * @param packed_data The data to contribute to the allreduce.
-     *
-     * @throws std::runtime_error If insert has already been called on this instance.
-     */
-    void insert(PackedData&& packed_data);
+    ~AllReduce() noexcept;
 
     /**
      * @brief Check if the allreduce operation has completed.
@@ -190,24 +117,34 @@ class AllReduce {
     /**
      * @brief Wait for completion and extract the reduced data.
      *
-     * Blocks until the allreduce operation completes and returns the
-     * globally reduced result.
+     * Blocks until the allreduce operation completes and returns the globally reduced
+     * result.
      *
-     * This method is destructive and can only be called once. The first call
-     * extracts data from the underlying AllGather and performs the reduction.
-     * Subsequent calls will throw std::runtime_error because the underlying
-     * data has already been consumed.
+     * This method is destructive and can only be called once. The first call extracts the
+     * buffers provided to the `AllReduce` constructor. Subsequent calls will throw
+     * std::runtime_error because the underlying data has already been consumed.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean
      * no timeout.
-     * @return The reduced packed data.
+     * @return A pair of the two `Buffer`s passed to the constructor. The first `Buffer`
+     * contains an implementation-defined value, the second `Buffer` contains the
+     * final reduced result.
+     *
+     * @note The streams of the Buffers may change in an implementation-defined way while
+     * owned by the `AllReduce` object, if you need to launch new stream-ordered work on a
+     * `Buffer` you obtain from this function, you _must_ obtain the correct stream from
+     * the `Buffer` itself.
+     *
+     * @warning There may be outstanding stream-ordered work _reading_ from the first
+     * `Buffer` when this function returns (not tracked by the buffer's
+     * `Buffer::latest_write_event()`). If you want to pass it to a non-stream-ordered API
+     * that writes to the buffer you _must_ synchronise its stream first.
      *
      * @throws std::runtime_error If the timeout is reached or if this method is
      * called more than once.
      */
-    [[nodiscard]] PackedData wait_and_extract(
-        std::chrono::milliseconds timeout = std::chrono::milliseconds{-1}
-    );
+    [[nodiscard]] std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>>
+    wait_and_extract(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
     /**
      * @brief Check if reduced results are ready for extraction.
@@ -222,29 +159,44 @@ class AllReduce {
     [[nodiscard]] bool is_ready() const noexcept;
 
   private:
-    /// @brief Perform the reduction across all ranks for the gathered contributions.
-    [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
+    enum class Phase : uint8_t {
+        StartPreRemainder,
+        CompletePreRemainder,
+        StartButterfly,
+        CompleteButterfly,
+        StartPostRemainder,
+        CompletePostRemainder,
+        Done,
+        ResultAvailable
+    };
 
-    /// @brief Ensure reduction has been performed (called on-demand, thread-safe).
-    void ensure_reduction_done();
+    /// @brief Progress the non-blocking allreduce state machine.
+    [[nodiscard]] ProgressThread::ProgressState event_loop();
 
+    std::shared_ptr<Communicator> comm_{};
+    std::shared_ptr<ProgressThread> progress_thread_{};
     ReduceOperator reduce_operator_;  ///< Reduction operator
-    BufferResource* br_;  ///< Buffer resource for memory normalization
-
-    Rank nranks_;  ///< Number of ranks in the communicator
-    AllGather gatherer_;  ///< Underlying allgather primitive
-
-    std::atomic<bool> inserted_{false};  ///< Whether insert has been called
+    std::unique_ptr<Buffer> in_buffer_{};
+    std::unique_ptr<Buffer> out_buffer_{};
+    OpID op_id_{};
+    std::atomic<Phase> phase_{Phase::StartPreRemainder};
+    std::atomic<bool> active_{true};
     std::function<void()>
         finished_callback_;  ///< Callback invoked when allreduce completes
 
     mutable std::mutex mutex_;  ///< Mutex for synchronization
     mutable std::condition_variable cv_;  ///< Condition variable for waiting
-    mutable std::optional<PackedData>
-        reduced_result_;  ///< Reduced result (populated after reduction)
-    mutable std::atomic<bool> reduction_done_{
-        false
-    };  ///< Whether reduction has completed
+
+    Rank logical_rank_{-1};
+    Rank nearest_pow2_{0};
+    Rank non_pow2_remainder_{0};
+    Rank stage_mask_{1};
+    Rank stage_partner_{-1};
+
+    ProgressThread::FunctionID function_id_{};  ///< Progress thread function id
+
+    std::unique_ptr<Communicator::Future> send_future_{};
+    std::unique_ptr<Communicator::Future> recv_future_{};
 };
 
 namespace detail {
@@ -264,22 +216,11 @@ struct HostOp {
     /**
      * @brief Apply the reduction operator to the packed data ranges.
      *
-     * @param left The left PackedData that will be updated in place.
-     * @param right The right PackedData to combine into the left operand.
+     * @param left The left Buffer that will be combined.
+     * @param right The right Buffer updated with the left operand.
      */
-    void operator()(PackedData& left, PackedData&& right) {
-        RAPIDSMPF_EXPECTS(
-            left.data && right.data, "HostOp requires non-null data buffers"
-        );
-
-        auto* left_buf = left.data.get();
-        auto* right_buf = right.data.get();
-
-        auto const left_nbytes = left_buf->size;
-        auto const right_nbytes = right_buf->size;
-        RAPIDSMPF_EXPECTS(
-            left_nbytes == right_nbytes, "HostOp requires equal-sized buffers"
-        );
+    void operator()(Buffer const* left, Buffer* right) {
+        auto const left_nbytes = left->size;
         RAPIDSMPF_EXPECTS(
             left_nbytes % sizeof(T) == 0,
             "HostOp buffer size must be a multiple of sizeof(T)"
@@ -291,21 +232,18 @@ struct HostOp {
         }
 
         RAPIDSMPF_EXPECTS(
-            left_buf->mem_type() == MemoryType::HOST
-                && right_buf->mem_type() == MemoryType::HOST,
+            left->mem_type() == MemoryType::HOST && right->mem_type() == MemoryType::HOST,
             "HostOp expects host memory"
         );
 
-        auto* left_bytes = left_buf->exclusive_data_access();
-        auto* right_bytes = right_buf->exclusive_data_access();
+        auto* left_bytes = left->data();
+        auto* right_bytes = right->exclusive_data_access();
 
-        std::span<T> left_span{reinterpret_cast<T*>(left_bytes), count};
-        std::span<T const> right_span{reinterpret_cast<T const*>(right_bytes), count};
+        std::span<T const> left_span{reinterpret_cast<T const*>(left_bytes), count};
+        std::span<T> right_span{reinterpret_cast<T*>(right_bytes), count};
 
-        std::ranges::transform(left_span, right_span, left_span.begin(), op);
-
-        left_buf->unlock();
-        right_buf->unlock();
+        std::ranges::transform(left_span, right_span, right_span.begin(), op);
+        right->unlock();
     }
 };
 
@@ -327,23 +265,12 @@ struct DeviceOp {
     /**
      * @brief Apply the reduction operator to the packed data ranges.
      *
-     * @param left The left PackedData that will be updated in place.
-     * @param right The right PackedData to combine into the left operand.
+     * @param left The left Buffer that will be combined.
+     * @param right The right Buffer updated with the left operand.
      */
-    void operator()(PackedData& left, PackedData&& right) {
+    void operator()(Buffer const* left, Buffer* right) {
 #ifdef __CUDACC__
-        RAPIDSMPF_EXPECTS(
-            left.data && right.data, "DeviceOp requires non-null data buffers"
-        );
-
-        auto* left_buf = left.data.get();
-        auto* right_buf = right.data.get();
-
-        auto const left_nbytes = left_buf->size;
-        auto const right_nbytes = right_buf->size;
-        RAPIDSMPF_EXPECTS(
-            left_nbytes == right_nbytes, "DeviceOp requires equal-sized buffers"
-        );
+        auto const left_nbytes = left->size;
         RAPIDSMPF_EXPECTS(
             left_nbytes % sizeof(T) == 0,
             "DeviceOp buffer size must be a multiple of sizeof(T)"
@@ -355,23 +282,24 @@ struct DeviceOp {
         }
 
         RAPIDSMPF_EXPECTS(
-            left_buf->mem_type() == MemoryType::DEVICE
-                && right_buf->mem_type() == MemoryType::DEVICE,
+            left->mem_type() == MemoryType::DEVICE
+                && right->mem_type() == MemoryType::DEVICE,
             "DeviceOp expects device memory"
         );
+        // Both buffers are guaranteed to be on the same stream by the AllReduce ctor.
+        right->write_access([&](std::byte* right_bytes, rmm::cuda_stream_view stream) {
+            auto const* left_bytes = reinterpret_cast<std::byte const*>(left->data());
 
-        cuda_stream_join(left_buf->stream(), right_buf->stream());
+            T* right_ptr = reinterpret_cast<T*>(right_bytes);
+            T const* left_ptr = reinterpret_cast<T const*>(left_bytes);
 
-        left_buf->write_access([&](std::byte* left_bytes, rmm::cuda_stream_view stream) {
-            auto const* right_bytes =
-                reinterpret_cast<std::byte const*>(right_buf->data());
-
-            T* left_ptr = reinterpret_cast<T*>(left_bytes);
-            T const* right_ptr = reinterpret_cast<T const*>(right_bytes);
-
-            auto policy = thrust::cuda::par_nosync.on(stream.value());
             thrust::transform(
-                policy, right_ptr, right_ptr + count, left_ptr, left_ptr, op
+                thrust::cuda::par_nosync.on(stream.value()),
+                left_ptr,
+                left_ptr + count,
+                right_ptr,
+                right_ptr,
+                op
             );
         });
 #else
@@ -398,13 +326,7 @@ struct DeviceOp {
 template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
 ReduceOperator make_host_reduce_operator(Op op) {
-    HostOp<T, Op> host_op{std::move(op)};
-    return ReduceOperator(
-        [host_op = std::move(host_op)](PackedData& left, PackedData&& right) mutable {
-            host_op(left, std::move(right));
-        },
-        ReduceOperatorType::Host
-    );
+    return HostOp<T, Op>{std::move(op)};
 }
 
 /**
@@ -422,13 +344,7 @@ template <typename T, typename Op>
     requires std::invocable<Op, T const&, T const&>
 ReduceOperator make_device_reduce_operator(Op op) {
 #ifdef __CUDACC__
-    DeviceOp<T, Op> device_op{std::move(op)};
-    return ReduceOperator(
-        [device_op = std::move(device_op)](PackedData& left, PackedData&& right) mutable {
-            device_op(left, std::move(right));
-        },
-        ReduceOperatorType::Device
-    );
+    return DeviceOp<T, Op>{std::move(op)};
 #else
     std::ignore = op;
 

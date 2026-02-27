@@ -15,6 +15,7 @@ from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
 
 
 cdef extern from "<variant>" namespace "std" nogil:
@@ -53,10 +54,10 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     )
 
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
-        cpp_UCXX_Communicator() except +ex_handler
         cpp_UCXX_Communicator(
             unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
-            cpp_Options options
+            cpp_Options options,
+            shared_ptr[cpp_ProgressThread]
         ) except +ex_handler
         cpp_UCXX_ListenerAddress listener_address()
         void barrier() except +ex_handler
@@ -67,6 +68,7 @@ cdef Communicator cpp_new_communicator(
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
     Options options,
+    shared_ptr[cpp_ProgressThread] progress_thread
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
@@ -76,7 +78,7 @@ cdef Communicator cpp_new_communicator(
         else:
             ucxx_initialized_rank = init(worker, nranks, root_address, options._handle)
         ret._handle = make_shared[cpp_UCXX_Communicator](
-            move(ucxx_initialized_rank), options._handle
+            move(ucxx_initialized_rank), options._handle, progress_thread
         )
     return ret
 
@@ -86,6 +88,7 @@ def new_communicator(
     UCXWorker ucx_worker,
     UCXAddress root_ucxx_address,
     Options options not None,
+    ProgressThread progress_thread not None,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -104,6 +107,8 @@ def new_communicator(
         The UCXX address of the root rank (only specified for non-root ranks).
     options
         Configuration options.
+    progress_thread
+        Progress thread for the communicator.
 
     Returns
     -------
@@ -123,6 +128,7 @@ def new_communicator(
         ucx_worker_ptr,
         root_ucxx_address_ptr,
         options,
+        progress_thread._handle
     )
 
 

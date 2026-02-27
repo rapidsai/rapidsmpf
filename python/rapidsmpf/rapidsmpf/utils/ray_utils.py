@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 """Utils for the Ray integration."""
 
@@ -86,7 +86,7 @@ class BaseShufflingActor(RapidsMPFActor):
             raise RuntimeError("Communicator not initialized")
 
         assert self._comm is not None
-        progress_thread = ProgressThread(self._comm, statistics)
+        progress_thread = ProgressThread(statistics)
 
         return Shuffler(
             self.comm,
@@ -96,7 +96,6 @@ class BaseShufflingActor(RapidsMPFActor):
             buffer_resource
             if buffer_resource is not None
             else self.default_buffer_resource,
-            statistics=statistics,
         )
 
     @property

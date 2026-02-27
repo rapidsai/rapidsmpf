@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -97,7 +97,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         EXPECT_TRUE(msg.holds<Buffer>());
         auto const& src = msg.get<Buffer>();
         auto dst = reservation.br()->allocate(src.size, src.stream(), reservation);
-        buffer_copy(*dst, src, src.size);
+        buffer_copy(reservation.br()->statistics(), *dst, src, src.size);
         ContentDescription cd{
             {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
         };

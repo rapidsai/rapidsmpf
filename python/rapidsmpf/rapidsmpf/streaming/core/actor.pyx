@@ -7,11 +7,12 @@ from libcpp.utility cimport move
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Iterable, Iterator, Mapping
-from functools import wraps
+from collections.abc import Awaitable, Iterable, Mapping
+from functools import partial, wraps
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
+from rapidsmpf.streaming.core.context cimport Context
 
 
 cdef class CppActor:
@@ -83,13 +84,56 @@ class PyActor(Awaitable[None]):
     A streaming actor implemented in Python.
 
     This runs as an Python coroutine (asyncio), which means it comes with a significant
-    Python overhead. The GIL is released on `await` and when calling the C++ API.
+    Python overhead. The GIL is released while C++ actors are executing.
     """
-    def __init__(self, coro: Awaitable[None]) -> None:
-        self._coro = coro
+    def __init__(self, func, extra_channels, /, *args, **kwargs):
+        if len(args) < 1 or not isinstance(args[0], Context):
+            raise TypeError(
+                "expect a Context as the first positional argument "
+                "(not as a keyword argument)"
+            )
+        ctx = args[0]
+        channels_to_shutdown = (*collect_channels(args, kwargs), *extra_channels)
+        self._coro = self.run(ctx, channels_to_shutdown, func(*args, **kwargs))
 
-    def __await__(self) -> Iterator[None]:
+    @staticmethod
+    async def run(Context ctx not None, channels_to_shutdown, coro):
+        """
+        Run the coroutine and shutdown the channels when done.
+        """
+        try:
+            return await coro
+        finally:
+            for ch in channels_to_shutdown:
+                await ch.shutdown(ctx)
+
+    def __await__(self):
         return self._coro.__await__()
+
+
+def collect_channels(*objs):
+    """Recursively yield all `Channel` instances found in ``objs``."""
+    for obj in objs:
+        if isinstance(obj, Channel):
+            yield obj
+        elif isinstance(obj, (str, bytes, bytearray, memoryview)):
+            continue
+        elif isinstance(obj, Mapping):
+            yield from collect_channels(*obj.values())
+        elif isinstance(obj, Iterable):
+            yield from collect_channels(*obj)
+
+
+cdef decorate_actor(extra_channels, func):
+    """Validate ``func`` is async and wrap it as a PyActor."""
+    if not inspect.iscoroutinefunction(func):
+        raise TypeError(f"`{func.__qualname__}` must be an async function")
+    return wraps(func)(partial(PyActor, func, extra_channels))
+
+
+async def run_py_actors(py_actors):
+    """Await all ``py_actors`` concurrently."""
+    return await asyncio.gather(*py_actors)
 
 
 def define_actor(*, extra_channels=()):
@@ -140,54 +184,14 @@ def define_actor(*, extra_channels=()):
     ... # Later we need to call run_actor_network() to actually run the actor.
     """
 
-    def _collect_channels(obj, out):
-        if isinstance(obj, Channel):
-            out.append(obj)
-        elif isinstance(obj, (str, bytes, bytearray, memoryview)):
-            return
-        elif isinstance(obj, Mapping):
-            for v in obj.values():
-                _collect_channels(v, out)
-        elif isinstance(obj, Iterable):
-            for v in obj:
-                _collect_channels(v, out)
-
-    def decorator(func):
-        if not inspect.iscoroutinefunction(func):
-            raise TypeError(f"`{func.__qualname__}` must be an async function")
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if len(args) < 1 or not isinstance(args[0], Context):
-                raise TypeError(
-                    "expect a Context as the first positional argument "
-                    "(not as a keyword argument)"
-                )
-            ctx = args[0]
-
-            found = []
-            _collect_channels(args, found)
-            _collect_channels(kwargs, found)
-
-            async def run() -> None:
-                try:
-                    await func(*args, **kwargs)
-                finally:
-                    for ch in (*found, *extra_channels):
-                        await ch.shutdown(ctx)
-
-            return PyActor(run())
-
-        return wrapper
-
-    return decorator
+    return partial(decorate_actor, extra_channels)
 
 
 def run_actor_network(*, actors, py_executor = None):
     """
     Run streaming actors to completion (blocking).
 
-    Accepts a collection of actors. Native C++ actors are moved into the C++ graph
+    Accepts a collection of actors. Native C++ actors are moved into the C++ network
     and executed with minimal Python overhead, while Python actors are gathered and
     executed on a dedicated event loop in the provided executor.
 
@@ -224,7 +228,7 @@ def run_actor_network(*, actors, py_executor = None):
     ...     # Send one message and close.
     ...     await ch_out.send(
     ...         context,
-    ...         Message(TableChunk.from_pylibcudf_table(42, ...))
+    ...         Message(42, TableChunk.from_pylibcudf_table(...))
     ...     )
     ...     await ch_out.drain(context)
     ...
@@ -251,13 +255,10 @@ def run_actor_network(*, actors, py_executor = None):
                 "Unknown actor type, did you forget to use `@define_actor()`?"
             )
 
-    async def runner():
-        return await asyncio.gather(*py_actors)
-
     if len(py_actors) > 0:
         if py_executor is None:
             raise ValueError("must provide a py_executor to run Python actors.")
-        py_future = py_executor.submit(asyncio.run, runner())
+        py_future = py_executor.submit(asyncio.run, run_py_actors(py_actors))
 
     try:
         if cpp_actors.size() > 0:
