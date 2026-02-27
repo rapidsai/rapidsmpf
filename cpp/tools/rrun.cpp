@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -56,8 +57,38 @@ namespace {
 struct Config;
 [[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg);
 int execute_single_node_mode(Config& cfg);
+
+/** A launched child process and its stdout/stderr forwarder threads. */
+struct LaunchedProcess {
+    pid_t pid;
+    std::thread stdout_forwarder;
+    std::thread stderr_forwarder;
+};
+#ifdef RAPIDSMPF_HAVE_SLURM
+int execute_slurm_hybrid_mode(Config& cfg);
+
+/** Return type when we launch one process and also obtain an address (e.g. rank 0). */
+struct AddressAndProcess {
+    std::string encoded_address;
+    LaunchedProcess process;
+};
+
+AddressAndProcess launch_rank0_and_get_address(
+    Config const& cfg, std::string const& address_file, int total_ranks
+);
+std::string coordinate_root_address_via_pmix(
+    Config const& cfg,
+    std::optional<std::string> const& root_address_to_publish,
+    bool verbose
+);
+#endif
 int launch_ranks_fork_based(
-    Config const& cfg, int rank_offset, int ranks_per_task, int total_ranks
+    Config const& cfg,
+    int rank_offset,
+    int ranks_per_task,
+    int total_ranks,
+    std::optional<std::string> const& root_address,
+    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
 );
 [[noreturn]] void exec_application(Config const& cfg);
 pid_t launch_rank_local(
@@ -65,6 +96,7 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
+    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 );
@@ -83,6 +115,18 @@ enum class BindToState {
     None,  // --bind-to none
     All,  // --bind-to all
     Specific  // --bind-to cpu/memory/network (one or more)
+};
+
+/**
+ * @brief Slurm environment info (from SLURM_* variables).
+ * Only present when running under Slurm. Required fields must be set before
+ * using hybrid or passthrough mode; missing values cause runtime_error.
+ */
+struct SlurmEnv {
+    int job_id{-1};  // SLURM_JOB_ID
+    int local_id{-1};  // SLURM_LOCALID
+    int global_rank{-1};  // SLURM_PROCID
+    int ntasks{-1};  // SLURM_NTASKS or SLURM_NPROCS
 };
 
 /**
@@ -109,9 +153,7 @@ struct Config {
     std::map<int, cucascade::memory::gpu_topology_info const*>
         gpu_topology_map;  // Map GPU ID to topology info
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
-    int slurm_local_id{-1};  // Local rank within node (SLURM_LOCALID)
-    int slurm_global_rank{-1};  // Global rank (SLURM_PROCID)
-    int slurm_ntasks{-1};  // Total number of tasks (SLURM_NTASKS)
+    std::optional<SlurmEnv> slurm;  // Set when slurm_mode is true
 };
 
 /**
@@ -180,7 +222,13 @@ void print_usage(std::string_view prog_name) {
         << "Slurm Options:\n"
         << "  --slurm            Run in Slurm mode (auto-detected when SLURM_JOB_ID is "
         << "                     set)\n"
-        << "                     Applies topology bindings and executes application\n\n"
+        << "                     Two sub-modes:\n"
+        << "                     1. Passthrough (no -n): Apply topology bindings and\n"
+        << "                     executes application\n"
+        << "                     2. Hybrid (with -n): Launch N ranks per Slurm task.\n"
+        << "                     In hybrid mode, each Slurm task launches multiple\n"
+        << "                     ranks with coordinated global rank numbering.\n"
+        << "                     Topology bindings are applied to each rank.\n\n"
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
         << "                     Not applicable in Slurm mode\n"
@@ -209,10 +257,14 @@ void print_usage(std::string_view prog_name) {
         << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
            "./bench_comm\n\n"
         << "Slurm Examples:\n"
-        << "  # Multiple (4) tasks per node, one task per GPU, two nodes.\n"
+        << "  # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.\n"
         << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=4 --cpus-per-task=36 \\\n"
         << "      --gpus-per-task=1 --gres=gpu:4 \\\n"
         << "      rrun ./benchmarks/bench_shuffle -C ucxx\n\n"
+        << "  # Hybrid mode: one task per node, 4 GPUs per task, two nodes.\n"
+        << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=1 --cpus-per-task=144 \\\n"
+        << "      --gpus-per-task=4 --gres=gpu:4 \\\n"
+        << "      rrun -n 4 ./benchmarks/bench_shuffle -C ucxx\n\n"
         << std::endl;
 }
 
@@ -334,34 +386,31 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
  * @return true if running under Slurm with required environment variables.
  */
 bool detect_slurm_environment(Config& cfg) {
-    // Check for required Slurm environment variables
     char const* slurm_job_id = std::getenv("SLURM_JOB_ID");
     char const* slurm_local_id = std::getenv("SLURM_LOCALID");
     char const* slurm_procid = std::getenv("SLURM_PROCID");
     char const* slurm_ntasks = std::getenv("SLURM_NTASKS");
 
-    // Need at least job ID and local ID to be in Slurm mode
     if (!slurm_job_id || !slurm_local_id) {
         return false;
     }
 
     try {
-        cfg.slurm_local_id = std::stoi(slurm_local_id);
-
+        SlurmEnv env;
+        env.job_id = std::stoi(slurm_job_id);
+        env.local_id = std::stoi(slurm_local_id);
         if (slurm_procid) {
-            cfg.slurm_global_rank = std::stoi(slurm_procid);
+            env.global_rank = std::stoi(slurm_procid);
         }
-
         if (slurm_ntasks) {
-            cfg.slurm_ntasks = std::stoi(slurm_ntasks);
+            env.ntasks = std::stoi(slurm_ntasks);
         } else {
-            // Try SLURM_NPROCS as fallback
             char const* slurm_nprocs = std::getenv("SLURM_NPROCS");
             if (slurm_nprocs) {
-                cfg.slurm_ntasks = std::stoi(slurm_nprocs);
+                env.ntasks = std::stoi(slurm_nprocs);
             }
         }
-
+        cfg.slurm = std::move(env);
         return true;
     } catch (...) {
         return false;
@@ -597,17 +646,18 @@ Config parse_args(int argc, char* argv[]) {
 
     if (cfg.slurm_mode) {
         // Slurm mode validation
-        if (cfg.slurm_local_id < 0) {
+        if (!cfg.slurm || cfg.slurm->local_id < 0) {
             throw std::runtime_error(
                 "SLURM_LOCALID environment variable not set or invalid"
             );
         }
 
-        // In Slurm mode, -n flag is not used (one rank per task)
-        if (cfg.nranks != 1) {
-            throw std::runtime_error(
-                "-n flag is not supported in Slurm mode. Use srun to control task count."
-            );
+        // In Slurm mode:
+        // - If -n is specified: launch N ranks per Slurm task (hybrid mode)
+        // - If -n is not specified: just apply bindings and exec (passthrough mode,
+        //                           one rank per task)
+        if (cfg.nranks <= 0) {
+            cfg.nranks = 1;
         }
     } else {
         // Single-node mode validation
@@ -753,14 +803,22 @@ pid_t fork_with_piped_stdio(
 /**
  * @brief Common helper to set up coordination, launch ranks, and cleanup.
  *
- * This function encapsulates the common workflow for single-node mode:
- * create coordination directory, launch ranks via fork, cleanup, and report results.
+ * This function encapsulates the common workflow shared by both Slurm hybrid mode
+ * and single-node mode: create coordination directory, launch ranks via fork,
+ * cleanup, and report results.
+ *
+ * A task here denotes a Slurm unit of execution, e.g., a single instance of a
+ * program or process, e.g., an instance of the `rrun` executable itself.
  *
  * @param cfg Configuration (will modify coord_dir if empty).
  * @param rank_offset Starting global rank for this task.
  * @param ranks_per_task Number of ranks to launch locally.
  * @param total_ranks Total ranks across all tasks.
+ * @param root_address Pre-coordinated root address (empty for FILE backend).
  * @param coord_dir_hint Hint for coordination directory name (e.g., job ID).
+ * @param pre_launched_process If set, one process was already launched; its pid
+ *                              and forwarders are included so we wait and forward
+ * signals.
  * @return Exit status (0 for success).
  */
 int setup_launch_and_cleanup(
@@ -768,7 +826,9 @@ int setup_launch_and_cleanup(
     int rank_offset,
     int ranks_per_task,
     int total_ranks,
-    std::string const& coord_dir_hint = ""
+    std::optional<std::string> const& root_address,
+    std::string const& coord_dir_hint = "",
+    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
 ) {
     // Set up coordination directory
     if (cfg.coord_dir.empty()) {
@@ -781,8 +841,14 @@ int setup_launch_and_cleanup(
     std::filesystem::create_directories(cfg.coord_dir);
 
     // Launch ranks and wait for completion
-    int exit_status =
-        launch_ranks_fork_based(cfg, rank_offset, ranks_per_task, total_ranks);
+    int exit_status = launch_ranks_fork_based(
+        cfg,
+        rank_offset,
+        ranks_per_task,
+        total_ranks,
+        root_address,
+        std::move(pre_launched_process)
+    );
 
     if (cfg.cleanup) {
         if (cfg.verbose) {
@@ -834,6 +900,88 @@ int setup_launch_and_cleanup(
     _exit(1);
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
+/**
+ * @brief Execute application in Slurm hybrid mode with PMIx coordination.
+ *
+ * Root parent launches rank 0 first to get address, coordinates via PMIx, then parents
+ * on all nodes launch their remaining ranks. Uses fork-based execution.
+ *
+ * @param cfg Configuration.
+ * @return Exit status (0 for success).
+ */
+int execute_slurm_hybrid_mode(Config& cfg) {
+    if (!cfg.slurm || cfg.slurm->job_id < 0 || cfg.slurm->ntasks <= 0
+        || cfg.slurm->global_rank < 0)
+    {
+        throw std::runtime_error(
+            "SLURM_JOB_ID, SLURM_NTASKS and SLURM_PROCID must be set for Slurm hybrid "
+            "mode. Ensure you are running under srun with --ntasks (or equivalent)."
+        );
+    }
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm->global_rank
+                  << " launching " << cfg.nranks << " ranks per task" << std::endl;
+        std::cout << "[rrun] Using PMIx for parent coordination (no file I/O)"
+                  << std::endl;
+    }
+
+    // Set up coordination directory FIRST (needed by rank 0 when it's launched early)
+    if (cfg.coord_dir.empty()) {
+        cfg.coord_dir = "/tmp/rrun_slurm_" + std::to_string(cfg.slurm->job_id);
+    }
+    std::filesystem::create_directories(cfg.coord_dir);
+
+    // Root parent needs to launch rank 0 first to get address
+    bool is_root_parent = (cfg.slurm->global_rank == 0);
+
+    // Coordinate root address with other nodes via PMIx
+    int total_ranks = cfg.slurm->ntasks * cfg.nranks;
+    std::string encoded_root_address, coordinated_root_address;
+
+    std::optional<LaunchedProcess> pre_launched_process;
+    if (is_root_parent) {
+        // Root parent: Launch rank 0, get address, coordinate via PMIx
+        std::string address_file =
+            "/tmp/rapidsmpf_root_address_" + std::to_string(cfg.slurm->job_id);
+        AddressAndProcess rank0_result =
+            launch_rank0_and_get_address(cfg, address_file, total_ranks);
+        encoded_root_address = std::move(rank0_result.encoded_address);
+        pre_launched_process = std::move(rank0_result.process);
+        coordinated_root_address =
+            coordinate_root_address_via_pmix(cfg, encoded_root_address, cfg.verbose);
+    } else {
+        // Non-root parent: Get address from root via PMIx
+        coordinated_root_address =
+            coordinate_root_address_via_pmix(cfg, std::nullopt, cfg.verbose);
+    }
+
+    unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
+
+    int rank_offset = cfg.slurm->global_rank * cfg.nranks;
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Task " << cfg.slurm->global_rank << " launching ranks "
+                  << rank_offset << "-" << (rank_offset + cfg.nranks - 1)
+                  << " (total: " << total_ranks << " ranks)" << std::endl;
+    }
+
+    std::string coord_hint = "slurm_" + std::to_string(cfg.slurm->job_id);
+    int exit_status = setup_launch_and_cleanup(
+        cfg,
+        rank_offset,
+        cfg.nranks,
+        total_ranks,
+        coordinated_root_address,
+        coord_hint,
+        std::move(pre_launched_process)
+    );
+
+    return exit_status;
+}
+#endif  // RAPIDSMPF_HAVE_SLURM
+
 /**
  * @brief Execute application in single-node mode with FILE backend.
  *
@@ -848,11 +996,11 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks);
+    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt);
 }
 
 /**
- * @brief Execute application in Slurm mode (single rank per task).
+ * @brief Execute application in Slurm passthrough mode (single rank per task).
  *
  * Applies topology bindings and executes the application directly without forking.
  * This function never returns - it either replaces the current process or exits on error.
@@ -860,24 +1008,34 @@ int execute_single_node_mode(Config& cfg) {
  * @param cfg Configuration.
  */
 [[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg) {
+    if (!cfg.slurm || cfg.slurm->ntasks <= 0) {
+        throw std::runtime_error(
+            "SLURM_NTASKS must be set for Slurm passthrough mode. "
+            "Ensure you are running under srun with --ntasks (or equivalent)."
+        );
+    }
+
     if (cfg.verbose) {
-        std::cout << "[rrun] Slurm mode: applying bindings and exec'ing" << std::endl;
+        std::cout << "[rrun] Slurm passthrough mode: applying bindings and exec'ing"
+                  << std::endl;
     }
 
     // Set rrun coordination environment variables so the application knows
     // it's being launched by rrun and should use bootstrap mode
-    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
-    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
+    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm->global_rank).c_str(), 1);
+    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm->ntasks).c_str(), 1);
 
     // Determine GPU for this Slurm task
     int gpu_id = -1;
     if (!cfg.gpus.empty()) {
-        gpu_id = cfg.gpus[static_cast<std::size_t>(cfg.slurm_local_id) % cfg.gpus.size()];
+        gpu_id =
+            cfg.gpus[static_cast<std::size_t>(cfg.slurm->local_id) % cfg.gpus.size()];
         setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
 
         if (cfg.verbose) {
-            std::cout << "[rrun] Slurm task local_id=" << cfg.slurm_local_id
-                      << " assigned to GPU " << gpu_id << std::endl;
+            std::cout << "[rrun] Slurm task (passthrough) local_id="
+                      << cfg.slurm->local_id << " assigned to GPU " << gpu_id
+                      << std::endl;
         }
     }
 
@@ -891,20 +1049,224 @@ int execute_single_node_mode(Config& cfg) {
     exec_application(cfg);
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
+/**
+ * @brief Launch rank 0 first to obtain its UCXX root address.
+ *
+ * @param cfg Configuration.
+ * @param address_file Path to file where rank 0 will write its address.
+ * @param total_ranks Total number of ranks across all tasks.
+ * @return Encoded root address and the launched process handle.
+ *
+ * @throws std::runtime_error on timeout or launch failure.
+ */
+AddressAndProcess launch_rank0_and_get_address(
+    Config const& cfg, std::string const& address_file, int total_ranks
+) {
+    if (cfg.verbose) {
+        std::cout << "[rrun] Root parent: launching rank 0 first to get address"
+                  << std::endl;
+    }
+
+    setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
+
+    int fd_out = -1, fd_err = -1;
+    pid_t rank0_pid =
+        launch_rank_local(cfg, 0, 0, total_ranks, std::nullopt, &fd_out, &fd_err);
+
+    // Start forwarders for rank 0 output
+    std::thread rank0_stdout_forwarder;
+    std::thread rank0_stderr_forwarder;
+    auto suppress = std::make_shared<std::atomic<bool>>(false);
+
+    if (fd_out >= 0) {
+        rank0_stdout_forwarder = std::thread([fd_out, suppress]() {
+            FILE* stream = fdopen(fd_out, "r");
+            if (!stream) {
+                close(fd_out);
+                return;
+            }
+            char buffer[4096];
+            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                if (suppress->load())
+                    continue;
+                std::lock_guard<std::mutex> lock(output_mutex);
+                fputs(buffer, stdout);
+                fflush(stdout);
+            }
+            fclose(stream);
+        });
+    }
+
+    if (fd_err >= 0) {
+        rank0_stderr_forwarder = std::thread([fd_err, suppress]() {
+            FILE* stream = fdopen(fd_err, "r");
+            if (!stream) {
+                close(fd_err);
+                return;
+            }
+            char buffer[4096];
+            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                if (suppress->load())
+                    continue;
+                std::lock_guard<std::mutex> lock(output_mutex);
+                fputs(buffer, stderr);
+                fflush(stderr);
+            }
+            fclose(stream);
+        });
+    }
+
+    // Wait for rank 0 to write the address file (with timeout)
+    auto start = std::chrono::steady_clock::now();
+    while (!std::filesystem::exists(address_file)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed > std::chrono::seconds(30)) {
+            suppress->store(true);
+            kill(rank0_pid, SIGKILL);
+            waitpid(rank0_pid, nullptr, 0);
+            if (rank0_stdout_forwarder.joinable())
+                rank0_stdout_forwarder.join();
+            if (rank0_stderr_forwarder.joinable())
+                rank0_stderr_forwarder.join();
+            throw std::runtime_error("Timeout waiting for rank 0 to write root address");
+        }
+    }
+
+    // Read the hex-encoded address and remove file
+    std::string encoded_address;
+    std::ifstream addr_stream(address_file);
+    if (!addr_stream) {
+        throw std::runtime_error("Failed to open root address file: " + address_file);
+    }
+    std::getline(addr_stream, encoded_address);
+    addr_stream.close();
+    if (encoded_address.empty()) {
+        throw std::runtime_error(
+            "Root address file is empty or invalid: " + address_file
+        );
+    }
+    std::filesystem::remove(address_file);
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
+                  << encoded_address.size() << " chars)" << std::endl;
+    }
+
+    // Return rank 0's pid and forwarders so the parent can wait for it and
+    // forward signals (same as other ranks).
+    return AddressAndProcess{
+        std::move(encoded_address),
+        LaunchedProcess{
+            rank0_pid,
+            std::move(rank0_stdout_forwarder),
+            std::move(rank0_stderr_forwarder)
+        }
+    };
+}
+
+/**
+ * @brief Coordinate root address between parent processes using SlurmBackend.
+ *
+ * This function is called by parent rrun processes in Slurm hybrid mode.
+ * The root parent (SLURM_PROCID=0) publishes the root address, and non-root
+ * parents retrieve it.
+ *
+ * @param cfg Configuration (must have slurm with valid global_rank and ntasks).
+ * @param root_address_to_publish Root address to publish. If set (has_value()), this is
+ *                                the root parent and it will publish. If empty (nullopt),
+ *                                this is a non-root parent and it will retrieve.
+ * @param verbose Whether to print debug messages.
+ * @return Root address (either published or retrieved).
+ *
+ * @throws std::runtime_error on coordination errors or missing or corrupt Slurm
+ * environment variables.
+ */
+std::string coordinate_root_address_via_pmix(
+    Config const& cfg,
+    std::optional<std::string> const& root_address_to_publish,
+    bool verbose
+) {
+    if (!cfg.slurm || cfg.slurm->global_rank < 0 || cfg.slurm->ntasks <= 0) {
+        throw std::runtime_error(
+            "SLURM_PROCID and SLURM_NTASKS must be set for parent coordination"
+        );
+    }
+
+    int parent_rank = cfg.slurm->global_rank;
+    int parent_nranks = cfg.slurm->ntasks;
+
+    // Create SlurmBackend for parent-level coordination
+    rapidsmpf::bootstrap::Context parent_ctx{
+        parent_rank,
+        parent_nranks,
+        rapidsmpf::bootstrap::BackendType::SLURM,
+        std::nullopt,
+        nullptr
+    };
+
+    auto backend =
+        std::make_shared<rapidsmpf::bootstrap::detail::SlurmBackend>(parent_ctx);
+
+    if (verbose) {
+        std::cout << "[rrun] Parent coordination initialized: rank " << parent_rank
+                  << " of " << parent_nranks << std::endl;
+    }
+
+    std::string root_address;
+
+    if (root_address_to_publish.has_value()) {
+        // Root parent publishes the address (already hex-encoded for binary safety)
+        if (verbose) {
+            std::cout << "[rrun] Publishing root address via SlurmBackend (hex-encoded, "
+                      << root_address_to_publish.value().size() << " chars)" << std::endl;
+        }
+
+        backend->put("rapidsmpf_root_address", root_address_to_publish.value());
+        root_address = root_address_to_publish.value();
+    }
+
+    backend->sync();
+
+    if (!root_address_to_publish.has_value()) {
+        // Non-root parents retrieve the address
+        root_address = backend->get("rapidsmpf_root_address", std::chrono::seconds{30});
+
+        if (verbose) {
+            std::cout << "[rrun] Retrieved root address via SlurmBackend (hex-encoded, "
+                      << root_address.size() << " chars)" << std::endl;
+        }
+    }
+
+    return root_address;
+}
+#endif  // RAPIDSMPF_HAVE_SLURM
+
 /**
  * @brief Launch multiple ranks locally using fork.
+ *
+ * A task here denotes a Slurm unit of execution, e.g., a single instance of a
+ * program or process, e.g., an instance of the `rrun` executable itself.
  *
  * @param cfg Configuration.
  * @param rank_offset Starting global rank for this task.
  * @param ranks_per_task Number of ranks to launch.
  * @param total_ranks Total ranks across all tasks.
+ * @param root_address Pre-coordinated root address (empty for FILE backend).
+ * @param pre_launched_process If set, one process was already launched; include it.
  * @return Exit status (0 for success).
  */
 int launch_ranks_fork_based(
-    Config const& cfg, int rank_offset, int ranks_per_task, int total_ranks
+    Config const& cfg,
+    int rank_offset,
+    int ranks_per_task,
+    int total_ranks,
+    std::optional<std::string> const& root_address,
+    std::optional<LaunchedProcess> pre_launched_process
 ) {
-    std::vector<pid_t> pids;
-    pids.reserve(static_cast<std::size_t>(ranks_per_task));
+    std::vector<LaunchedProcess> processes;
+    processes.reserve(static_cast<std::size_t>(ranks_per_task));
 
     // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
     sigset_t signal_set;
@@ -913,17 +1275,14 @@ int launch_ranks_fork_based(
     sigaddset(&signal_set, SIGTERM);
     sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 
-    // Output suppression flag and forwarder threads
     auto suppress_output = std::make_shared<std::atomic<bool>>(false);
-    std::vector<std::thread> forwarders;
-    forwarders.reserve(static_cast<std::size_t>(ranks_per_task) * 2);
 
-    // Helper to start a forwarder thread for a given fd
-    auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
-        if (fd < 0) {
-            return;
-        }
-        forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
+    // Helper to create a forwarder thread for a given fd (returns default thread if fd <
+    // 0).
+    auto make_forwarder = [&](int fd, int rank, bool to_stderr) -> std::thread {
+        if (fd < 0)
+            return {};
+        return std::thread([fd, rank, to_stderr, &cfg, suppress_output]() {
             FILE* stream = fdopen(fd, "r");
             if (!stream) {
                 close(fd);
@@ -950,15 +1309,21 @@ int launch_ranks_fork_based(
         });
     };
 
-    // Launch ranks
-    for (int local_rank = 0; local_rank < ranks_per_task; ++local_rank) {
+    // Skip rank 0 when we already have it in pre_launched_process (e.g. Slurm hybrid).
+    int start_local_rank = pre_launched_process.has_value() ? 1 : 0;
+
+    // Include pre-launched process first.
+    if (pre_launched_process) {
+        processes.insert(processes.begin(), std::move(*pre_launched_process));
+    }
+
+    for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
         int global_rank = rank_offset + local_rank;
         int fd_out = -1;
         int fd_err = -1;
         pid_t pid = launch_rank_local(
-            cfg, global_rank, local_rank, total_ranks, &fd_out, &fd_err
+            cfg, global_rank, local_rank, total_ranks, root_address, &fd_out, &fd_err
         );
-        pids.push_back(pid);
 
         if (cfg.verbose) {
             std::ostringstream msg;
@@ -973,12 +1338,15 @@ int launch_ranks_fork_based(
             std::cout << msg_str;
             std::cout.flush();
         }
-        start_forwarder(fd_out, global_rank, false);
-        start_forwarder(fd_err, global_rank, true);
+        processes.emplace_back(
+            pid,
+            make_forwarder(fd_out, global_rank, false),
+            make_forwarder(fd_err, global_rank, true)
+        );
     }
 
-    // Start a signal-waiting thread to forward signals.
-    std::thread([signal_set, &pids, suppress_output]() mutable {
+    // Forward signals to all processes (including pre-launched).
+    std::thread([signal_set, &processes, suppress_output]() mutable {
         for (;;) {
             int sig = 0;
             int rc = sigwait(&signal_set, &sig);
@@ -986,8 +1354,8 @@ int launch_ranks_fork_based(
                 continue;
             }
             suppress_output->store(true, std::memory_order_relaxed);
-            for (pid_t pid : pids) {
-                kill(pid, sig);
+            for (auto& p : processes) {
+                kill(p.pid, sig);
             }
             return;
         }
@@ -996,13 +1364,16 @@ int launch_ranks_fork_based(
     std::cout << "\n[rrun] All ranks launched. Waiting for completion...\n" << std::endl;
 
     // Wait for all processes
+    bool have_pre_launched = pre_launched_process.has_value();
     int exit_status = 0;
-    for (std::size_t i = 0; i < pids.size(); ++i) {
+    for (std::size_t i = 0; i < processes.size(); ++i) {
+        LaunchedProcess& proc = processes[i];
         int status = 0;
-        pid_t pid = pids[i];
-        if (waitpid(pid, &status, 0) < 0) {
-            std::cerr << "[rrun] Failed to wait for rank " << i << " (PID " << pid
-                      << "): " << std::strerror(errno) << std::endl;
+        int global_rank =
+            have_pre_launched ? static_cast<int>(i) : (rank_offset + static_cast<int>(i));
+        if (waitpid(proc.pid, &status, 0) < 0) {
+            std::cerr << "[rrun] Failed to wait for rank " << global_rank << " (PID "
+                      << proc.pid << "): " << std::strerror(errno) << std::endl;
             exit_status = 1;
             continue;
         }
@@ -1010,23 +1381,25 @@ int launch_ranks_fork_based(
         if (WIFEXITED(status)) {
             int code = WEXITSTATUS(status);
             if (code != 0) {
-                std::cerr << "[rrun] Rank " << (static_cast<std::size_t>(rank_offset) + i)
-                          << " (PID " << pid << ") exited with code " << code
-                          << std::endl;
+                std::cerr << "[rrun] Rank " << global_rank << " (PID " << proc.pid
+                          << ") exited with code " << code << std::endl;
                 exit_status = code;
             }
         } else if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
-            std::cerr << "[rrun] Rank " << (static_cast<std::size_t>(rank_offset) + i)
-                      << " (PID " << pid << ") terminated by signal " << sig << std::endl;
+            std::cerr << "[rrun] Rank " << global_rank << " (PID " << proc.pid
+                      << ") terminated by signal " << sig << std::endl;
             exit_status = 128 + sig;
         }
     }
 
     // Wait for forwarder threads to finish
-    for (auto& t : forwarders) {
-        if (t.joinable()) {
-            t.join();
+    for (auto& p : processes) {
+        if (p.stdout_forwarder.joinable()) {
+            p.stdout_forwarder.join();
+        }
+        if (p.stderr_forwarder.joinable()) {
+            p.stderr_forwarder.join();
         }
     }
 
@@ -1040,6 +1413,7 @@ int launch_ranks_fork_based(
  * @param global_rank Global rank number (used for RAPIDSMPF_RANK).
  * @param local_rank Local rank for GPU assignment (defaults to global_rank).
  * @param total_ranks Total number of ranks across all tasks (used for RAPIDSMPF_NRANKS).
+ * @param root_address Optional pre-coordinated root address (for hybrid mode).
  * @param out_fd_stdout Output file descriptor for stdout.
  * @param out_fd_stderr Output file descriptor for stderr.
  * @return Child process PID.
@@ -1049,6 +1423,7 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
+    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 ) {
@@ -1056,7 +1431,7 @@ pid_t launch_rank_local(
         out_fd_stdout,
         out_fd_stderr,
         /*combine_stderr*/ false,
-        [&cfg, global_rank, local_rank, total_ranks]() {
+        [&cfg, global_rank, local_rank, total_ranks, root_address]() {
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
@@ -1065,12 +1440,29 @@ pid_t launch_rank_local(
             setenv("RAPIDSMPF_RANK", std::to_string(global_rank).c_str(), 1);
             setenv("RAPIDSMPF_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
-            // Set coordination directory for bootstrap initialization
+            // Always set coord_dir for bootstrap initialization
+            // (needed even if using RAPIDSMPF_ROOT_ADDRESS for coordination)
             if (!cfg.coord_dir.empty()) {
                 setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
             }
 
+            // If root address was pre-coordinated by parent, set it (already hex-encoded)
+            // This allows children to skip bootstrap coordination entirely
+            if (root_address.has_value()) {
+                setenv("RAPIDSMPF_ROOT_ADDRESS", root_address->c_str(), 1);
+            }
+
+            // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion
+            // Children should not try to initialize PMIx themselves
+            if (cfg.slurm_mode) {
+                unsetenv("SLURM_PROCID");
+                unsetenv("SLURM_LOCALID");
+                unsetenv("PMIX_RANK");
+                unsetenv("PMIX_NAMESPACE");
+            }
+
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
+            // Use local_rank for GPU assignment (for Slurm hybrid mode)
             int gpu_id = -1;
             if (!cfg.gpus.empty()) {
                 gpu_id = cfg.gpus[static_cast<std::size_t>(local_rank) % cfg.gpus.size()];
@@ -1107,9 +1499,9 @@ int main(int argc, char* argv[]) {
                 std::cout << "\n";
             }
             if (cfg.slurm_mode) {
-                std::cout << "  Slurm Local ID: " << cfg.slurm_local_id << "\n"
-                          << "  Slurm Rank:     " << cfg.slurm_global_rank << "\n"
-                          << "  Slurm NTasks:   " << cfg.slurm_ntasks << "\n";
+                std::cout << "  Slurm Local ID: " << cfg.slurm->local_id << "\n"
+                          << "  Slurm Rank:     " << cfg.slurm->global_rank << "\n"
+                          << "  Slurm NTasks:   " << cfg.slurm->ntasks << "\n";
             } else {
                 if (cfg.tag_output) {
                     std::cout << "  Tag Output:    Yes\n";
@@ -1151,8 +1543,21 @@ int main(int argc, char* argv[]) {
         }
 
         if (cfg.slurm_mode) {
-            // Slurm mode: single rank per task, apply bindings and exec
-            execute_slurm_passthrough_mode(cfg);
+            if (cfg.nranks == 1) {
+                // Slurm passthrough mode: single rank per task, no forking
+                execute_slurm_passthrough_mode(cfg);
+            }
+            // Slurm hybrid mode: multiple ranks per task with PMIx coordination
+#ifdef RAPIDSMPF_HAVE_SLURM
+            return execute_slurm_hybrid_mode(cfg);
+#else
+            std::cerr << "[rrun] Error: Slurm hybrid mode requires PMIx support but "
+                      << "rapidsmpf was not built with PMIx." << std::endl;
+            std::cerr << "[rrun] Rebuild with -DBUILD_SLURM_SUPPORT=ON or use "
+                         "passthrough mode "
+                      << "(without -n flag)." << std::endl;
+            return 1;
+#endif
         } else {
             // Single-node mode with file backend
             return execute_single_node_mode(cfg);

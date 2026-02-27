@@ -30,7 +30,7 @@ namespace rapidsmpf::bootstrap::detail {
  *
  * Usage:
  * ```bash
- * # Multiple (4) tasks per node, one task per GPU, two nodes.
+ * # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.
  * srun \
  *     --mpi=pmix \
  *     --nodes=2 \
@@ -39,6 +39,16 @@ namespace rapidsmpf::bootstrap::detail {
  *     --gpus-per-task=1 \
  *     --gres=gpu:4 \
  *     rrun ./benchmarks/bench_shuffle -C ucxx
+ *
+ * # Hybrid mode: one task per node, 4 GPUs per task, two nodes.
+ * srun \
+ *     --mpi=pmix \
+ *     --nodes=2 \
+ *     --ntasks-per-node=1 \
+ *     --cpus-per-task=144 \
+ *     --gpus-per-task=4 \
+ *     --gres=gpu:4 \
+ *     rrun -n 4 ./benchmarks/bench_shuffle -C ucxx
  * ```
  */
 class SlurmBackend : public Backend {
