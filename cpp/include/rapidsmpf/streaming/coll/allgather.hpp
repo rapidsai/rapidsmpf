@@ -52,7 +52,7 @@ class AllGather {
      *
      * @return Shared pointer to context.
      */
-    [[nodiscard]] std::shared_ptr<Context> ctx() const noexcept;
+    [[nodiscard]] std::shared_ptr<Context> const& ctx() const noexcept;
 
     /**
      * @brief Insert a chunk into the allgather.

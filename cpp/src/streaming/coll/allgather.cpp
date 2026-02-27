@@ -35,7 +35,7 @@ AllGather::~AllGather() noexcept {
     );
 }
 
-[[nodiscard]] std::shared_ptr<Context> AllGather::ctx() const noexcept {
+[[nodiscard]] std::shared_ptr<Context> const& AllGather::ctx() const noexcept {
     return ctx_;
 }
 
