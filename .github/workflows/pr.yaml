@@ -27,13 +27,13 @@ jobs:
       - wheel-test
       - devcontainer
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@python-3.14
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
   changed-files:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@python-3.14
     with:
       files_yaml: |
         build_docs:
@@ -128,11 +128,11 @@ jobs:
           - '!docs/**''
   checks:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@python-3.14
   wheel-build-librapidsmpf:
     needs: checks
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@python-3.14
     with:
       build_type: pull-request
       node_type: cpu8
@@ -144,7 +144,7 @@ jobs:
   wheel-build-rapidsmpf:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@python-3.14
     with:
       build_type: pull-request
       node_type: cpu8
@@ -156,7 +156,7 @@ jobs:
   wheel-build-rapidsmpf-singlecomm:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@python-3.14
     with:
       build_type: pull-request
       node_type: cpu8
@@ -169,7 +169,7 @@ jobs:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     needs: [changed-files, wheel-build-rapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@python-3.14
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -177,7 +177,7 @@ jobs:
   conda-cpp-build:
     needs: checks
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@python-3.14
     with:
       build_type: pull-request
       node_type: cpu8
@@ -185,7 +185,7 @@ jobs:
   conda-cpp-linters:
     secrets: inherit
     needs: checks
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
     with:
       build_type: pull-request
       script: "ci/cpp_linters.sh"
@@ -194,7 +194,7 @@ jobs:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     needs: [changed-files, conda-cpp-build]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@python-3.14
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -202,7 +202,7 @@ jobs:
   conda-cpp-memcheck:
     secrets: inherit
     needs: conda-cpp-build
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
     with:
       build_type: pull-request
       script: "ci/test_cpp_memcheck.sh"
@@ -210,7 +210,7 @@ jobs:
   conda-python-build:
     needs: conda-cpp-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@python-3.14
     with:
       build_type: pull-request
       script: ci/build_python.sh
@@ -220,7 +220,7 @@ jobs:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     needs: [changed-files, conda-python-build]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@python-3.14
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -229,7 +229,7 @@ jobs:
   docs-build:
     needs: [conda-python-build, changed-files]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@python-3.14
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
     with:
       build_type: pull-request
@@ -239,7 +239,7 @@ jobs:
       script: "ci/build_docs.sh"
   devcontainer:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@python-3.14
     with:
       arch: '["amd64", "arm64"]'
       cuda: '["13.1"]'
