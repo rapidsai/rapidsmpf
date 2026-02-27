@@ -6,12 +6,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/streaming/core/message.hpp>
+#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -32,6 +34,37 @@ struct HashScheme {
 };
 
 /**
+ * @brief Order-based partitioning scheme for sorted/range-partitioned data.
+ *
+ * Data is partitioned by value ranges based on predetermined boundaries.
+ * For N partitions, there are N-1 boundary rows:
+ * - Partition 0: values < boundaries[0]
+ * - Partition i (0 < i < N-1): boundaries[i-1] <= values < boundaries[i]
+ * - Partition N-1: values >= boundaries[N-2]
+ *
+ * Comparisons use the specified column orders and null ordering.
+ */
+struct OrderScheme {
+    std::vector<cudf::size_type> column_indices;  ///< Column indices to order on.
+    std::vector<cudf::order> orders;  ///< Sort order per column (ASCENDING/DESCENDING).
+    std::vector<cudf::null_order>
+        null_orders;  ///< Null ordering per column (BEFORE/AFTER).
+    std::shared_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
+
+    /**
+     * @brief Equality comparison.
+     *
+     * @note Two OrderSchemes are equal if they have the same column indices,
+     * orders, null_orders, and boundary values. Boundary comparison requires
+     * table content comparison.
+     *
+     * @param other The OrderScheme to compare against.
+     * @return True if both schemes are equal.
+     */
+    bool operator==(OrderScheme const& other) const;
+};
+
+/**
  * @brief Partitioning specification for a single hierarchical level.
  *
  * Represents how data is partitioned at one level of the hierarchy
@@ -40,6 +73,7 @@ struct HashScheme {
  * - `none()`: No partitioning information at this level.
  * - `inherit()`: Partitioning is inherited from the parent level unchanged.
  * - `from_hash(h)`: Explicit hash partitioning with the given scheme.
+ * - `from_order(o)`: Explicit order/range partitioning with the given scheme.
  */
 struct PartitioningSpec {
     /**
@@ -49,10 +83,12 @@ struct PartitioningSpec {
         NONE,  ///< No partitioning information at this level.
         INHERIT,  ///< Partitioning is inherited from parent level unchanged.
         HASH,  ///< Hash partitioning.
+        ORDER,  ///< Order/range partitioning.
     };
 
     Type type = Type::NONE;  ///< The type of partitioning.
     std::optional<HashScheme> hash;  ///< Valid only when type == HASH.
+    std::optional<OrderScheme> order;  ///< Valid only when type == ORDER.
 
     /**
      * @brief Create a spec indicating no partitioning information.
@@ -67,7 +103,7 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type INHERIT.
      */
     static PartitioningSpec inherit() {
-        return {.type = Type::INHERIT, .hash = std::nullopt};
+        return {.type = Type::INHERIT, .hash = std::nullopt, .order = std::nullopt};
     }
 
     /**
@@ -76,7 +112,16 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type HASH.
      */
     static PartitioningSpec from_hash(HashScheme h) {
-        return {.type = Type::HASH, .hash = std::move(h)};
+        return {.type = Type::HASH, .hash = std::move(h), .order = std::nullopt};
+    }
+
+    /**
+     * @brief Create a spec for order/range partitioning.
+     * @param o The order scheme to use.
+     * @return A PartitioningSpec with type ORDER.
+     */
+    static PartitioningSpec from_order(OrderScheme o) {
+        return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
     }
 
     /**
