@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
 #include <memory>
 #include <numeric>
 
@@ -91,17 +92,12 @@ ShufflerAsync::ShufflerAsync(
 )
     : ctx_(std::move(ctx)),
       notifications_(ctx_->executor()->get()),
-      latch_{[&]() {
-          // Need to initialise before shuffler_, so need to determine number of local
-          // partitions sui generis.
-          std::int64_t npart{0};
-          for (shuffler::PartID i = 0; i < total_num_partitions; i++) {
-              if (partition_owner(ctx_->comm(), i) == ctx_->comm()->rank()) {
-                  npart++;
-              }
-          }
-          return npart;
-      }()},
+      latch_{static_cast<std::int64_t>(
+          shuffler::Shuffler::local_partitions(
+              ctx_->comm(), total_num_partitions, partition_owner
+          )
+              .size()
+      )},
       shuffler_(
           ctx_->comm(),
           ctx_->progress_thread(),
@@ -159,7 +155,8 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
-        shuffler_.partition_owner(ctx_->comm(), pid) == ctx_->comm()->rank(),
+        shuffler_.partition_owner(ctx_->comm(), pid, shuffler_.total_num_partitions)
+            == ctx_->comm()->rank(),
         "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
         std::out_of_range
     );

@@ -246,7 +246,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     run_actor_network(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
-        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+        ctx->comm(), n_partitions, &shuffler::Shuffler::round_robin
     );
     EXPECT_EQ(n_inserts * local_pids.size() * ctx->comm()->nranks(), n_chunks_received);
 
@@ -265,7 +265,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
         auto finish_token = shuffler->insert_finished();
 
         auto local_pids = shuffler::Shuffler::local_partitions(
-            ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+            ctx->comm(), n_partitions, &shuffler::Shuffler::round_robin
         );
 
         std::size_t parts_extracted = 0;

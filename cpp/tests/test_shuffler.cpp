@@ -130,7 +130,9 @@ void test_shuffler(
         // any distribution would work (as long as no rows are picked by multiple
         // ranks).
         // TODO: we should test different distributions of the input partitions.
-        if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
+        if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i, total_num_partitions)
+            == comm->rank())
+        {
             cudf::size_type row_end = row_offset + partiton_size;
             if (i == total_num_partitions - 1) {
                 // Include the reminder of rows in the very last partition.
@@ -170,7 +172,10 @@ void test_shuffler(
         );
 
         // We should only receive the partitions assigned to this rank.
-        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
+        EXPECT_EQ(
+            shuffler.partition_owner(comm, finished_partition, total_num_partitions),
+            comm->rank()
+        );
 
         // Check the result while ignoring the row order.
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
@@ -527,7 +532,7 @@ void run_wait_test(WaitFn&& wait_fn) {
     }
 
     auto local_partitions = rapidsmpf::shuffler::Shuffler::local_partitions(
-        comm, out_nparts, rapidsmpf::shuffler::Shuffler::round_robin
+        comm, out_nparts, &rapidsmpf::shuffler::Shuffler::round_robin
     );
 
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
@@ -750,7 +755,7 @@ class PostBoxTest : public cudf::test::BaseFixture {
 
     rapidsmpf::Rank partition_owner(rapidsmpf::shuffler::PartID part_id) {
         return rapidsmpf::shuffler::Shuffler::round_robin(
-            GlobalEnvironment->comm_, part_id
+            GlobalEnvironment->comm_, part_id, 0
         );
     }
 

@@ -44,20 +44,46 @@ namespace rapidsmpf::shuffler {
 class Shuffler {
   public:
     /**
-     * @brief Function that given a `Communicator` and a `PartID`, returns the
-     * `rapidsmpf::Rank` of the _owning_ node.
+     * @brief Function that given a `Communicator`, `PartID`, and total partition count,
+     * returns the `rapidsmpf::Rank` of the _owning_ node.
      */
-    using PartitionOwner = std::function<Rank(std::shared_ptr<Communicator>, PartID)>;
+    using PartitionOwner =
+        std::function<Rank(std::shared_ptr<Communicator> const&, PartID, PartID)>;
 
     /**
-     * @brief A `PartitionOwner` that distribute the partition using round robin.
+     * @brief A `PartitionOwner` that distributes partitions using round robin.
      *
      * @param comm The communicator to use.
      * @param pid The partition ID to query.
+     * @param total_num_partitions Total number of partitions (unused).
      * @return The rank owning the partition.
      */
-    static Rank round_robin(std::shared_ptr<Communicator> const& comm, PartID pid) {
+    static Rank round_robin(
+        std::shared_ptr<Communicator> const& comm,
+        PartID pid,
+        [[maybe_unused]] PartID total_num_partitions
+    ) {
         return safe_cast<Rank>(pid % safe_cast<PartID>(comm->nranks()));
+    }
+
+    /**
+     * @brief A `PartitionOwner` that assigns contiguous partition ID ranges to ranks.
+     * Rank 0 gets [0, k), rank 1 gets [k, 2k), etc. Use for sort so that each rank's
+     * local_partitions() are adjacent and in order.
+     *
+     * @param comm The communicator to use.
+     * @param pid The partition ID to query.
+     * @param total_num_partitions Total number of partitions (must match the shuffle).
+     * @return The rank owning the partition.
+     */
+    static Rank contiguous(
+        std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
+    ) {
+        auto const n_ranks = safe_cast<PartID>(comm->nranks());
+        if (n_ranks == 1 || total_num_partitions <= 1) {
+            return 0;
+        }
+        return safe_cast<Rank>(pid * n_ranks / total_num_partitions);
     }
 
     /**
