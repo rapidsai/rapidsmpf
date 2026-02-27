@@ -1049,6 +1049,7 @@ int execute_single_node_mode(Config& cfg) {
     exec_application(cfg);
 }
 
+#ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Launch rank 0 first to obtain its UCXX root address.
  *

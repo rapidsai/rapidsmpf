@@ -80,7 +80,9 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
     if (ctx.rank == 0 && address_file.has_value()) {
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, std::nullopt, options);
-        comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<ucxx::UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
 
         auto listener_address = comm->listener_address();
         auto root_worker_address_str =
@@ -123,7 +125,9 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         auto root_worker_address = ::ucxx::createAddressFromString(precomputed_address);
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
-        comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<ucxx::UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
     }
     // Path 3: Normal bootstrap mode for root rank.
     // Create listener and publish address via put() for non-root ranks to retrieve.
