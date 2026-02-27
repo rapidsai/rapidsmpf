@@ -608,9 +608,9 @@ class Communicator {
 
     /**
      * @brief Retrieves the logger associated with this communicator.
-     * @return Reference to the logger.
+     * @return Shared pointer to the logger.
      */
-    [[nodiscard]] virtual Logger& logger() = 0;
+    [[nodiscard]] virtual std::shared_ptr<Communicator::Logger> logger() = 0;
 
     /**
      * @brief Retrieves the progress thread associated with this communicator.

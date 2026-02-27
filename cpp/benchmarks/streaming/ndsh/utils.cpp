@@ -117,7 +117,7 @@ streaming::Actor consume_channel(
         if (msg.holds<streaming::TableChunk>()) {
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            ctx->comm()->logger().print(
+            ctx->comm()->logger()->print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
                 " rows and ",
@@ -201,7 +201,7 @@ std::shared_ptr<streaming::Context> create_context(
     }
     auto ctx = std::make_shared<streaming::Context>(options, comm, br);
     if (comm->rank() == 0) {
-        comm->logger().print(
+        comm->logger()->print(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",

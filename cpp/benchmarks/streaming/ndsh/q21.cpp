@@ -419,7 +419,7 @@ rapidsmpf::streaming::Actor fanout_bounded(
                 std::identity{}
             ))
         {
-            ctx->comm()->logger().print("Breaking after ", msg.sequence_number());
+            ctx->comm()->logger()->print("Breaking after ", msg.sequence_number());
             break;
         };
     }
@@ -566,7 +566,7 @@ rapidsmpf::streaming::Actor populate_bloom_filter(
                 )
             );
         }
-        ctx->comm()->logger().print("Sent all things through filter");
+        ctx->comm()->logger()->print("Sent all things through filter");
         co_await passthrough->drain(ctx->executor());
     };
     rapidsmpf::streaming::coro_results(
@@ -948,17 +948,17 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        ctx->comm()->logger().print(ctx->statistics()->report());
+        ctx->comm()->logger()->print(ctx->statistics()->report());
         ctx->statistics()->clear();
     }
 
     if (ctx->comm()->rank() == 0) {
         for (std::size_t i = 0; i < safe_cast<std::size_t>(arguments.num_iterations); i++)
         {
-            ctx->comm()->logger().print(
+            ctx->comm()->logger()->print(
                 "Iteration ", i, " pipeline construction time [s]: ", timings[2 * i]
             );
-            ctx->comm()->logger().print(
+            ctx->comm()->logger()->print(
                 "Iteration ", i, " compute time [s]: ", timings[2 * i + 1]
             );
         }

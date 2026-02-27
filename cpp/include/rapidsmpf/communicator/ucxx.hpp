@@ -289,7 +289,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> logger() override {
         return logger_;
     }
 
@@ -337,7 +337,7 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     config::Options options_;
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);

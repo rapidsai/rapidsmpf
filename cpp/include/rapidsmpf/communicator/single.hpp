@@ -187,7 +187,7 @@ class Single final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> logger() override {
         return logger_;
     }
 
@@ -204,7 +204,7 @@ class Single final : public Communicator {
     [[nodiscard]] std::string str() const override;
 
   private:
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
 };
 

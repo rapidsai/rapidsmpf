@@ -40,7 +40,7 @@ void TagMetadataPayloadExchange::send(
 void TagMetadataPayloadExchange::send(
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>&& messages
 ) {
-    auto& log = comm_->logger();
+    auto& log = *comm_->logger();
     auto const t0 = Clock::now();
 
     // Send metadata followed immediately by data for each message
@@ -125,7 +125,7 @@ bool TagMetadataPayloadExchange::is_idle() const {
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {
-    auto& log = comm_->logger();
+    auto& log = *comm_->logger();
     auto const t0 = Clock::now();
 
     while (true) {
@@ -181,7 +181,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::setup_data_receives() {
-    auto& log = comm_->logger();
+    auto& log = *comm_->logger();
     auto const t0 = Clock::now();
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;

@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
 
 
     // The Communicator provides a logger.
-    auto& log = comm->logger();
+    auto& log = *comm->logger();
 
     // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();

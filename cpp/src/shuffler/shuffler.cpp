@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -106,7 +105,7 @@ class Shuffler::Progress {
         Tag const metadata_tag{shuffler_.op_id_, 1};
         Tag const gpu_data_tag{shuffler_.op_id_, 2};
 
-        auto& log = shuffler_.comm_->logger();
+        auto& log = *shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;
 
         // Check for new chunks in the inbox and send off their metadata.
@@ -442,7 +441,7 @@ Shuffler::~Shuffler() {
 void Shuffler::shutdown() {
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
-        auto& log = comm_->logger();
+        auto& log = *comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
         progress_thread_->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
@@ -455,7 +454,7 @@ detail::Chunk Shuffler::create_chunk(PartID pid, PackedData&& packed_data) {
 }
 
 void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
-    auto& log = comm_->logger();
+    auto& log = *comm_->logger();
     log.trace("insert_into_outbox: ", chunk);
 
     auto pid = chunk.part_id();

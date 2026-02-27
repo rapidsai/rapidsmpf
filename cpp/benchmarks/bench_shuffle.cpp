@@ -250,7 +250,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
-        comm.logger().print(ss.str());
+        comm.logger()->print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -616,7 +616,7 @@ int main(int argc, char** argv) {
 
     args.pprint(*comm);
 
-    auto& log = comm->logger();
+    auto& log = *comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
 
     // Print benchmark/hardware info.

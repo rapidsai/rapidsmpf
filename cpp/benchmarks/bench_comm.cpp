@@ -191,7 +191,7 @@ class ArgumentParser {
         if (enable_cupti_monitoring) {
             ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
         }
-        comm.logger().print(ss.str());
+        comm.logger()->print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto& log = comm->logger();
+    auto& log = *comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
