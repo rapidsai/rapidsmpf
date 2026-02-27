@@ -8,6 +8,9 @@
 
 #include <mpi.h>
 
+#include <rmm/cuda_stream_pool.hpp>
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/bootstrap/utils.hpp>
@@ -16,6 +19,8 @@
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -278,6 +283,9 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
+    // We'll only measure the last run, so start disabled.
+    auto stats = rapidsmpf::Statistics::disabled();
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
@@ -286,16 +294,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         mpi::init(&argc, &argv);
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm =
+                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
@@ -308,7 +317,16 @@ int main(int argc, char** argv) {
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{mr};
+    BufferResource br{
+        mr,
+        PinnedMemoryResource::Disabled,
+        {},
+        std::chrono::milliseconds{1},
+        std::make_shared<rmm::cuda_stream_pool>(
+            16, rmm::cuda_stream::flags::non_blocking
+        ),
+        stats
+    };
 
     // Print benchmark/hardware info.
     {
@@ -329,9 +347,6 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
-
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Create CUPTI monitor if enabled
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
@@ -350,7 +365,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>();
+            stats->enable();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;

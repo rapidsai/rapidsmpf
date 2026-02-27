@@ -178,6 +178,11 @@ class ProgressThread {
      */
     bool is_running() const;
 
+    /**
+     * @brief @return The statistics instance on this progress thread.
+     */
+    std::shared_ptr<Statistics> statistics() const noexcept;
+
   private:
     /**
      * @brief The event loop progressing each of the functions.

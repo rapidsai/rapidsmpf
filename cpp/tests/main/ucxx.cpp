@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 #include "../environment.hpp"
 
@@ -34,14 +35,14 @@ void Environment::SetUp() {
     );
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
-    comm_ = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options_);
-    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>();
+    comm_ = rapidsmpf::ucxx::init_using_mpi(
+        MPI_COMM_WORLD, options_, std::make_shared<rapidsmpf::ProgressThread>()
+    );
 }
 
 void Environment::TearDown() {
     // Ensure UCXX cleanup before MPI. If this is not done failures related to
     // accessing the CUDA context may be thrown during shutdown.
-    progress_thread_ = nullptr;  // Stop the progress thread.
     split_comm_ = nullptr;  // Clean up the split communicator.
     comm_ = nullptr;  // Clean up the communicator.
     RAPIDSMPF_MPI(MPI_Finalize());

@@ -172,6 +172,7 @@ std::shared_ptr<streaming::Context> create_context(
     environment["NUM_STREAMING_THREADS"] =
         std::to_string(arguments.num_streaming_threads);
     auto options = config::Options(environment);
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(statistics);
     std::shared_ptr<Communicator> comm;
     switch (arguments.comm_type) {
     case CommType::MPI:
@@ -180,17 +181,19 @@ std::shared_ptr<streaming::Context> create_context(
         );
         mpi::init(nullptr, nullptr);
 
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
         break;
     case CommType::SINGLE:
-        comm = std::make_shared<Single>(options);
+        comm = std::make_shared<Single>(options, progress_thread);
         break;
     case CommType::UCXX:
         if (bootstrap::is_running_with_rrun()) {
-            comm = bootstrap::create_ucxx_comm(bootstrap::BackendType::AUTO, options);
+            comm = bootstrap::create_ucxx_comm(
+                progress_thread, bootstrap::BackendType::AUTO, options
+            );
         } else {
             mpi::init(nullptr, nullptr);
-            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
         break;
     default:

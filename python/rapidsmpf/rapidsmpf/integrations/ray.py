@@ -12,6 +12,7 @@ from ray.actor import ActorClass
 
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.progress_thread import ProgressThread
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
@@ -51,7 +52,11 @@ class RapidsMPFActor:
             The address of the root.
         """
         self._comm = new_communicator(
-            self._nranks, None, None, Options(get_environment_variables())
+            self._nranks,
+            None,
+            None,
+            Options(get_environment_variables()),
+            ProgressThread(),
         )
         self._rank = self._comm.rank
         self._comm.logger.trace(f"Rank {self._rank} created as root")
@@ -73,7 +78,11 @@ class RapidsMPFActor:
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
             # create a comm pointing to the root_address
             self._comm = new_communicator(
-                self._nranks, None, root_address, Options(get_environment_variables())
+                self._nranks,
+                None,
+                root_address,
+                Options(get_environment_variables()),
+                ProgressThread(),
             )
             self._rank = self._comm.rank
             self._comm.logger.trace(f"Rank {self._rank} created")
