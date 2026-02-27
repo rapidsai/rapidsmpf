@@ -391,14 +391,13 @@ AllGather::~AllGather() noexcept {
 
 AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
     std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
+      progress_thread_{comm_->progress_thread()},
       br_{br},
       statistics_{std::move(statistics)},
       finished_callback_{std::move(finished_callback)},

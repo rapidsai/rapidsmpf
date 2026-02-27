@@ -104,7 +104,6 @@ ShufflerAsync::ShufflerAsync(
       }()},
       shuffler_(
           ctx_->comm(),
-          ctx_->progress_thread(),
           op_id,
           total_num_partitions,
           ctx_->br().get(),

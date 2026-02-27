@@ -14,12 +14,7 @@ namespace rapidsmpf::streaming {
 AllGather::AllGather(std::shared_ptr<Context> ctx, OpID op_id)
     : ctx_{std::move(ctx)},
       gatherer_{coll::AllGather(
-          ctx_->comm(),
-          ctx_->progress_thread(),
-          op_id,
-          ctx_->br().get(),
-          ctx_->statistics(),
-          [this]() {
+          ctx_->comm(), op_id, ctx_->br().get(), ctx_->statistics(), [this]() {
               // Schedule waiters to resume on the executor.
               // This doesn't resume the frame immediately so we don't have to track
               // completion of this callback with a task_group.

@@ -63,7 +63,6 @@ std::size_t get_new_uid() noexcept {
 Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
@@ -71,12 +70,10 @@ Context::Context(
       creator_thread_id_{std::this_thread::get_id()},
       options_{std::move(options)},
       comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
       br_{std::move(br)},
       spillable_messages_{std::make_shared<SpillableMessages>()} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
-    RAPIDSMPF_EXPECTS(progress_thread_ != nullptr, "progress_thread cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 
@@ -99,13 +96,7 @@ Context::Context(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<BufferResource> br
 )
-    : Context(
-          options,
-          comm,
-          comm->progress_thread(),
-          std::make_shared<CoroThreadPoolExecutor>(options),
-          br
-      ) {}
+    : Context(options, comm, std::make_shared<CoroThreadPoolExecutor>(options), br) {}
 
 std::shared_ptr<Context> Context::from_options(
     RmmResourceAdaptor* mr, std::shared_ptr<Communicator> comm, config::Options options
@@ -139,10 +130,6 @@ config::Options Context::options() const noexcept {
 
 std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
-}
-
-std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
-    return progress_thread_;
 }
 
 std::shared_ptr<CoroThreadPoolExecutor> const& Context::executor() const noexcept {

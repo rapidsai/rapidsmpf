@@ -38,12 +38,7 @@ class BaseAllGatherTest : public ::testing::Test {
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
 
-        allgather = std::make_unique<AllGather>(
-            GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
-            0,
-            br.get()
-        );
+        allgather = std::make_unique<AllGather>(GlobalEnvironment->comm_, 0, br.get());
     }
 
     void TearDown() override {

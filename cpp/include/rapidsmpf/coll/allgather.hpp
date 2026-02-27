@@ -447,7 +447,6 @@ class AllGather {
      * @brief Construct a new allgather operation.
      *
      * @param comm The communicator for communication.
-     * @param progress_thread The progress thread for asynchronous operations.
      * @param op_id Unique operation identifier for this allgather.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by
@@ -462,7 +461,6 @@ class AllGather {
      */
     AllGather(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),

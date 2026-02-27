@@ -383,7 +383,6 @@ std::vector<PartID> Shuffler::local_partitions(
 
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
     BufferResource* br,
@@ -404,7 +403,7 @@ Shuffler::Shuffler(
           safe_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
+      progress_thread_{comm_->progress_thread()},
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},

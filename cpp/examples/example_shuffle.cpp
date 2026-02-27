@@ -64,7 +64,6 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmpf::shuffler::Shuffler shuffler(
         comm,
-        progress_thread,
         0,  // op_id
         total_num_partitions,
         &br,

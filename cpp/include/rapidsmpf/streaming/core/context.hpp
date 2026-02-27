@@ -13,7 +13,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
@@ -48,14 +47,12 @@ class Context {
      *
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
-     * @param progress_thread Shared pointer to a progress thread.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
     );
@@ -146,13 +143,6 @@ class Context {
     [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
-     * @brief Returns the progress thread.
-     *
-     * @return Shared pointer to the progress thread.
-     */
-    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const noexcept;
-
-    /**
      * @brief Returns the coroutine executor.
      *
      * @return Shared pointer to the executor.
@@ -237,7 +227,6 @@ class Context {
     std::thread::id creator_thread_id_;
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
-    std::shared_ptr<ProgressThread> progress_thread_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};

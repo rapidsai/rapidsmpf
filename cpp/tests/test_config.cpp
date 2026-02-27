@@ -782,7 +782,6 @@ TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
     auto ctx = streaming::Context::from_options(&mr, comm, opts);
 
     ASSERT_NE(ctx, nullptr);
-    EXPECT_NE(ctx->progress_thread(), nullptr);
 }
 
 TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
