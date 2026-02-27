@@ -5,6 +5,7 @@
 
 #include <rapidsmpf/config.hpp>
 
+
 #ifdef RAPIDSMPF_HAVE_UCXX
 
 #include <chrono>
@@ -18,10 +19,15 @@
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf::bootstrap {
 
-std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options options) {
+std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
+    std::shared_ptr<ProgressThread> progress_thread,
+    BackendType type,
+    config::Options options
+) {
     auto ctx = init(type);
 
     // Ensure CUDA context is created before UCX is initialized
@@ -33,7 +39,9 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options o
     if (ctx.rank == 0) {
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, std::nullopt, options);
-        comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<ucxx::UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
 
         auto listener_address = comm->listener_address();
         auto root_worker_address_str =
@@ -42,10 +50,8 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options o
 
         put(ctx, "ucxx_root_address", root_worker_address_str);
         sync(ctx);
-    }
-    // Non-root ranks: Retrieve root address via get() and connect.
-    else
-    {
+    } else {
+        // Non-root ranks: Retrieve root address via get() and connect.
         sync(ctx);
 
         auto root_worker_address_str =
@@ -55,7 +61,9 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(BackendType type, config::Options o
 
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
-        comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<ucxx::UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
     }
 
     comm->barrier();

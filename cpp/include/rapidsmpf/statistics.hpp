@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-#include <compare>
+#include <atomic>
 #include <cstddef>
 #include <filesystem>
 #include <functional>
@@ -114,7 +114,7 @@ class Statistics {
      * @param o The Statistics object to move from.
      */
     Statistics(Statistics&& o) noexcept
-        : enabled_(o.enabled_),
+        : enabled_(o.enabled()),
           stats_{std::move(o.stats_)},
           formatters_{std::move(o.formatters_)} {}
 
@@ -125,7 +125,7 @@ class Statistics {
      * @return Reference to this updated instance.
      */
     Statistics& operator=(Statistics&& o) noexcept {
-        enabled_ = o.enabled_;
+        enabled_ = o.enabled();
         stats_ = std::move(o.stats_);
         formatters_ = std::move(o.formatters_);
         return *this;
@@ -137,7 +137,21 @@ class Statistics {
      * @return True if statistics tracking is active, otherwise False.
      */
     bool enabled() const noexcept {
-        return enabled_;
+        return enabled_.load(std::memory_order_acquire);
+    }
+
+    /**
+     * @brief Enable statistics tracking for this instance.
+     */
+    void enable() noexcept {
+        enabled_.store(true, std::memory_order_release);
+    }
+
+    /**
+     * @brief Disable statistics tracking for this instance.
+     */
+    void disable() noexcept {
+        enabled_.store(false, std::memory_order_release);
     }
 
     /**
@@ -483,7 +497,7 @@ class Statistics {
     };
 
     mutable std::mutex mutex_;
-    bool enabled_;
+    std::atomic<bool> enabled_;
     std::map<std::string, Stat> stats_;
     std::map<std::string, FormatterEntry> formatters_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;

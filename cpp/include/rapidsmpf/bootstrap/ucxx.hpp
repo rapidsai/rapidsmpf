@@ -12,6 +12,7 @@
 #include <memory>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -33,18 +34,22 @@ namespace bootstrap {
  * The function handles all coordination transparently based on the detected
  * or specified backend.
  *
+ * @param progress_thread Progress thread for the initialized communicator
  * @param backend Backend to use (default: AUTO for auto-detection).
  * @param options Configuration options for the UCXX communicator.
  * @return Shared pointer to initialized UCXX communicator.
  * @throws std::runtime_error if initialization fails.
  *
  * @code
- * auto comm = rapidsmpf::bootstrap::create_ucxx_comm();
+ * auto progress = std::make_shared<rapidsmpf::ProgressThread>();
+ * auto comm = rapidsmpf::bootstrap::create_ucxx_comm(progress);
  * comm->logger().print("Hello from rank " + std::to_string(comm->rank()));
  * @endcode
  */
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
-    BackendType type = BackendType::AUTO, config::Options options = config::Options{}
+    std::shared_ptr<ProgressThread> progress_thread,
+    BackendType type = BackendType::AUTO,
+    config::Options options = config::Options{}
 );
 
 }  // namespace bootstrap
