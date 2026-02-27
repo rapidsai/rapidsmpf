@@ -36,9 +36,12 @@ class AllGather {
      * @brief Construct an asynchronous allgather.
      *
      * @param ctx Streaming context
+     * @param comm Communicator for the collective operation.
      * @param op_id Unique identifier for the allgather.
      */
-    AllGather(std::shared_ptr<Context> ctx, OpID op_id);
+    AllGather(
+        std::shared_ptr<Context> ctx, std::shared_ptr<Communicator> comm, OpID op_id
+    );
 
     AllGather(AllGather const&) = delete;
     AllGather& operator=(AllGather const&) = delete;
@@ -93,6 +96,7 @@ namespace actor {
  * packed data received through `Channel`s.
  *
  * @param ctx The streaming context to use.
+ * @param comm Communicator for the collective operation.
  * @param ch_in Input channel providing `PackedData`s to be gathered.
  * @param ch_out Output channel where the gathered `PackedData`s are sent.
  * @param op_id Unique identifier for the operation.
@@ -107,6 +111,7 @@ namespace actor {
  */
 Actor allgather(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,

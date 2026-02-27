@@ -53,6 +53,7 @@ class ShufflerAsync {
      * @brief Constructs a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
+     * @param comm Communicator for the collective operation.
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
      * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
@@ -65,6 +66,7 @@ class ShufflerAsync {
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
+        std::shared_ptr<Communicator> comm,
         OpID op_id,
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
@@ -192,6 +194,7 @@ class ShufflerAsync {
     [[nodiscard]] Actor finished_drain();
 
     std::shared_ptr<Context> ctx_;
+    std::shared_ptr<Communicator> comm_;
     coro::task_group<coro::thread_pool>
         notifications_;  ///< Container tracking the notifications that have fired.
     Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)
@@ -222,6 +225,7 @@ namespace actor {
  * chunks grouped by `partition_owner`.
  *
  * @param ctx The context to use.
+ * @param comm Communicator for the collective operation.
  * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
  * @param ch_out Output channel where the resulting PartitionVectorChunks are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until all
@@ -234,6 +238,7 @@ namespace actor {
  */
 [[nodiscard]] Actor shuffler(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,

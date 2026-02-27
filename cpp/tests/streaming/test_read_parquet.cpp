@@ -59,7 +59,7 @@ class StreamingReadParquet : public BaseStreamingFixture {
 
         for (int i = 0; i < nfiles; ++i) {
             std::ostringstream filename_stream;
-            filename_stream << std::setw(3) << std::setfill(' ') << i << ".pq";
+            filename_stream << std::setw(3) << std::setfill('0') << i << ".pq";
             std::filesystem::path filepath = temp_dir / filename_stream.str();
             source_files.push_back(filepath.string());
         }
@@ -229,7 +229,11 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     auto ch = ctx->create_channel();
     std::vector<Actor> actors;
 
-    actors.push_back(actor::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
+    actors.push_back(
+        actor::read_parquet(
+            ctx, GlobalEnvironment->comm_, ch, 4, options, 3, std::move(filter_expr)
+        )
+    );
 
     std::vector<Message> messages;
     actors.push_back(actor::pull_from_channel(ctx, ch, messages));

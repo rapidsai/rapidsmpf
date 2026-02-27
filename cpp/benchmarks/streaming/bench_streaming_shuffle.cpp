@@ -246,6 +246,7 @@ rapidsmpf::streaming::Actor consumer(
 
 rapidsmpf::Duration run(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream
 ) {
@@ -255,7 +256,7 @@ rapidsmpf::Duration run(
     constexpr std::uint32_t seed = cudf::DEFAULT_HASH_SEED;
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
-        * static_cast<rapidsmpf::shuffler::PartID>(ctx->comm()->nranks());
+        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr rapidsmpf::OpID op_id = 0;
 
     // Create streaming pipeline.
@@ -289,7 +290,7 @@ rapidsmpf::Duration run(
         auto ch3 = ctx->create_channel();
         actors.push_back(
             rapidsmpf::streaming::actor::shuffler(
-                ctx, ch2, ch3, op_id, total_num_partitions
+                ctx, comm, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = ctx->create_channel();
@@ -400,7 +401,8 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br);
+    auto ctx =
+        std::make_shared<rapidsmpf::streaming::Context>(options, comm->logger(), br);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
@@ -409,7 +411,7 @@ int main(int argc, char** argv) {
         if (i == total_num_runs - 1) {
             ctx->statistics()->clear();
         }
-        double const elapsed = run(ctx, args, stream).count();
+        double const elapsed = run(ctx, comm, args, stream).count();
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
            << " | local throughput: "

@@ -62,18 +62,18 @@ std::size_t get_new_uid() noexcept {
 
 Context::Context(
     config::Options options,
-    std::shared_ptr<Communicator> comm,
+    std::shared_ptr<Communicator::Logger> logger,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
     : uid_{get_new_uid()},
       creator_thread_id_{std::this_thread::get_id()},
       options_{std::move(options)},
-      comm_{std::move(comm)},
+      logger_{std::move(logger)},
       executor_{std::move(executor)},
       br_{std::move(br)},
       spillable_messages_{std::make_shared<SpillableMessages>()} {
-    RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
+    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 
@@ -93,16 +93,23 @@ Context::Context(
 
 Context::Context(
     config::Options options,
-    std::shared_ptr<Communicator> comm,
+    std::shared_ptr<Communicator::Logger> logger,
     std::shared_ptr<BufferResource> br
 )
-    : Context(options, comm, std::make_shared<CoroThreadPoolExecutor>(options), br) {}
+    : Context(
+          options,
+          std::move(logger),
+          std::make_shared<CoroThreadPoolExecutor>(options),
+          br
+      ) {}
 
 std::shared_ptr<Context> Context::from_options(
-    RmmResourceAdaptor* mr, std::shared_ptr<Communicator> comm, config::Options options
+    RmmResourceAdaptor* mr,
+    std::shared_ptr<Communicator::Logger> logger,
+    config::Options options
 ) {
     return std::make_shared<Context>(
-        options, comm, BufferResource::from_options(mr, options)
+        options, std::move(logger), BufferResource::from_options(mr, options)
     );
 }
 
@@ -128,8 +135,8 @@ config::Options Context::options() const noexcept {
     return options_;
 }
 
-std::shared_ptr<Communicator> Context::comm() const noexcept {
-    return comm_;
+std::shared_ptr<Communicator::Logger> const& Context::logger() const noexcept {
+    return logger_;
 }
 
 std::shared_ptr<CoroThreadPoolExecutor> const& Context::executor() const noexcept {
