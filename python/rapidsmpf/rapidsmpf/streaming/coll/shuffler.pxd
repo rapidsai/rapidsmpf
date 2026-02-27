@@ -24,6 +24,13 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
         ) except +ex_handler
 
+    unique_ptr[cpp_ShufflerAsync] make_shuffler_async_contiguous \
+        "rapidsmpf::streaming::make_shuffler_async_contiguous"(
+            shared_ptr[cpp_Context] ctx,
+            int32_t op_id,
+            uint32_t total_num_partitions,
+        ) except +ex_handler
+
     cdef cppclass cpp_ShufflerAsync"rapidsmpf::streaming::ShufflerAsync":
         cpp_ShufflerAsync(
             shared_ptr[cpp_Context] ctx, int32_t op_id, uint32_t total_num_partitions

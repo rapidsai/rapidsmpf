@@ -5,7 +5,7 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint32_t
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
@@ -19,6 +19,8 @@ from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.coll.shuffler cimport (cpp_ShufflerAsync,
+                                                make_shuffler_async_contiguous)
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
@@ -183,16 +185,12 @@ def shuffler(
     Partition ownership is assigned per the underlying C++ implementation's default
     policy (round-robin across ranks/nodes).
     """
-
+    cdef shared_ptr[cpp_Context] ctx_h = ctx._handle
+    cdef shared_ptr[cpp_Channel] ch_in_h = ch_in._handle
+    cdef shared_ptr[cpp_Channel] ch_out_h = ch_out._handle
     cdef cpp_Actor _ret
     with nogil:
-        _ret = cpp_shuffler(
-            ctx._handle,
-            ch_in._handle,
-            ch_out._handle,
-            op_id,
-            total_num_partitions,
-        )
+        _ret = cpp_shuffler(ctx_h, ch_in_h, ch_out_h, op_id, total_num_partitions)
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
 
@@ -209,14 +207,33 @@ cdef class ShufflerAsync:
         this object is still live.
     total_num_partitions
         Global number of output partitions in the shuffle.
+    partition_assignment
+        How to assign partition IDs to ranks: "round_robin" (default) for
+        load balance (e.g. hash shuffle), or "contiguous" so each rank gets
+        a contiguous range of partition IDs (e.g. for sort so concatenation
+        order matches global order).
     """
     def __init__(
-        self, Context ctx not None, int32_t op_id, uint32_t total_num_partitions
+        self,
+        Context ctx not None,
+        int32_t op_id,
+        uint32_t total_num_partitions,
+        str partition_assignment = "round_robin",
     ):
-        with nogil:
-            self._handle = make_unique[cpp_ShufflerAsync](
-                ctx._handle, op_id, total_num_partitions
-            )
+        cdef shared_ptr[cpp_Context] ctx_handle = ctx._handle
+        cdef unique_ptr[cpp_ShufflerAsync] new_handle
+        if partition_assignment == "contiguous":
+            with nogil:
+                new_handle = make_shuffler_async_contiguous(
+                    ctx_handle, op_id, total_num_partitions
+                )
+            self._handle = move(new_handle)
+        else:
+            with nogil:
+                new_handle = make_unique[cpp_ShufflerAsync](
+                    ctx_handle, op_id, total_num_partitions
+                )
+            self._handle = move(new_handle)
 
     def __dealloc__(self):
         with nogil:

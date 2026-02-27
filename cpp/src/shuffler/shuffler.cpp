@@ -382,6 +382,19 @@ std::vector<PartID> Shuffler::local_partitions(
     return ret;
 }
 
+Shuffler::PartitionOwner Shuffler::contiguous(PartID total_num_partitions) {
+    return [total_num_partitions](
+               std::shared_ptr<Communicator> const& comm, PartID pid
+           ) -> Rank {
+        if (total_num_partitions == 0) {
+            return 0;
+        }
+        return safe_cast<Rank>(
+            pid * safe_cast<PartID>(comm->nranks()) / total_num_partitions
+        );
+    };
+}
+
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,

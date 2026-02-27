@@ -66,6 +66,17 @@ class Shuffler {
     }
 
     /**
+     * @brief Returns a `PartitionOwner` that assigns contiguous partition ID ranges
+     * to ranks. Rank 0 gets partitions [0, k), rank 1 gets [k, 2k), etc., with
+     * k = ceil(total_num_partitions / nranks). Use for sort so that each rank's
+     * local_partitions() are adjacent and in order.
+     *
+     * @param total_num_partitions Total number of partitions (must match the shuffle).
+     * @return A partition owner function.
+     */
+    static PartitionOwner contiguous(PartID total_num_partitions);
+
+    /**
      * @brief Returns the local partition IDs owned by the current node.
      *
      * @param comm The communicator to use.

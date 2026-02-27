@@ -618,6 +618,19 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST(Shuffler, ContiguousPartitionOwner) {
+    auto comm = GlobalEnvironment->comm_;
+    rapidsmpf::shuffler::PartID const total = 10;
+    auto owner = rapidsmpf::shuffler::Shuffler::contiguous(total);
+    auto local = rapidsmpf::shuffler::Shuffler::local_partitions(comm, total, owner);
+    for (std::size_t i = 0; i < local.size(); ++i) {
+        EXPECT_EQ(owner(comm, local[i]), comm->rank());
+        if (i > 0) {
+            EXPECT_EQ(local[i], local[i - 1] + 1);
+        }
+    }
+}
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     std::int64_t const seed = 42;

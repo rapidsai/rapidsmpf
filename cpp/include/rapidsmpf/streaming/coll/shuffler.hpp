@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <memory>
 #include <unordered_set>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -14,6 +15,20 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 
 namespace rapidsmpf::streaming {
+
+class ShufflerAsync;
+
+/**
+ * @brief Factory that creates a ShufflerAsync with contiguous partition assignment.
+ *
+ * @param ctx The streaming context to use.
+ * @param op_id Unique operation ID for this shuffle.
+ * @param total_num_partitions Total number of partitions.
+ * @return A ShufflerAsync that assigns contiguous partition ID ranges to ranks.
+ */
+[[nodiscard]] std::unique_ptr<ShufflerAsync> make_shuffler_async_contiguous(
+    std::shared_ptr<Context> ctx, OpID op_id, shuffler::PartID total_num_partitions
+);
 
 /**
  * @brief An asynchronous shuffler that allows concurrent insertion and extraction of

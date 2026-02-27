@@ -83,6 +83,17 @@ coro::task<void> insert_and_notify(
 
 }  // namespace
 
+std::unique_ptr<ShufflerAsync> make_shuffler_async_contiguous(
+    std::shared_ptr<Context> ctx, OpID op_id, shuffler::PartID total_num_partitions
+) {
+    return std::make_unique<ShufflerAsync>(
+        std::move(ctx),
+        op_id,
+        total_num_partitions,
+        shuffler::Shuffler::contiguous(total_num_partitions)
+    );
+}
+
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
     OpID op_id,

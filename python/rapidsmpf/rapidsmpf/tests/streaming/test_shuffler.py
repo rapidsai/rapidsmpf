@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import cupy as cp
 import numpy as np
@@ -152,8 +152,11 @@ async def do_shuffle(
     num_partitions: int,
     *,
     use_extract_any: bool,
+    partition_assignment: Literal["round_robin", "contiguous"] = "round_robin",
 ) -> None:
-    shuffle = ShufflerAsync(context, op_id, num_partitions)
+    shuffle = ShufflerAsync(
+        context, op_id, num_partitions, partition_assignment=partition_assignment
+    )
     while (msg := await ch_in.recv(context)) is not None:
         chunk = TableChunk.from_message(msg)
         num_rows = chunk.table_view().num_rows()
@@ -163,7 +166,8 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    if use_extract_any:
+    use_any = use_extract_any or (partition_assignment == "contiguous")
+    if use_any:
         while (out := await shuffle.extract_any_async(context)) is not None:
             pid, data = out
             stream = context.get_stream_from_pool()
@@ -186,6 +190,50 @@ async def do_shuffle(
             )
             await ch_out.send(context, Message(pid, unpacked))
     await ch_out.drain(context)
+
+
+@pytest.mark.parametrize("num_partitions", [4, 8])
+def test_shuffler_runtime_obeys_contiguous_assignment(
+    context: Context,
+    py_executor: ThreadPoolExecutor,
+    num_partitions: int,
+) -> None:
+    actors: list[CppActor | PyActor] = []
+
+    num_rows = 200
+    num_chunks = 3
+    op_id = 0
+    ch_in: Channel[TableChunk] = context.create_channel()
+    actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
+    ch_shuffled: Channel[TableChunk] = context.create_channel()
+    actors.append(
+        do_shuffle(
+            context,
+            ch_in,
+            ch_shuffled,
+            op_id,
+            num_partitions,
+            use_extract_any=False,
+            partition_assignment="contiguous",
+        )
+    )
+    actor, deferred = pull_from_channel(context, ch_shuffled)
+    actors.append(actor)
+
+    run_actor_network(actors=actors, py_executor=py_executor)
+    messages = deferred.release()
+    received_pids = [msg.sequence_number for msg in messages]
+
+    nranks = context.comm().nranks
+    rank = context.comm().rank
+    expected_local = list(
+        range(
+            rank * num_partitions // nranks,
+            (rank + 1) * num_partitions // nranks,
+        )
+    )
+    assert set(received_pids) == set(expected_local)
+    assert len(received_pids) == len(expected_local)
 
 
 @pytest.mark.parametrize("use_extract_any", [False, True])
