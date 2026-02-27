@@ -21,6 +21,17 @@ bool has_json_unsafe_chars(std::string_view s) {
         return c == '"' || c == '\\' || c < 0x20;
     });
 }
+
+// For pre-computed names.
+struct Names {
+    std::string base;  // a string like "alloc-{memtype}" or "copy-<src>-to-<dst>"
+    std::string nbytes;  // "{base}-bytes"
+    std::string time;  // "{base}-time"
+    std::string stream_delay;  // "{base}-stream-delay"
+};
+
+using NamesArray = std::array<Names, rapidsmpf::MEMORY_TYPES.size()>;
+using Names2DArray = std::array<NamesArray, rapidsmpf::MEMORY_TYPES.size()>;
 }  // namespace
 
 namespace rapidsmpf {
@@ -363,38 +374,26 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 void Statistics::record_copy(
     MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
-    using Key = std::pair<MemoryType, MemoryType>;
-
-    struct Names {
-        std::string base;  // "copy-<src>-to-<dst>"
-        std::string nbytes;  // "<base>-bytes"
-        std::string time;  // "<base>-time"
-        std::string stream_delay;  // "<base>-stream-delay"
-    };
-
     // Construct all stat names once, at first call.
-    static std::map<Key, Names> const name_map = [] {
-        std::map<Key, Names> ret;
+    static Names2DArray const name_map = [] {
+        Names2DArray ret;
         for (MemoryType s : MEMORY_TYPES) {
             auto const src_name = to_lower(to_string(s));
             for (MemoryType d : MEMORY_TYPES) {
                 auto const dst_name = to_lower(to_string(d));
                 auto base = "copy-" + src_name + "-to-" + dst_name;
-                ret.emplace(
-                    Key{s, d},
-                    Names{
-                        .base = base,
-                        .nbytes = base + "-bytes",
-                        .time = base + "-time",
-                        .stream_delay = base + "-stream-delay",
-                    }
-                );
+                ret[static_cast<std::size_t>(s)][static_cast<std::size_t>(d)] = Names{
+                    .base = base,
+                    .nbytes = base + "-bytes",
+                    .time = base + "-time",
+                    .stream_delay = base + "-stream-delay",
+                };
             }
         }
         return ret;
     }();
-
-    auto const& names = name_map.at({src, dst});
+    auto const& names =
+        name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
 
     timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, nbytes);
@@ -430,16 +429,9 @@ void Statistics::record_copy(
 void Statistics::record_alloc(
     MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
-    struct Names {
-        std::string base;  // "alloc-{memtype}"
-        std::string nbytes;  // "alloc-{memtype}-bytes"
-        std::string time;  // "alloc-{memtype}-time"
-        std::string stream_delay;  // "alloc-{memtype}-stream-delay"
-    };
-
-    // Construct all stat names once.
-    static std::array<Names, MEMORY_TYPES.size()> const names = [] {
-        std::array<Names, MEMORY_TYPES.size()> ret;
+    // Construct all stat names once, at first call.
+    static NamesArray const names = [] {
+        NamesArray ret;
         for (MemoryType mt : MEMORY_TYPES) {
             auto base = "alloc-" + to_lower(to_string(mt));
             ret[static_cast<std::size_t>(mt)] = Names{
@@ -471,7 +463,7 @@ void Statistics::record_alloc(
 
             RAPIDSMPF_EXPECTS(
                 nbytes.count() == time.count() && time.count() == stream_delay.count(),
-                "record_copy() expects the record counters to match"
+                "record_alloc() expects the record counters to match"
             );
 
             os << format_nbytes(nbytes.value());
