@@ -56,6 +56,15 @@ struct BloomFilter {
           num_filter_blocks_{num_filter_blocks} {}
 
     /**
+     * @brief Gets the communicator associated with this BloomFilter.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
+
+    /**
      * @brief Build a bloom filter from the input channel.
      *
      * @param ch_in Input channel of `TableChunk`s to build bloom filter for.

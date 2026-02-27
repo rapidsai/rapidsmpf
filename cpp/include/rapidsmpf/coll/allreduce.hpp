@@ -92,6 +92,15 @@ class AllReduce {
         std::function<void(void)> finished_callback = nullptr
     );
 
+    /**
+     * @brief Gets the communicator associated with this AllReduce.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
+
     AllReduce(AllReduce const&) = delete;
     AllReduce& operator=(AllReduce const&) = delete;
     AllReduce(AllReduce&&) = delete;

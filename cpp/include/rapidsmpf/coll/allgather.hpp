@@ -477,6 +477,15 @@ class AllGather {
     AllGather& operator=(AllGather&&) = delete;
 
     /**
+     * @brief Gets the communicator associated with this AllGather.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
+
+    /**
      * @brief Destructor.
      *
      * @note This operation is logically collective. If an `AllGather`

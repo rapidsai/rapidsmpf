@@ -91,26 +91,27 @@ ShufflerAsync::ShufflerAsync(
     shuffler::Shuffler::PartitionOwner partition_owner
 )
     : ctx_(std::move(ctx)),
-      comm_(std::move(comm)),
       notifications_(ctx_->executor()->get()),
       latch_{[&]() {
           // Need to initialise before shuffler_, so need to determine number of local
           // partitions sui generis.
           std::int64_t npart{0};
           for (shuffler::PartID i = 0; i < total_num_partitions; i++) {
-              if (partition_owner(comm_, i) == comm_->rank()) {
+              if (partition_owner(comm, i) == comm->rank()) {
                   npart++;
               }
           }
           return npart;
       }()},
       shuffler_(
-          comm_,
+          std::move(comm),
           op_id,
           total_num_partitions,
           ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
-              comm_->logger()->trace("notifying waiters that ", pid, " is ready");
+              shuffler_.comm()->logger()->trace(
+                  "notifying waiters that ", pid, " is ready"
+              );
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
@@ -131,10 +132,10 @@ ShufflerAsync::~ShufflerAsync() noexcept {
         "finish token from this->insert_finished()"
     );
     if (!ready_pids_.empty()) {
-        comm_->logger()->warn("~ShufflerAsync: still ready partitions");
+        comm()->logger()->warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
-        comm_->logger()->warn("~ShufflerAsync: not all partitions have been extracted");
+        comm()->logger()->warn("~ShufflerAsync: not all partitions have been extracted");
     }
 }
 
@@ -158,7 +159,7 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
-        shuffler_.partition_owner(comm_, pid) == comm_->rank(),
+        shuffler_.partition_owner(comm(), pid) == comm()->rank(),
         "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
         std::out_of_range
     );

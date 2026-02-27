@@ -89,6 +89,15 @@ class ShufflerAsync {
     }
 
     /**
+     * @brief Gets the communicator associated with this shuffler.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return shuffler_.comm();
+    }
+
+    /**
      * @brief Gets the total number of partitions for this shuffle operation.
      *
      * @return The total number of partitions that data will be shuffled into.
@@ -194,7 +203,6 @@ class ShufflerAsync {
     [[nodiscard]] Actor finished_drain();
 
     std::shared_ptr<Context> ctx_;
-    std::shared_ptr<Communicator> comm_;
     coro::task_group<coro::thread_pool>
         notifications_;  ///< Container tracking the notifications that have fired.
     Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)

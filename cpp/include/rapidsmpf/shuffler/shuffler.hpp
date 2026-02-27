@@ -126,6 +126,15 @@ class Shuffler {
 
     ~Shuffler();
 
+    /**
+     * @brief Gets the communicator associated with this Shuffler.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
+
     Shuffler(Shuffler const&) = delete;
     Shuffler& operator=(Shuffler const&) = delete;
 

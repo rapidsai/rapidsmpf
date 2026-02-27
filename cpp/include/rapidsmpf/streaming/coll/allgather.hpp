@@ -58,6 +58,13 @@ class AllGather {
     [[nodiscard]] std::shared_ptr<Context> const& ctx() const noexcept;
 
     /**
+     * @brief Gets the communicator associated with this AllGather.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept;
+
+    /**
      * @brief Insert a chunk into the allgather.
      *
      * @param sequence_number The sequence number for this chunk.

@@ -36,6 +36,10 @@ AllGather::~AllGather() noexcept {
     return ctx_;
 }
 
+[[nodiscard]] std::shared_ptr<Communicator> const& AllGather::comm() const noexcept {
+    return gatherer_.comm();
+}
+
 void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     gatherer_.insert(sequence_number, std::move(packed_data));
 }
