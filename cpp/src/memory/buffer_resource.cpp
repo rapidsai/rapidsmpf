@@ -11,6 +11,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
@@ -141,8 +142,10 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::allocate(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
+    auto const mem_type = reservation.mem_type_;
+    StreamOrderedTiming timing{stream, statistics_};
     std::unique_ptr<Buffer> ret;
-    switch (reservation.mem_type_) {
+    switch (mem_type) {
     case MemoryType::HOST:
         ret = std::unique_ptr<Buffer>(new Buffer(
             std::make_unique<HostBuffer>(size, stream, host_mr()),
@@ -167,6 +170,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
     release(reservation, size);
+    statistics_->record_alloc(mem_type, size, std::move(timing));
     return ret;
 }
 

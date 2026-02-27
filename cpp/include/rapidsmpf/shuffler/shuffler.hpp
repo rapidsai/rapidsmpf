@@ -230,9 +230,6 @@ class Shuffler {
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
      *
-     * In both modes, it adds to the "spill-device-limit-breach" statistic if not
-     * enough memory could be spilled.
-     *
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.
      * @return The amount of memory actually spilled.

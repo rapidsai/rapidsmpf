@@ -92,6 +92,7 @@ target_sources(
           test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
+          test_stream_ordered_timing.cpp
           test_system_info.cpp
           test_utils_string.cpp
 )

@@ -15,6 +15,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 
 namespace rapidsmpf {
 
@@ -155,10 +156,12 @@ void buffer_copy(
     if (size == 0) {
         return;  // Nothing to copy.
     }
+    RAPIDSMPF_EXPECTS(statistics != nullptr, "the statistics pointer cannot be NULL");
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     src.latest_write_event().stream_wait(dst.stream());
+    StreamOrderedTiming timing{dst.stream(), statistics};
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
@@ -171,9 +174,7 @@ void buffer_copy(
     // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
     // we need the src.stream() to wait for that event.
     dst.latest_write_event().stream_wait(src.stream());
-    if (statistics) {
-        statistics->record_copy(src.mem_type(), dst.mem_type(), size);
-    }
+    statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
 }
 
 }  // namespace rapidsmpf
