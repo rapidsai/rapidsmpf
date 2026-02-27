@@ -21,23 +21,21 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
-from rapidsmpf.utils.ray_utils import BaseShufflingActor
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from rapidsmpf.shuffler import Shuffler
-
 
 @ray.remote(num_gpus=1, num_cpus=4)
-class BulkRayShufflerActor(BaseShufflingActor):
+class BulkRayShufflerActor(RapidsMPFActor):
     """
     Actor that performs a bulk shuffle operation using Ray.
 
@@ -73,14 +71,35 @@ class BulkRayShufflerActor(BaseShufflingActor):
         *,
         enable_statistics: bool = False,
     ):
-        super().__init__(nranks)
         self.batchsize = batchsize
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
         self.rmm_pool_size = rmm_pool_size
         self.spill_device = spill_device
-        self.enable_statistics = enable_statistics
+
+        # Initialize actor-local resources (statistics, memory resource)
+        self.mr = RmmResourceAdaptor(
+            rmm.mr.PoolMemoryResource(
+                rmm.mr.CudaMemoryResource(),
+                initial_pool_size=self.rmm_pool_size,
+                maximum_pool_size=self.rmm_pool_size,
+            )
+        )
+        rmm.mr.set_current_device_resource(self.mr)
+        # Create a buffer resource that limits device memory if `--spill-device`
+        memory_available = (
+            None
+            if self.spill_device is None
+            else {
+                MemoryType.DEVICE: LimitAvailableMemory(
+                    self.mr, limit=self.spill_device
+                )
+            }
+        )
+        br = BufferResource(self.mr, memory_available=memory_available)
+        self.br = br
+        super().__init__(nranks, Statistics(enable=enable_statistics, mr=self.mr))
 
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """
@@ -92,38 +111,17 @@ class BulkRayShufflerActor(BaseShufflingActor):
             Address of the root worker for UCXX initialization.
         """
         super().setup_worker(root_address_bytes)
-
-        # Initialize the RMM memory resource
-        mr = RmmResourceAdaptor(
-            rmm.mr.PoolMemoryResource(
-                rmm.mr.CudaMemoryResource(),
-                initial_pool_size=self.rmm_pool_size,
-                maximum_pool_size=self.rmm_pool_size,
-            )
-        )
-        rmm.mr.set_current_device_resource(mr)
-        # Create a buffer resource that limits device memory if `--spill-device`
-        memory_available = (
-            None
-            if self.spill_device is None
-            else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_device)}
-        )
-        br = BufferResource(mr, memory_available=memory_available)
-        # Create a statistics object
-        self.stats = Statistics(enable=self.enable_statistics, mr=mr)
-        # Create a shuffler
-        self.shuffler: Shuffler = self.create_shuffler(
+        self.shuffler: Shuffler = Shuffler(
+            self.comm,
+            self.comm.progress_thread,
             0,
             total_num_partitions=self.total_nparts,
-            buffer_resource=br,
-            statistics=self.stats,
+            br=self.br,
         )
-        self.br = br
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
-        if self.enable_statistics and self.stats is not None:
-            self.comm.logger.info(self.stats.report())
+        self.comm.logger.info(self.statistics.report())
         if self.shuffler is not None:
             self.shuffler.shutdown()
 

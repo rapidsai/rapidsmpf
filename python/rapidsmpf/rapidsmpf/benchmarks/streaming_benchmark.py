@@ -91,9 +91,7 @@ def consume_finished_partitions(
 
 def streaming_shuffle(
     comm: Communicator,
-    progress_thread: ProgressThread,
     br: BufferResource,
-    stats: Statistics,
     output_nparts: int,
     local_size: int,
     part_size: int,
@@ -110,12 +108,8 @@ def streaming_shuffle(
     ----------
     comm
         The communicator to use.
-    progress_thread
-        The progress thread to use.
     br
         The buffer resource to use.
-    stats
-        The statistics to use.
     output_nparts
         The total number of output partitions.
     local_size
@@ -137,7 +131,7 @@ def streaming_shuffle(
     # create a shuffler instance
     shuffler = Shuffler(
         comm,
-        progress_thread,
+        comm.progress_thread,
         op_id=0,
         total_num_partitions=output_nparts,
         br=br,
@@ -282,9 +276,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     start_time = MPI.Wtime()
     streaming_shuffle(
         comm,
-        progress_thread,
         br,
-        stats,
         args.out_nparts,
         args.local_size,
         args.part_size,

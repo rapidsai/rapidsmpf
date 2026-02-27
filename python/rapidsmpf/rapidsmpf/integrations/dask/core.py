@@ -18,7 +18,7 @@ from rapidsmpf.config import (
     get_environment_variables,
 )
 from rapidsmpf.integrations import WorkerContext
-from rapidsmpf.integrations.core import rmpf_worker_setup
+from rapidsmpf.integrations.core import rmpf_worker_local_setup
 from rapidsmpf.progress_thread import ProgressThread
 
 if TYPE_CHECKING:
@@ -93,7 +93,7 @@ def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
 
 
-async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> bytes:
+async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
     """
     Set up the UCXX comm for the root worker.
 
@@ -101,24 +101,34 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     ----------
     n_ranks
         Number of ranks in the cluster / UCXX comm.
-    options
-        Configuration options.
 
     Returns
     -------
     bytes
         The UCXX address of the root node.
+
+    Note
+    ----
+    This functions requires that the local worker setup has already run,
+    via :func:`~.dask_worker_local_setup`.
     """
     with WorkerContext.lock:
         worker = get_worker()
-        comm = new_communicator(n_ranks, None, None, options, ProgressThread())
-        worker._rapidsmpf_comm = comm
-        comm.logger.trace(f"Rank {comm.rank} created")
-        return get_root_ucxx_address(comm)
+        try:
+            ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
+        except AttributeError:
+            raise RuntimeError(
+                "Local worker context not yet bootstrapped, missing rapidsmpf_worker_local_setup"
+            ) from None
+        ctx.comm = new_communicator(
+            n_ranks, None, None, ctx.options, ProgressThread(ctx.statistics)
+        )
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+        return get_root_ucxx_address(ctx.comm)
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
-    n_ranks: int, root_address_bytes: bytes, options: Options
+    n_ranks: int, root_address_bytes: bytes
 ) -> None:
     """
     Set up the UCXX comms for a Dask worker.
@@ -129,26 +139,33 @@ async def rapidsmpf_ucxx_rank_setup_node(
         Number of ranks in the cluster / UCXX comm.
     root_address_bytes
         The UCXX address of the root node.
-    options
-        Configuration options.
+
+    Note
+    ----
+    This functions requires that the local worker setup has already run,
+    via :func:`~.dask_worker_local_setup`.
     """
     with WorkerContext.lock:
         worker = get_worker()
-        if not hasattr(worker, "_rapidsmpf_comm"):
+        try:
+            ctx: WorkerContext = worker._rapidsmpf_worker_context  # type:ignore[unresolved-attribute]
+        except AttributeError:
+            raise RuntimeError(
+                "Local worker context not yet bootstrapped, missing rapidsmpf_worker_local_setup"
+            ) from None
+        if ctx.comm is None:
             # Not the root rank
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-            comm = new_communicator(
-                n_ranks, None, root_address, options, ProgressThread()
+            ctx.comm = new_communicator(
+                n_ranks, None, root_address, ctx.options, ProgressThread(ctx.statistics)
             )
-            worker._rapidsmpf_comm = comm
-            comm.logger.trace(f"Rank {comm.rank} created")
-        comm = worker._rapidsmpf_comm
-        comm.logger.trace(f"Rank {comm.rank} setup barrier")
-        barrier(comm)
-        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
+            ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
+        barrier(ctx.comm)
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier passed")
 
 
-def dask_worker_setup(
+def dask_worker_local_setup(
     dask_worker: distributed.Worker,
     *,
     options: Options,
@@ -177,16 +194,11 @@ def dask_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    try:
-        comm = dask_worker._rapidsmpf_comm
-    except AttributeError:
-        raise RuntimeError("Dask cluster not yet bootstrapped") from None
     with WorkerContext.lock:
         if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
-            dask_worker._rapidsmpf_worker_context = rmpf_worker_setup(
+            dask_worker._rapidsmpf_worker_context = rmpf_worker_local_setup(  # type:ignore[invalid-assignment]
                 dask_worker,
                 "dask_",
-                comm=comm,
                 options=options,
             )
 
@@ -258,16 +270,21 @@ def bootstrap_dask_cluster(
         scheduler_plugin = RMPFSchedulerPlugin()
         client.register_plugin(scheduler_plugin)
 
-        workers = sorted(info["workers"])
-        n_ranks = len(workers)
-
         # Insert missing config options from environment variables.
         options.insert_if_absent(get_environment_variables())
+
+        # First, prepare the per-process RapidsMPF resources
+        client.run(
+            dask_worker_local_setup,
+            options=options,
+        )
+
+        workers = sorted(info["workers"])
+        n_ranks = len(workers)
         # Set up the comms for the root worker
         root_address_bytes = client.submit(
             rapidsmpf_ucxx_rank_setup_root,
             n_ranks=n_ranks,
-            options=options,
             workers=workers[0],
             pure=False,
         ).result()
@@ -278,19 +295,12 @@ def bootstrap_dask_cluster(
                 rapidsmpf_ucxx_rank_setup_node,
                 n_ranks=n_ranks,
                 root_address_bytes=root_address_bytes,
-                options=options,
                 workers=worker,
                 pure=False,
             )
             for worker in workers
         ]
         wait(ucxx_setup_futures)
-
-        # Finally, prepare the RapidsMPF resources on top of the UCXX comms
-        client.run(
-            dask_worker_setup,
-            options=options,
-        )
 
         # Only run the above steps once
         _initialized_clusters.add(info["id"])

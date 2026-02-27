@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 """Example running a RapidsMPF Shuffle operation using Ray and UCXX communication."""
 
@@ -18,22 +18,19 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,
     pylibcudf_to_cudf_dataframe,
 )
-from rapidsmpf.utils.ray_utils import BaseShufflingActor
 
 
-class ShufflingActor(BaseShufflingActor):
+class ShufflingActor(RapidsMPFActor):
     """
     An example of a Ray actor that performs a shuffle operation.
-
-    It makes use of the BaseShufflingActor class to initiate a shuffler,
-    and uses that for cudf dataframe example.
 
     Parameters
     ----------
@@ -54,7 +51,7 @@ class ShufflingActor(BaseShufflingActor):
         batch_size: int = -1,
         total_nparts: int = -1,
     ):
-        super().__init__(nranks)
+        super().__init__(nranks, statistics=None)
         self._num_rows: int = num_rows
         self._batch_size: int = batch_size
         self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
@@ -91,7 +88,7 @@ class ShufflingActor(BaseShufflingActor):
         columns_to_hash = (df.columns.get_loc("b"),)
         column_names = list(df.columns)
 
-        mr = rmm.mr.get_current_device_resource()  # use the current device resource
+        mr = rmm.mr.get_current_device_resource()
         br = BufferResource(mr)
         stream = DEFAULT_STREAM  # use the default stream
 
@@ -114,9 +111,12 @@ class ShufflingActor(BaseShufflingActor):
             ).items()
         }
 
-        # initialize a shuffler with the default buffer resource
-        shuffler = self.create_shuffler(
-            0, total_num_partitions=self._total_nparts, stream=stream
+        shuffler = Shuffler(
+            self.comm,
+            self.comm.progress_thread,
+            0,
+            total_num_partitions=self._total_nparts,
+            br=br,
         )
 
         # Slice df and submit local slices to shuffler
