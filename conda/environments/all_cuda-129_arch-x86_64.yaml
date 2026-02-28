@@ -21,7 +21,7 @@ dependencies:
 - cuda-version=12.9
 - cudf==26.4.*,>=0.0.0a0
 - cxx-compiler
-- cython>=3.0.3,<3.2.0
+- cython>=3.2.2
 - dask-cuda==26.4.*,>=0.0.0a0
 - dask-cudf==26.4.*,>=0.0.0a0
 - doxygen=1.9.1
