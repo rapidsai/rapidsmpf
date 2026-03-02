@@ -81,12 +81,15 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
-                [](auto const& s) { return parse_string<size_t>(s.empty() ? "0" : s); }
+                [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [](auto const& s) {
-                    return s.empty() ? std::nullopt
-                                     : std::optional<size_t>(parse_string<size_t>(s));
+                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
+                    auto parsed = parse_optional(s);
+                    if (parsed.has_value() && !parsed->empty()) {
+                        return parse_nbytes_unsigned(*parsed);
+                    }
+                    return std::nullopt;
                 }
             )
         };
