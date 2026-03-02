@@ -228,7 +228,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cython>=3.0.3,<3.2.0
+          - cython>=3.2.2
   checks:
     common:
       - output_types: conda
