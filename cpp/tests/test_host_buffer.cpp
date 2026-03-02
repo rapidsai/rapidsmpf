@@ -261,7 +261,7 @@ TEST(PinnedResourceMaxSize, max_pool_size_limit) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
 
-    // Ensure a current device context so driver APIs
+    // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
     auto stream = cudf::get_default_stream();
 
