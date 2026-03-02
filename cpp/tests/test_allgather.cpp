@@ -39,7 +39,10 @@ class BaseAllGatherTest : public ::testing::Test {
         comm = GlobalEnvironment->comm_.get();
 
         allgather = std::make_unique<AllGather>(
-            GlobalEnvironment->comm_, GlobalEnvironment->progress_thread_, 0, br.get()
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->comm_->progress_thread(),
+            0,
+            br.get()
         );
     }
 

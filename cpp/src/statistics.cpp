@@ -4,15 +4,41 @@
  */
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <ranges>
 #include <sstream>
+#include <unordered_set>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+namespace {
+bool has_json_unsafe_chars(std::string_view s) {
+    return std::ranges::any_of(s, [](unsigned char c) {
+        return c == '"' || c == '\\' || c < 0x20;
+    });
+}
+
+// For pre-computed names.
+struct Names {
+    std::string base;  // a string like "alloc-{memtype}" or "copy-<src>-to-<dst>"
+    std::string nbytes;  // "{base}-bytes"
+    std::string time;  // "{base}-time"
+    std::string stream_delay;  // "{base}-stream-delay"
+};
+
+using NamesArray = std::array<Names, rapidsmpf::MEMORY_TYPES.size()>;
+using Names2DArray = std::array<NamesArray, rapidsmpf::MEMORY_TYPES.size()>;
+}  // namespace
+
 namespace rapidsmpf {
+
+Statistics::~Statistics() noexcept {
+    StreamOrderedTiming::cancel_inflight_timings(this);
+}
 
 // Setting `mr_ = nullptr` disables memory profiling.
 Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
@@ -39,50 +65,70 @@ std::shared_ptr<Statistics> Statistics::disabled() {
     return ret;
 }
 
-void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
-    os << val;
-    if (count > 1) {
-        os << " (avg " << (val / count) << ")";
-    }
-};
-
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return stats_.at(name);
 }
 
-double Statistics::add_stat(
-    std::string const& name, double value, Formatter const& formatter
-) {
+void Statistics::add_stat(std::string const& name, double value) {
     if (!enabled()) {
-        return 0;
+        return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = stats_.find(name);
-    if (it == stats_.end()) {
-        it = stats_.insert({name, Stat(formatter)}).first;
+    auto [it, _] = stats_.try_emplace(name);
+    it->second.add(value);
+}
+
+bool Statistics::exist_report_entry_name(std::string const& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return formatters_.contains(name);
+}
+
+void Statistics::register_formatter(std::string const& name, Formatter formatter) {
+    if (!enabled() || exist_report_entry_name(name)) {
+        return;
     }
-    return it->second.add(value);
+    register_formatter(name, {name}, std::move(formatter));
 }
 
-std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
-    return add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
-        os << format_nbytes(val);
-        if (count > 1) {
-            os << " (avg " << format_nbytes(val / count) << ")";
-        }
-    });
+void Statistics::register_formatter(
+    std::string const& report_entry_name,
+    std::vector<std::string> const& stat_names,
+    Formatter formatter
+) {
+    if (!enabled() || exist_report_entry_name(report_entry_name)) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    formatters_.try_emplace(report_entry_name, stat_names, std::move(formatter));
 }
 
-Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
-    return Duration(add_stat(
-        name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
+void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
+    if (!exist_report_entry_name(name)) {
+        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const val = stats[0].value();
+            auto const count = stats[0].count();
+            os << format_nbytes(val);
+            if (count > 1) {
+                os << " | avg " << format_nbytes(val / count);
+            }
+        });
+    }
+    add_stat(name, static_cast<double>(nbytes));
+}
+
+void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
+    if (!exist_report_entry_name(name)) {
+        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const val = stats[0].value();
+            auto const count = stats[0].count();
             os << format_duration(val);
             if (count > 1) {
-                os << " (avg " << format_duration(val / count) << ")";
+                os << " | avg " << format_duration(val / count);
             }
-        }
-    ));
+        });
+    }
+    add_stat(name, seconds.count());
 }
 
 std::vector<std::string> Statistics::list_stat_names() const {
@@ -138,21 +184,79 @@ Statistics::get_memory_records() const {
 std::string Statistics::report(std::string const& header) const {
     std::stringstream ss;
     ss << header;
+
     if (!enabled()) {
         ss << " disabled.";
         return ss.str();
     }
+
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::size_t max_length{0};
-    for (auto const& [name, _] : stats_) {
+    // Reporting strategy:
+    //
+    // Each registered formatter claims one or more stat names and renders them into a
+    // single labelled entry line using a custom function.  Any stat that is not claimed
+    // by any formatter is rendered with a plain numeric default entry line.  All entry
+    // lines are then sorted alphabetically by their label and printed together.
+
+    using EntryLine = std::pair<std::string, std::string>;
+
+    std::vector<EntryLine> lines;
+    std::unordered_set<std::string> consumed;
+
+    // Returns true only if every stat name required by a formatter has been recorded.
+    // If false, the entry is rendered as "No data collected".
+    auto has_all_stats = [&](auto const& names) {
+        return std::ranges::all_of(names, [&](auto const& sname) {
+            return stats_.contains(sname);
+        });
+    };
+
+    // Formatter-based lines. Emit "No data collected" if any required stats are missing.
+    for (auto const& [report_entry_name, entry] : formatters_) {
+        if (!has_all_stats(entry.stat_names)) {
+            lines.emplace_back(report_entry_name, "No data collected");
+            continue;
+        }
+
+        std::vector<Stat> stat_vec;
+        stat_vec.reserve(entry.stat_names.size());
+        for (auto const& sname : entry.stat_names) {
+            stat_vec.push_back(stats_.at(sname));
+        }
+
+        for (auto const& sname : entry.stat_names) {
+            consumed.insert(sname);
+        }
+
+        std::ostringstream line;
+        entry.fn(line, stat_vec);
+        lines.emplace_back(report_entry_name, std::move(line).str());
+    }
+
+    // Uncovered stats get a default raw-value format.
+    for (auto const& [name, stat] : stats_) {
+        if (consumed.contains(name)) {
+            continue;
+        }
+        std::ostringstream line;
+        line << stat.value();
+        if (stat.count() > 1) {
+            line << " (count " << stat.count() << ")";
+        }
+        lines.emplace_back(name, std::move(line).str());
+    }
+
+    std::ranges::sort(lines, {}, &EntryLine::first);
+    std::size_t max_length = 0;
+    for (auto const& [name, _] : lines) {
         max_length = std::max(max_length, name.size());
     }
+
     ss << "\n";
-    for (auto const& [name, stat] : stats_) {
-        ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
-        stat.formatter()(ss, stat.count(), stat.value());
-        ss << "\n";
+    for (auto const& [name, text] : lines) {
+        ss << " - " << std::setw(max_length + 3) << std::left << name + ": " << text
+           << "\n";
     }
     ss << "\n";
 
@@ -205,5 +309,172 @@ std::string Statistics::report(std::string const& header) const {
     return ss.str();
 }
 
+void Statistics::write_json(std::ostream& os) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    for (auto const& [name, _] : stats_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "stat name cannot contains characters that require JSON escaping: " + name,
+            std::invalid_argument
+        );
+    }
+    for (auto const& [name, _] : memory_records_) {
+        RAPIDSMPF_EXPECTS(
+            !has_json_unsafe_chars(name),
+            "memory record name cannot contains characters that require JSON escaping: "
+                + name,
+            std::invalid_argument
+        );
+    }
+
+    os << "{\n";
+    os << "  \"statistics\": {";
+    for (std::string sep; auto const& [name, stat] : stats_) {
+        os << std::exchange(sep, ",") << "\n    \"" << name << "\": {"
+           << "\"count\": " << stat.count() << ", "
+           << "\"value\": " << stat.value() << ", "
+           << "\"max\": " << stat.max() << "}";
+    }
+    os << (stats_.empty() ? "" : "\n  ") << "}";
+
+    if (!memory_records_.empty()) {
+        // Sort by name for deterministic output (unordered_map has no order).
+        std::vector<std::string> names;
+        names.reserve(memory_records_.size());
+        for (auto const& [n, _] : memory_records_)
+            names.push_back(n);
+        std::ranges::sort(names);
+
+        os << ",\n  \"memory_records\": {";
+        for (std::string sep; auto const& n : names) {
+            auto const& rec = memory_records_.at(n);
+            os << std::exchange(sep, ",") << "\n    \"" << n << "\": {"
+               << "\"num_calls\": " << rec.num_calls << ", "
+               << "\"peak_bytes\": " << rec.scoped.peak() << ", "
+               << "\"total_bytes\": " << rec.scoped.total() << ", "
+               << "\"global_peak_bytes\": " << rec.global_peak << "}";
+        }
+        os << "\n  }";
+    }
+    os << "\n}\n";
+}
+
+void Statistics::write_json(std::filesystem::path const& filepath) const {
+    std::ofstream f(filepath);
+    RAPIDSMPF_EXPECTS(
+        f.is_open(), "Cannot open file: " + filepath.string(), std::ios_base::failure
+    );
+    write_json(f);
+    RAPIDSMPF_EXPECTS(
+        !f.fail(), "Failed writing to: " + filepath.string(), std::ios_base::failure
+    );
+}
+
+void Statistics::record_copy(
+    MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
+    // Construct all stat names once, at first call.
+    static Names2DArray const name_map = [] {
+        Names2DArray ret;
+        for (MemoryType s : MEMORY_TYPES) {
+            auto const src_name = to_lower(to_string(s));
+            for (MemoryType d : MEMORY_TYPES) {
+                auto const dst_name = to_lower(to_string(d));
+                auto base = "copy-" + src_name + "-to-" + dst_name;
+                ret[static_cast<std::size_t>(s)][static_cast<std::size_t>(d)] = Names{
+                    .base = base,
+                    .nbytes = base + "-bytes",
+                    .time = base + "-time",
+                    .stream_delay = base + "-stream-delay",
+                };
+            }
+        }
+        return ret;
+    }();
+    auto const& names =
+        name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
+
+    timing.stop_and_record(names.time, names.stream_delay);
+    add_stat(names.nbytes, nbytes);
+
+    if (exist_report_entry_name(names.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_copy() expects the record counters to match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
+        }
+    );
+}
+
+void Statistics::record_alloc(
+    MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
+    // Construct all stat names once, at first call.
+    static NamesArray const names = [] {
+        NamesArray ret;
+        for (MemoryType mt : MEMORY_TYPES) {
+            auto base = "alloc-" + to_lower(to_string(mt));
+            ret[static_cast<std::size_t>(mt)] = Names{
+                .base = base,
+                .nbytes = base + "-bytes",
+                .time = base + "-time",
+                .stream_delay = base + "-stream-delay",
+            };
+        }
+        return ret;
+    }();
+
+    auto const& n = names[static_cast<std::size_t>(mem_type)];
+
+    timing.stop_and_record(n.time, n.stream_delay);
+    add_stat(n.nbytes, nbytes);
+
+    if (exist_report_entry_name(n.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        n.base,
+        {n.nbytes, n.time, n.stream_delay},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_alloc() expects the record counters to match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
+        }
+    );
+}
 
 }  // namespace rapidsmpf

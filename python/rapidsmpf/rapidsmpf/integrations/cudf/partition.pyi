@@ -9,7 +9,6 @@ from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.statistics import Statistics
 
 def partition_and_pack(
     table: Table,
@@ -33,12 +32,10 @@ def spill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
-    statistics: Statistics | None = None,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
     allow_overbooking: bool,
-    statistics: Statistics | None = None,
 ) -> list[PackedData]: ...

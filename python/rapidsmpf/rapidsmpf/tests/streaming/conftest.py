@@ -14,6 +14,7 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.context import Context
 
@@ -27,7 +28,7 @@ def context() -> Generator[Context, None, None]:
     Fixture to get a streaming context.
     """
     options = Options(get_environment_variables())
-    comm = single_process_comm(options)
+    comm = single_process_comm(options, ProgressThread())
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(mr)
 

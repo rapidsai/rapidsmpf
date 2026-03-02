@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import run_actor_network
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -40,10 +40,10 @@ def test_partition_and_pack_unpack(
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = context.create_channel()
-    node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
+    actor1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
 
     ch2: Channel[PartitionMapChunk] = context.create_channel()
-    node2 = partition_and_pack(
+    actor2 = partition_and_pack(
         context,
         ch_in=ch1,
         ch_out=ch2,
@@ -52,14 +52,14 @@ def test_partition_and_pack_unpack(
     )
 
     ch3: Channel[TableChunk] = context.create_channel()
-    node3 = unpack_and_concat(
+    actor3 = unpack_and_concat(
         context,
         ch_in=ch2,
         ch_out=ch3,
     )
 
-    node4, output = pull_from_channel(context, ch_in=ch3)
-    run_streaming_pipeline(nodes=(node1, node2, node3, node4))
+    actor4, output = pull_from_channel(context, ch_in=ch3)
+    run_actor_network(actors=(actor1, actor2, actor3, actor4))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

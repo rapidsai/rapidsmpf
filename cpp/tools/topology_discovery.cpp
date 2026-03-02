@@ -50,7 +50,7 @@ class JsonBuilder {
     static std::string to_json_array(std::vector<int> const& vec) {
         std::ostringstream oss;
         oss << "[";
-        for (size_t i = 0; i < vec.size(); ++i) {
+        for (std::size_t i = 0; i < vec.size(); ++i) {
             if (i > 0)
                 oss << ", ";
             oss << vec[i];
@@ -62,7 +62,7 @@ class JsonBuilder {
     static std::string to_json_array(std::vector<std::string> const& vec) {
         std::ostringstream oss;
         oss << "[";
-        for (size_t i = 0; i < vec.size(); ++i) {
+        for (std::size_t i = 0; i < vec.size(); ++i) {
             if (i > 0)
                 oss << ", ";
             oss << "\"" << escape_string(vec[i]) << "\"";
@@ -86,7 +86,7 @@ void output_json(cucascade::memory::system_topology_info const& topology) {
     std::cout << "  },\n";
 
     std::cout << "  \"gpus\": [\n";
-    for (size_t i = 0; i < topology.gpus.size(); ++i) {
+    for (std::size_t i = 0; i < topology.gpus.size(); ++i) {
         auto const& gpu = topology.gpus[i];
         std::cout << "    {\n";
         std::cout << "      \"id\": " << gpu.id << ",\n";
@@ -116,7 +116,7 @@ void output_json(cucascade::memory::system_topology_info const& topology) {
     std::cout << "  ],\n";
 
     std::cout << "  \"network_devices\": [\n";
-    for (size_t i = 0; i < topology.network_devices.size(); ++i) {
+    for (std::size_t i = 0; i < topology.network_devices.size(); ++i) {
         auto const& dev = topology.network_devices[i];
         std::cout << "    {\n";
         std::cout << "      \"name\": \"" << JsonBuilder::escape_string(dev.name)

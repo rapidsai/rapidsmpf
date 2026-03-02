@@ -65,8 +65,7 @@ Context::Context(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
-    std::shared_ptr<BufferResource> br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<BufferResource> br
 )
     : uid_{get_new_uid()},
       creator_thread_id_{std::this_thread::get_id()},
@@ -75,13 +74,11 @@ Context::Context(
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      statistics_{std::move(statistics)},
       spillable_messages_{std::make_shared<SpillableMessages>()} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
     RAPIDSMPF_EXPECTS(progress_thread_ != nullptr, "progress_thread cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "statistics cannot be NULL");
 
     // Setup a spilling function.
     spill_function_id_ = br_->spill_manager().add_spill_function(
@@ -100,26 +97,21 @@ Context::Context(
 Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<BufferResource> br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<BufferResource> br
 )
     : Context(
           options,
           comm,
-          std::make_shared<ProgressThread>(comm->logger(), statistics),
+          comm->progress_thread(),
           std::make_shared<CoroThreadPoolExecutor>(options),
-          br,
-          statistics
+          br
       ) {}
 
 std::shared_ptr<Context> Context::from_options(
     RmmResourceAdaptor* mr, std::shared_ptr<Communicator> comm, config::Options options
 ) {
     return std::make_shared<Context>(
-        options,
-        comm,
-        BufferResource::from_options(mr, options),
-        Statistics::from_options(mr, options)
+        options, comm, BufferResource::from_options(mr, options)
     );
 }
 
@@ -149,28 +141,26 @@ std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
 }
 
-Communicator::Logger& Context::logger() const noexcept {
-    return comm_->logger();
-}
-
 std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
 
-std::shared_ptr<CoroThreadPoolExecutor> Context::executor() const noexcept {
+std::shared_ptr<CoroThreadPoolExecutor> const& Context::executor() const noexcept {
     return executor_;
 }
 
-std::shared_ptr<BufferResource> Context::br() const noexcept {
+std::shared_ptr<BufferResource> const& Context::br() const noexcept {
     return br_;
 }
 
-std::shared_ptr<MemoryReserveOrWait> Context::memory(MemoryType mem_type) const noexcept {
+std::shared_ptr<MemoryReserveOrWait> const& Context::memory(
+    MemoryType mem_type
+) const noexcept {
     return memory_[static_cast<std::size_t>(mem_type)];
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {
-    return statistics_;
+    return br_->statistics();
 }
 
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
@@ -183,7 +173,7 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
     return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
 }
 
-std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {
+std::shared_ptr<SpillableMessages> const& Context::spillable_messages() const noexcept {
     return spillable_messages_;
 }
 

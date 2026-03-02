@@ -267,7 +267,7 @@ cdef class MemoryReserveOrWait:
     mem_type
         The memory type for which reservations are requested.
     ctx
-        Node context used during construction to read context properties. The context
+        Actor context used during construction to read context properties. The context
         is not kept alive after initialization.
 
     Raises
@@ -554,7 +554,7 @@ async def reserve_memory(
     Parameters
     ----------
     ctx
-        Node context used to obtain the memory reservation handle.
+        Actor context used to obtain the memory reservation handle.
     size
         Number of bytes to reserve.
     net_memory_delta
@@ -583,7 +583,7 @@ async def reserve_memory(
 
     Examples
     --------
-    Reserve device memory inside a node:
+    Reserve device memory inside an actor:
     >>> res = await reserve_memory(
     ...     ctx,
     ...     size=1024,

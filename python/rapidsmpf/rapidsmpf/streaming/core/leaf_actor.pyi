@@ -5,17 +5,17 @@ from __future__ import annotations
 
 from typing import Generic
 
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message, PayloadT
-from rapidsmpf.streaming.core.node import CppNode
 
 class DeferredMessages(Generic[PayloadT]):
     def release(self) -> list[Message[PayloadT]]: ...
 
 def push_to_channel(
     ctx: Context, ch_out: Channel[PayloadT], messages: list[Message[PayloadT]]
-) -> CppNode: ...
+) -> CppActor: ...
 def pull_from_channel(
     ctx: Context, ch_in: Channel[PayloadT]
-) -> tuple[CppNode, DeferredMessages[PayloadT]]: ...
+) -> tuple[CppActor, DeferredMessages[PayloadT]]: ...

@@ -22,7 +22,7 @@
 namespace rapidsmpf::ndsh {
 
 
-streaming::Node concatenate(
+streaming::Actor concatenate(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -31,7 +31,7 @@ streaming::Node concatenate(
     streaming::ShutdownAtExit c{ch_in, ch_out};
     CudaEvent event;
     std::vector<streaming::Message> messages;
-    ctx->comm()->logger().print("Concatenate");
+    ctx->comm()->logger()->print("Concatenate");
     auto concat_stream = ctx->br()->stream_pool().get_stream();
     while (!ch_out->is_shutdown()) {
         co_await ctx->executor()->schedule();

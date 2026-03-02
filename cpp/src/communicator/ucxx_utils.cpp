@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,6 +8,7 @@
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -25,7 +26,7 @@ namespace {
  * which will be read from in rank 0 and stored to in all other ranks.
  */
 void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_address_str) {
-    size_t address_size{root_worker_address_str.size()};
+    std::size_t address_size{root_worker_address_str.size()};
 
     RAPIDSMPF_MPI(
         MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
@@ -41,7 +42,9 @@ void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_addr
 }  // namespace
 
 std::shared_ptr<UCXX> init_using_mpi(
-    MPI_Comm mpi_comm, rapidsmpf::config::Options options
+    MPI_Comm mpi_comm,
+    rapidsmpf::config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
 ) {
     RAPIDSMPF_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
 
@@ -57,7 +60,9 @@ std::shared_ptr<UCXX> init_using_mpi(
     std::shared_ptr<UCXX> comm;
     if (rank == 0) {
         auto ucxx_initialized_rank = init(nullptr, nranks, std::nullopt, options);
-        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
 
         root_listener_address = comm->listener_address();
         root_worker_address_str =
@@ -70,7 +75,9 @@ std::shared_ptr<UCXX> init_using_mpi(
         auto root_worker_address =
             ::ucxx::createAddressFromString(root_worker_address_str);
         auto ucxx_initialized_rank = init(nullptr, nranks, root_worker_address, options);
-        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
+        comm = std::make_shared<UCXX>(
+            std::move(ucxx_initialized_rank), options, progress_thread
+        );
     }
 
     // barrier to complete the bootstrapping process

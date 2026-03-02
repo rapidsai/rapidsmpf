@@ -287,8 +287,9 @@ class Options {
      *
      * The format (v1) is:
      * - [4 bytes MAGIC "RMPF"][1 byte version][1 byte flags][2 bytes reserved]
-     * - [uint64_t count] — number of key-value pairs.
-     * - [count * 2 * uint64_t] — offset pairs (key_offset, value_offset) for each entry.
+     * - [std::uint64_t count] — number of key-value pairs.
+     * - [count * 2 * std::uint64_t] — offset pairs (key_offset, value_offset)
+     *                                 for each entry.
      * - [raw bytes] — all key and value strings, contiguous and null-free.
      *
      * Offsets are absolute byte positions into the buffer.

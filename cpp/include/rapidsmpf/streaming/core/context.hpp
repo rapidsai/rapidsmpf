@@ -23,7 +23,7 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Context for nodes (coroutines) in rapidsmpf.
+ * @brief Context for actors (coroutines) in rapidsmpf.
  *
  * The context owns shared resources used during execution, including the
  * coroutine executor and memory reservation infrastructure.
@@ -51,15 +51,13 @@ class Context {
      * @param progress_thread Shared pointer to a progress thread.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
-     * @param statistics Shared pointer to a statistics collector.
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
-        std::shared_ptr<BufferResource> br,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<BufferResource> br
     );
 
     /**
@@ -68,13 +66,11 @@ class Context {
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
      * @param br Buffer resource used to reserve host memory and perform data movement.
-     * @param statistics Statistics instance to use (disabled by default).
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<BufferResource> br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<BufferResource> br
     );
 
     /**
@@ -150,13 +146,6 @@ class Context {
     [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
-     * @brief Returns the logger.
-     *
-     * @return Reference to the logger.
-     */
-    [[nodiscard]] Communicator::Logger& logger() const noexcept;
-
-    /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.
@@ -166,16 +155,17 @@ class Context {
     /**
      * @brief Returns the coroutine executor.
      *
-     * @return Reference to unique pointer to the executor.
+     * @return Shared pointer to the executor.
      */
-    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> const&
+    executor() const noexcept;
 
     /**
      * @brief Returns the buffer resource.
      *
-     * @return Raw pointer to the buffer resource.
+     * @return Shared pointer to the buffer resource.
      */
-    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+    [[nodiscard]] std::shared_ptr<BufferResource> const& br() const noexcept;
 
     /**
      * @brief Get the handle for memory reservations for a given memory type.
@@ -193,7 +183,7 @@ class Context {
      * @param mem_type Memory type for which reservations are requested.
      * @return Shared pointer to the corresponding memory reservation coordinator.
      */
-    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> memory(
+    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> const& memory(
         MemoryType mem_type
     ) const noexcept;
 
@@ -214,9 +204,10 @@ class Context {
     /**
      * @brief Returns the spillable messages collection.
      *
-     * @return A shared pointer to the collection.
+     * @return Shared pointer to the collection.
      */
-    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const noexcept;
+    [[nodiscard]] std::shared_ptr<SpillableMessages> const&
+    spillable_messages() const noexcept;
 
     /**
      * @brief Create a new bounded queue associated with this context.
@@ -250,7 +241,6 @@ class Context {
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};
-    std::shared_ptr<Statistics> statistics_;
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
 };

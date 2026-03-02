@@ -22,9 +22,9 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -62,6 +62,7 @@ namespace detail {
  * @brief Get cudf data types for all columns from parquet metadata.
  *
  * Reads parquet metadata to determine the cudf data type for each column.
+ * The data types are inferred from the first file found for the given table.
  *
  * @param input_directory Directory containing input parquet files
  * @param table_name Name of the table (e.g., "lineitem")
@@ -231,7 +232,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing the shutdown and discard of the channel.
  */
-[[nodiscard]] streaming::Node sink_channel(
+[[nodiscard]] streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 );
 
@@ -246,7 +247,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing consuming and discarding messages in channel.
  */
-[[nodiscard]] streaming::Node consume_channel(
+[[nodiscard]] streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 );
 

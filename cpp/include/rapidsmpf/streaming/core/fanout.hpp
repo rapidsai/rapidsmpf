@@ -1,20 +1,20 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 /**
  * @brief Fanout policy controlling how messages are propagated.
  */
-enum class FanoutPolicy : uint8_t {
+enum class FanoutPolicy : std::uint8_t {
     /**
      * @brief Process messages as they arrive and immediately forward them.
      *
@@ -41,27 +41,27 @@ enum class FanoutPolicy : uint8_t {
 /**
  * @brief Broadcast messages from one input channel to multiple output channels.
  *
- * The node continuously receives messages from the input channel and forwards
+ * The actor continuously receives messages from the input channel and forwards
  * them to all output channels according to the selected fanout policy, see
  * ::FanoutPolicy.
  *
  * Each output channel receives a deep copy of the same message.
  *
- * @param ctx The node context to use.
+ * @param ctx The actor context to use.
  * @param ch_in Input channel from which messages are received.
  * @param chs_out Output channels to which messages are broadcast. Must be at least 2.
  * @param policy The fanout strategy to use (see ::FanoutPolicy).
  *
- * @return Streaming node representing the fanout operation.
+ * @return Streaming actor representing the fanout operation.
  *
  * @throws std::invalid_argument If an unknown fanout policy is specified or if the number
  * of output channels is less than 2.
  */
-Node fanout(
+Actor fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
     FanoutPolicy policy
 );
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

@@ -11,17 +11,17 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 
-Node partition_and_pack(
+Actor partition_and_pack(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     std::vector<cudf::size_type> columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed
+    std::uint32_t seed
 ) {
     ShutdownAtExit c{ch_in, ch_out};
 
@@ -45,8 +45,7 @@ Node partition_and_pack(
                 hash_function,
                 seed,
                 tbl.stream(),
-                ctx->br().get(),
-                ctx->statistics()
+                ctx->br().get()
             )
         };
 
@@ -58,7 +57,7 @@ Node partition_and_pack(
     co_await ch_out->drain(ctx->executor());
 }
 
-Node unpack_and_concat(
+Actor unpack_and_concat(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out
@@ -90,8 +89,7 @@ Node unpack_and_concat(
                 std::move(data), ctx->br().get(), AllowOverbooking::NO
             ),
             stream,
-            ctx->br().get(),
-            ctx->statistics()
+            ctx->br().get()
         );
         co_await ch_out->send(
             to_message(seq, std::make_unique<TableChunk>(std::move(ret), stream))
@@ -100,4 +98,4 @@ Node unpack_and_concat(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

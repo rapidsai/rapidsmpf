@@ -179,7 +179,7 @@ class BufferResource {
      * equals zero (a zero-sized reservation never fails).
      */
     std::pair<MemoryReservation, std::size_t> reserve(
-        MemoryType mem_type, size_t size, AllowOverbooking allow_overbooking
+        MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -200,7 +200,7 @@ class BufferResource {
      * resource cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
-        size_t size, AllowOverbooking allow_overbooking
+        std::size_t size, AllowOverbooking allow_overbooking
     );
 
     /**
@@ -218,7 +218,7 @@ class BufferResource {
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
-    [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
+    [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
             if (mem_type == MemoryType::PINNED_HOST
@@ -245,7 +245,9 @@ class BufferResource {
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
-    [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, MemoryType mem_type) {
+    [[nodiscard]] MemoryReservation reserve_or_fail(
+        std::size_t size, MemoryType mem_type
+    ) {
         return reserve_or_fail(size, std::ranges::single_view{mem_type});
     }
 

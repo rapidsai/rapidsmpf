@@ -11,5 +11,5 @@ caption: Contents:
 shuffle-architecture.md
 streaming-engine.md
 channels.md
-nodes.md
+actors.md
 ```

@@ -12,20 +12,20 @@ from rapidsmpf.streaming.core.context import Context
 
 P = ParamSpec("P")
 
-class CppNode:
+class CppActor:
     pass
 
-class PyNode(Awaitable[None]):
+class PyActor(Awaitable[None]):
     def __await__(self) -> Generator[Any, None, None]: ...
 
-def define_py_node(
+def define_actor(
     *, extra_channels: Collection[Channel] = ()
 ) -> Callable[
     [Callable[Concatenate[Context, P], Awaitable[None]]],
-    Callable[Concatenate[Context, P], PyNode],
+    Callable[Concatenate[Context, P], PyActor],
 ]: ...
-def run_streaming_pipeline(
+def run_actor_network(
     *,
-    nodes: Collection[CppNode | PyNode],
+    actors: Collection[CppActor | PyActor],
     py_executor: ThreadPoolExecutor | None = None,
 ) -> None: ...
