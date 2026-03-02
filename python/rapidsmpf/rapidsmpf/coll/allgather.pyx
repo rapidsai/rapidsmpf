@@ -14,7 +14,6 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
 
@@ -33,8 +32,6 @@ cdef class AllGather:
     ----------
     comm
         The communicator for communication between ranks.
-    progress_thread
-        The progress thread for asynchronous operations.
     op_id
         Unique operation identifier for this allgather. Must have a value
         between 0 and 2^20 - 1.
@@ -53,20 +50,18 @@ cdef class AllGather:
     def __init__(
         self,
         Communicator comm not None,
-        ProgressThread progress_thread not None,
         int32_t op_id,
         BufferResource br not None,
         Statistics statistics = None,
     ):
-        self._comm = comm
         self._br = br
+        self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 comm._handle,
-                progress_thread._handle,
                 op_id,
                 br_,
                 statistics._handle,

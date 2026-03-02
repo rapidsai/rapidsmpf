@@ -21,18 +21,25 @@ from rapidsmpf.streaming.core.context import Context
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from rapidsmpf.communicator.communicator import Communicator
+
+
+@pytest.fixture(scope="session")
+def comm() -> Communicator:
+    options = Options(get_environment_variables())
+    return single_process_comm(options, ProgressThread())
+
 
 @pytest.fixture
-def context() -> Generator[Context, None, None]:
+def context(comm: Communicator) -> Generator[Context, None, None]:
     """
     Fixture to get a streaming context.
     """
     options = Options(get_environment_variables())
-    comm = single_process_comm(options, ProgressThread())
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(mr)
 
-    with Context(comm, br, options) as ctx:
+    with Context(comm.logger, br, options) as ctx:
         yield ctx
 
 

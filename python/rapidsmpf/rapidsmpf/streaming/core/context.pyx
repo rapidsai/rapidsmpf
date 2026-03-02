@@ -4,7 +4,7 @@
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.communicator.communicator cimport Logger
 from rapidsmpf.config cimport Options
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 
@@ -43,8 +43,8 @@ cdef class Context:
 
     Parameters
     ----------
-    comm
-        The communicator to use.
+    logger
+        The logger to use.
     br
         The buffer resource to use.
     options
@@ -62,14 +62,13 @@ cdef class Context:
     """
     def __cinit__(
         self,
-        Communicator comm not None,
+        Logger logger not None,
         BufferResource br not None,
         Options options = None,
     ):
-        self._comm = comm
         self._br = br
-
         self._options = options
+        self._logger = logger
         if self._options is None:
             self._options = Options()
         # Insert missing config options from environment variables.
@@ -78,7 +77,7 @@ cdef class Context:
         with nogil:
             self._handle = make_shared[cpp_Context](
                 self._options._handle,
-                self._comm._handle,
+                self._logger._handle,
                 self._br._handle,
             )
 
@@ -94,12 +93,12 @@ cdef class Context:
     @classmethod
     def from_options(
         cls,
-        Communicator comm not None,
+        Logger logger not None,
         RmmResourceAdaptor mr not None,
         Options options not None
     ):
         return cls(
-            comm=comm,
+            logger=logger,
             br=BufferResource.from_options(mr, options),
             options=options,
         )
@@ -146,15 +145,15 @@ cdef class Context:
         """
         return self._options
 
-    def comm(self):
+    def logger(self):
         """
-        Get the communicator.
+        Get the logger.
 
         Returns
         -------
-        The communicator associated with this context.
+        The logger associated with this context.
         """
-        return self._comm
+        return self._logger
 
     def br(self):
         """

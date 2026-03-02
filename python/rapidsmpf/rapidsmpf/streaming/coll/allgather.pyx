@@ -11,6 +11,7 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
 from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -77,15 +78,27 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, int32_t op_id):
+    def __init__(self, Context ctx not None, Communicator comm not None, int32_t op_id):
+        self._comm = comm
         with nogil:
             self._handle = make_unique[cpp_AllGather](
-                ctx._handle, op_id
+                ctx._handle, comm._handle, op_id
             )
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @property
+    def comm(self):
+        """"
+        Get the communicator used by the allgather.
+
+        Returns
+        -------
+        The communicator.
+        """
+        return self._comm
 
     def insert(self, uint64_t sequence_number, PackedData packed_data not None):
         """
@@ -143,6 +156,7 @@ cdef class AllGather:
 
 def allgather(
     Context ctx not None,
+    Communicator comm not None,
     Channel ch_in not None,
     Channel ch_out not None,
     int32_t op_id,
@@ -158,13 +172,16 @@ def allgather(
     ----------
     ctx
         The actor context to use.
+    comm
+        The communicator the allgather is collective over.
     ch_in
         Input channel that supplies PackedDataChunks to be gathered.
     ch_out
         Output channel that receives gathered PackedDataChunks.
     op_id
-        Unique identifier for this allgather operation. Must not be reused until
-        all actors participating in the allgather have shut down.
+        Unique (per-communicator) identifier for this allgather operation.
+        Must not be reused until all actors participating in the allgather
+        have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
 
@@ -179,6 +196,7 @@ def allgather(
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
+            comm._handle,
             ch_in._handle,
             ch_out._handle,
             op_id,

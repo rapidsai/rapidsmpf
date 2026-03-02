@@ -4,6 +4,7 @@
 from collections.abc import Iterable
 from typing import Self
 
+from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
@@ -19,7 +20,11 @@ class BloomFilterChunk:
     def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...
 
 class BloomFilter:
-    def __init__(self, ctx: Context, seed: int, num_filter_blocks: int) -> None: ...
+    def __init__(
+        self, ctx: Context, comm: Communicator, seed: int, num_filter_blocks: int
+    ) -> None: ...
+    @property
+    def comm(self) -> Communicator: ...
     @staticmethod
     def fitting_num_blocks(l2size: int) -> int: ...
     def build(
