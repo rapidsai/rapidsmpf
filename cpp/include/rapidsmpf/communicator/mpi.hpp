@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -120,8 +121,11 @@ class MPI final : public Communicator {
      *
      * @param comm The MPI communicator to be used for communication.
      * @param options Configuration options.
+     * @param progress_thread Progress thread for this communicator.
      */
-    MPI(MPI_Comm comm, config::Options options);
+    MPI(MPI_Comm comm,
+        config::Options options,
+        std::shared_ptr<ProgressThread> progress_thread);
 
     ~MPI() noexcept override = default;
 
@@ -241,8 +245,16 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
         return logger_;
+    }
+
+    /**
+     * @copydoc Communicator::progress_thread
+     */
+    [[nodiscard]] std::shared_ptr<ProgressThread> const&
+    progress_thread() const override {
+        return progress_thread_;
     }
 
     /**
@@ -254,7 +266,8 @@ class MPI final : public Communicator {
     MPI_Comm comm_;
     Rank rank_;
     Rank nranks_;
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
+    std::shared_ptr<ProgressThread> progress_thread_;
 };
 
 

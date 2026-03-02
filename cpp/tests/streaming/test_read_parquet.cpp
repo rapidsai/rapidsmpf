@@ -245,7 +245,7 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
 
     coll::AllGather allgather(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         /* op_id = */ 0,
         br.get()
     );

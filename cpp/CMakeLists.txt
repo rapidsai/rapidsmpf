@@ -211,6 +211,7 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
+  src/stream_ordered_timing.cpp
   src/system_info.cpp
   src/utils/misc.cpp
   src/utils/string.cpp

@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -106,7 +105,7 @@ class Shuffler::Progress {
         Tag const metadata_tag{shuffler_.op_id_, 1};
         Tag const gpu_data_tag{shuffler_.op_id_, 2};
 
-        auto& log = shuffler_.comm_->logger();
+        auto& log = *shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;
 
         // Check for new chunks in the inbox and send off their metadata.
@@ -208,7 +207,7 @@ class Shuffler::Progress {
                             ))
                         {
                             stats.add_bytes_stat(
-                                "spill-bytes-recv-to-host", chunk.data_size()
+                                "recv-into-host-memory", chunk.data_size()
                             );
                         }
                     }
@@ -443,10 +442,10 @@ void Shuffler::shutdown() {
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
-        log.debug("Shuffler.shutdown() - initiate");
+        log->debug("Shuffler.shutdown() - initiate");
         progress_thread_->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
-        log.debug("Shuffler.shutdown() - done");
+        log->debug("Shuffler.shutdown() - done");
     }
 }
 
@@ -456,7 +455,7 @@ detail::Chunk Shuffler::create_chunk(PartID pid, PackedData&& packed_data) {
 
 void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
-    log.trace("insert_into_outbox: ", chunk);
+    log->trace("insert_into_outbox: ", chunk);
 
     auto pid = chunk.part_id();
     if (chunk.is_control_message()) {
@@ -503,12 +502,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
-            auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
-            statistics_->add_duration_stat(
-                "spill-time-device-to-host", Clock::now() - t0_elapsed
-            );
-            statistics_->add_bytes_stat("spill-bytes-device-to-host", chunk.data_size());
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

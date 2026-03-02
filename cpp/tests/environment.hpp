@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,7 +8,6 @@
 #include <mpi.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 
 enum class TestEnvironmentType : int {
     MPI,
@@ -35,7 +34,6 @@ class Environment : public ::testing::Environment {
     std::shared_ptr<rapidsmpf::Communicator> split_comm();
 
     std::shared_ptr<rapidsmpf::Communicator> comm_;
-    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread_;
 
   private:
     int argc_;

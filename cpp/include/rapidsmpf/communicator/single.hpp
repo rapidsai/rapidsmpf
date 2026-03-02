@@ -14,6 +14,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -43,8 +44,9 @@ class Single final : public Communicator {
      * @brief Construct a single process communicator.
      *
      * @param options Configuration options.
+     * @param progress_thread Progress thread for this communicator.
      */
-    Single(config::Options options);
+    Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread);
 
     ~Single() noexcept override = default;
 
@@ -185,8 +187,16 @@ class Single final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
         return logger_;
+    }
+
+    /**
+     * @copydoc Communicator::progress_thread
+     */
+    [[nodiscard]] std::shared_ptr<ProgressThread> const&
+    progress_thread() const override {
+        return progress_thread_;
     }
 
     /**
@@ -195,7 +205,8 @@ class Single final : public Communicator {
     [[nodiscard]] std::string str() const override;
 
   private:
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
+    std::shared_ptr<ProgressThread> progress_thread_;
 };
 
 

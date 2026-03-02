@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Shuffler integration for single-worker pylibcudf execution."""
 
@@ -14,8 +14,9 @@ from rapidsmpf.integrations.core import (
     get_new_shuffle_id,
     get_shuffler,
     insert_partition,
-    rmpf_worker_setup,
+    rmpf_worker_local_setup,
 )
+from rapidsmpf.progress_thread import ProgressThread
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -58,18 +59,13 @@ def setup_worker(options: Options = Options()) -> None:
     ----------
     options
         Configuration options.
-
-    Warnings
-    --------
-    This function creates a new RMM memory pool, and
-    sets it as the current device resource.
     """
     global _worker_context  # noqa: PLW0603
     with WorkerContext.lock:
         if _worker_context is None:
-            comm = new_communicator(options)
-            _worker_context = rmpf_worker_setup(
-                None, "single_", comm=comm, options=options
+            _worker_context = rmpf_worker_local_setup(None, "single_", options=options)
+            _worker_context.comm = new_communicator(
+                options, ProgressThread(_worker_context.statistics)
             )
 
 

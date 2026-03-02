@@ -151,11 +151,12 @@ std::size_t MemoryReserveOrWait::periodic_memory_check_counter() const noexcept 
     return periodic_memory_check_counter_.load(std::memory_order_acquire);
 }
 
-std::shared_ptr<CoroThreadPoolExecutor> MemoryReserveOrWait::executor() const noexcept {
+std::shared_ptr<CoroThreadPoolExecutor> const&
+MemoryReserveOrWait::executor() const noexcept {
     return executor_;
 }
 
-std::shared_ptr<BufferResource> MemoryReserveOrWait::br() const noexcept {
+std::shared_ptr<BufferResource> const& MemoryReserveOrWait::br() const noexcept {
     return br_;
 }
 

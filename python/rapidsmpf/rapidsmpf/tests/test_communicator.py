@@ -1,10 +1,14 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import pytest
 
+from rapidsmpf.progress_thread import ProgressThread
+
 MPI = pytest.importorskip("mpi4py.MPI")
+from typing import TYPE_CHECKING  # noqa: E402
+
 from rapidsmpf.communicator.communicator import LOG_LEVEL  # noqa: E402
 from rapidsmpf.communicator.mpi import new_communicator  # noqa: E402
 from rapidsmpf.communicator.single import (  # noqa: E402
@@ -12,6 +16,9 @@ from rapidsmpf.communicator.single import (  # noqa: E402
 )
 from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup  # noqa: E402
 from rapidsmpf.config import Options, get_environment_variables  # noqa: E402
+
+if TYPE_CHECKING:
+    from rapidsmpf.communicator.communicator import Logger
 
 
 @pytest.mark.parametrize(
@@ -21,7 +28,9 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
-        comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
+        comm = new_communicator(
+            MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+        )
         assert comm.logger.verbosity_level is level
         comm.logger.print("PRINT")
         comm.logger.warn("WARN")
@@ -41,20 +50,34 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
 
 
 def test_mpi() -> None:
-    comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
+    comm = new_communicator(
+        MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+    )
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
 
 
 def test_ucxx() -> None:
     ucxx_worker = initialize_ucxx()
-    comm = ucxx_mpi_setup(ucxx_worker, Options(get_environment_variables()))
+    comm = ucxx_mpi_setup(
+        ucxx_worker, Options(get_environment_variables()), ProgressThread()
+    )
     assert comm.nranks == MPI.COMM_WORLD.size
 
     ucxx_worker.stop_progress_thread()
 
 
 def test_single_process() -> None:
-    comm = single_process_comm(Options(get_environment_variables()))
+    comm = single_process_comm(Options(get_environment_variables()), ProgressThread())
     assert comm.nranks == 1
     assert comm.rank == 0
+
+
+def test_logger_survives_communicator(capfd: pytest.CaptureFixture[str]) -> None:
+    def get_logger() -> Logger:
+        comm = single_process_comm(Options(), ProgressThread())
+        return comm.logger
+
+    get_logger().print("Logger should survive")
+    output = capfd.readouterr().out
+    assert "Logger should survive" in output

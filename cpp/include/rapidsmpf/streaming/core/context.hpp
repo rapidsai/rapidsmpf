@@ -146,13 +146,6 @@ class Context {
     [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
-     * @brief Returns the logger.
-     *
-     * @return Reference to the logger.
-     */
-    [[nodiscard]] Communicator::Logger& logger() const noexcept;
-
-    /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.
@@ -162,16 +155,17 @@ class Context {
     /**
      * @brief Returns the coroutine executor.
      *
-     * @return Reference to unique pointer to the executor.
+     * @return Shared pointer to the executor.
      */
-    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> const&
+    executor() const noexcept;
 
     /**
      * @brief Returns the buffer resource.
      *
-     * @return Raw pointer to the buffer resource.
+     * @return Shared pointer to the buffer resource.
      */
-    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+    [[nodiscard]] std::shared_ptr<BufferResource> const& br() const noexcept;
 
     /**
      * @brief Get the handle for memory reservations for a given memory type.
@@ -189,7 +183,7 @@ class Context {
      * @param mem_type Memory type for which reservations are requested.
      * @return Shared pointer to the corresponding memory reservation coordinator.
      */
-    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> memory(
+    [[nodiscard]] std::shared_ptr<MemoryReserveOrWait> const& memory(
         MemoryType mem_type
     ) const noexcept;
 
@@ -210,9 +204,10 @@ class Context {
     /**
      * @brief Returns the spillable messages collection.
      *
-     * @return A shared pointer to the collection.
+     * @return Shared pointer to the collection.
      */
-    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const noexcept;
+    [[nodiscard]] std::shared_ptr<SpillableMessages> const&
+    spillable_messages() const noexcept;
 
     /**
      * @brief Create a new bounded queue associated with this context.

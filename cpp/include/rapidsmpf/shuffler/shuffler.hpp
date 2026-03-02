@@ -26,9 +26,6 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-
-class ShuffleInsertGroupedTest;
-
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -45,8 +42,6 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
-    friend class ::ShuffleInsertGroupedTest;
-
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -234,9 +229,6 @@ class Shuffler {
      *    device memory.
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
-     *
-     * In both modes, it adds to the "spill-device-limit-breach" statistic if not
-     * enough memory could be spilled.
      *
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.

@@ -41,7 +41,6 @@ TEST_P(ProgressThreadEvents, events) {
     std::size_t const num_functions = std::get<1>(GetParam());
     bool const enable_statistics = std::get<2>(GetParam());
 
-    auto& logger = GlobalEnvironment->comm_->logger();
     auto statistics = std::make_shared<rapidsmpf::Statistics>(enable_statistics);
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
@@ -52,9 +51,8 @@ TEST_P(ProgressThreadEvents, events) {
     };
 
     for (std::size_t thread = 0; thread < num_threads; ++thread) {
-        auto& pt = progress_threads.emplace_back(
-            std::make_unique<ProgressThread>(logger, statistics)
-        );
+        auto& pt =
+            progress_threads.emplace_back(std::make_unique<ProgressThread>(statistics));
 
         for (std::size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
@@ -88,7 +86,7 @@ TEST_P(ProgressThreadEvents, events) {
 }
 
 TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
-    ProgressThread progress_thread(GlobalEnvironment->comm_->logger());
+    ProgressThread progress_thread{};
 
     // add a function to the progress thread that never completes
     auto id = progress_thread.add_function([] {

@@ -241,6 +241,71 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, AllocStatistics) {
+    rmm::mr::cuda_memory_resource mr_cuda;
+    RmmResourceAdaptor mr{mr_cuda};
+    auto stats = std::make_shared<Statistics>(&mr);
+    auto pinned_mr = PinnedMemoryResource::make_if_available();
+    BufferResource br{
+        mr,
+        pinned_mr,
+        {},
+        std::nullopt,
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
+        stats
+    };
+    auto stream = cudf::get_default_stream();
+
+    constexpr std::size_t device_size = 4_KiB;
+    constexpr std::size_t pinned_size = 8_KiB;
+    constexpr std::size_t host_size = 16_KiB;
+
+    // Allocate device memory twice.
+    {
+        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br.allocate(device_size, stream, r);
+    }
+    {
+        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br.allocate(device_size, stream, r);
+    }
+    // Allocate pinned_host memory once (if available).
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        auto [r, _] =
+            br.reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
+        br.allocate(pinned_size, stream, r);
+    }
+    // Allocate host memory once.
+    {
+        auto [r, _] = br.reserve(MemoryType::HOST, host_size, AllowOverbooking::YES);
+        br.allocate(host_size, stream, r);
+    }
+
+    stream.synchronize();
+
+    // device: 2 allocations of device_size each.
+    auto const dev_bytes = stats->get_stat("alloc-device-bytes");
+    EXPECT_EQ(dev_bytes.count(), 2u);
+    EXPECT_EQ(dev_bytes.value(), static_cast<double>(2 * device_size));
+
+    // pinned_host: 1 allocation of pinned_size (if available).
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        auto const pinned_bytes = stats->get_stat("alloc-pinned_host-bytes");
+        EXPECT_EQ(pinned_bytes.count(), 1u);
+        EXPECT_EQ(pinned_bytes.value(), static_cast<double>(pinned_size));
+        EXPECT_EQ(stats->get_stat("alloc-pinned_host-time").count(), 1u);
+    }
+
+    // host: 1 allocation of host_size.
+    auto const host_bytes = stats->get_stat("alloc-host-bytes");
+    EXPECT_EQ(host_bytes.count(), 1u);
+    EXPECT_EQ(host_bytes.value(), static_cast<double>(host_size));
+
+    // timing stats should have the same count as bytes stats.
+    EXPECT_EQ(stats->get_stat("alloc-device-time").count(), 2u);
+    EXPECT_EQ(stats->get_stat("alloc-host-time").count(), 1u);
+}
+
 class BufferResourceReserveOrFailTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -368,6 +433,7 @@ class BufferResourceCopySliceTest
     ) {
         auto slice = br->allocate(stream, br->reserve_or_fail(length, dest_type));
         buffer_copy(
+            br->statistics(),
             *slice,
             *source,
             length,
@@ -448,6 +514,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
     ) {
         auto length = source->size;
         buffer_copy(
+            br->statistics(),
             *dest,
             *source,
             source->size,
@@ -600,6 +667,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     // Create slice of buf1 on br2
     auto buf2 = br2->allocate(slice_length, stream, res2);
     buffer_copy(
+        br2->statistics(),
         *buf2,
         *buf1,
         slice_length,
@@ -620,7 +688,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
 
     // Create copy of buf1 on br2
     auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
-    buffer_copy(*buf2, *buf1, buffer_size);
+    buffer_copy(br2->statistics(), *buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->stream().synchronize();
 
@@ -637,26 +705,38 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
     auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Negative offsets
-    EXPECT_THROW(buffer_copy(*dst, *src, 10, -1, 0), std::invalid_argument);
-    EXPECT_THROW(buffer_copy(*dst, *src, 10, 0, -1), std::invalid_argument);
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *dst, *src, 10, -1, 0), std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *dst, *src, 10, 0, -1), std::invalid_argument
+    );
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
+        buffer_copy(
+            br->statistics(), *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0
+        ),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
+        buffer_copy(
+            br->statistics(), *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)
+        ),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
+        buffer_copy(
+            br->statistics(), *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0
+        ),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
+        buffer_copy(
+            br->statistics(), *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)
+        ),
         std::invalid_argument
     );
 }
@@ -674,7 +754,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
             cudaMemcpyAsync(dst_data, sent.data(), N, cudaMemcpyDefault, stream)
         );
     });
-    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
+    EXPECT_NO_THROW(buffer_copy(br->statistics(), *dst, *src, 0, 0, 0));
     dst->stream().synchronize();
 
     // dst unchanged
@@ -689,5 +769,7 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 
     auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
-    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0), std::invalid_argument);
+    EXPECT_THROW(
+        buffer_copy(br->statistics(), *buf, *buf, 16, 0, 0), std::invalid_argument
+    );
 }

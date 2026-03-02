@@ -46,7 +46,7 @@ coro::task<streaming::Message> broadcast(
     streaming::ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
     CudaEvent event;
-    ctx->comm()->logger().print("Broadcast ", static_cast<int>(tag));
+    ctx->comm()->logger()->print("Broadcast ", static_cast<int>(tag));
     if (ctx->comm()->nranks() == 1) {
         std::vector<streaming::TableChunk> chunks;
         std::vector<cudf::table_view> views;
@@ -185,10 +185,10 @@ streaming::Message semi_join_chunk(
         left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
     );
 
-    ctx->comm()->logger().debug(
+    ctx->comm()->logger()->debug(
         "semi_join_chunk: left.num_rows()=", left_chunk.table_view().num_rows()
     );
-    ctx->comm()->logger().debug("semi_join_chunk: match.size()=", match->size());
+    ctx->comm()->logger()->debug("semi_join_chunk: match.size()=", match->size());
 
     cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
     auto result_columns = cudf::gather(
@@ -302,12 +302,12 @@ streaming::Actor inner_join_broadcast(
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
+    ctx->comm()->logger()->print("Inner broadcast join ", static_cast<int>(tag));
     auto build_table =
         co_await ((co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
                       .release<streaming::TableChunk>()
                       .make_available(ctx));
-    ctx->comm()->logger().print(
+    ctx->comm()->logger()->print(
         "Build table has ", build_table.table_view().num_rows(), " rows"
     );
 
@@ -362,7 +362,7 @@ streaming::Actor inner_join_shuffle(
     KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
-    ctx->comm()->logger().print("Inner shuffle join");
+    ctx->comm()->logger()->print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
     CudaEvent tmp_event;
@@ -429,11 +429,11 @@ streaming::Actor left_semi_join_broadcast_left(
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Left semi broadcast join ", static_cast<int>(tag));
+    ctx->comm()->logger()->print("Left semi broadcast join ", static_cast<int>(tag));
     auto left_table = co_await (co_await broadcast(ctx, left, tag))
                           .release<streaming::TableChunk>()
                           .make_available(ctx);
-    ctx->comm()->logger().print(
+    ctx->comm()->logger()->print(
         "Left (probe) table has ", left_table.table_view().num_rows(), " rows"
     );
     CudaEvent left_event;
@@ -488,7 +488,7 @@ streaming::Actor left_semi_join_shuffle(
     KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
-    ctx->comm()->logger().print("Shuffle left semi join");
+    ctx->comm()->logger()->print("Shuffle left semi join");
 
     co_await ctx->executor()->schedule();
     CudaEvent left_event;
@@ -552,12 +552,12 @@ streaming::Actor shuffle(
 ) {
     streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Shuffle ", static_cast<int>(tag));
+    ctx->comm()->logger()->print("Shuffle ", static_cast<int>(tag));
     streaming::ShufflerAsync shuffler(ctx, tag, num_partitions);
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().debug("Shuffle: no more input");
+            ctx->comm()->logger()->debug("Shuffle: no more input");
             break;
         }
         auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);

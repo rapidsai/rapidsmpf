@@ -1032,12 +1032,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 }
 
 UCXX::UCXX(
-    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_(this, options_) {
-    shared_resources_->logger = &logger_;
+      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
+      progress_thread_{std::move(progress_thread)} {
+    shared_resources_->logger = logger_.get();
 }
 
 [[nodiscard]] Rank UCXX::rank() const {
@@ -1076,13 +1079,13 @@ constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
 constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<std::uint32_t>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
-    Logger& log = logger();
+    auto& log = logger();
     try {
         auto ep = shared_resources_->get_endpoint(rank);
-        log.trace("Endpoint for rank ", rank, " already available, returning to caller");
+        log->trace("Endpoint for rank ", rank, " already available, returning to caller");
         return ep;
     } catch (std::out_of_range const&) {
-        log.trace(
+        log->trace(
             "Endpoint for rank ", rank, " not available, requesting listener address"
         );
         auto packed_listener_address_rank =
@@ -1131,7 +1134,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         );
         shared_resources_->register_endpoint(rank, endpoint);
 
-        log.trace(
+        log->trace(
             "Endpoint for rank ",
             rank,
             " established successfully, requesting listener address"
@@ -1340,10 +1343,10 @@ std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
 }
 
 void UCXX::barrier() {
-    Logger& log = logger();
-    log.trace("Barrier started on rank ", shared_resources_->rank());
+    auto& log = logger();
+    log->trace("Barrier started on rank ", shared_resources_->rank());
     shared_resources_->barrier();
-    log.trace("Barrier completed on rank ", shared_resources_->rank());
+    log->trace("Barrier completed on rank ", shared_resources_->rank());
 }
 
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
@@ -1386,8 +1389,8 @@ std::string UCXX::str() const {
 }
 
 UCXX::~UCXX() noexcept {
-    Logger& log = logger();
-    log.trace("UCXX destructor");
+    auto& log = logger();
+    log->trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
     shared_resources_->logger = nullptr;
 }
@@ -1401,8 +1404,8 @@ ListenerAddress UCXX::listener_address() {
 }
 
 std::shared_ptr<UCXX> UCXX::split() {
-    Logger& log = logger();
-    log.trace("Splitting communicator on rank ", shared_resources_->rank());
+    auto log = logger().get();
+    log->trace("Splitting communicator on rank ", shared_resources_->rank());
 
     // Get the context from shared resources
     auto context = shared_resources_->get_context();
@@ -1433,7 +1436,9 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
+    return std::make_shared<UCXX>(
+        std::move(initialized_rank), options_, progress_thread_
+    );
 }
 
 }  // namespace ucxx

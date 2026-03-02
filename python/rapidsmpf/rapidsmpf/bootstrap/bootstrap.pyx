@@ -6,6 +6,7 @@ from libcpp.memory cimport dynamic_pointer_cast, shared_ptr
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
 
 
 cdef extern from "<rapidsmpf/bootstrap/backend.hpp>" namespace \
@@ -37,12 +38,17 @@ cdef extern from "<rapidsmpf/bootstrap/utils.hpp>" nogil:
 cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
     shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
         "rapidsmpf::bootstrap::create_ucxx_comm"(
+            shared_ptr[cpp_ProgressThread],
             BackendType type,
             cpp_Options options,
         ) except +ex_handler
 
 
-def create_ucxx_comm(BackendType type = BackendType.AUTO, options = None):
+def create_ucxx_comm(
+    ProgressThread progress_thread not None,
+    BackendType type = BackendType.AUTO,
+    options = None,
+):
     """
     Create a UCXX communicator using the bootstrap backend.
 
@@ -53,6 +59,8 @@ def create_ucxx_comm(BackendType type = BackendType.AUTO, options = None):
 
     Parameters
     ----------
+    progress_thread
+        Progress thread to use in the initialized communicator.
     type
         Backend type to use for coordination. By default, ``BackendType.AUTO`` is used,
         which currently resolves to the file-based backend.
@@ -79,7 +87,9 @@ def create_ucxx_comm(BackendType type = BackendType.AUTO, options = None):
         cpp_options = <Options>options
 
     with nogil:
-        ucxx_comm = cpp_create_ucxx_comm(type, cpp_options._handle)
+        ucxx_comm = cpp_create_ucxx_comm(
+            progress_thread._handle, type, cpp_options._handle
+        )
         base_comm = dynamic_pointer_cast[cpp_Communicator, cpp_UCXX_Communicator](
             ucxx_comm
         )

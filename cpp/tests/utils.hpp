@@ -4,14 +4,18 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <numeric>
 #include <random>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
@@ -21,6 +25,50 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+
+/**
+ * @brief RAII temporary directory created under GTest's temp directory.
+ *
+ * The directory is created on construction and recursively removed on
+ * destruction. Removal errors are ignored.
+ */
+class TempDir {
+  public:
+    TempDir() : path_(unique_path()) {
+        std::error_code ec;
+        if (!std::filesystem::create_directories(path_, ec) || ec) {
+            throw std::runtime_error(
+                "Failed to create temp directory: " + path_.string()
+            );
+        }
+    }
+
+    ~TempDir() noexcept {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+        // Intentionally ignore errors in destructor.
+    }
+
+    TempDir(TempDir const&) = delete;
+    TempDir& operator=(TempDir const&) = delete;
+    TempDir(TempDir&&) = delete;
+    TempDir& operator=(TempDir&&) = delete;
+
+    /// @brief Returns the path to the temporary directory.
+    [[nodiscard]] std::filesystem::path const& path() const noexcept {
+        return path_;
+    }
+
+  private:
+    static std::filesystem::path unique_path() {
+        static std::atomic<std::uint64_t> counter{0};
+        return std::filesystem::path(testing::TempDir())
+               / ("tmp_" + std::to_string(::getpid()) + "_"
+                  + std::to_string(counter.fetch_add(1, std::memory_order_relaxed)));
+    }
+
+    std::filesystem::path path_;
+};
 
 /// @brief User-defined literal for specifying memory sizes in KiB.
 constexpr std::size_t operator"" _KiB(unsigned long long val) {

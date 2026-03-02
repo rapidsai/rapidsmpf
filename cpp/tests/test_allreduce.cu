@@ -242,7 +242,7 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
     if (rank % 2 == 0) {
         AllReduce allreduce1(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->progress_thread_,
+            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer1),
             std::move(out_buffer1),
             OpID{0},
@@ -258,7 +258,7 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
         }
         AllReduce allreduce2(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->progress_thread_,
+            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
@@ -272,7 +272,7 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
     } else {
         AllReduce allreduce2(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->progress_thread_,
+            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
@@ -281,7 +281,7 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
         std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
         AllReduce allreduce1(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->progress_thread_,
+            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer1),
             std::move(out_buffer1),
             OpID{0},
@@ -351,7 +351,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -462,7 +462,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -529,7 +529,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -593,7 +593,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -633,7 +633,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
+        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
