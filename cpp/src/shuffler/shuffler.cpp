@@ -441,11 +441,11 @@ Shuffler::~Shuffler() {
 void Shuffler::shutdown() {
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
-        auto& log = *comm_->logger();
-        log.debug("Shuffler.shutdown() - initiate");
+        auto& log = comm_->logger();
+        log->debug("Shuffler.shutdown() - initiate");
         progress_thread_->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
-        log.debug("Shuffler.shutdown() - done");
+        log->debug("Shuffler.shutdown() - done");
     }
 }
 
@@ -454,8 +454,8 @@ detail::Chunk Shuffler::create_chunk(PartID pid, PackedData&& packed_data) {
 }
 
 void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
-    auto& log = *comm_->logger();
-    log.trace("insert_into_outbox: ", chunk);
+    auto& log = comm_->logger();
+    log->trace("insert_into_outbox: ", chunk);
 
     auto pid = chunk.part_id();
     if (chunk.is_control_message()) {

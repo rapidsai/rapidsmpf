@@ -125,7 +125,7 @@ bool TagMetadataPayloadExchange::is_idle() const {
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {
-    auto& log = *comm_->logger();
+    auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
     while (true) {
@@ -170,7 +170,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
             src, std::move(original_metadata), std::move(buffer)
         );
 
-        log.trace("recv_any from ", src, " (message_id=", message_id, ")");
+        log->trace("recv_any from ", src, " (message_id=", message_id, ")");
         incoming_messages_[src].emplace_back(
             std::move(message), message_id, payload_size
         );
@@ -181,7 +181,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::setup_data_receives() {
-    auto& log = *comm_->logger();
+    auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;
@@ -195,7 +195,7 @@ TagMetadataPayloadExchange::setup_data_receives() {
         auto msg_it = messages.begin();
         while (msg_it != messages.end()) {
             auto& tag_msg = *msg_it;
-            log.trace(
+            log->trace(
                 "checking incoming message data from ",
                 src,
                 " (message_id=",

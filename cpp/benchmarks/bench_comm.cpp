@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto& log = *comm->logger();
+    auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log.print("CUPTI memory monitoring enabled");
+        log->print("CUPTI memory monitoring enabled");
     }
 #endif
 
@@ -380,7 +380,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -398,9 +398,9 @@ int main(int argc, char** argv) {
                   / elapsed_mean
               )
            << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
-        log.print(ss.str());
+        log->print(ss.str());
     }
-    log.print(stats->report("Statistics (of the last run):"));
+    log->print(stats->report("Statistics (of the last run):"));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
@@ -411,7 +411,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log.print(
+            log->print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -420,12 +420,12 @@ int main(int argc, char** argv) {
 
             // Print callback summary for rank 0
             if (comm->rank() == 0) {
-                log.print(
+                log->print(
                     "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
                 );
             }
         } catch (std::exception const& e) {
-            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

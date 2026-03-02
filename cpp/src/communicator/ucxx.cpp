@@ -1079,7 +1079,7 @@ constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
 constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<std::uint32_t>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
-    auto log = logger().get();
+    auto& log = logger();
     try {
         auto ep = shared_resources_->get_endpoint(rank);
         log->trace("Endpoint for rank ", rank, " already available, returning to caller");
@@ -1343,7 +1343,7 @@ std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
 }
 
 void UCXX::barrier() {
-    auto log = logger().get();
+    auto& log = logger();
     log->trace("Barrier started on rank ", shared_resources_->rank());
     shared_resources_->barrier();
     log->trace("Barrier completed on rank ", shared_resources_->rank());
@@ -1389,7 +1389,7 @@ std::string UCXX::str() const {
 }
 
 UCXX::~UCXX() noexcept {
-    auto log = logger().get();
+    auto& log = logger();
     log->trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
     shared_resources_->logger = nullptr;
