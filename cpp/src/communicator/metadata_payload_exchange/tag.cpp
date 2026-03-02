@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <unordered_set>
 #include <utility>
@@ -41,7 +40,7 @@ void TagMetadataPayloadExchange::send(
 void TagMetadataPayloadExchange::send(
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>&& messages
 ) {
-    auto& log = comm_->logger();
+    auto& log = *comm_->logger();
     auto const t0 = Clock::now();
 
     // Send metadata followed immediately by data for each message
@@ -51,7 +50,7 @@ void TagMetadataPayloadExchange::send(
         // Assign sequential message ID
         // Format: [rank (32 bits)][sequence (32 bits)]
         std::uint64_t message_id =
-            (static_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
+            (safe_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
         RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
@@ -158,8 +157,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
         );
 
         std::vector<std::uint8_t> original_metadata(
-            msg->begin(),
-            msg->begin() + static_cast<std::ptrdiff_t>(original_metadata_size)
+            msg->begin(), msg->begin() + safe_cast<std::ptrdiff_t>(original_metadata_size)
         );
 
         // Allocate buffer before creating Message if payload is expected
@@ -172,7 +170,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
             src, std::move(original_metadata), std::move(buffer)
         );
 
-        log.trace("recv_any from ", src, " (message_id=", message_id, ")");
+        log->trace("recv_any from ", src, " (message_id=", message_id, ")");
         incoming_messages_[src].emplace_back(
             std::move(message), message_id, payload_size
         );
@@ -197,7 +195,7 @@ TagMetadataPayloadExchange::setup_data_receives() {
         auto msg_it = messages.begin();
         while (msg_it != messages.end()) {
             auto& tag_msg = *msg_it;
-            log.trace(
+            log->trace(
                 "checking incoming message data from ",
                 src,
                 " (message_id=",

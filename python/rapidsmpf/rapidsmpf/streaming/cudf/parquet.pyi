@@ -5,9 +5,9 @@ from pylibcudf.expressions import Expression
 from pylibcudf.io.parquet import ParquetReaderOptions
 from rmm.pylibrmm.stream import Stream
 
+from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.node import CppNode
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class Filter:
@@ -20,4 +20,4 @@ def read_parquet(
     options: ParquetReaderOptions,
     num_rows_per_chunk: int,
     filter: Filter | None = None,
-) -> CppNode: ...
+) -> CppActor: ...

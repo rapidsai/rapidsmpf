@@ -17,7 +17,7 @@
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
-Node BloomFilter::build(
+Actor BloomFilter::build(
     std::shared_ptr<Channel> ch_in, std::shared_ptr<Channel> ch_out, OpID tag
 ) {
     ShutdownAtExit c{ch_in, ch_out};
@@ -38,7 +38,7 @@ Node BloomFilter::build(
         }
         auto chunk = msg.release<TableChunk>();
         chunk = co_await chunk.make_available(
-            ctx_, -static_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
+            ctx_, -safe_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
         );
         // Filter is allocated one `stream`, but we run the additions on the chunk's
         // stream. The addition modifies global memory but we can safely launch two
@@ -79,7 +79,7 @@ Node BloomFilter::build(
     co_await ch_out->drain(ctx_->executor());
 }
 
-Node BloomFilter::apply(
+Actor BloomFilter::apply(
     std::shared_ptr<Channel> bloom_filter,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -101,14 +101,14 @@ Node BloomFilter::apply(
         }
         auto chunk = msg.release<TableChunk>();
         chunk = co_await chunk.make_available(
-            ctx_, -static_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
+            ctx_, -safe_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
         );
         auto chunk_stream = chunk.stream();
         cuda_stream_join(chunk_stream, stream, &event);
         // Reservation for the mask construction and guess at output size.
         auto res = co_await ctx_->memory(MemoryType::DEVICE)
                        ->reserve_or_wait(
-                           static_cast<std::size_t>(chunk.table_view().num_rows())
+                           safe_cast<std::size_t>(chunk.table_view().num_rows())
                                    // TODO: no magic numbers: the hashing algorithm in
                                    // `contains` below returns an int64 column.
                                    * (1 + sizeof(std::int64_t))
@@ -126,7 +126,7 @@ Node BloomFilter::apply(
         );
         auto mask_view = cudf::column_view{
             cudf::data_type{cudf::type_id::BOOL8},
-            static_cast<cudf::size_type>(mask.size()),
+            safe_cast<cudf::size_type>(mask.size()),
             mask.data(),
             {},
             0

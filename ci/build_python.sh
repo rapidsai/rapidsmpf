@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -24,6 +24,9 @@ export RAPIDS_PACKAGE_VERSION
 # shellcheck disable=SC2034
 RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 
+UCXX_PACKAGE_DEPENDENCY="$(sed -E -e 's/^([0-9]+\.[0-9]+)\.[0-9]+$/\1.*/' UCXX_VERSION)"
+export UCXX_PACKAGE_DEPENDENCY
+
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
@@ -41,3 +44,6 @@ sccache --stop-server >/dev/null 2>&1 || true
 # remove build_cache directory to avoid uploading the entire source tree
 # tracked in https://github.com/prefix-dev/rattler-build/issues/1424
 rm -rf "$RAPIDS_CONDA_BLD_OUTPUT_DIR"/build_cache
+
+RAPIDS_PACKAGE_NAME="$(rapids-package-name conda_python rapidsmpf --stable --cuda)"
+export RAPIDS_PACKAGE_NAME

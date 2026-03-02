@@ -109,7 +109,7 @@ ShufflerAsync::ShufflerAsync(
           total_num_partitions,
           ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
-              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
+              ctx_->comm()->logger()->trace("notifying waiters that ", pid, " is ready");
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
@@ -120,14 +120,8 @@ ShufflerAsync::ShufflerAsync(
                   "failed to start task to notify waiters that the partition is ready"
               );
           },
-          ctx_->statistics(),
           std::move(partition_owner)
-      ) {
-    RAPIDSMPF_EXPECTS(
-        local_partitions().size() <= std::numeric_limits<std::int64_t>::max(),
-        "Too many local partitions"
-    );
-}
+      ) {}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
@@ -136,10 +130,10 @@ ShufflerAsync::~ShufflerAsync() noexcept {
         "finish token from this->insert_finished()"
     );
     if (!ready_pids_.empty()) {
-        ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
+        ctx_->comm()->logger()->warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
-        ctx_->comm()->logger().warn(
+        ctx_->comm()->logger()->warn(
             "~ShufflerAsync: not all partitions have been extracted"
         );
     }
@@ -153,7 +147,7 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Node ShufflerAsync::insert_finished() {
+Actor ShufflerAsync::insert_finished() {
     std::vector<shuffler::PartID> pids(total_num_partitions());
     std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
     shuffler_.insert_finished(std::move(pids));
@@ -225,7 +219,7 @@ ShufflerAsync::extract_any_async() {
     co_return std::nullopt;
 }
 
-Node ShufflerAsync::finished_drain() {
+Actor ShufflerAsync::finished_drain() {
     // Wait for all notifications to have fired.
     co_await latch_;
 
@@ -242,9 +236,9 @@ Node ShufflerAsync::finished_drain() {
     co_await semaphore_.shutdown();
 }
 
-namespace node {
+namespace actor {
 
-Node shuffler(
+Actor shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
@@ -284,5 +278,5 @@ Node shuffler(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

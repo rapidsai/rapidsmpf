@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -30,7 +30,7 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
         return;
     }
 #ifdef MADV_HUGEPAGE
-    static auto const pagesize = static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
+    static auto const pagesize = safe_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
     if (std::align(pagesize, pagesize, ptr, size)) {
         // Best effort, we ignore errors. On older kernels this may fail or be a no-op.
         ::madvise(ptr, size, MADV_HUGEPAGE);

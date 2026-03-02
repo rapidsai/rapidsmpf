@@ -1,0 +1,8 @@
+/* Widen the content area so code blocks don't require horizontal scrolling */
+.bd-page-width {
+    max-width: 95rem;
+}
+
+.bd-main .bd-content .bd-article-container {
+    max-width: 100%;
+}

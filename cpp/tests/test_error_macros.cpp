@@ -151,7 +151,7 @@ TEST(ErrorMacrosTest, FatalFunctionsNoTerminate) {
 TEST(ErrorMacrosTest, ActualCudaOperations) {
     // Test successful memory allocation and free
     void* d_ptr = nullptr;
-    constexpr size_t test_allocation_size = 1024;
+    constexpr std::size_t test_allocation_size = 1024;
 
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_ALLOC(
         cudaMalloc(&d_ptr, test_allocation_size), test_allocation_size
@@ -179,7 +179,7 @@ TEST(ErrorMacrosTest, ActualCudaOperations) {
         cudaMemcpy(h_result.data(), d_data, sizeof(h_result), cudaMemcpyDeviceToHost)
     ));
 
-    for (size_t i = 0; i < h_data.size(); ++i) {
+    for (std::size_t i = 0; i < h_data.size(); ++i) {
         EXPECT_EQ(h_data[i], h_result[i]);
     }
 
@@ -190,7 +190,7 @@ TEST(ErrorMacrosTest, ActualCudaOperations) {
 TEST(ErrorMacrosTest, ActualCudaOperationsFatal) {
     // Test successful memory allocation and free with fatal macros
     void* d_ptr = nullptr;
-    constexpr size_t test_allocation_size = 1024;
+    constexpr std::size_t test_allocation_size = 1024;
 
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaMalloc(&d_ptr, test_allocation_size)));
     ASSERT_NE(d_ptr, nullptr);

@@ -22,7 +22,7 @@
 
 #include "utils.hpp"
 
-class HostMemoryResource : public ::testing::TestWithParam<size_t> {
+class HostMemoryResource : public ::testing::TestWithParam<std::size_t> {
   protected:
     void SetUp() override {
         if (rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -37,7 +37,7 @@ class HostMemoryResource : public ::testing::TestWithParam<size_t> {
         p_mr.reset();
     }
 
-    void test_buffer(auto&& buffer, std::vector<uint8_t> const& source_data) {
+    void test_buffer(auto&& buffer, std::vector<std::uint8_t> const& source_data) {
         ASSERT_EQ(source_data.size(), buffer.size());
         ASSERT_NE(nullptr, buffer.data());
 
@@ -50,7 +50,7 @@ class HostMemoryResource : public ::testing::TestWithParam<size_t> {
             std::equal(
                 source_data.begin(),
                 source_data.end(),
-                reinterpret_cast<const uint8_t*>(data)
+                reinterpret_cast<const std::uint8_t*>(data)
             )
         );
 
@@ -61,7 +61,7 @@ class HostMemoryResource : public ::testing::TestWithParam<size_t> {
             std::equal(
                 source_data.begin(),
                 source_data.end(),
-                reinterpret_cast<const uint8_t*>(buffer2.data())
+                reinterpret_cast<const std::uint8_t*>(buffer2.data())
             )
         );
         EXPECT_EQ(data, buffer2.data());
@@ -73,7 +73,7 @@ class HostMemoryResource : public ::testing::TestWithParam<size_t> {
             std::equal(
                 source_data.begin(),
                 source_data.end(),
-                reinterpret_cast<const uint8_t*>(buffer.data())
+                reinterpret_cast<const std::uint8_t*>(buffer.data())
             )
         );
         EXPECT_EQ(data, buffer.data());
@@ -98,30 +98,30 @@ INSTANTIATE_TEST_SUITE_P(
         1024,  // 1KB
         1048576  // 1MB
     ),
-    [](const ::testing::TestParamInfo<size_t>& info) {
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
         return std::to_string(info.param);
     }
 );
 
 TEST_P(HostMemoryResource, from_owned_vector) {
-    const size_t buffer_size = GetParam();
+    const std::size_t buffer_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, buffer_size);
+    auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     // Create a host buffer by taking ownership of a vector
     auto buffer = rapidsmpf::HostBuffer::from_owned_vector(
-        std::vector<uint8_t>(source_data), stream, *p_mr
+        std::vector<std::uint8_t>(source_data), stream, *p_mr
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
 TEST_P(HostMemoryResource, from_uint8_vector) {
-    const size_t buffer_size = GetParam();
+    const std::size_t buffer_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, buffer_size);
+    auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     // Create a host buffer by copying the vector
     auto buffer = rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, *p_mr);
@@ -151,16 +151,16 @@ INSTANTIATE_TEST_SUITE_P(
         1024,  // 1KB
         1048576  // 1MB
     ),
-    [](const ::testing::TestParamInfo<size_t>& info) {
+    [](const ::testing::TestParamInfo<std::size_t>& info) {
         return std::to_string(info.param);
     }
 );
 
 TEST_P(PinnedResource, from_uint8_vector) {
-    const size_t buffer_size = GetParam();
+    const std::size_t buffer_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, buffer_size);
+    auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     // Create a host buffer by copying the vector
     auto buffer = rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, *p_mr);
@@ -169,24 +169,24 @@ TEST_P(PinnedResource, from_uint8_vector) {
 }
 
 TEST_P(PinnedResource, from_owned_vector) {
-    const size_t buffer_size = GetParam();
+    const std::size_t buffer_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, buffer_size);
+    auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     // Create a host buffer by taking ownership of a vector
     auto buffer = rapidsmpf::HostBuffer::from_owned_vector(
-        std::vector<uint8_t>(source_data), stream, *p_mr
+        std::vector<std::uint8_t>(source_data), stream, *p_mr
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
 TEST_P(PinnedResource, from_rmm_device_buffer) {
-    const size_t buffer_size = GetParam();
+    const std::size_t buffer_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, buffer_size);
+    auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     auto& pinned_mr = dynamic_cast<rapidsmpf::PinnedMemoryResource&>(*p_mr);
 

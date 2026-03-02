@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -25,12 +25,12 @@ void Environment::SetUp() {
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
 
-    comm_ = std::make_shared<rapidsmpf::MPI>(mpi_comm_, options_);
-    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
+    comm_ = std::make_shared<rapidsmpf::MPI>(
+        mpi_comm_, options_, std::make_shared<rapidsmpf::ProgressThread>()
+    );
 }
 
 void Environment::TearDown() {
-    progress_thread_ = nullptr;  // Stop the progress thread.
     split_comm_ = nullptr;  // Clean up the split communicator.
     comm_ = nullptr;  // Clean up the communicator.
 
@@ -57,7 +57,7 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     MPI_Comm split_comm = MPI_COMM_NULL;
     RAPIDSMPF_MPI(MPI_Comm_split(mpi_comm_, rank, 0, &split_comm));
     return std::shared_ptr<rapidsmpf::MPI>(
-        new rapidsmpf::MPI(split_comm, options),
+        new rapidsmpf::MPI(split_comm, options, comm_->progress_thread()),
         // Don't leak the split handle.
         [comm = split_comm](rapidsmpf::MPI* x) mutable {
             delete x;

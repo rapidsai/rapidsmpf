@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,14 +44,14 @@ int main() {
         monitor.start_monitoring();
 
         // Perform some CUDA memory operations to demonstrate monitoring
-        size_t const num_allocations = 3;
-        size_t const allocation_size = 64 * 1024 * 1024;  // 64MB each
+        std::size_t const num_allocations = 3;
+        std::size_t const allocation_size = 64 * 1024 * 1024;  // 64MB each
         std::vector<float*> gpu_pointers;
 
         // Use rmm::device_buffer to manage GPU memory allocations
         std::vector<rmm::device_buffer> device_buffers;
 
-        for (size_t i = 0; i < num_allocations; ++i) {
+        for (std::size_t i = 0; i < num_allocations; ++i) {
             std::cout << "Allocating " << allocation_size / (1024 * 1024)
                       << " MB on GPU using rmm::device_buffer...\n";
             try {
@@ -102,7 +102,7 @@ int main() {
                       << final_utilization << "%)\n";
 
             // Find peak memory usage
-            size_t peak_used = 0;
+            std::size_t peak_used = 0;
             double peak_utilization = 0.0;
             for (const auto& sample : samples) {
                 if (sample.used_memory > peak_used) {

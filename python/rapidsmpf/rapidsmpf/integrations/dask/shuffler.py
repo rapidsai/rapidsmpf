@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Shuffler integration for Dask Distributed clusters."""
 
@@ -25,8 +25,6 @@ from rapidsmpf.integrations.dask.core import (
 )
 
 if TYPE_CHECKING:
-    from numbers import Number
-
     from distributed import Client, Worker
 
     from rapidsmpf.integrations.core import ShufflerIntegration
@@ -387,7 +385,7 @@ def rapidsmpf_shuffle_graph(
 
 def _gather_worker_shuffle_statistics(
     dask_worker: Worker,
-) -> dict[str, dict[str, Number]]:
+) -> dict[str, dict[str, int | float]]:
     context = get_worker_context(dask_worker)
     return context.get_statistics()
 
@@ -439,9 +437,9 @@ def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float
     """
     # {address: {stat: {count: int, value: int}}}
     # collect
-    stats: dict[str, dict[str, dict[str, Number]]] = client.run(
+    stats: dict[str, dict[str, dict[str, int | float]]] = client.run(
         _gather_worker_shuffle_statistics
-    )  # type: ignore[arg-type]
+    )
     # aggregate
     result: dict[str, dict[str, int | float]] = defaultdict(
         lambda: {"count": 0, "value": 0.0}
@@ -451,7 +449,7 @@ def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float
         # the types are a bit fiddly here. We say they're "Number", but really
         # we know that counts are ints and values are floats
         for name, stat in worker_stats.items():
-            result[name]["count"] += stat["count"]  # type: ignore[operator]
-            result[name]["value"] += stat["value"]  # type: ignore[operator]
+            result[name]["count"] += stat["count"]
+            result[name]["value"] += stat["value"]
 
     return dict(result)

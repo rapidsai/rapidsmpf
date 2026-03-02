@@ -8,7 +8,6 @@ from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.buffer_resource cimport BufferResource
-from rapidsmpf.statistics cimport Statistics
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     cpp_MemoryReserveOrWait
@@ -29,6 +28,5 @@ cdef class Context:
     cdef Communicator _comm
     cdef BufferResource _br
     cdef Options _options
-    cdef Statistics _statistics
     cdef SpillableMessages _spillable_messages
     cdef dict _memory

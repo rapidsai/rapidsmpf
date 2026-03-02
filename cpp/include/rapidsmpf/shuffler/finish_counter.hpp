@@ -200,7 +200,7 @@ class FinishCounter {
             // chunks it's sending. Chunk goal contains this control message for each
             // rank. Therefore, to get the data chunk goal, we need to subtract the number
             // of ranks that have reported their chunk count from the chunk goal.
-            return chunk_goal - static_cast<ChunkID>(rank_count);
+            return chunk_goal - safe_cast<ChunkID>(rank_count);
         }
     };
 

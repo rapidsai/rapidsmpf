@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -64,7 +64,7 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     std::lock_guard<std::mutex> lock(mutex_);
 
     // Always record the allocation on the main record.
-    main_record_.record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
+    main_record_.record_allocation(alloc_type, safe_cast<std::int64_t>(nbytes));
 
     // But only record the allocation on the thread stack, if `record_stacks_`
     // isn't empty i.e. someone has called `begin_scoped_memory_record`.
@@ -72,7 +72,7 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
         auto const thread_id = std::this_thread::get_id();
         auto& record = record_stacks_[thread_id];
         if (!record.empty()) {
-            record.top().record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
+            record.top().record_allocation(alloc_type, safe_cast<std::int64_t>(nbytes));
             RAPIDSMPF_EXPECTS(
                 allocating_threads_.insert({ret, thread_id}).second,
                 "duplicate memory pointer"
@@ -94,7 +94,7 @@ void RmmResourceAdaptor::do_deallocate(
         alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
 
         // Always record the deallocation on the main record.
-        main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
+        main_record_.record_deallocation(alloc_type, safe_cast<std::int64_t>(nbytes));
         // But only record it on the thread stack if it exist.
         if (!allocating_threads_.empty()) {
             auto const node = allocating_threads_.extract(ptr);
@@ -103,7 +103,7 @@ void RmmResourceAdaptor::do_deallocate(
                 auto& record = record_stacks_[thread_id];
                 if (!record.empty()) {
                     record.top().record_deallocation(
-                        alloc_type, static_cast<std::int64_t>(nbytes)
+                        alloc_type, safe_cast<std::int64_t>(nbytes)
                     );
                 }
             }

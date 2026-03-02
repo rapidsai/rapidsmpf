@@ -10,14 +10,14 @@
 #include <optional>
 #include <utility>
 
+#include <coro/queue.hpp>
+#include <coro/sync_wait.hpp>
+
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
-
-#include <coro/queue.hpp>
-#include <coro/sync_wait.hpp>
 
 namespace rapidsmpf::streaming {
 

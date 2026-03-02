@@ -19,6 +19,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -160,6 +161,10 @@ class Buffer {
      * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI, blocking
      * host I/O).
      *
+     * @warning The `Buffer` does not track read access to its underlying storage, and so
+     * one should be aware of write-after-read anti-dependencies when obtaining exclusive
+     * access.
+     *
      * @note Prefer `write_access(...)` if you can express the operation as a
      * single callable on a stream, even if that requires manually synchronizing the
      * stream before the callable returns.
@@ -250,6 +255,11 @@ class Buffer {
      * Ensure no further writes are enqueued, or establish stronger synchronization (e.g.,
      * synchronize the buffer's stream) before using the buffer.
      *
+     * @warning This check only confirms that there are no pending _writes_ to the
+     * `Buffer`. Pending stream-ordered _reads_ from the `Buffer` are not tracked and
+     * therefore one should be aware of write-after-read anti-dependencies when using this
+     * check to pass from stream-ordered to non-stream-ordered code.
+     *
      * @return `true` if the last recorded write event has completed; `false` otherwise.
      *
      * @throws std::logic_error If the buffer is locked.
@@ -290,8 +300,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p host_buffer.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for host buffers.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p host_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * host_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(
         std::unique_ptr<HostBuffer> host_buffer,
@@ -315,8 +328,11 @@ class Buffer {
      * @param mem_type The memory type of the underlying @p device_buffer.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
-     * @throws std::invalid_argument If @p mem_type is not suitable for device buffers.
-     * @throws std::logic_error If the buffer is locked.
+     * @throws std::logic_error If the buffer is locked, or @p mem_type is not suitable
+     * for @p device_buffer (see warning for details).
+     *
+     * @warning The caller is responsible to ensure @p mem_type is suitable for @p
+     * device_buffer. An unsuitable memory type leads to an irrecoverable condition.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 
@@ -361,17 +377,21 @@ class Buffer {
 /**
  * @brief Asynchronously copy data between buffers.
  *
- * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
+ * @p dst_offset.
  *
+ * @param statistics Statistics object used to record the copy operation. Use
+ * `Statistics::disabled()` to skip recording.
  * @param dst Destination buffer.
  * @param src Source buffer.
  * @param size Number of bytes to copy.
- * @param dst_offset Offset (in bytes) into the destination buffer.
- * @param src_offset Offset (in bytes) into the source buffer.
+ * @param dst_offset Byte offset into the destination buffer.
+ * @param src_offset Byte offset into the source buffer.
  *
- * @throws std::invalid_argument If out of bounds.
+ * @throws std::invalid_argument If the requested range is out of bounds.
  */
 void buffer_copy(
+    std::shared_ptr<Statistics> statistics,
     Buffer& dst,
     Buffer const& src,
     std::size_t size,

@@ -63,6 +63,13 @@ class Chunk {
      * @param id Unique chunk identifier.
      * @param metadata Serialized metadata for the chunk.
      * @param data Data buffer containing the chunk's payload.
+     *
+     * @throw std::invalid_argument If either @p metadata and @p data are null.
+     * @throw std::logic_error If one of @p metadata or @p data are null, but not both
+     * (see warning for details).
+     *
+     * @warning The caller is responsible to ensure both metadata and data are non-null,
+     * providing only one leads to an irrecoverable condition.
      */
     Chunk(
         ChunkID id,
@@ -363,7 +370,7 @@ class PostBox {
  * inverse bandwidth. Although the latency term is linear (rather than
  * logarithmic as is the case for Bruck's algorithm or recursive
  * doubling) MPI implementations typically observe that for large
- * messages ring allgorithms perform better since message passing is
+ * messages ring algorithms perform better since message passing is
  * only nearest neighbour.
  */
 class AllGather {

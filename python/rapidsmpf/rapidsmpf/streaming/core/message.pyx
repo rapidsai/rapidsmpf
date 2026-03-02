@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -10,7 +10,7 @@ from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 
 cdef class Message:
     """
-    A message to be transferred between streaming nodes.
+    A message to be transferred between streaming actors.
 
     Parameters
     ----------
