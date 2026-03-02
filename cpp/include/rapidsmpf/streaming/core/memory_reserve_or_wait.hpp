@@ -201,14 +201,15 @@ class MemoryReserveOrWait {
      *
      * @return Shared pointer to the coroutine executor.
      */
-    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> executor() const noexcept;
+    [[nodiscard]] std::shared_ptr<CoroThreadPoolExecutor> const&
+    executor() const noexcept;
 
     /**
      * @brief Get the buffer resource used for memory reservations.
      *
      * @return Shared pointer to the buffer resource.
      */
-    [[nodiscard]] std::shared_ptr<BufferResource> br() const noexcept;
+    [[nodiscard]] std::shared_ptr<BufferResource> const& br() const noexcept;
 
     /**
      * @brief Get the configured progress timeout.

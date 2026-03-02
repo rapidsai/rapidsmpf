@@ -2,37 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 from libcpp.utility cimport move
-import weakref
 
 from rapidsmpf.progress_thread cimport ProgressThread
 
-
-# Since a rapids::Communicator::Logger doesn't have a default ctor, we use
-# these C++ functions to call the logger instance. This way Cython doesn't
-# try to use the non-existent default ctor.
-cdef extern from *:
-    """
-    template<typename T>
-    void cpp_log(
-        rapidsmpf::Communicator::Logger::LOG_LEVEL level,
-        std::shared_ptr<rapidsmpf::Communicator> comm,
-        T && msg)
-    {
-        comm->logger().log(level, msg);
-    }
-    rapidsmpf::Communicator::Logger::LOG_LEVEL cpp_verbosity_level(
-        std::shared_ptr<rapidsmpf::Communicator> comm
-    ) {
-        return comm->logger().verbosity_level();
-    }
-    """
-    void cpp_log[T](LOG_LEVEL level, shared_ptr[cpp_Communicator] comm, T msg) \
-        except +ex_handler
-    LOG_LEVEL cpp_verbosity_level(shared_ptr[cpp_Communicator] comm) \
-        except +ex_handler
 
 cdef class Logger:
     """
@@ -50,11 +24,9 @@ cdef class Logger:
     def __init__(self):
         raise TypeError("Please get a `Logger` from a communicator instance")
 
-    cdef shared_ptr[cpp_Communicator] handle(self):
-        comm = self._comm()
-        if comm is None:
-            raise RuntimeError("Attempting to log from destroyed communicator")
-        return (<Communicator?>comm)._handle
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()
 
     @property
     def verbosity_level(self):
@@ -65,7 +37,7 @@ cdef class Logger:
         -------
             The verbosity level.
         """
-        return cpp_verbosity_level(self.handle())
+        return deref(self._handle).verbosity_level()
 
     def print(self, str msg not None):
         """
@@ -77,7 +49,8 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.PRINT, self.handle(), move(_msg))
+        with nogil:
+            deref(self._handle).log(LOG_LEVEL.PRINT, move(_msg))
 
     def warn(self, str msg not None):
         """
@@ -89,7 +62,8 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.WARN, self.handle(), move(_msg))
+        with nogil:
+            deref(self._handle).log(LOG_LEVEL.WARN, move(_msg))
 
     def info(self, str msg not None):
         """
@@ -101,7 +75,8 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.INFO, self.handle(), move(_msg))
+        with nogil:
+            deref(self._handle).log(LOG_LEVEL.INFO, move(_msg))
 
     def debug(self, str msg not None):
         """
@@ -113,7 +88,8 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.DEBUG, self.handle(), move(_msg))
+        with nogil:
+            deref(self._handle).log(LOG_LEVEL.DEBUG, move(_msg))
 
     def trace(self, str msg not None):
         """
@@ -125,7 +101,8 @@ cdef class Logger:
             The message to log.
         """
         cdef string _msg = msg.encode()
-        cpp_log(LOG_LEVEL.TRACE, self.handle(), move(_msg))
+        with nogil:
+            deref(self._handle).log(LOG_LEVEL.TRACE, move(_msg))
 
 
 cdef class Communicator:
@@ -150,12 +127,7 @@ cdef class Communicator:
             "`rapidsmpf.mpi.new_communicator()`"
         )
 
-    def __cinit__(self):
-        self._logger = Logger.__new__(Logger)
-        self._logger._comm = weakref.ref(self)
-
     def __dealloc__(self):
-        self._logger = None
         with nogil:
             self._handle.reset()
 
@@ -190,7 +162,9 @@ cdef class Communicator:
         -------
             A logger instance.
         """
-        return self._logger
+        cdef Logger logger = Logger.__new__(Logger)
+        logger._handle = deref(self._handle).logger()
+        return logger
 
     @property
     def progress_thread(self):

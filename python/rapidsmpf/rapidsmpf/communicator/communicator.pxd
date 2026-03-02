@@ -9,23 +9,17 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
-cdef class Logger:
-    # We hold a weakref to the communicator so that we can report a useful
-    # error if attempting to log from a dead communicator
-    cdef object _comm
-    cdef shared_ptr[cpp_Communicator] handle(self)
-
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
   "rapidsmpf" nogil:
     ctypedef int32_t Rank
     cdef const bint COMM_HAVE_UCXX
     cdef const bint COMM_HAVE_MPI
 
-cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
-  "rapidsmpf::Communicator::Logger" nogil:
-    cdef cppclass cpp_Logger:
-        pass
-    cpdef enum class LOG_LEVEL(int):
+cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
+    cdef cppclass cpp_Logger "rapidsmpf::Communicator::Logger":
+        void log[T](LOG_LEVEL, T msg) except +ex_handler
+        LOG_LEVEL verbosity_level() except +ex_handler
+    cpdef enum class LOG_LEVEL "rapidsmpf::Communicator::Logger::LOG_LEVEL"(int):
         NONE
         PRINT
         WARN
@@ -33,15 +27,16 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
         DEBUG
         TRACE
 
+cdef class Logger:
+    cdef shared_ptr[cpp_Logger] _handle
+
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
     cdef cppclass cpp_Communicator "rapidsmpf::Communicator":
         Rank rank() except +ex_handler
         Rank nranks() except +ex_handler
         string str() except +ex_handler
         shared_ptr[cpp_ProgressThread] progress_thread() except +ex_handler
-        cpp_Logger logger()
+        shared_ptr[cpp_Logger] logger()
 
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle
-    cdef Logger _logger
-    cdef object __weakref__

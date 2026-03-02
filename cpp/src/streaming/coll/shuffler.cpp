@@ -109,7 +109,7 @@ ShufflerAsync::ShufflerAsync(
           total_num_partitions,
           ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
-              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
+              ctx_->comm()->logger()->trace("notifying waiters that ", pid, " is ready");
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
@@ -130,10 +130,10 @@ ShufflerAsync::~ShufflerAsync() noexcept {
         "finish token from this->insert_finished()"
     );
     if (!ready_pids_.empty()) {
-        ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
+        ctx_->comm()->logger()->warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
-        ctx_->comm()->logger().warn(
+        ctx_->comm()->logger()->warn(
             "~ShufflerAsync: not all partitions have been extracted"
         );
     }

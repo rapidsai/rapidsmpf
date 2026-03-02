@@ -73,10 +73,11 @@ def test_single_process() -> None:
     assert comm.rank == 0
 
 
-def test_logger_weakref_raises() -> None:
+def test_logger_survives_communicator(capfd: pytest.CaptureFixture[str]) -> None:
     def get_logger() -> Logger:
         comm = single_process_comm(Options(), ProgressThread())
         return comm.logger
 
-    with pytest.raises(RuntimeError):
-        get_logger().print("Reference should be dead")
+    get_logger().print("Logger should survive")
+    output = capfd.readouterr().out
+    assert "Logger should survive" in output

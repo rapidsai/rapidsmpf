@@ -207,7 +207,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            std::vector<shuffler::PartID>& finished_pids,
                            std::size_t& n_chunks_received) -> Actor {
         co_await ctx->executor()->schedule();
-        ctx->comm()->logger().debug(tid, " extract task started");
+        ctx->comm()->logger()->debug(tid, " extract task started");
 
         while (true) {
             auto result = co_await shuffler->extract_any_async();
@@ -219,7 +219,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
             n_chunks_received += chunks.size();
             finished_pids.push_back(pid);
         }
-        ctx->comm()->logger().debug(tid, " extract task finished");
+        ctx->comm()->logger()->debug(tid, " extract task finished");
     };
 
     for (std::size_t i = 0; i < n_inserts; ++i) {
