@@ -54,7 +54,7 @@ cdef class Context:
     Examples
     --------
     >>> with streaming.Context(
-    ...     comm=...,
+    ...     logger=...,
     ...     br=BufferResource(...),
     ...     options=Options(...),
     ... ) as ctx:
