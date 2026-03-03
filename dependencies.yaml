@@ -329,7 +329,7 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0
+          - pytest
           - nvidia-ml-py>=12
     specific:
       - output_types: conda
