@@ -24,7 +24,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::coll {
@@ -69,7 +68,6 @@ class AllReduce {
      * @brief Construct a new AllReduce operation.
      *
      * @param comm The communicator for communication.
-     * @param progress_thread The progress thread used by the underlying AllGather.
      * @param input Local data to contribute to the reduction.
      * @param output Allocated buffer in which to place reduction result. Must be the same
      * size and memory type as `input`. Overwritten with the reduction result (values
@@ -84,7 +82,6 @@ class AllReduce {
      */
     AllReduce(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         std::unique_ptr<Buffer> input,
         std::unique_ptr<Buffer> output,
         OpID op_id,
@@ -183,7 +180,6 @@ class AllReduce {
     [[nodiscard]] ProgressThread::ProgressState event_loop();
 
     std::shared_ptr<Communicator> comm_{};
-    std::shared_ptr<ProgressThread> progress_thread_{};
     ReduceOperator reduce_operator_;  ///< Reduction operator
     std::unique_ptr<Buffer> in_buffer_{};
     std::unique_ptr<Buffer> out_buffer_{};
