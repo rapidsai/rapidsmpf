@@ -494,6 +494,12 @@ def test_dask_cudf_join(
             dd.assert_eq(joined, expected, check_index=False)
 
 
+def _connect_from_subprocess(scheduler_address: str, q: multiprocessing.Queue) -> None:
+    client = Client(scheduler_address)
+    bootstrap_dask_cluster(client)
+    q.put(obj=True)
+
+
 @gen_test(timeout=30)
 @pytest.mark.filterwarnings("ignore")
 async def test_bootstrap_multiple_clients(
@@ -501,12 +507,7 @@ async def test_bootstrap_multiple_clients(
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
 
-    def connect_from_subprocess(
-        scheduler_address: str, q: multiprocessing.Queue
-    ) -> None:
-        client = Client(scheduler_address)
-        bootstrap_dask_cluster(client)
-        q.put(obj=True)
+    ctx = multiprocessing.get_context("forkserver")
 
     with LocalCUDACluster(loop=loop) as cluster:
         with Client(cluster) as client_1:
@@ -515,12 +516,13 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
-        p = multiprocessing.Process(
-            target=connect_from_subprocess, args=(cluster.scheduler_address, q)
+        assert isinstance(cluster.scheduler_address, str)
+        q: multiprocessing.Queue[bool] = ctx.Queue()
+        p = ctx.Process(
+            target=_connect_from_subprocess, args=(cluster.scheduler_address, q)
         )
         p.start()
-        result = q.get(timeout=10)
+        result = q.get(timeout=5)
         p.join()
 
     assert result is True
