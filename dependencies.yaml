@@ -338,6 +338,8 @@ dependencies:
     specific:
       - output_types: conda
         matrices:
+          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
+          # https://github.com/rapidsai/rapidsmpf/issues/897
           - matrix:
               arch: x86_64
               py: "3.14"
