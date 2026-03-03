@@ -24,6 +24,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::coll {

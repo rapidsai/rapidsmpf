@@ -539,8 +539,6 @@ class AllGather {
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
-    std::shared_ptr<ProgressThread>
-        progress_thread_;  ///< Progress thread for async operations
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::function<void(void)> finished_callback_{
