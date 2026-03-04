@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.chunks.partition import (
         PartitionMapChunk,
         PartitionVectorChunk,
@@ -41,9 +42,9 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_single_rank_shuffler(
-    context: Context, stream: Stream, num_partitions: int
+    context: Context, comm: Communicator, stream: Stream, num_partitions: int
 ) -> None:
-    if context.comm().nranks != 1:
+    if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
     num_rows = 1000
@@ -93,6 +94,7 @@ def test_single_rank_shuffler(
     actors.append(
         shuffler(
             context,
+            comm,
             ch_in=ch2,
             ch_out=ch3,
             op_id=op_id,
@@ -146,6 +148,7 @@ async def generate_inputs(
 @define_actor()
 async def do_shuffle(
     context: Context,
+    comm: Communicator,
     ch_in: Channel[TableChunk],
     ch_out: Channel[TableChunk],
     op_id: int,
@@ -153,7 +156,7 @@ async def do_shuffle(
     *,
     use_extract_any: bool,
 ) -> None:
-    shuffle = ShufflerAsync(context, op_id, num_partitions)
+    shuffle = ShufflerAsync(context, comm, op_id, num_partitions)
     while (msg := await ch_in.recv(context)) is not None:
         chunk = TableChunk.from_message(msg)
         num_rows = chunk.table_view().num_rows()
@@ -191,6 +194,7 @@ async def do_shuffle(
 @pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_object_interface(
     context: Context,
+    comm: Communicator,
     py_executor: ThreadPoolExecutor,
     use_extract_any: bool,  # noqa: FBT001
 ) -> None:
@@ -206,6 +210,7 @@ def test_shuffler_object_interface(
     actors.append(
         do_shuffle(
             context,
+            comm,
             ch_in,
             ch_shuffled,
             op_id,

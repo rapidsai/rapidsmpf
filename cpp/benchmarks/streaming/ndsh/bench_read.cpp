@@ -40,6 +40,7 @@ namespace {
 
 rapidsmpf::streaming::Actor read_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
@@ -56,7 +57,7 @@ rapidsmpf::streaming::Actor read_parquet(
         options.set_column_names(*columns);
     }
     return rapidsmpf::streaming::actor::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk
+        ctx, comm, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
@@ -77,7 +78,7 @@ rapidsmpf::streaming::Actor consume_channel_parallel(
             if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
                 auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
                                  .make_available(ctx);
-                ctx->comm()->logger()->print(
+                ctx->logger()->print(
                     "Consumed chunk with ",
                     chunk.table_view().num_rows(),
                     " rows and ",
@@ -95,7 +96,7 @@ rapidsmpf::streaming::Actor consume_channel_parallel(
         tasks.push_back(task());
     }
     rapidsmpf::streaming::coro_results(co_await coro::when_all(std::move(tasks)));
-    ctx->comm()->logger()->print(
+    ctx->logger()->print(
         "Table was around ", rmm::detail::format_bytes(estimated_total_bytes.load())
     );
 }
@@ -376,7 +377,7 @@ int main(int argc, char** argv) {
         .input_directory = arguments.input_directory
     };
 
-    auto ctx = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         std::vector<rapidsmpf::streaming::Actor> actors;
@@ -388,6 +389,7 @@ int main(int argc, char** argv) {
             auto ch_out = ctx->create_channel();
             actors.push_back(read_parquet(
                 ctx,
+                comm,
                 ch_out,
                 arguments.num_producers,
                 arguments.num_rows_per_chunk,
@@ -410,19 +412,19 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        ctx->comm()->logger()->print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report());
         ctx->statistics()->clear();
     }
 
-    if (ctx->comm()->rank() == 0) {
+    if (comm->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
-            ctx->comm()->logger()->print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
                 timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
-            ctx->comm()->logger()->print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " compute time [s]: ",

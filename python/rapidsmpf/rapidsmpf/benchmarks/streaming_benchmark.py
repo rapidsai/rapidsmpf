@@ -131,7 +131,6 @@ def streaming_shuffle(
     # create a shuffler instance
     shuffler = Shuffler(
         comm,
-        comm.progress_thread,
         op_id=0,
         total_num_partitions=output_nparts,
         br=br,

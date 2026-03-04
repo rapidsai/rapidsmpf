@@ -38,9 +38,10 @@ def main() -> int:
     # Initialize configuration options from environment variables.
     options = Options(get_environment_variables())
 
-    # Create a context that will be used by all streaming actors.
+    # Create a communicator and context that will be used by all streaming actors.
+    comm = single_process_comm(options, ProgressThread())
     ctx = Context(
-        comm=single_process_comm(options, ProgressThread()),
+        logger=comm.logger,
         br=BufferResource(RmmResourceAdaptor(rmm.mr.get_current_device_resource())),
         options=options,
     )

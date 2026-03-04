@@ -383,7 +383,6 @@ std::vector<PartID> Shuffler::local_partitions(
 
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
     BufferResource* br,
@@ -404,7 +403,6 @@ Shuffler::Shuffler(
           safe_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
@@ -417,10 +415,9 @@ Shuffler::Shuffler(
     // Shuffler isn't fully constructed yet.
     // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
-    progress_thread_function_id_ =
-        progress_thread_->add_function([progress = std::make_shared<Progress>(*this)]() {
-            return (*progress)();
-        });
+    progress_thread_function_id_ = comm_->progress_thread()->add_function(
+        [progress = std::make_shared<Progress>(*this)]() { return (*progress)(); }
+    );
 
     // Register a spill function that spill buffers in this shuffler.
     // Note, the spill function can use `this` because a Shuffler isn't movable.
@@ -443,7 +440,7 @@ void Shuffler::shutdown() {
     if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
         log->debug("Shuffler.shutdown() - initiate");
-        progress_thread_->remove_function(progress_thread_function_id_);
+        comm_->progress_thread()->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
         log->debug("Shuffler.shutdown() - done");
     }
