@@ -299,6 +299,7 @@ Actor produce_chunks(
 
 Actor read_parquet(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
     cudf::io::parquet_reader_options options,
@@ -307,8 +308,8 @@ Actor read_parquet(
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
-    auto const size = safe_cast<std::size_t>(ctx->comm()->nranks());
-    auto const rank = safe_cast<std::size_t>(ctx->comm()->rank());
+    auto const size = safe_cast<std::size_t>(comm->nranks());
+    auto const rank = safe_cast<std::size_t>(comm->rank());
     auto source = options.get_source();
     RAPIDSMPF_EXPECTS(
         source.type() == cudf::io::io_type::FILEPATH, "Only implemented for file sources"

@@ -137,7 +137,6 @@ def test_basic_allgather(
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
-        progress_thread=comm.progress_thread,
         op_id=0,  # Use operation ID 0
         br=br,
         statistics=statistics,

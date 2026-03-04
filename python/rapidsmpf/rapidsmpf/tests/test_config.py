@@ -549,11 +549,11 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm, mr, opts) as ctx:
+    with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
         assert ctx.stream_pool_size() == 8
-        assert ctx.comm() is comm
+        assert ctx.logger() is not None
 
 
 def test_context_from_options_uses_default_when_options_empty() -> None:
@@ -561,11 +561,11 @@ def test_context_from_options_uses_default_when_options_empty() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm, mr, opts) as ctx:
+    with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         assert not ctx.statistics().enabled
         assert ctx.stream_pool_size() == 16  # Default
-        assert ctx.comm() is comm
+        assert ctx.logger() is not None
 
 
 def test_context_from_options_enables_statistics_when_requested() -> None:
@@ -573,7 +573,7 @@ def test_context_from_options_enables_statistics_when_requested() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm, mr, opts) as ctx:
+    with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
 
@@ -583,7 +583,7 @@ def test_context_from_options_creates_buffer_resource() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm, mr, opts) as ctx:
+    with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         assert ctx.br() is not None
 
@@ -593,7 +593,7 @@ def test_context_from_options_can_create_channel() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm, mr, opts) as ctx:
+    with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         channel: Channel[Any] = ctx.create_channel()
         assert channel is not None

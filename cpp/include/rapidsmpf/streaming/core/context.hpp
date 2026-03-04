@@ -13,7 +13,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
@@ -47,15 +46,13 @@ class Context {
      * All provided pointers must be non-null.
      *
      * @param options Configuration options.
-     * @param comm Shared pointer to a communicator.
-     * @param progress_thread Shared pointer to a progress thread.
+     * @param logger Shared pointer to a logger.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
      */
     Context(
         config::Options options,
-        std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
+        std::shared_ptr<Communicator::Logger> logger,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
     );
@@ -64,12 +61,12 @@ class Context {
      * @brief Convenience constructor using the provided configuration options.
      *
      * @param options Configuration options.
-     * @param comm Shared pointer to a communicator.
+     * @param logger Shared pointer to a logger.
      * @param br Buffer resource used to reserve host memory and perform data movement.
      */
     Context(
         config::Options options,
-        std::shared_ptr<Communicator> comm,
+        std::shared_ptr<Communicator::Logger> logger,
         std::shared_ptr<BufferResource> br
     );
 
@@ -84,7 +81,7 @@ class Context {
      *
      * @param mr Device memory resource adaptor used by RapidsMPF. The adaptor must
      * outlive the returned Context.
-     * @param comm The communicator to use.
+     * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
      * @return A fully initialized Context.
@@ -105,7 +102,7 @@ class Context {
      */
     static std::shared_ptr<Context> from_options(
         RmmResourceAdaptor* mr,
-        std::shared_ptr<Communicator> comm,
+        std::shared_ptr<Communicator::Logger> logger,
         config::Options options
     );
 
@@ -139,18 +136,9 @@ class Context {
     [[nodiscard]] config::Options options() const noexcept;
 
     /**
-     * @brief Returns the communicator.
-     *
-     * @return Shared pointer to the communicator.
+     * @brief @return Shared pointer to the logger.
      */
-    [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
-
-    /**
-     * @brief Returns the progress thread.
-     *
-     * @return Shared pointer to the progress thread.
-     */
-    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const noexcept;
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() const noexcept;
 
     /**
      * @brief Returns the coroutine executor.
@@ -236,8 +224,7 @@ class Context {
     std::atomic<bool> is_shutdown_{false};
     std::thread::id creator_thread_id_;
     config::Options options_;
-    std::shared_ptr<Communicator> comm_;
-    std::shared_ptr<ProgressThread> progress_thread_;
+    std::shared_ptr<Communicator::Logger> logger_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};

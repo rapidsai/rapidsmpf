@@ -44,7 +44,6 @@ def test_shuffler_single_nonempty_partition(
 
     shuffler = Shuffler(
         comm,
-        comm.progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,
@@ -138,7 +137,6 @@ def test_shuffler_uniform(
 
     shuffler = Shuffler(
         comm,
-        comm.progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,

@@ -78,5 +78,7 @@ The streaming engine is built around these core concepts (see the {doc}`/glossar
 - {term}`Actor` - Coroutine-based asynchronous operators (read, filter, select, join)
 - {term}`Channel` - Asynchronous messaging queues with backpressure
 - {term}`Message` - Type-erased containers for data payloads
-- {term}`Context` - Provides access to resources ({term}`Communicator`, {term}`BufferResource`, etc.)
+- {term}`Communicator` - The collective group of processes cooperating to
+  produce the result.
+- {term}`Context` - Provides access to resources ({term}`BufferResource`, etc.)
 - {term}`Buffer` - Raw memory allocations with attached CUDA streams

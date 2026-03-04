@@ -67,7 +67,6 @@ TEST(ShufflerManyStreams, Test) {
     // Create the shuffler on `shuffler_stream`.
     rapidsmpf::shuffler::Shuffler shuffler(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         0,  // op_id
         num_partitions,
         br.get()

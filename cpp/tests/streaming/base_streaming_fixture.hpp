@@ -49,7 +49,7 @@ class BaseStreamingFixture : public ::testing::Test {
             mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            std::move(options), GlobalEnvironment->comm_, br
+            std::move(options), GlobalEnvironment->comm_->logger(), br
         );
     }
 

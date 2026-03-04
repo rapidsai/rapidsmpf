@@ -113,7 +113,6 @@ class BulkRayShufflerActor(RapidsMPFActor):
         super().setup_worker(root_address_bytes)
         self.shuffler: Shuffler = Shuffler(
             self.comm,
-            self.comm.progress_thread,
             0,
             total_num_partitions=self.total_nparts,
             br=self.br,
