@@ -11,6 +11,7 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -37,6 +38,7 @@ namespace actor {
  * named by the communicator, or the options differ between ranks.
  *
  * @param ctx The execution context to use.
+ * @param comm Communicator for distributing files across ranks.
  * @param ch_out Channel to which `TableChunk`s are sent.
  * @param num_producers Number of concurrent producer tasks.
  * @param options Template reader options. The files within will be picked apart and used
@@ -50,6 +52,7 @@ namespace actor {
  */
 Actor read_parquet(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
     cudf::io::parquet_reader_options options,

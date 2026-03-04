@@ -199,7 +199,6 @@ class MemoryAvailable_NumPartition
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             0,  // op_id
             total_num_partitions,
             br.get()
@@ -310,7 +309,6 @@ class ConcurrentShuffleTest
     void RunTest(int t_id, InsertFn&& insert_fn, InsertFinishedFn&& insert_finished_fn) {
         rapidsmpf::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
             br.get()
@@ -435,12 +433,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     auto comm = GlobalEnvironment->split_comm();
     EXPECT_EQ(comm->nranks(), 1);
 
-    auto progress_thread = comm->progress_thread();
-
     // Create a shuffler and input chunks.
     rapidsmpf::shuffler::Shuffler shuffler(
         comm,
-        progress_thread,
         0,  // op_id
         total_num_partitions,
         &br
@@ -851,9 +846,8 @@ TEST(Shuffler, ShutdownWhilePaused) {
 
     auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
-    auto shuffler = rapidsmpf::shuffler::Shuffler(
-        GlobalEnvironment->comm_, progress_thread, 0, 1, br.get()
-    );
+    auto shuffler =
+        rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, br.get());
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
@@ -890,11 +884,7 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         br = std::make_unique<rapidsmpf::BufferResource>(mr());
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-            GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
-            0,
-            nparts,
-            br.get()
+            GlobalEnvironment->comm_, 0, nparts, br.get()
         );
 
         GlobalEnvironment->barrier();
@@ -996,9 +986,8 @@ TEST(ShufflerTest, multiple_shutdowns) {
     GlobalEnvironment->barrier();
     auto& comm = GlobalEnvironment->comm_;
     rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
-    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        comm, GlobalEnvironment->comm_->progress_thread(), 0, comm->nranks(), &br
-    );
+    auto shuffler =
+        std::make_unique<rapidsmpf::shuffler::Shuffler>(comm, 0, comm->nranks(), &br);
 
     shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));
     std::ignore = shuffler->extract(shuffler->wait_any());

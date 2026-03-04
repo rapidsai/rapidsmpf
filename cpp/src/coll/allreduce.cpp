@@ -19,7 +19,6 @@ namespace rapidsmpf::coll {
 
 AllReduce::AllReduce(
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     std::unique_ptr<Buffer> input,
     std::unique_ptr<Buffer> output,
     OpID op_id,
@@ -27,7 +26,6 @@ AllReduce::AllReduce(
     std::function<void(void)> finished_callback
 )
     : comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
       reduce_operator_{std::move(reduce_operator)},
       in_buffer_{std::move(input)},
       out_buffer_{std::move(output)},
@@ -75,11 +73,12 @@ AllReduce::AllReduce(
         logical_rank_ = rank - non_pow2_remainder_;
         phase_ = Phase::StartButterfly;
     }
-    function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
+    function_id_ =
+        comm_->progress_thread()->add_function([this]() { return event_loop(); });
 }
 
 AllReduce::~AllReduce() noexcept {
-    if (function_id_.is_valid() && progress_thread_) {
+    if (function_id_.is_valid()) {
         auto const phase = phase_.load(std::memory_order_acquire);
         // If we get here and we hadn't finished the event loop then there are in flight
         // messages that will be lost forever and potentially be matched incorrectly so
@@ -89,7 +88,7 @@ AllReduce::~AllReduce() noexcept {
             "Destroying AllReduce before waiting for extraction"
         );
         active_.store(false, std::memory_order_release);
-        progress_thread_->remove_function(function_id_);
+        comm_->progress_thread()->remove_function(function_id_);
     }
 }
 

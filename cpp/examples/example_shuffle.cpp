@@ -64,7 +64,6 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmpf::shuffler::Shuffler shuffler(
         comm,
-        progress_thread,
         0,  // op_id
         total_num_partitions,
         &br,
@@ -126,10 +125,12 @@ int main(int argc, char** argv) {
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
-    log.print("Finished shuffle with ", local_outputs.size(), " local output partitions");
+    log->print(
+        "Finished shuffle with ", local_outputs.size(), " local output partitions"
+    );
 
     // Log the statistics report.
-    log.print(stats->report());
+    log->print(stats->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

@@ -86,26 +86,26 @@ coro::task<void> insert_and_notify(
 
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 )
     : ctx_(std::move(ctx)),
       notifications_(ctx_->executor()->get()),
-      latch_{static_cast<std::int64_t>(
-          shuffler::Shuffler::local_partitions(
-              ctx_->comm(), total_num_partitions, partition_owner
-          )
-              .size()
-      )},
+      latch_{static_cast<std::int64_t>(shuffler::Shuffler::local_partitions(
+                                           comm, total_num_partitions, partition_owner
+      )
+                                           .size())},
       shuffler_(
-          ctx_->comm(),
-          ctx_->progress_thread(),
+          std::move(comm),
           op_id,
           total_num_partitions,
           ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
-              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
+              shuffler_.comm()->logger()->trace(
+                  "notifying waiters that ", pid, " is ready"
+              );
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
@@ -126,12 +126,10 @@ ShufflerAsync::~ShufflerAsync() noexcept {
         "finish token from this->insert_finished()"
     );
     if (!ready_pids_.empty()) {
-        ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
+        comm()->logger()->warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
-        ctx_->comm()->logger().warn(
-            "~ShufflerAsync: not all partitions have been extracted"
-        );
+        comm()->logger()->warn("~ShufflerAsync: not all partitions have been extracted");
     }
 }
 
@@ -155,8 +153,8 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
-        shuffler_.partition_owner(ctx_->comm(), pid, shuffler_.total_num_partitions)
-            == ctx_->comm()->rank(),
+        shuffler_.partition_owner(comm(), pid, shuffler_.total_num_partitions)
+            == comm()->rank(),
         "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
         std::out_of_range
     );
@@ -237,6 +235,7 @@ namespace actor {
 
 Actor shuffler(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
@@ -246,7 +245,7 @@ Actor shuffler(
     co_await ctx->executor()->schedule();
     ShutdownAtExit c{ch_in, ch_out};
     ShufflerAsync shuffler_async(
-        ctx, op_id, total_num_partitions, std::move(partition_owner)
+        ctx, std::move(comm), op_id, total_num_partitions, std::move(partition_owner)
     );
 
     while (true) {

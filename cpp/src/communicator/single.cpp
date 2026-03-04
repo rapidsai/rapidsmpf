@@ -12,7 +12,8 @@ namespace rapidsmpf {
 
 
 Single::Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread)
-    : logger_{0, std::move(options)}, progress_thread_{std::move(progress_thread)} {}
+    : logger_{std::make_shared<Logger>(0, std::move(options))},
+      progress_thread_{std::move(progress_thread)} {}
 
 std::unique_ptr<Communicator::Future> Single::send(
     std::unique_ptr<std::vector<std::uint8_t>>, Rank, Tag

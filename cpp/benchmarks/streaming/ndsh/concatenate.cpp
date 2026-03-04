@@ -31,7 +31,7 @@ streaming::Actor concatenate(
     streaming::ShutdownAtExit c{ch_in, ch_out};
     CudaEvent event;
     std::vector<streaming::Message> messages;
-    ctx->comm()->logger().print("Concatenate");
+    ctx->logger()->print("Concatenate");
     auto concat_stream = ctx->br()->stream_pool().get_stream();
     while (!ch_out->is_shutdown()) {
         co_await ctx->executor()->schedule();

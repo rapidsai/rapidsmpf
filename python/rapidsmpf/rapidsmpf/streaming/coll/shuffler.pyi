@@ -4,6 +4,7 @@
 from collections.abc import Mapping
 from enum import Enum
 
+from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
 from rapidsmpf.streaming.core.actor import CppActor
@@ -16,6 +17,7 @@ class PartitionAssignment(Enum):
 
 def shuffler(
     ctx: Context,
+    comm: Communicator,
     ch_in: Channel[PartitionMapChunk],
     ch_out: Channel[PartitionVectorChunk],
     op_id: int,
@@ -26,10 +28,13 @@ class ShufflerAsync:
     def __init__(
         self,
         ctx: Context,
+        comm: Communicator,
         op_id: int,
         total_num_partitions: int,
         partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
     ) -> None: ...
+    @property
+    def comm(self) -> Communicator: ...
     def insert(self, chunks: Mapping[int, PackedData]) -> None: ...
     async def insert_finished(self, ctx: Context) -> None: ...
     def local_partitions(self) -> list[int]: ...

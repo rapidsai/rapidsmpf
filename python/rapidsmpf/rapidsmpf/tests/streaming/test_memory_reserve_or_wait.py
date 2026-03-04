@@ -43,7 +43,7 @@ def make_context(
         mr,
         memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=dev_limit)},
     )
-    return Context(comm, br, options)
+    return Context(comm.logger, br, options)
 
 
 def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:

@@ -245,14 +245,15 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
         return logger_;
     }
 
     /**
      * @copydoc Communicator::progress_thread
      */
-    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const override {
+    [[nodiscard]] std::shared_ptr<ProgressThread> const&
+    progress_thread() const override {
         return progress_thread_;
     }
 
@@ -265,7 +266,7 @@ class MPI final : public Communicator {
     MPI_Comm comm_;
     Rank rank_;
     Rank nranks_;
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
 };
 
