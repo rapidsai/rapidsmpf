@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace {
@@ -20,9 +21,24 @@ bool has_json_unsafe_chars(std::string_view s) {
         return c == '"' || c == '\\' || c < 0x20;
     });
 }
+
+// For pre-computed names.
+struct Names {
+    std::string base;  // a string like "alloc-{memtype}" or "copy-<src>-to-<dst>"
+    std::string nbytes;  // "{base}-bytes"
+    std::string time;  // "{base}-time"
+    std::string stream_delay;  // "{base}-stream-delay"
+};
+
+using NamesArray = std::array<Names, rapidsmpf::MEMORY_TYPES.size()>;
+using Names2DArray = std::array<NamesArray, rapidsmpf::MEMORY_TYPES.size()>;
 }  // namespace
 
 namespace rapidsmpf {
+
+Statistics::~Statistics() noexcept {
+    StreamOrderedTiming::cancel_inflight_timings(this);
+}
 
 // Setting `mr_ = nullptr` disables memory profiling.
 Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
@@ -355,21 +371,110 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
     );
 }
 
-void Statistics::record_copy(MemoryType src, MemoryType dst, std::size_t nbytes) {
-    using Key = std::pair<MemoryType, MemoryType>;
-    // Use a lambda to construct all stat names once at first call.
-    static std::map<Key, std::string> const name_map = [] {
-        std::map<Key, std::string> ret;
+void Statistics::record_copy(
+    MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
+    // Construct all stat names once, at first call.
+    static Names2DArray const name_map = [] {
+        Names2DArray ret;
         for (MemoryType s : MEMORY_TYPES) {
             auto const src_name = to_lower(to_string(s));
             for (MemoryType d : MEMORY_TYPES) {
                 auto const dst_name = to_lower(to_string(d));
-                ret.emplace(Key{s, d}, "copy-" + src_name + "-to-" + dst_name);
+                auto base = "copy-" + src_name + "-to-" + dst_name;
+                ret[static_cast<std::size_t>(s)][static_cast<std::size_t>(d)] = Names{
+                    .base = base,
+                    .nbytes = base + "-bytes",
+                    .time = base + "-time",
+                    .stream_delay = base + "-stream-delay",
+                };
             }
         }
         return ret;
     }();
-    add_bytes_stat(name_map.at({src, dst}), nbytes);
+    auto const& names =
+        name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
+
+    timing.stop_and_record(names.time, names.stream_delay);
+    add_stat(names.nbytes, nbytes);
+
+    if (exist_report_entry_name(names.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_copy() expects the record counters to match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
+        }
+    );
+}
+
+void Statistics::record_alloc(
+    MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+) {
+    // Construct all stat names once, at first call.
+    static NamesArray const names = [] {
+        NamesArray ret;
+        for (MemoryType mt : MEMORY_TYPES) {
+            auto base = "alloc-" + to_lower(to_string(mt));
+            ret[static_cast<std::size_t>(mt)] = Names{
+                .base = base,
+                .nbytes = base + "-bytes",
+                .time = base + "-time",
+                .stream_delay = base + "-stream-delay",
+            };
+        }
+        return ret;
+    }();
+
+    auto const& n = names[static_cast<std::size_t>(mem_type)];
+
+    timing.stop_and_record(n.time, n.stream_delay);
+    add_stat(n.nbytes, nbytes);
+
+    if (exist_report_entry_name(n.base)) {
+        return;  // exit early to limit overhead.
+    }
+
+    register_formatter(
+        n.base,
+        {n.nbytes, n.time, n.stream_delay},
+        [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const nbytes = stats.at(0);
+            auto const time = stats.at(1);
+            auto const stream_delay = stats.at(2);
+
+            RAPIDSMPF_EXPECTS(
+                nbytes.count() == time.count() && time.count() == stream_delay.count(),
+                "record_alloc() expects the record counters to match"
+            );
+
+            os << format_nbytes(nbytes.value());
+            os << " | " << format_duration(time.value());
+            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
+            os << " | avg-stream-delay "
+               << format_duration(
+                      stream_delay.value() / static_cast<double>(time.count())
+                  );
+        }
+    );
 }
 
 }  // namespace rapidsmpf

@@ -115,6 +115,10 @@ bool ProgressThread::is_running() const {
     return active_;
 }
 
+std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
+    return statistics_;
+}
+
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {

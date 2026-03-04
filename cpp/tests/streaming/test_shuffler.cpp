@@ -101,8 +101,9 @@ class StreamingShuffler : public BaseStreamingShuffle,
             run_actor_network(std::move(actors));
         }
 
+        auto comm = GlobalEnvironment->comm_;
         std::unique_ptr<cudf::table> expected_table;
-        if (ctx->comm()->nranks() == 1) {  // full_input table is expected
+        if (comm->nranks() == 1) {  // full_input table is expected
             expected_table = std::make_unique<cudf::table>(std::move(full_input_table));
         } else {  // full_input table is replicated on all ranks
             // local partitions
@@ -111,7 +112,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
             );
 
             auto local_pids = shuffler::Shuffler::local_partitions(
-                ctx->comm(), num_partitions, shuffler::Shuffler::round_robin
+                comm, num_partitions, shuffler::Shuffler::round_robin
             );
 
             // every partition is replicated on all ranks
@@ -120,7 +121,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
                 auto t_view =
                     cudf::slice(table->view(), {offsets[pid], offsets[pid + 1]}).at(0);
                 // this will be replicated on all ranks
-                for (rapidsmpf::Rank rank = 0; rank < ctx->comm()->nranks(); ++rank) {
+                for (rapidsmpf::Rank rank = 0; rank < comm->nranks(); ++rank) {
                     expected_tables.push_back(t_view);
                 }
             }
@@ -151,7 +152,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(StreamingShuffler, basic_shuffler) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Actor {
-        return actor::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
+        return actor::shuffler(
+            ctx, GlobalEnvironment->comm_, ch_in, ch_out, op_id, num_partitions
+        );
     }));
 }
 
@@ -198,7 +201,8 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+    auto comm = GlobalEnvironment->comm_;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, n_partitions);
     // extract data (executed by thread pool)
     auto extract_task = [](int tid,
                            auto* shuffler,
@@ -207,7 +211,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            std::vector<shuffler::PartID>& finished_pids,
                            std::size_t& n_chunks_received) -> Actor {
         co_await ctx->executor()->schedule();
-        ctx->comm()->logger().debug(tid, " extract task started");
+        ctx->logger()->debug(tid, " extract task started");
 
         while (true) {
             auto result = co_await shuffler->extract_any_async();
@@ -219,7 +223,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
             n_chunks_received += chunks.size();
             finished_pids.push_back(pid);
         }
-        ctx->comm()->logger().debug(tid, " extract task finished");
+        ctx->logger()->debug(tid, " extract task finished");
     };
 
     for (std::size_t i = 0; i < n_inserts; ++i) {
@@ -246,9 +250,9 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     run_actor_network(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
-        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+        comm, n_partitions, shuffler::Shuffler::round_robin
     );
-    EXPECT_EQ(n_inserts * local_pids.size() * ctx->comm()->nranks(), n_chunks_received);
+    EXPECT_EQ(n_inserts * local_pids.size() * comm->nranks(), n_chunks_received);
 
     std::ranges::sort(finished_pids);
     EXPECT_EQ(local_pids, finished_pids);
@@ -259,13 +263,14 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     static constexpr OpID op_id = 0;
     static constexpr std::size_t n_partitions = 10;
     {
-        auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+        auto comm = GlobalEnvironment->comm_;
+        auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, n_partitions);
 
         // all empty partitions
         auto finish_token = shuffler->insert_finished();
 
         auto local_pids = shuffler::Shuffler::local_partitions(
-            ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+            comm, n_partitions, shuffler::Shuffler::round_robin
         );
 
         std::size_t parts_extracted = 0;
@@ -305,10 +310,11 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
     // and extract_async coroutines.
     void run_test(auto produce_results_fn) {
         static constexpr OpID op_id = 0;
-        shuffler::PartID const n_partitions = ctx->comm()->nranks();
-        shuffler::PartID const this_pid = ctx->comm()->rank();
+        auto comm = GlobalEnvironment->comm_;
+        shuffler::PartID const n_partitions = comm->nranks();
+        shuffler::PartID const this_pid = comm->rank();
 
-        auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+        auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, n_partitions);
 
         auto finish_token = shuffler->insert_finished();
         coro::sync_wait(finish_token);

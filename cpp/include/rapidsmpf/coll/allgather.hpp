@@ -447,7 +447,6 @@ class AllGather {
      * @brief Construct a new allgather operation.
      *
      * @param comm The communicator for communication.
-     * @param progress_thread The progress thread for asynchronous operations.
      * @param op_id Unique operation identifier for this allgather.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by
@@ -462,7 +461,6 @@ class AllGather {
      */
     AllGather(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
@@ -477,6 +475,15 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     /// @brief Deleted move assignment operator.
     AllGather& operator=(AllGather&&) = delete;
+
+    /**
+     * @brief Gets the communicator associated with this AllGather.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
 
     /**
      * @brief Destructor.
@@ -532,8 +539,6 @@ class AllGather {
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
-    std::shared_ptr<ProgressThread>
-        progress_thread_;  ///< Progress thread for async operations
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::function<void(void)> finished_callback_{

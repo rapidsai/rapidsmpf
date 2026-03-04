@@ -6,7 +6,7 @@ from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 
-class RmmResourceAdaptor:
+class RmmResourceAdaptor(DeviceMemoryResource):
     def __init__(
         self,
         upstream_mr: DeviceMemoryResource,

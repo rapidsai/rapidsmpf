@@ -18,7 +18,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
-#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
@@ -38,9 +37,7 @@ class BaseAllGatherTest : public ::testing::Test {
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
 
-        allgather = std::make_unique<AllGather>(
-            GlobalEnvironment->comm_, GlobalEnvironment->progress_thread_, 0, br.get()
-        );
+        allgather = std::make_unique<AllGather>(GlobalEnvironment->comm_, 0, br.get());
     }
 
     void TearDown() override {

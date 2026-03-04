@@ -23,13 +23,14 @@ from rapidsmpf.testing import assert_eq
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
+    from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
-def test_allgather_actor(context: Context) -> None:
-    if context.comm().nranks != 1:
+def test_allgather_actor(context: Context, comm: Communicator) -> None:
+    if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
     num_rows = 1000
@@ -65,7 +66,7 @@ def test_allgather_actor(context: Context) -> None:
     )
 
     ch2: Channel[PackedDataChunk] = context.create_channel()
-    actors.append(allgather(context, ch1, ch2, op_id, ordered=True))
+    actors.append(allgather(context, comm, ch1, ch2, op_id, ordered=True))
 
     actor, deferred = pull_from_channel(context, ch2)
     actors.append(actor)
@@ -115,11 +116,12 @@ async def generate_inputs(
 @define_actor()
 async def allgather_and_concat(
     context: Context,
+    comm: Communicator,
     ch_in: Channel[PackedDataChunk],
     ch_out: Channel[TableChunk],
     op_id: int,
 ) -> None:
-    gather = AllGather(context, op_id)
+    gather = AllGather(context, comm, op_id)
     while (msg := await ch_in.recv(context)) is not None:
         chunk = PackedDataChunk.from_message(msg).to_packed_data()
         gather.insert(msg.sequence_number, chunk)
@@ -133,7 +135,7 @@ async def allgather_and_concat(
 
 
 def test_allgather_object_interface(
-    context: Context, py_executor: ThreadPoolExecutor
+    context: Context, comm: Communicator, py_executor: ThreadPoolExecutor
 ) -> None:
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
@@ -142,7 +144,7 @@ def test_allgather_object_interface(
     num_chunks = 10
     op_id = 0
     actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
-    actors.append(allgather_and_concat(context, ch_in, ch_out, op_id))
+    actors.append(allgather_and_concat(context, comm, ch_in, ch_out, op_id))
 
     actor, deferred = pull_from_channel(context, ch_out)
     actors.append(actor)

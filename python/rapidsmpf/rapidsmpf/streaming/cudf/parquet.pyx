@@ -16,6 +16,7 @@ from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.streaming.chunks.arbitrary cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
@@ -30,6 +31,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/parquet.hpp>" nogil:
     cdef cpp_Actor cpp_read_parquet \
         "rapidsmpf::streaming::actor::read_parquet"(
             shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_Channel] ch_out,
             size_t num_producers,
             parquet_reader_options options,
@@ -91,6 +93,7 @@ cdef class Filter:
 
 def read_parquet(
     Context ctx not None,
+    Communicator comm not None,
     Channel ch_out not None,
     size_t num_producers,
     ParquetReaderOptions options not None,
@@ -103,13 +106,15 @@ def read_parquet(
     Parameters
     ----------
     ctx
-        Streaming execution context
+        Streaming execution context.
+    comm
+        The communicator.
     ch_out
         Output channel to receive the TableChunks.
     num_producers
         Number of concurrent producers of output chunks.
     options
-        Reader options
+        Reader options.
     num_rows_per_chunk
         Target (maximum) number of rows per output chunk.
     filter
@@ -119,7 +124,7 @@ def read_parquet(
     Notes
     -----
     This is a collective operation, all ranks participating via the
-    execution context's communicator must call it with the same options.
+    communicator must call it with the same options.
     """
     cdef cpp_Actor _ret
     cdef unique_ptr[cpp_Filter] c_filter
@@ -128,6 +133,7 @@ def read_parquet(
     with nogil:
         _ret = cpp_read_parquet(
             ctx._handle,
+            comm._handle,
             ch_out._handle,
             num_producers,
             options.c_obj,

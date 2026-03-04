@@ -212,7 +212,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
-        comm.logger().print(ss.str());
+        comm.logger()->print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -246,6 +246,7 @@ rapidsmpf::streaming::Actor consumer(
 
 rapidsmpf::Duration run(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream
 ) {
@@ -255,7 +256,7 @@ rapidsmpf::Duration run(
     constexpr std::uint32_t seed = cudf::DEFAULT_HASH_SEED;
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
-        * static_cast<rapidsmpf::shuffler::PartID>(ctx->comm()->nranks());
+        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr rapidsmpf::OpID op_id = 0;
 
     // Create streaming pipeline.
@@ -289,7 +290,7 @@ rapidsmpf::Duration run(
         auto ch3 = ctx->create_channel();
         actors.push_back(
             rapidsmpf::streaming::actor::shuffler(
-                ctx, ch2, ch3, op_id, total_num_partitions
+                ctx, comm, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = ctx->create_channel();
@@ -319,6 +320,7 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
@@ -330,16 +332,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm =
+                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
@@ -375,7 +378,7 @@ int main(int argc, char** argv) {
         stats
     );
 
-    auto& log = comm->logger();
+    auto& log = *comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
 
     // Print benchmark/hardware info.
@@ -398,7 +401,8 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br);
+    auto ctx =
+        std::make_shared<rapidsmpf::streaming::Context>(options, comm->logger(), br);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
@@ -407,7 +411,7 @@ int main(int argc, char** argv) {
         if (i == total_num_runs - 1) {
             ctx->statistics()->clear();
         }
-        double const elapsed = run(ctx, args, stream).count();
+        double const elapsed = run(ctx, comm, args, stream).count();
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
            << " | local throughput: "

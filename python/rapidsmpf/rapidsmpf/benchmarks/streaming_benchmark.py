@@ -91,9 +91,7 @@ def consume_finished_partitions(
 
 def streaming_shuffle(
     comm: Communicator,
-    progress_thread: ProgressThread,
     br: BufferResource,
-    stats: Statistics,
     output_nparts: int,
     local_size: int,
     part_size: int,
@@ -110,12 +108,8 @@ def streaming_shuffle(
     ----------
     comm
         The communicator to use.
-    progress_thread
-        The progress thread to use.
     br
         The buffer resource to use.
-    stats
-        The statistics to use.
     output_nparts
         The total number of output partitions.
     local_size
@@ -137,7 +131,6 @@ def streaming_shuffle(
     # create a shuffler instance
     shuffler = Shuffler(
         comm,
-        progress_thread,
         op_id=0,
         total_num_partitions=output_nparts,
         br=br,
@@ -183,16 +176,21 @@ def streaming_shuffle(
     consumer_thread.join(timeout=wait_timeout)
 
 
-def ucxx_mpi_setup(options: Options) -> Communicator:
+def ucxx_mpi_setup(options: Options, progress_thread: ProgressThread) -> Communicator:
     """
     Bootstrap UCXX cluster using MPI.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+    progress_thread
+        Progress thread for the communicator.
 
     Returns
     -------
     Communicator
         A new ucxx communicator.
-    options
-        Configuration options.
     """
     import ucxx._lib.libucxx as ucx_api
 
@@ -203,7 +201,9 @@ def ucxx_mpi_setup(options: Options) -> Communicator:
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size, None, None, options)
+        comm = new_communicator(
+            MPI.COMM_WORLD.size, None, None, options, progress_thread
+        )
         root_address_str = get_root_ucxx_address(comm)
     else:
         root_address_str = None
@@ -212,7 +212,9 @@ def ucxx_mpi_setup(options: Options) -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address, options)
+        comm = new_communicator(
+            MPI.COMM_WORLD.size, None, root_address, options, progress_thread
+        )
 
     assert comm.nranks == MPI.COMM_WORLD.size
     barrier(comm)
@@ -230,16 +232,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
     """
     options = Options(get_environment_variables())
 
-    if args.comm == "mpi":
-        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
-    elif args.comm == "ucxx":
-        if rapidsmpf.bootstrap.is_running_with_rrun():
-            raise ValueError(
-                "UCXX communicator is not supported with rrun yet, due to missing allreduce support"
-            )
-        else:
-            comm = ucxx_mpi_setup(options)
-
     # Create a RMM stack with both a device pool and statistics.
     mr = RmmResourceAdaptor(
         rmm.mr.PoolMemoryResource(
@@ -252,6 +244,17 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     stats = Statistics(enable=args.statistics, mr=mr)
     progress_thread = ProgressThread(stats)
+    if args.comm == "mpi":
+        comm = rapidsmpf.communicator.mpi.new_communicator(
+            MPI.COMM_WORLD, options, progress_thread
+        )
+    elif args.comm == "ucxx":
+        if rapidsmpf.bootstrap.is_running_with_rrun():
+            raise ValueError(
+                "UCXX communicator is not supported with rrun yet, due to missing allreduce support"
+            )
+        else:
+            comm = ucxx_mpi_setup(options, progress_thread)
 
     # Create a buffer resource that limits device memory if `--spill-device`
     # is not None.
@@ -260,7 +263,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         if args.spill_device is None
         else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
     )
-    br = BufferResource(mr, memory_available=memory_available)
+    br = BufferResource(mr, memory_available=memory_available, statistics=stats)
 
     args.out_nparts = args.out_nparts if args.out_nparts is not None else comm.nranks
     args.part_size = args.part_size if args.part_size is not None else args.local_size
@@ -272,9 +275,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     start_time = MPI.Wtime()
     streaming_shuffle(
         comm,
-        progress_thread,
         br,
-        stats,
         args.out_nparts,
         args.local_size,
         args.part_size,

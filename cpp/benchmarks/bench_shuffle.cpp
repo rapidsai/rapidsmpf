@@ -21,6 +21,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -249,7 +250,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
-        comm.logger().print(ss.str());
+        comm.logger()->print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -286,7 +287,6 @@ void barrier(std::shared_ptr<rapidsmpf::Communicator>& comm) {
 rapidsmpf::Duration do_run(
     rapidsmpf::shuffler::PartID const total_num_partitions,
     std::shared_ptr<rapidsmpf::Communicator>& comm,
-    std::shared_ptr<rapidsmpf::ProgressThread>& progress_thread,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
@@ -304,7 +304,6 @@ rapidsmpf::Duration do_run(
         RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
-            progress_thread,
             0,  // op_id
             total_num_partitions,
             br,
@@ -441,7 +440,6 @@ void do_insert(
  * size will be `~num_local_rows/(num_output_partitions * nranks)` rows.
  *
  * @param comm Communicator for the shuffler
- * @param progress_thread Progress thread for the shuffler
  * @param args Command line arguments
  * @param stream CUDA stream for the shuffler
  * @param br Buffer resource for the shuffler
@@ -450,7 +448,6 @@ void do_insert(
  */
 rapidsmpf::Duration run_hash_partition_inline(
     std::shared_ptr<rapidsmpf::Communicator>& comm,
-    std::shared_ptr<rapidsmpf::ProgressThread>& progress_thread,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
@@ -476,14 +473,7 @@ rapidsmpf::Duration run_hash_partition_inline(
     };
 
     return do_run(
-        total_num_partitions,
-        comm,
-        progress_thread,
-        args,
-        stream,
-        br,
-        statistics,
-        [&](auto& shuffler) {
+        total_num_partitions, comm, args, stream, br, statistics, [&](auto& shuffler) {
             do_insert(
                 shuffler,
                 std::move(input_partitions),
@@ -501,7 +491,6 @@ rapidsmpf::Duration run_hash_partition_inline(
  * partitioned before being inserted into the shuffler.
  *
  * @param comm Communicator for the shuffler
- * @param progress_thread Progress thread for the shuffler
  * @param args Command line arguments
  * @param stream CUDA stream for the shuffler
  * @param br Buffer resource for the shuffler
@@ -510,7 +499,6 @@ rapidsmpf::Duration run_hash_partition_inline(
  */
 rapidsmpf::Duration run_hash_partition_with_datagen(
     std::shared_ptr<rapidsmpf::Communicator>& comm,
-    std::shared_ptr<rapidsmpf::ProgressThread>& progress_thread,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
@@ -535,14 +523,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
             });
 
     return do_run(
-        total_num_partitions,
-        comm,
-        progress_thread,
-        args,
-        stream,
-        br,
-        statistics,
-        [&](auto& shuffler) {
+        total_num_partitions, comm, args, stream, br, statistics, [&](auto& shuffler) {
             do_insert(
                 shuffler,
                 std::move(input_partitions),
@@ -573,35 +554,6 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
-    std::shared_ptr<rapidsmpf::Communicator> comm;
-    if (args.comm_type == "mpi") {
-        if (use_bootstrap) {
-            std::cerr
-                << "Error: MPI communicator requires MPI initialization. Don't use with "
-                   "rrun or unset RAPIDSMPF_RANK."
-                << std::endl;
-            return 1;
-        }
-        rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
-    } else if (args.comm_type == "ucxx") {
-        if (use_bootstrap) {
-            // Launched with rrun - use bootstrap backend
-            comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                rapidsmpf::bootstrap::BackendType::AUTO, options
-            );
-        } else {
-            // Launched with mpirun - use MPI bootstrap
-            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
-        }
-    } else {
-        std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
-        return 1;
-    }
-
-    args.pprint(*comm);
-
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     auto stat_enabled_mr = set_device_mem_resource_with_stats();
 
@@ -619,6 +571,8 @@ int main(int argc, char** argv) {
                      ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
                      : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
 
+    // We're only going to measure the last run, so disable initially.
+    stats->disable();
     rapidsmpf::BufferResource br{
         stat_enabled_mr.get(),
         args.pinned_mem_disable ? nullptr
@@ -630,6 +584,36 @@ int main(int argc, char** argv) {
         ),
         stats
     };
+
+    std::shared_ptr<rapidsmpf::Communicator> comm;
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
+    if (args.comm_type == "mpi") {
+        if (use_bootstrap) {
+            std::cerr
+                << "Error: MPI communicator requires MPI initialization. Don't use with "
+                   "rrun or unset RAPIDSMPF_RANK."
+                << std::endl;
+            return 1;
+        }
+        rapidsmpf::mpi::init(&argc, &argv);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
+    } else if (args.comm_type == "ucxx") {
+        if (use_bootstrap) {
+            // Launched with rrun - use bootstrap backend
+            comm = rapidsmpf::bootstrap::create_ucxx_comm(
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
+            );
+        } else {
+            // Launched with mpirun - use MPI bootstrap
+            comm =
+                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
+        }
+    } else {
+        std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
+        return 1;
+    }
+
+    args.pprint(*comm);
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -651,7 +635,7 @@ int main(int argc, char** argv) {
         ss << "    Total Memory: "
            << rapidsmpf::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -660,27 +644,23 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log.print("CUPTI memory monitoring enabled");
+        log->print("CUPTI memory monitoring enabled");
     }
 #endif
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
-        // Clear statistics before the last run so only last-run data is reported.
+        // Enable statistics before the last run so only last-run data is reported.
         if (i == total_num_runs - 1) {
-            stats->clear();
+            stats->enable();
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
-            elapsed = run_hash_partition_with_datagen(
-                          comm, progress_thread, args, stream, &br, stats
-            )
-                          .count();
-        } else {
             elapsed =
-                run_hash_partition_inline(comm, progress_thread, args, stream, &br, stats)
-                    .count();
+                run_hash_partition_with_datagen(comm, args, stream, &br, stats).count();
+        } else {
+            elapsed = run_hash_partition_inline(comm, args, stream, &br, stats).count();
         }
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
@@ -691,7 +671,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -717,9 +697,9 @@ int main(int argc, char** argv) {
                   )
                << " (avg)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
     }
-    log.print(stats->report("Statistics (of the last run):"));
+    log->print(stats->report("Statistics (of the last run):"));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
@@ -730,7 +710,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log.print(
+            log->print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -739,12 +719,12 @@ int main(int argc, char** argv) {
 
             // Print callback summary for rank 0
             if (comm->rank() == 0) {
-                log.print(
+                log->print(
                     "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
                 );
             }
         } catch (std::exception const& e) {
-            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

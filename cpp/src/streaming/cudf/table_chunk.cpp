@@ -10,6 +10,7 @@
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -171,11 +172,12 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             {
                 // Use libcudf to copy the table_view().
                 auto const nbytes = data_alloc_size(MemoryType::DEVICE);
+                StreamOrderedTiming timing{stream(), br->statistics()};
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
                 br->statistics()->record_copy(
-                    MemoryType::DEVICE, MemoryType::DEVICE, nbytes
+                    MemoryType::DEVICE, MemoryType::DEVICE, nbytes, std::move(timing)
                 );
                 // And update the provided `reservation`.
                 br->release(reservation, nbytes);

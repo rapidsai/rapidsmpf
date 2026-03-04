@@ -29,7 +29,6 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
     cdef cppclass cpp_AllGather "rapidsmpf::coll::AllGather":
         cpp_AllGather(
             shared_ptr[cpp_Communicator] comm,
-            shared_ptr[cpp_ProgressThread] progress_thread,
             int32_t op_id,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics
@@ -38,6 +37,7 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             except +ex_handler
         void insert_finished() except +ex_handler
         bool finished() except +ex_handler
+        const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         vector[cpp_PackedData] wait_and_extract(
             Ordered ordered,
             milliseconds_t timeout
@@ -47,6 +47,5 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
 
 cdef class AllGather:
     cdef unique_ptr[cpp_AllGather] _handle
-    cdef Communicator _comm
-    cdef Stream _stream
     cdef BufferResource _br
+    cdef Communicator _comm

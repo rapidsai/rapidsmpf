@@ -5,6 +5,7 @@ from pylibcudf.expressions import Expression
 from pylibcudf.io.parquet import ParquetReaderOptions
 from rmm.pylibrmm.stream import Stream
 
+from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
@@ -15,6 +16,7 @@ class Filter:
 
 def read_parquet(
     ctx: Context,
+    comm: Communicator,
     ch_out: Channel[TableChunk],
     num_producers: int,
     options: ParquetReaderOptions,
