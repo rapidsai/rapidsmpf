@@ -91,7 +91,7 @@ cdef class AllGather:
 
     @property
     def comm(self):
-        """"
+        """
         Get the communicator used by the allgather.
 
         Returns
