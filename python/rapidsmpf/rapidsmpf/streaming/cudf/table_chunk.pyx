@@ -13,6 +13,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
+from rapidsmpf.memory.packed_data cimport PackedData
 # Need the header include for inline C++ code
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -185,6 +186,26 @@ cdef class TableChunk:
                 exclusive_view,
             )
         )
+
+    @staticmethod
+    def from_packed_data(PackedData pd not None):
+        """
+        Construct a TableChunk from packed data.
+
+        Parameters
+        ----------
+        pd
+            The PackedData object
+
+        Returns
+        -------
+        A new TableChunk owning the packed data.
+
+        Notes
+        -----
+        This takes ownership of the data in the PackedData object, which is left empty.
+        """
+        return TableChunk.from_handle(make_unique[cpp_TableChunk](move(pd.c_obj)))
 
     @staticmethod
     def from_message(Message message not None):

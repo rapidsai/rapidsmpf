@@ -11,6 +11,7 @@ from rmm.pylibrmm.stream import Stream
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.memory_reservation import MemoryReservation
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message, Payload
 
@@ -22,6 +23,8 @@ class TableChunk:
         *,
         exclusive_view: bool,
     ) -> TableChunk: ...
+    @staticmethod
+    def from_packed_data(pd: PackedData) -> TableChunk: ...
     @classmethod
     def from_message(cls: type[Self], message: Message[Self]) -> Self: ...
     def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...

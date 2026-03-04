@@ -12,10 +12,12 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
+from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cdef cppclass cpp_TableChunk "rapidsmpf::streaming::TableChunk":
+        cpp_TableChunk(unique_ptr[cpp_PackedData]) except +ex_handler
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +ex_handler
         bool_t is_available() noexcept
