@@ -81,7 +81,6 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
@@ -95,7 +94,6 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
@@ -107,7 +105,6 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
@@ -120,23 +117,23 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin
     )
-        : Shuffler(
-              comm,
-              progress_thread,
-              op_id,
-              total_num_partitions,
-              br,
-              nullptr,
-              partition_owner
-          ) {}
+        : Shuffler(comm, op_id, total_num_partitions, br, nullptr, partition_owner) {}
 
     ~Shuffler();
+
+    /**
+     * @brief Gets the communicator associated with this Shuffler.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
 
     Shuffler(Shuffler const&) = delete;
     Shuffler& operator=(Shuffler const&) = delete;
@@ -328,7 +325,6 @@ class Shuffler {
                                              ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
-    std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
 

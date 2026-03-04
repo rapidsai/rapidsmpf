@@ -195,7 +195,6 @@ def bulk_mpi_shuffle(
         br = BufferResource(rmm.mr.get_current_device_resource())
         shuffler = Shuffler(
             comm,
-            comm.progress_thread,
             op_id=0,
             total_num_partitions=total_num_partitions,
             br=br,

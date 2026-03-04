@@ -7,14 +7,12 @@ from collections.abc import Iterable, Mapping
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.progress_thread import ProgressThread
 
 class Shuffler:
     max_concurrent_shuffles: int
     def __init__(
         self,
         comm: Communicator,
-        progress_thread: ProgressThread,
         op_id: int,
         total_num_partitions: int,
         br: BufferResource,

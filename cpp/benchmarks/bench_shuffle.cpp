@@ -304,7 +304,6 @@ rapidsmpf::Duration do_run(
         RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
-            comm->progress_thread(),
             0,  // op_id
             total_num_partitions,
             br,

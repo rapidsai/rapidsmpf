@@ -516,7 +516,6 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        assert isinstance(cluster.scheduler_address, str)
         q: multiprocessing.Queue[bool] = ctx.Queue()
         p = ctx.Process(
             target=_connect_from_subprocess, args=(cluster.scheduler_address, q)

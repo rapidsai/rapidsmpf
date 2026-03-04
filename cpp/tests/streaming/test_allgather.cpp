@@ -57,10 +57,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(StreamingAllGather, basic) {
     auto mem_type = std::get<1>(GetParam());
-    auto allgather = streaming::AllGather(ctx, OpID{0});
+    auto comm = GlobalEnvironment->comm_;
+    auto allgather = streaming::AllGather(ctx, comm, OpID{0});
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
 
@@ -138,8 +139,9 @@ TEST_P(StreamingAllGather, streaming_actor) {
     auto ch_in = ctx->create_channel();
     auto ch_out = ctx->create_channel();
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    auto comm = GlobalEnvironment->comm_;
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
     std::vector<streaming::Message> input_messages;
@@ -178,7 +180,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
         streaming::actor::push_to_channel(ctx, ch_in, std::move(input_messages))
     ));
     pipeline.push_back(ctx->executor()->schedule(
-        streaming::actor::allgather(ctx, ch_in, ch_out, OpID{0})
+        streaming::actor::allgather(ctx, comm, ch_in, ch_out, OpID{0})
     ));
     pipeline.push_back(ctx->executor()->schedule(
         streaming::actor::pull_from_channel(ctx, ch_out, output_messages)

@@ -293,8 +293,12 @@ dependencies:
             packages:
               - python=3.13
           - matrix:
+              py: "3.14"
             packages:
-              - python>=3.11,<3.14
+              - python=3.14
+          - matrix:
+            packages:
+              - python>=3.11
   test_cpp:
     common:
       - output_types: conda
@@ -329,17 +333,26 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0
+          - pytest
           - nvidia-ml-py>=12
     specific:
       - output_types: conda
         matrices:
+          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
+          # https://github.com/rapidsai/rapidsmpf/issues/897
           - matrix:
               arch: x86_64
+              py: "3.14"
+            packages:
+          - matrix:
+              arch: x86_64
+              py: "3.*"
             packages:
               - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
+            packages:
+          - matrix:
             packages:
   run_rapidsmpf:
     common:
@@ -448,12 +461,18 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
+              py: "3.14"
+            packages:
+          - matrix:
+              arch: x86_64
+              py: "3.*"
             packages:
               - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
             packages:
-
+          - matrix:
+            packages:
   depends_on_cudf:
     common:
       - output_types: conda

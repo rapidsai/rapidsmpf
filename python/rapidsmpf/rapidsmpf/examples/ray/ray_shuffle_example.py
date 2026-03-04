@@ -113,7 +113,6 @@ class ShufflingActor(RapidsMPFActor):
 
         shuffler = Shuffler(
             self.comm,
-            self.comm.progress_thread,
             0,
             total_num_partitions=self._total_nparts,
             br=br,
