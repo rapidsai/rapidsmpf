@@ -5,7 +5,9 @@ from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
+from libcpp.utility cimport pair
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
+from pylibcudf.libcudf.types cimport size_type
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
@@ -25,6 +27,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         cpp_table_view table_view() except +ex_handler
         bool_t is_spillable() noexcept
         cpp_TableChunk copy(cpp_MemoryReservation& reservation) except +ex_handler
+        pair[size_type, size_type] shape() noexcept
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle

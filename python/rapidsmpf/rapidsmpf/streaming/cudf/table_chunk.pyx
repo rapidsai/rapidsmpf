@@ -4,7 +4,7 @@
 from cpython.object cimport PyObject
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t, uint64_t
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
@@ -526,6 +526,16 @@ cdef class TableChunk:
         with nogil:
             ret = cpp_table_copy(self._handle, res)
         return TableChunk.from_handle(move(ret))
+
+    @property
+    def shape(self):
+        """Return the shape of the table in this TableChunk.
+
+        Returns
+        -------
+        Tuple of shape ``(num_rows, num_columns)```.
+        """
+        return deref(self._handle).shape()
 
 
 async def make_table_chunks_available_or_wait(
