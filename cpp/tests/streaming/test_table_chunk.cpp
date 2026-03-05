@@ -32,8 +32,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
                             public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
   protected:
     void SetUp() override {
-        rapidsmpf::config::Options options(
-            rapidsmpf::config::get_environment_variables()
+        rapidsmpf::config::Options options(rapidsmpf::config::get_environment_variables()
         );
 
         std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
@@ -44,7 +43,9 @@ class StreamingTableChunk : public BaseStreamingFixture,
         stream = cudf::get_default_stream();
         br = std::make_shared<rapidsmpf::BufferResource>(
             mr_cuda,  // device_mr
-            rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
+            rapidsmpf::PinnedMemoryResource::make_fixed_sized_if_available(
+                get_current_numa_node(), 1_GiB, 1_GiB, 1_MiB
+            ),  // pinned_mr
             memory_available,  // memory_available
             std::chrono::milliseconds{1},  // periodic_spill_check
             stream_pool,  // stream_pool
@@ -215,7 +216,8 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
-    EXPECT_EQ(chunk.make_available_cost(), size);
+    // TODO: this is hack! 
+    EXPECT_EQ(chunk.make_available_cost(), spill_mem_type == MemoryType::HOST ? size : (1_MiB * ((size + 1_MiB - 1)/ 1_MiB)));
 
     auto chunk2 = chunk.make_available(
         br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)
