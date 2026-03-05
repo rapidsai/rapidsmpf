@@ -4,10 +4,9 @@
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.communicator.communicator cimport Logger
 from rapidsmpf.config cimport Options
 from rapidsmpf.memory.buffer_resource cimport BufferResource
-from rapidsmpf.statistics cimport Statistics
 
 from rapidsmpf.config import get_environment_variables
 
@@ -24,7 +23,7 @@ from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 cdef class Context:
     """
-    Context for nodes (coroutines) in rapidsmpf.
+    Context for actors (coroutines) in rapidsmpf.
 
     The context owns shared resources used during execution, including the
     coroutine executor and memory reservation infrastructure.
@@ -44,20 +43,18 @@ cdef class Context:
 
     Parameters
     ----------
-    comm
-        The communicator to use.
+    logger
+        The logger to use.
     br
         The buffer resource to use.
     options
         The configuration options to use. Missing options are read from environment
         variables.
-    statistics
-        The statistics to use. If None, statistics are disabled.
 
     Examples
     --------
     >>> with streaming.Context(
-    ...     comm=...,
+    ...     logger=...,
     ...     br=BufferResource(...),
     ...     options=Options(...),
     ... ) as ctx:
@@ -65,30 +62,23 @@ cdef class Context:
     """
     def __cinit__(
         self,
-        Communicator comm not None,
+        Logger logger not None,
         BufferResource br not None,
         Options options = None,
-        Statistics statistics = None,
     ):
-        self._comm = comm
         self._br = br
-
         self._options = options
+        self._logger = logger
         if self._options is None:
             self._options = Options()
         # Insert missing config options from environment variables.
         self._options.insert_if_absent(get_environment_variables())
 
-        self._statistics = statistics
-        if statistics is None:
-            self._statistics = Statistics(enable=False)  # Disables statistics.
-
         with nogil:
             self._handle = make_shared[cpp_Context](
                 self._options._handle,
-                self._comm._handle,
+                self._logger._handle,
                 self._br._handle,
-                self._statistics._handle,
             )
 
         self._spillable_messages = SpillableMessages.from_handle(
@@ -103,15 +93,14 @@ cdef class Context:
     @classmethod
     def from_options(
         cls,
-        Communicator comm not None,
+        Logger logger not None,
         RmmResourceAdaptor mr not None,
         Options options not None
     ):
         return cls(
-            comm=comm,
+            logger=logger,
             br=BufferResource.from_options(mr, options),
             options=options,
-            statistics=Statistics.from_options(mr, options),
         )
 
     def __enter__(self):
@@ -156,15 +145,15 @@ cdef class Context:
         """
         return self._options
 
-    def comm(self):
+    def logger(self):
         """
-        Get the communicator.
+        Get the logger.
 
         Returns
         -------
-        The communicator associated with this context.
+        The logger associated with this context.
         """
-        return self._comm
+        return self._logger
 
     def br(self):
         """
@@ -184,7 +173,7 @@ cdef class Context:
         -------
         The statistics associated with this context.
         """
-        return self._statistics
+        return self._br.statistics
 
     def get_stream_from_pool(self):
         """

@@ -19,10 +19,10 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
 #include "base_streaming_fixture.hpp"
 
@@ -57,10 +57,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(StreamingAllGather, basic) {
     auto mem_type = std::get<1>(GetParam());
-    auto allgather = streaming::AllGather(ctx, OpID{0});
+    auto comm = GlobalEnvironment->comm_;
+    auto allgather = streaming::AllGather(ctx, comm, OpID{0});
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
 
@@ -126,20 +127,21 @@ TEST_P(StreamingAllGather, basic) {
     }
     pipeline.push_back(ctx->executor()->schedule(insert_finished()));
     pipeline.push_back(ctx->executor()->schedule(extract()));
-    streaming::run_streaming_pipeline(std::move(pipeline));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> expected(size * size * n_inserts);
     std::iota(expected.begin(), expected.end(), 0);
     EXPECT_EQ(expected, result);
 }
 
-TEST_P(StreamingAllGather, streaming_node) {
+TEST_P(StreamingAllGather, streaming_actor) {
     auto mem_type = std::get<1>(GetParam());
 
     auto ch_in = ctx->create_channel();
     auto ch_out = ctx->create_channel();
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    auto comm = GlobalEnvironment->comm_;
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
     std::vector<streaming::Message> input_messages;
@@ -175,15 +177,15 @@ TEST_P(StreamingAllGather, streaming_node) {
     std::vector<streaming::Message> output_messages;
     std::vector<coro::task<void>> pipeline{};
     pipeline.push_back(ctx->executor()->schedule(
-        streaming::node::push_to_channel(ctx, ch_in, std::move(input_messages))
+        streaming::actor::push_to_channel(ctx, ch_in, std::move(input_messages))
     ));
-    pipeline.push_back(
-        ctx->executor()->schedule(streaming::node::allgather(ctx, ch_in, ch_out, OpID{0}))
-    );
     pipeline.push_back(ctx->executor()->schedule(
-        streaming::node::pull_from_channel(ctx, ch_out, output_messages)
+        streaming::actor::allgather(ctx, comm, ch_in, ch_out, OpID{0})
     ));
-    streaming::run_streaming_pipeline(std::move(pipeline));
+    pipeline.push_back(ctx->executor()->schedule(
+        streaming::actor::pull_from_channel(ctx, ch_out, output_messages)
+    ));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> actual(size * size * n_inserts);
     std::size_t offset{0};
     for (auto& msg : output_messages) {

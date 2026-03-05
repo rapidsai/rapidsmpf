@@ -85,6 +85,7 @@ coro::task<void> insert_and_notify(
 
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
@@ -96,20 +97,21 @@ ShufflerAsync::ShufflerAsync(
           // partitions sui generis.
           std::int64_t npart{0};
           for (shuffler::PartID i = 0; i < total_num_partitions; i++) {
-              if (partition_owner(ctx_->comm(), i) == ctx_->comm()->rank()) {
+              if (partition_owner(comm, i) == comm->rank()) {
                   npart++;
               }
           }
           return npart;
       }()},
       shuffler_(
-          ctx_->comm(),
-          ctx_->progress_thread(),
+          std::move(comm),
           op_id,
           total_num_partitions,
           ctx_->br().get(),
           [this](shuffler::PartID pid) -> void {
-              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
+              shuffler_.comm()->logger()->trace(
+                  "notifying waiters that ", pid, " is ready"
+              );
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
@@ -120,7 +122,6 @@ ShufflerAsync::ShufflerAsync(
                   "failed to start task to notify waiters that the partition is ready"
               );
           },
-          ctx_->statistics(),
           std::move(partition_owner)
       ) {}
 
@@ -131,12 +132,10 @@ ShufflerAsync::~ShufflerAsync() noexcept {
         "finish token from this->insert_finished()"
     );
     if (!ready_pids_.empty()) {
-        ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
+        comm()->logger()->warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
-        ctx_->comm()->logger().warn(
-            "~ShufflerAsync: not all partitions have been extracted"
-        );
+        comm()->logger()->warn("~ShufflerAsync: not all partitions have been extracted");
     }
 }
 
@@ -148,7 +147,7 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Node ShufflerAsync::insert_finished() {
+Actor ShufflerAsync::insert_finished() {
     std::vector<shuffler::PartID> pids(total_num_partitions());
     std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
     shuffler_.insert_finished(std::move(pids));
@@ -160,7 +159,7 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
-        shuffler_.partition_owner(ctx_->comm(), pid) == ctx_->comm()->rank(),
+        shuffler_.partition_owner(comm(), pid) == comm()->rank(),
         "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
         std::out_of_range
     );
@@ -220,7 +219,7 @@ ShufflerAsync::extract_any_async() {
     co_return std::nullopt;
 }
 
-Node ShufflerAsync::finished_drain() {
+Actor ShufflerAsync::finished_drain() {
     // Wait for all notifications to have fired.
     co_await latch_;
 
@@ -237,10 +236,11 @@ Node ShufflerAsync::finished_drain() {
     co_await semaphore_.shutdown();
 }
 
-namespace node {
+namespace actor {
 
-Node shuffler(
+Actor shuffler(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
@@ -250,7 +250,7 @@ Node shuffler(
     co_await ctx->executor()->schedule();
     ShutdownAtExit c{ch_in, ch_out};
     ShufflerAsync shuffler_async(
-        ctx, op_id, total_num_partitions, std::move(partition_owner)
+        ctx, std::move(comm), op_id, total_num_partitions, std::move(partition_owner)
     );
 
     while (true) {
@@ -279,5 +279,5 @@ Node shuffler(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

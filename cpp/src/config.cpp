@@ -160,8 +160,9 @@ std::vector<std::uint8_t> Options::serialize() const {
     std::size_t const count = shared.options.size();
 
     static_assert(
-        MAX_OPTIONS <= std::numeric_limits<uint64_t>::max() / (2 * sizeof(uint64_t))
-                           - sizeof(uint64_t),
+        MAX_OPTIONS
+            <= std::numeric_limits<std::uint64_t>::max() / (2 * sizeof(std::uint64_t))
+                   - sizeof(std::uint64_t),
         "MAX_OPTIONS too large, this will overflow header serialization"
     );
 
@@ -169,7 +170,8 @@ std::vector<std::uint8_t> Options::serialize() const {
         count <= MAX_OPTIONS, "too many options to serialize", std::invalid_argument
     );
 
-    std::size_t const data_header_size = sizeof(uint64_t) + count * 2 * sizeof(uint64_t);
+    std::size_t const data_header_size =
+        sizeof(std::uint64_t) + count * 2 * sizeof(std::uint64_t);
     std::size_t const header_size = PRELUDE_SIZE + data_header_size;
 
     std::size_t data_size = 0;
@@ -211,8 +213,8 @@ std::vector<std::uint8_t> Options::serialize() const {
 
     // Write count (number of key-value pairs) after prelude.
     {
-        auto const count_ = safe_cast<uint64_t>(count);
-        std::memcpy(base + PRELUDE_SIZE, &count_, sizeof(uint64_t));
+        auto const count_ = safe_cast<std::uint64_t>(count);
+        std::memcpy(base + PRELUDE_SIZE, &count_, sizeof(std::uint64_t));
     }
 
     // Prepare sorted entries by key for deterministic serialization
@@ -228,19 +230,19 @@ std::vector<std::uint8_t> Options::serialize() const {
     std::size_t offset_index = 1;  // Offsets start after `count`.
     std::size_t data_offset = header_size;
     for (auto const& [key, value] : entries) {
-        auto key_offset = safe_cast<uint64_t>(data_offset);
-        auto value_offset = safe_cast<uint64_t>(key_offset + key.size());
+        auto key_offset = safe_cast<std::uint64_t>(data_offset);
+        auto value_offset = safe_cast<std::uint64_t>(key_offset + key.size());
 
         // Write offsets (placed after prelude + count)
         std::memcpy(
-            base + PRELUDE_SIZE + offset_index * sizeof(uint64_t),
+            base + PRELUDE_SIZE + offset_index * sizeof(std::uint64_t),
             &key_offset,
-            sizeof(uint64_t)
+            sizeof(std::uint64_t)
         );
         std::memcpy(
-            base + PRELUDE_SIZE + (offset_index + 1) * sizeof(uint64_t),
+            base + PRELUDE_SIZE + (offset_index + 1) * sizeof(std::uint64_t),
             &value_offset,
-            sizeof(uint64_t)
+            sizeof(std::uint64_t)
         );
         offset_index += 2;
 
@@ -270,7 +272,7 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
 
     // Require MAGIC/version prelude
     RAPIDSMPF_EXPECTS(
-        total_size >= PRELUDE_SIZE + sizeof(uint64_t),
+        total_size >= PRELUDE_SIZE + sizeof(std::uint64_t),
         "buffer is too small to contain prelude and count",
         std::invalid_argument
     );
@@ -284,7 +286,7 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         "buffer does not contain valid MAGIC",
         std::invalid_argument
     );
-    uint64_t count = 0;
+    std::uint64_t count = 0;
     std::byte version = base[4];
     std::byte flags = base[5];
     RAPIDSMPF_EXPECTS(
@@ -292,11 +294,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         "unsupported Options serialization version",
         std::invalid_argument
     );
-    std::memcpy(&count, base + PRELUDE_SIZE, sizeof(uint64_t));
+    std::memcpy(&count, base + PRELUDE_SIZE, sizeof(std::uint64_t));
 
     static_assert(
-        MAX_OPTIONS <= std::numeric_limits<uint64_t>::max() / (2 * sizeof(uint64_t))
-                           - sizeof(uint64_t),
+        MAX_OPTIONS
+            <= std::numeric_limits<std::uint64_t>::max() / (2 * sizeof(std::uint64_t))
+                   - sizeof(std::uint64_t),
         "MAX_OPTIONS too large, this will overflow header deserialization"
     );
 
@@ -304,7 +307,8 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         count <= MAX_OPTIONS, "too many options to deserialize", std::invalid_argument
     );
 
-    std::size_t const data_header_size = sizeof(uint64_t) + count * 2 * sizeof(uint64_t);
+    std::size_t const data_header_size =
+        sizeof(std::uint64_t) + count * 2 * sizeof(std::uint64_t);
     std::size_t const header_size = PRELUDE_SIZE + data_header_size;
     RAPIDSMPF_EXPECTS(
         header_size <= total_size,
@@ -321,26 +325,26 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         validate_crc_and_get_data_limit(base, header_size, total_size, flags);
 
     // Read offsets
-    std::vector<uint64_t> key_offsets(count);
-    std::vector<uint64_t> value_offsets(count);
-    for (uint64_t i = 0; i < count; ++i) {
+    std::vector<std::uint64_t> key_offsets(count);
+    std::vector<std::uint64_t> value_offsets(count);
+    for (std::uint64_t i = 0; i < count; ++i) {
         std::memcpy(
             &key_offsets[i],
-            base + PRELUDE_SIZE + (1 + 2 * i) * sizeof(uint64_t),
-            sizeof(uint64_t)
+            base + PRELUDE_SIZE + (1 + 2 * i) * sizeof(std::uint64_t),
+            sizeof(std::uint64_t)
         );
         std::memcpy(
             &value_offsets[i],
-            base + PRELUDE_SIZE + (1 + 2 * i + 1) * sizeof(uint64_t),
-            sizeof(uint64_t)
+            base + PRELUDE_SIZE + (1 + 2 * i + 1) * sizeof(std::uint64_t),
+            sizeof(std::uint64_t)
         );
     }
 
     // Reconstruct the key-value pairs with strict validation
     std::unordered_map<std::string, std::string> ret;
-    for (uint64_t i = 0; i < count; ++i) {
-        uint64_t const key_offset = key_offsets[i];
-        uint64_t const value_offset = value_offsets[i];
+    for (std::uint64_t i = 0; i < count; ++i) {
+        std::uint64_t const key_offset = key_offsets[i];
+        std::uint64_t const value_offset = value_offsets[i];
 
         RAPIDSMPF_EXPECTS(
             key_offset >= header_size && value_offset >= header_size,
@@ -353,16 +357,16 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
             std::out_of_range
         );
 
-        uint64_t const next_key_offset =
-            (i + 1 < count) ? key_offsets[i + 1] : safe_cast<uint64_t>(data_limit);
+        std::uint64_t const next_key_offset =
+            (i + 1 < count) ? key_offsets[i + 1] : safe_cast<std::uint64_t>(data_limit);
         RAPIDSMPF_EXPECTS(
             value_offset <= next_key_offset,
             "value data overlaps next key region",
             std::out_of_range
         );
         RAPIDSMPF_EXPECTS(
-            key_offset < safe_cast<uint64_t>(data_limit)
-                && value_offset <= safe_cast<uint64_t>(data_limit),
+            key_offset < safe_cast<std::uint64_t>(data_limit)
+                && value_offset <= safe_cast<std::uint64_t>(data_limit),
             "offsets exceed buffer size",
             std::out_of_range
         );

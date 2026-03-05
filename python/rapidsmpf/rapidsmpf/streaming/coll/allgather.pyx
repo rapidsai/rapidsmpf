@@ -11,14 +11,15 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
 from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
+from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 import asyncio
 
@@ -77,15 +78,27 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, int32_t op_id):
+    def __init__(self, Context ctx not None, Communicator comm not None, int32_t op_id):
+        self._comm = comm
         with nogil:
             self._handle = make_unique[cpp_AllGather](
-                ctx._handle, op_id
+                ctx._handle, comm._handle, op_id
             )
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @property
+    def comm(self):
+        """
+        Get the communicator used by the allgather.
+
+        Returns
+        -------
+        The communicator.
+        """
+        return self._comm
 
     def insert(self, uint64_t sequence_number, PackedData packed_data not None):
         """
@@ -143,6 +156,7 @@ cdef class AllGather:
 
 def allgather(
     Context ctx not None,
+    Communicator comm not None,
     Channel ch_in not None,
     Channel ch_out not None,
     int32_t op_id,
@@ -150,38 +164,42 @@ def allgather(
     bool ordered,
 ):
     """
-    Launch an allgather node for a single allgather operation.
+    Launch an allgather actor for a single allgather operation.
 
     Streaming variant of the RapidsMPF allgather.
 
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
+    comm
+        The communicator the allgather is collective over.
     ch_in
         Input channel that supplies PackedDataChunks to be gathered.
     ch_out
         Output channel that receives gathered PackedDataChunks.
     op_id
-        Unique identifier for this allgather operation. Must not be reused until
-        all nodes participating in the allgather have shut down.
+        Unique (per-communicator) identifier for this allgather operation.
+        Must not be reused until all actors participating in the allgather
+        have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
 
     Returns
     -------
-    A streaming node that finishes when the allgather is complete and `ch_out` has
+    A streaming actor that finishes when the allgather is complete and `ch_out` has
     been drained.
     """
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
+            comm._handle,
             ch_in._handle,
             ch_out._handle,
             op_id,
             c_ordered,
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner=None)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

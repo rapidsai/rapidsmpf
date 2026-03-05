@@ -27,11 +27,12 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "concatenate.hpp"
 #include "groupby.hpp"
@@ -42,8 +43,9 @@
 
 namespace {
 
-rapidsmpf::streaming::Node read_lineitem(
+rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
@@ -77,8 +79,14 @@ rapidsmpf::streaming::Node read_lineitem(
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
                          stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
                      );
-    return rapidsmpf::streaming::node::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter_expr)
+    return rapidsmpf::streaming::actor::read_parquet(
+        ctx,
+        comm,
+        ch_out,
+        num_producers,
+        options,
+        num_rows_per_chunk,
+        std::move(filter_expr)
     );
 }
 
@@ -113,7 +121,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
     return requests;
 }
 
-rapidsmpf::streaming::Node postprocess_group_by(
+rapidsmpf::streaming::Actor postprocess_group_by(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -174,7 +182,7 @@ rapidsmpf::streaming::Node postprocess_group_by(
 // disc_price = (l_extendedprice * (1 - l_discount)),
 // charge = (l_extendedprice * (1 - l_discount) * (1 + l_tax)),
 // l_discount
-rapidsmpf::streaming::Node select_columns_for_groupby(
+rapidsmpf::streaming::Actor select_columns_for_groupby(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -294,7 +302,7 @@ int main(int argc, char** argv) {
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
-    auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
 
     // Detect date column type from parquet metadata before timed section
@@ -306,7 +314,7 @@ int main(int argc, char** argv) {
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
         int op_id = 0;
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> actors;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q1 pipeline");
@@ -315,8 +323,9 @@ int main(int argc, char** argv) {
             auto lineitem = ctx->create_channel();
             // Out: l_returnflag, l_linestatus, l_quantity, l_extendedprice,
             // l_discount, l_tax
-            nodes.push_back(read_lineitem(
+            actors.push_back(read_lineitem(
                 ctx,
+                comm,
                 lineitem,
                 /* num_tickets */ 4,
                 arguments.num_rows_per_chunk,
@@ -329,11 +338,11 @@ int main(int argc, char** argv) {
             // disc_price = (l_extendedprice * (1 - l_discount)),
             // charge = (l_extendedprice * (1 - l_discount) * (1 + l_tax))
             // l_discount
-            nodes.push_back(
+            actors.push_back(
                 select_columns_for_groupby(ctx, lineitem, chunkwise_groupby_input)
             );
             auto chunkwise_groupby_output = ctx->create_channel();
-            nodes.push_back(
+            actors.push_back(
                 rapidsmpf::ndsh::chunkwise_group_by(
                     ctx,
                     chunkwise_groupby_input,
@@ -344,10 +353,11 @@ int main(int argc, char** argv) {
                 )
             );
             auto final_groupby_input = ctx->create_channel();
-            if (ctx->comm()->nranks() > 1) {
-                nodes.push_back(
+            if (comm->nranks() > 1) {
+                actors.push_back(
                     rapidsmpf::ndsh::broadcast(
                         ctx,
+                        comm,
                         chunkwise_groupby_output,
                         final_groupby_input,
                         static_cast<rapidsmpf::OpID>(10 * i + op_id++),
@@ -355,15 +365,15 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::concatenate(
                         ctx, chunkwise_groupby_output, final_groupby_input
                     )
                 );
             }
-            if (ctx->comm()->rank() == 0) {
+            if (comm->rank() == 0) {
                 auto final_groupby_output = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::chunkwise_group_by(
                         ctx,
                         final_groupby_input,
@@ -374,11 +384,11 @@ int main(int argc, char** argv) {
                     )
                 );
                 auto sorted_input = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     postprocess_group_by(ctx, final_groupby_output, sorted_input)
                 );
                 auto sorted_output = ctx->create_channel();
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::chunkwise_sort_by(
                         ctx,
                         sorted_input,
@@ -389,7 +399,7 @@ int main(int argc, char** argv) {
                         {cudf::null_order::BEFORE, cudf::null_order::BEFORE}
                     )
                 );
-                nodes.push_back(
+                actors.push_back(
                     rapidsmpf::ndsh::write_parquet(
                         ctx,
                         sorted_output,
@@ -408,7 +418,7 @@ int main(int argc, char** argv) {
                     )
                 );
             } else {
-                nodes.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
+                actors.push_back(rapidsmpf::ndsh::sink_channel(ctx, final_groupby_input));
             }
         }
         auto end = std::chrono::steady_clock::now();
@@ -416,26 +426,29 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Q1 Iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_network(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        ctx->comm()->logger().print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report());
         ctx->statistics()->clear();
     }
 
-    if (ctx->comm()->rank() == 0) {
+    if (comm->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
-            ctx->comm()->logger().print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
-                timings[size_t(2 * i)]
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
-            ctx->comm()->logger().print(
-                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+            comm->logger()->print(
+                "Iteration ",
+                i,
+                " compute time [s]: ",
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i + 1)]
             );
         }
     }

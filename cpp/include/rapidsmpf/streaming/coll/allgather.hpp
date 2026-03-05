@@ -36,9 +36,12 @@ class AllGather {
      * @brief Construct an asynchronous allgather.
      *
      * @param ctx Streaming context
+     * @param comm Communicator for the collective operation.
      * @param op_id Unique identifier for the allgather.
      */
-    AllGather(std::shared_ptr<Context> ctx, OpID op_id);
+    AllGather(
+        std::shared_ptr<Context> ctx, std::shared_ptr<Communicator> comm, OpID op_id
+    );
 
     AllGather(AllGather const&) = delete;
     AllGather& operator=(AllGather const&) = delete;
@@ -52,7 +55,14 @@ class AllGather {
      *
      * @return Shared pointer to context.
      */
-    [[nodiscard]] std::shared_ptr<Context> ctx() const noexcept;
+    [[nodiscard]] std::shared_ptr<Context> const& ctx() const noexcept;
+
+    /**
+     * @brief Gets the communicator associated with this AllGather.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept;
 
     /**
      * @brief Insert a chunk into the allgather.
@@ -84,15 +94,16 @@ class AllGather {
     coll::AllGather gatherer_;  ///< Underlying collective allgather.
 };
 
-namespace node {
+namespace actor {
 
 /**
- * @brief Create an allgather node for a single allgather operation.
+ * @brief Create an allgather actor for a single allgather operation.
  *
  * This is a streaming version of `rapidsmpf::coll::AllGather` that operates on
  * packed data received through `Channel`s.
  *
  * @param ctx The streaming context to use.
+ * @param comm Communicator for the collective operation.
  * @param ch_in Input channel providing `PackedData`s to be gathered.
  * @param ch_out Output channel where the gathered `PackedData`s are sent.
  * @param op_id Unique identifier for the operation.
@@ -102,15 +113,16 @@ namespace node {
  * sequence number. If no, the sequence number of the extracted chunks will have no
  * relation to any input sequence order.
  *
- * @return A streaming node that completes when the allgather is finished and the output
+ * @return A streaming actor that completes when the allgather is finished and the output
  * channel is drained.
  */
-Node allgather(
+Actor allgather(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     AllGather::Ordered ordered = AllGather::Ordered::YES
 );
-}  // namespace node
+}  // namespace actor
 }  // namespace rapidsmpf::streaming

@@ -17,7 +17,7 @@
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
-Node BloomFilter::build(
+Actor BloomFilter::build(
     std::shared_ptr<Channel> ch_in, std::shared_ptr<Channel> ch_out, OpID tag
 ) {
     ShutdownAtExit c{ch_in, ch_out};
@@ -47,7 +47,7 @@ Node BloomFilter::build(
         filter->add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
     }
-    if (ctx_->comm()->nranks() > 1) {
+    if (comm_->nranks() > 1) {
         auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
         auto [res, _] = ctx_->br()->reserve(
             MemoryType::DEVICE, filter->size(), AllowOverbooking::YES
@@ -61,7 +61,7 @@ Node BloomFilter::build(
         });
         // TODO: Use AllReduce once available. Needs ability to provide output buffer so
         // the alignment is respected.
-        auto allgather = streaming::AllGather(ctx_, tag);
+        auto allgather = streaming::AllGather(ctx_, comm_, tag);
         allgather.insert(0, {std::move(metadata), std::move(buf)});
         allgather.insert_finished();
         auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
@@ -79,7 +79,7 @@ Node BloomFilter::build(
     co_await ch_out->drain(ctx_->executor());
 }
 
-Node BloomFilter::apply(
+Actor BloomFilter::apply(
     std::shared_ptr<Channel> bloom_filter,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,

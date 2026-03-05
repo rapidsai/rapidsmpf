@@ -30,15 +30,16 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 
 coro::task<streaming::Message> broadcast(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> ch_in,
     OpID tag,
     streaming::AllGather::Ordered ordered
@@ -46,8 +47,8 @@ coro::task<streaming::Message> broadcast(
     streaming::ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
     CudaEvent event;
-    ctx->comm()->logger().print("Broadcast ", static_cast<int>(tag));
-    if (ctx->comm()->nranks() == 1) {
+    comm->logger()->print("Broadcast ", static_cast<int>(tag));
+    if (comm->nranks() == 1) {
         std::vector<streaming::TableChunk> chunks;
         std::vector<cudf::table_view> views;
         auto gather_stream = ctx->br()->stream_pool().get_stream();
@@ -83,7 +84,7 @@ coro::task<streaming::Message> broadcast(
             );
         }
     } else {
-        streaming::AllGather gatherer{ctx, tag};
+        streaming::AllGather gatherer{ctx, comm, tag};
         while (true) {
             auto msg = co_await ch_in->receive();
             if (msg.empty()) {
@@ -116,14 +117,10 @@ coro::task<streaming::Message> broadcast(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(result),
-                            ctx->br().get(),
-                            AllowOverbooking::YES,
-                            ctx->statistics()
+                            std::move(result), ctx->br().get(), AllowOverbooking::YES
                         ),
                         stream,
-                        ctx->br().get(),
-                        ctx->statistics()
+                        ctx->br().get()
                     ),
                     stream
                 )
@@ -132,8 +129,9 @@ coro::task<streaming::Message> broadcast(
     }
 }
 
-streaming::Node broadcast(
+streaming::Actor broadcast(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
     OpID tag,
@@ -141,7 +139,7 @@ streaming::Node broadcast(
 ) {
     streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    co_await ch_out->send(co_await broadcast(ctx, ch_in, tag, ordered));
+    co_await ch_out->send(co_await broadcast(ctx, comm, ch_in, tag, ordered));
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -189,10 +187,10 @@ streaming::Message semi_join_chunk(
         left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
     );
 
-    ctx->comm()->logger().debug(
+    ctx->logger()->debug(
         "semi_join_chunk: left.num_rows()=", left_chunk.table_view().num_rows()
     );
-    ctx->comm()->logger().debug("semi_join_chunk: match.size()=", match->size());
+    ctx->logger()->debug("semi_join_chunk: match.size()=", match->size());
 
     cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
     auto result_columns = cudf::gather(
@@ -293,8 +291,9 @@ streaming::Message inner_join_chunk(
     );
 }
 
-streaming::Node inner_join_broadcast(
+streaming::Actor inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     // We will always choose left as build table and do "broadcast" joins
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
@@ -306,12 +305,13 @@ streaming::Node inner_join_broadcast(
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
-    auto build_table =
-        co_await ((co_await broadcast(ctx, left, tag, streaming::AllGather::Ordered::NO))
-                      .release<streaming::TableChunk>()
-                      .make_available(ctx));
-    ctx->comm()->logger().print(
+    comm->logger()->print("Inner broadcast join ", static_cast<int>(tag));
+    auto build_table = co_await (
+        (co_await broadcast(ctx, comm, left, tag, streaming::AllGather::Ordered::NO))
+            .release<streaming::TableChunk>()
+            .make_available(ctx)
+    );
+    comm->logger()->print(
         "Build table has ", build_table.table_view().num_rows(), " rows"
     );
 
@@ -356,8 +356,9 @@ streaming::Node inner_join_broadcast(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node inner_join_shuffle(
+streaming::Actor inner_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -366,7 +367,7 @@ streaming::Node inner_join_shuffle(
     KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
-    ctx->comm()->logger().print("Inner shuffle join");
+    comm->logger()->print("Inner shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
     CudaEvent tmp_event;
@@ -421,8 +422,9 @@ streaming::Node inner_join_shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node left_semi_join_broadcast_left(
+streaming::Actor left_semi_join_broadcast_left(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -433,11 +435,11 @@ streaming::Node left_semi_join_broadcast_left(
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Left semi broadcast join ", static_cast<int>(tag));
-    auto left_table = co_await (co_await broadcast(ctx, left, tag))
+    comm->logger()->print("Left semi broadcast join ", static_cast<int>(tag));
+    auto left_table = co_await (co_await broadcast(ctx, comm, left, tag))
                           .release<streaming::TableChunk>()
                           .make_available(ctx);
-    ctx->comm()->logger().print(
+    comm->logger()->print(
         "Left (probe) table has ", left_table.table_view().num_rows(), " rows"
     );
     CudaEvent left_event;
@@ -482,8 +484,9 @@ streaming::Node left_semi_join_broadcast_left(
     co_await ch_out->drain(ctx->executor());
 }
 
-streaming::Node left_semi_join_shuffle(
+streaming::Actor left_semi_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> left,
     std::shared_ptr<streaming::Channel> right,
     std::shared_ptr<streaming::Channel> ch_out,
@@ -492,7 +495,7 @@ streaming::Node left_semi_join_shuffle(
     KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
-    ctx->comm()->logger().print("Shuffle left semi join");
+    comm->logger()->print("Shuffle left semi join");
 
     co_await ctx->executor()->schedule();
     CudaEvent left_event;
@@ -546,8 +549,9 @@ streaming::Node left_semi_join_shuffle(
     }
 }
 
-streaming::Node shuffle(
+streaming::Actor shuffle(
     std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<streaming::Channel> ch_in,
     std::shared_ptr<streaming::Channel> ch_out,
     std::vector<cudf::size_type> keys,
@@ -556,12 +560,12 @@ streaming::Node shuffle(
 ) {
     streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Shuffle ", static_cast<int>(tag));
-    streaming::ShufflerAsync shuffler(ctx, tag, num_partitions);
+    comm->logger()->print("Shuffle ", static_cast<int>(tag));
+    streaming::ShufflerAsync shuffler(ctx, comm, tag, num_partitions);
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().debug("Shuffle: no more input");
+            comm->logger()->debug("Shuffle: no more input");
             break;
         }
         auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
@@ -572,8 +576,7 @@ streaming::Node shuffle(
             cudf::hash_id::HASH_MURMUR3,
             0,
             chunk.stream(),
-            ctx->br().get(),
-            ctx->statistics()
+            ctx->br().get()
         );
         shuffler.insert(std::move(packed));
     }
@@ -590,12 +593,10 @@ streaming::Node shuffle(
                         unspill_partitions(
                             std::move(*packed_data),
                             ctx->br().get(),
-                            AllowOverbooking::YES,
-                            ctx->statistics()
+                            AllowOverbooking::YES
                         ),
                         stream,
-                        ctx->br().get(),
-                        ctx->statistics()
+                        ctx->br().get()
                     ),
                     stream
                 )

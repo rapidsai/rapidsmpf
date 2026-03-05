@@ -11,8 +11,14 @@
 
 #include <rapidsmpf/utils/misc.hpp>
 
+namespace rapidsmpf::detail {
+
 /**
- * @brief Help function to convert value to 64 bit signed integer
+ * @brief Convert an integral value to a 64-bit signed integer.
+ *
+ * @tparam T An integral type.
+ * @param value The value to convert.
+ * @return The value as `std::int64_t`.
  */
 template <typename T>
     requires std::is_integral_v<T>
@@ -26,17 +32,22 @@ template <typename T>
             );
         }
     }
-    return std::int64_t(value);
+    return rapidsmpf::safe_cast<std::int64_t>(value);
 }
 
 /**
- * @brief Help function to convert value to 64 bit float
+ * @brief Convert a floating-point value to `double`.
+ *
+ * @tparam T A floating-point type.
+ * @param value The value to convert.
+ * @return The value as `double`.
  */
 template <typename T>
     requires std::is_floating_point_v<T>
 [[nodiscard]] double convert_to_64bit(T value) {
     return double(value);
 }
+}  // namespace rapidsmpf::detail
 
 /**
  * @brief Tag type for rapidsmpf's NVTX domain.
@@ -64,7 +75,7 @@ struct rapidsmpf_domain {
     ) {                                                           \
         nvtx3::event_attributes {                                 \
             RAPIDSMPF_REGISTER_STRING(__func__), nvtx3::payload { \
-                convert_to_64bit(val)                             \
+                rapidsmpf::detail::convert_to_64bit(val)          \
             }                                                     \
         }                                                         \
     }
@@ -112,7 +123,7 @@ struct rapidsmpf_domain {
     ) {                                                        \
         nvtx3::event_attributes {                              \
             RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {   \
-                convert_to_64bit(val)                          \
+                rapidsmpf::detail::convert_to_64bit(val)       \
             }                                                  \
         }                                                      \
     }
@@ -189,9 +200,10 @@ struct rapidsmpf_domain {
 #define RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(...)
 #endif
 
-#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
-    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
-        RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
+#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                     \
+    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{    \
+        RAPIDSMPF_REGISTER_STRING(msg),                          \
+        nvtx3::payload{rapidsmpf::detail::convert_to_64bit(val)} \
     })
 
 /**

@@ -27,18 +27,20 @@
 
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
 
 namespace {
 
-rapidsmpf::streaming::Node read_parquet(
+rapidsmpf::streaming::Actor read_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
@@ -54,19 +56,19 @@ rapidsmpf::streaming::Node read_parquet(
     if (columns.has_value()) {
         options.set_column_names(*columns);
     }
-    return rapidsmpf::streaming::node::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk
+    return rapidsmpf::streaming::actor::read_parquet(
+        ctx, comm, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
-rapidsmpf::streaming::Node consume_channel_parallel(
+rapidsmpf::streaming::Actor consume_channel_parallel(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::size_t num_consumers
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in};
     std::atomic<std::size_t> estimated_total_bytes{0};
-    auto task = [&]() -> rapidsmpf::streaming::Node {
+    auto task = [&]() -> rapidsmpf::streaming::Actor {
         co_await ctx->executor()->schedule();
         while (true) {
             auto msg = co_await ch_in->receive();
@@ -76,7 +78,7 @@ rapidsmpf::streaming::Node consume_channel_parallel(
             if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
                 auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
                                  .make_available(ctx);
-                ctx->comm()->logger().print(
+                ctx->logger()->print(
                     "Consumed chunk with ",
                     chunk.table_view().num_rows(),
                     " rows and ",
@@ -89,12 +91,12 @@ rapidsmpf::streaming::Node consume_channel_parallel(
             }
         }
     };
-    std::vector<rapidsmpf::streaming::Node> tasks;
+    std::vector<rapidsmpf::streaming::Actor> tasks;
     for (std::size_t i = 0; i < num_consumers; i++) {
         tasks.push_back(task());
     }
     rapidsmpf::streaming::coro_results(co_await coro::when_all(std::move(tasks)));
-    ctx->comm()->logger().print(
+    ctx->logger()->print(
         "Table was around ", rmm::detail::format_bytes(estimated_total_bytes.load())
     );
 }
@@ -375,18 +377,19 @@ int main(int argc, char** argv) {
         .input_directory = arguments.input_directory
     };
 
-    auto ctx = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(ctx_arguments, &stats_wrapper);
     std::vector<double> timings;
     for (int i = 0; i < arguments.num_iterations; i++) {
-        std::vector<rapidsmpf::streaming::Node> nodes;
+        std::vector<rapidsmpf::streaming::Actor> actors;
         auto start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing read_parquet pipeline");
 
             // Input data channels
             auto ch_out = ctx->create_channel();
-            nodes.push_back(read_parquet(
+            actors.push_back(read_parquet(
                 ctx,
+                comm,
                 ch_out,
                 arguments.num_producers,
                 arguments.num_rows_per_chunk,
@@ -394,7 +397,7 @@ int main(int argc, char** argv) {
                 arguments.input_directory,
                 arguments.input_file
             ));
-            nodes.push_back(
+            actors.push_back(
                 consume_channel_parallel(ctx, ch_out, arguments.num_consumers)
             );
         }
@@ -403,26 +406,29 @@ int main(int argc, char** argv) {
         start = std::chrono::steady_clock::now();
         {
             RAPIDSMPF_NVTX_SCOPED_RANGE("read_parquet iteration");
-            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            rapidsmpf::streaming::run_actor_network(std::move(actors));
         }
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        ctx->comm()->logger().print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report());
         ctx->statistics()->clear();
     }
 
-    if (ctx->comm()->rank() == 0) {
+    if (comm->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
-            ctx->comm()->logger().print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
-                timings[size_t(2 * i)]
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
-            ctx->comm()->logger().print(
-                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+            comm->logger()->print(
+                "Iteration ",
+                i,
+                " compute time [s]: ",
+                timings[rapidsmpf::safe_cast<std::size_t>(2 * i + 1)]
             );
         }
     }

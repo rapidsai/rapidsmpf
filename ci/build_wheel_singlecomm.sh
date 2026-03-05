@@ -77,7 +77,12 @@ rapids-pip-retry install \
 
 export SKBUILD_CMAKE_ARGS=""
 
-./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}"
+# TODO: move this variable into `ci-wheel`
+# Format Python limited API version string
+RAPIDS_PY_API="cp${RAPIDS_PY_VERSION//./}"
+export RAPIDS_PY_API
+
+./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}" --stable
 
 python -m auditwheel repair \
     --exclude libcudf.so \

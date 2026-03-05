@@ -11,6 +11,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
@@ -104,7 +105,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    size_t size, AllowOverbooking allow_overbooking
+    std::size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
     auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
@@ -142,13 +143,15 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::allocate(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
+    auto const mem_type = reservation.mem_type_;
+    StreamOrderedTiming timing{stream, statistics_};
     RAPIDSMPF_EXPECTS(
         reservation.br() == this,
         "the reservation is not associated with this buffer resource",
         std::invalid_argument
     );
     std::unique_ptr<Buffer> ret;
-    switch (reservation.mem_type_) {
+    switch (mem_type) {
     case MemoryType::HOST:
         ret = std::unique_ptr<Buffer>(new Buffer(
             std::make_unique<HostBuffer>(size, stream, host_mr()),
@@ -188,6 +191,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
     release(reservation, size);
+    statistics_->record_alloc(mem_type, size, std::move(timing));
     return ret;
 }
 
@@ -212,8 +216,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        auto ret = allocate(buffer->size, buffer->stream(), reservation);
-        // buffer_copy(*ret, *buffer, buffer->size);
+        auto const nbytes = buffer->size;
+        auto ret = allocate(nbytes, buffer->stream(), reservation);
+        // buffer_copy(statistics_, *ret, *buffer, nbytes);
         buffer->copy_to(*ret, buffer->size);
         return ret;
     }

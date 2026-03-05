@@ -12,8 +12,6 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.progress_thread cimport ProgressThread
-from rapidsmpf.statistics cimport Statistics
 
 
 cdef class Shuffler:
@@ -29,8 +27,6 @@ cdef class Shuffler:
     ----------
     comm
         The communicator to use for data exchange between ranks.
-    progress_thread
-        The progress thread to use for tracking progress.
     op_id
         The operation ID of the shuffle. Must have a value between 0 and
         ``max_concurrent_shuffles-1``.
@@ -38,8 +34,6 @@ cdef class Shuffler:
         Total number of partitions in the shuffle.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
 
     Attributes
     ----------
@@ -61,25 +55,19 @@ cdef class Shuffler:
     def __init__(
         self,
         Communicator comm not None,
-        ProgressThread progress_thread not None,
         int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
-        Statistics statistics = None,
     ):
-        self._comm = comm
         self._br = br
+        self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
-                progress_thread._handle,
                 op_id,
                 total_num_partitions,
                 br_,
-                statistics._handle,
             )
 
     def __dealloc__(self):
@@ -145,41 +133,6 @@ cdef class Shuffler:
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
-
-    def concat_insert(self, chunks):
-        """
-        Insert a batch of packed (serialized) chunks into the shuffle while
-        concatenating the chunks based on the destination rank.
-
-        Parameters
-        ----------
-        chunks
-            A map where keys are partition IDs (``int``) and values are packed
-            data (``PackedData``).
-
-        Notes
-        -----
-        There are some considerations for using this method:
-
-        - The chunks are grouped by the destination rank of the partition ID and
-          concatenated on device memory.
-        - The caller thread will perform the concatenation, and hence it will be
-          blocked.
-        - Concatenation may cause device memory pressure.
-
-        """
-        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
-
-        _chunks.reserve(len(chunks))
-        for pid, chunk in chunks.items():
-            if not (<PackedData?>chunk).c_obj:
-                raise ValueError("PackedData was empty")
-            cpp_insert_chunk_into_partition_map(
-                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
-            )
-
-        with nogil:
-            deref(self._handle).concat_insert(move(_chunks))
 
     def insert_finished(self, pids):
         """

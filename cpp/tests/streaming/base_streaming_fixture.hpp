@@ -13,9 +13,9 @@
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 #include "../environment.hpp"
 
@@ -49,7 +49,7 @@ class BaseStreamingFixture : public ::testing::Test {
             mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            std::move(options), GlobalEnvironment->comm_, br
+            std::move(options), GlobalEnvironment->comm_->logger(), br
         );
     }
 

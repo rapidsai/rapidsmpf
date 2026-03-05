@@ -9,24 +9,27 @@ from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
-from rapidsmpf.streaming.core.node cimport cpp_Node
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/bloom_filter.hpp>" nogil:
     cdef cppclass cpp_BloomFilter "rapidsmpf::streaming::BloomFilter":
         cpp_BloomFilter(
             shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Communicator] comm,
             uint64_t seed,
             size_t num_filter_blocks,
         ) noexcept
-        cpp_Node build(
+        const shared_ptr[cpp_Communicator]& comm() noexcept
+        cpp_Actor build(
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,
             int32_t tag,
         ) except +ex_handler
-        cpp_Node apply(
+        cpp_Actor apply(
             shared_ptr[cpp_Channel] bloom_filter,
             shared_ptr[cpp_Channel] ch_in,
             shared_ptr[cpp_Channel] ch_out,
@@ -46,11 +49,13 @@ cdef class BloomFilter:
     Parameters
     ----------
     ctx
-        Streaming context; filter construction is collective over the
-        communicator associated with this context.
+        Streaming context.
+    comm
+        The communicator the bloom filter construction is collective over.
     seed
         Seed used for hashing values into the bloom filter.
     num_filter_blocks
         Number of blocks used to size the filter.
     """
     cdef unique_ptr[cpp_BloomFilter] _handle
+    cdef Communicator _comm

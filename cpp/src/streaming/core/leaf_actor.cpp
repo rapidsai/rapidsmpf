@@ -1,14 +1,14 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 
-Node push_to_channel(
+Actor push_to_channel(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
     std::vector<Message> messages
@@ -23,7 +23,7 @@ Node push_to_channel(
     co_await ch_out->drain(ctx->executor());
 }
 
-Node pull_from_channel(
+Actor pull_from_channel(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<Message>& out_messages
@@ -41,4 +41,4 @@ Node pull_from_channel(
 }
 
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

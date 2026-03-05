@@ -54,18 +54,18 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     }
 
     // One large device buffer, initialize to 0x00 and sync once for known base state.
-    constexpr size_t total_bytes = 1 << 25;
+    constexpr std::size_t total_bytes = 1 << 25;
     rmm::device_buffer buf(total_bytes, upstreams[0]);
     RAPIDSMPF_CUDA_TRY(cudaMemset(buf.data(), 0x00, buf.size()));
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
 
-    constexpr size_t slice_bytes = total_bytes / num_slices;
+    constexpr std::size_t slice_bytes = total_bytes / num_slices;
     ASSERT_GT(slice_bytes, 0u);
     auto* dptr = static_cast<unsigned char*>(buf.data());
 
     // Upstreams: each writes its slice repeatedly to stretch execution time.
     for (int i = 0; i < num_slices; ++i) {
-        unsigned char* slice_dev_ptr = dptr + size_t(i) * slice_bytes;
+        unsigned char* slice_dev_ptr = dptr + safe_cast<std::size_t>(i) * slice_bytes;
         for (int r = 0; r < upstream_repeats; ++r) {
             RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(
                 slice_dev_ptr, upstream_values[i], slice_bytes, upstreams[i]
@@ -78,7 +78,7 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
 
     // Downstreams: single, quick overwrite per slice (should win if join is correct).
     for (int i = 0; i < num_slices; ++i) {
-        unsigned char* slice_dev_ptr = dptr + size_t(i) * slice_bytes;
+        unsigned char* slice_dev_ptr = dptr + safe_cast<std::size_t>(i) * slice_bytes;
         RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(
             slice_dev_ptr, downstream_value(i), slice_bytes, downstreams[i]
         ));
@@ -90,14 +90,15 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     // Verify: each slice must equal its downstream value (0xE0 + i).
     for (int i = 0; i < num_slices; ++i) {
         std::vector<unsigned char> host(slice_bytes);
-        unsigned char const* slice_dev_ptr = dptr + size_t(i) * slice_bytes;
+        unsigned char const* slice_dev_ptr =
+            dptr + safe_cast<std::size_t>(i) * slice_bytes;
 
         RAPIDSMPF_CUDA_TRY(
             cudaMemcpy(host.data(), slice_dev_ptr, slice_bytes, cudaMemcpyDeviceToHost)
         );
 
         unsigned char expect = downstream_value(i);
-        for (size_t j = 0; j < slice_bytes; ++j) {
+        for (std::size_t j = 0; j < slice_bytes; ++j) {
             ASSERT_EQ(host[j], expect) << "slice " << i << " byte " << j << " mismatch";
         }
     }

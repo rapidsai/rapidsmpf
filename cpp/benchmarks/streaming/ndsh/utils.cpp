@@ -17,6 +17,7 @@
 #include <mpi.h>
 
 #include <cudf/io/parquet.hpp>
+#include <cudf/io/parquet_metadata.hpp>
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -83,38 +84,27 @@ std::map<std::string, cudf::data_type> get_column_types(
     auto files = list_parquet_files(get_table_path(input_directory, table_name));
     RAPIDSMPF_EXPECTS(!files.empty(), "No parquet files found for table " + table_name);
 
-    // Read parquet with 0 rows to get just the schema with proper cudf types
-    auto options =
-        cudf::io::parquet_reader_options::builder(cudf::io::source_info(files[0]))
-            .num_rows(0)
-            .build();
-    auto result_with_metadata = cudf::io::read_parquet(options);
+    auto metadata = cudf::io::read_parquet_metadata(cudf::io::source_info(files[0]));
+    auto const& root = metadata.schema().root();
 
     std::map<std::string, cudf::data_type> result;
-    auto const& schema_info = result_with_metadata.metadata.schema_info;
-    auto const table_view = result_with_metadata.tbl->view();
-
-    RAPIDSMPF_EXPECTS(
-        schema_info.size() == static_cast<std::size_t>(table_view.num_columns()),
-        "Schema info size mismatch"
-    );
-
-    for (std::size_t i = 0; i < schema_info.size(); ++i) {
-        result.emplace(schema_info[i].name, table_view.column(i).type());
+    for (std::size_t i = 0; i < root.num_children(); ++i) {
+        auto const& column = root.child(safe_cast<int>(i));
+        result.emplace(column.name(), column.cudf_type());
     }
     return result;
 }
 
 }  // namespace detail
 
-streaming::Node sink_channel(
+streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 ) {
     co_await ctx->executor()->schedule();
     co_await ch->shutdown();
 }
 
-streaming::Node consume_channel(
+streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 ) {
     streaming::ShutdownAtExit c{ch_in};
@@ -127,7 +117,7 @@ streaming::Node consume_channel(
         if (msg.holds<streaming::TableChunk>()) {
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            ctx->comm()->logger().print(
+            ctx->logger()->print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
                 " rows and ",
@@ -138,9 +128,8 @@ streaming::Node consume_channel(
     }
 }
 
-std::shared_ptr<streaming::Context> create_context(
-    ProgramOptions& arguments, RmmResourceAdaptor* mr
-) {
+std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
+create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr) {
     rmm::mr::set_current_device_resource(mr);
     rmm::mr::set_current_device_resource_ref(mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
@@ -182,6 +171,7 @@ std::shared_ptr<streaming::Context> create_context(
     environment["NUM_STREAMING_THREADS"] =
         std::to_string(arguments.num_streaming_threads);
     auto options = config::Options(environment);
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(statistics);
     std::shared_ptr<Communicator> comm;
     switch (arguments.comm_type) {
     case CommType::MPI:
@@ -190,25 +180,27 @@ std::shared_ptr<streaming::Context> create_context(
         );
         mpi::init(nullptr, nullptr);
 
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
         break;
     case CommType::SINGLE:
-        comm = std::make_shared<Single>(options);
+        comm = std::make_shared<Single>(options, progress_thread);
         break;
     case CommType::UCXX:
         if (bootstrap::is_running_with_rrun()) {
-            comm = bootstrap::create_ucxx_comm(bootstrap::Backend::AUTO, options);
+            comm = bootstrap::create_ucxx_comm(
+                progress_thread, bootstrap::BackendType::AUTO, options
+            );
         } else {
             mpi::init(nullptr, nullptr);
-            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
         }
         break;
     default:
         RAPIDSMPF_FAIL("Unknown communicator type");
     }
-    auto ctx = std::make_shared<streaming::Context>(options, comm, br, statistics);
+    auto ctx = std::make_shared<streaming::Context>(options, comm->logger(), br);
     if (comm->rank() == 0) {
-        comm->logger().print(
+        comm->logger()->print(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",
@@ -216,7 +208,7 @@ std::shared_ptr<streaming::Context> create_context(
             " threads"
         );
     }
-    return ctx;
+    return {ctx, comm};
 }
 
 ProgramOptions parse_arguments(int argc, char** argv) {

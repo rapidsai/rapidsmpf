@@ -369,8 +369,6 @@ def test_gather_shuffle_statistics() -> None:
             "event-loop-total",
             "shuffle-payload-recv",
             "shuffle-payload-send",
-            "spill-bytes-host-to-device",
-            "spill-time-host-to-device",
         }
 
         assert set(stats) == expected_stats
@@ -487,9 +485,12 @@ def test_dask_cudf_join(
             # a RMPF shuffle multiple times. Therefore, we use left0
             # and right0 to generate the expected result (left and
             # right may be "pre-shuffled").
-            expected = left0.merge(
-                right0, left_on=left_on, right_on=right_on, how=how
-            ).compute()
+            expected = left0.compute().merge(
+                right0.compute(),
+                left_on=left_on,
+                right_on=right_on,
+                how=how,
+            )
             dd.assert_eq(joined, expected, check_index=False)
 
 
@@ -499,6 +500,9 @@ async def test_bootstrap_multiple_clients(
     loop: pytest.FixtureDef,  # noqa: F811
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
+
+    # https://github.com/python/cpython/issues/126831
+    ctx = multiprocessing.get_context("fork")
 
     def connect_from_subprocess(
         scheduler_address: str, q: multiprocessing.Queue
@@ -514,8 +518,8 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
-        p = multiprocessing.Process(
+        q: multiprocessing.Queue[bool] = ctx.Queue()
+        p = ctx.Process(
             target=connect_from_subprocess, args=(cluster.scheduler_address, q)
         )
         p.start()

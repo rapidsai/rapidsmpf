@@ -80,9 +80,10 @@ cache:
       - cuda-nvml-dev
       - libcudf =${{ minor_version }}
       - libnuma
+      - libpmix-devel >=5.0,<6.0
       - librmm =${{ minor_version }}
+      - libucxx ${{ ucxx_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-      - ucxx ${{ ucxx_version }}
 
 outputs:
   - package:
@@ -116,16 +117,18 @@ outputs:
         - cuda-cupti-dev
         - cuda-nvml-dev
         - libcudf =${{ minor_version }}
+        - libpmix-devel >=5.0,<6.0
+        - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
-        - ucxx ${{ ucxx_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
         - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
+        - libpmix >=5.0,<6.0
+        - libucxx ${{ ucxx_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-        - ucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:
           - ${{ compiler("c") }}
@@ -173,7 +176,7 @@ outputs:
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-        - ucxx ${{ ucxx_version }}
+        - libucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:
           - ${{ compiler("c") }}

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
+from rapidsmpf.streaming.core.actor import run_actor_network
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 from rapidsmpf.streaming.cudf.parquet import Filter, read_parquet
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
@@ -21,9 +21,10 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import CppNode
 
 
 @pytest.fixture(scope="module")
@@ -61,18 +62,19 @@ def make_filter(stream: Stream) -> plc.expressions.Expression:
 
 def make_producer(
     context: Context,
+    comm: Communicator,
     ch: Channel[TableChunk],
     options: plc.io.parquet.ParquetReaderOptions,
     *,
     use_filter: bool,
-) -> CppNode:
+) -> CppActor:
     if use_filter:
         fstream = context.get_stream_from_pool()
         return read_parquet(
-            context, ch, 4, options, 3, Filter(fstream, make_filter(fstream))
+            context, comm, ch, 4, options, 3, Filter(fstream, make_filter(fstream))
         )
     else:
-        return read_parquet(context, ch, 4, options, 3)
+        return read_parquet(context, comm, ch, 4, options, 3)
 
 
 def get_expected(
@@ -109,6 +111,7 @@ def get_expected(
 @pytest.mark.parametrize("use_filter", [False, True])
 def test_read_parquet(
     context: Context,
+    comm: Communicator,
     source: plc.io.SourceInfo,
     skip_rows: int | Literal["none"],
     num_rows: int | Literal["all"],
@@ -123,11 +126,11 @@ def test_read_parquet(
     if num_rows != "all":
         options.set_num_rows(num_rows)
 
-    producer = make_producer(context, ch, options, use_filter=use_filter)
+    producer = make_producer(context, comm, ch, options, use_filter=use_filter)
 
     consumer, deferred_messages = pull_from_channel(context, ch)
 
-    run_streaming_pipeline(nodes=[producer, consumer])
+    run_actor_network(actors=[producer, consumer])
 
     messages = deferred_messages.release()
     assert all(

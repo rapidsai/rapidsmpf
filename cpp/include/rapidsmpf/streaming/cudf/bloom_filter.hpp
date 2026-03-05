@@ -10,9 +10,9 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -39,15 +39,30 @@ struct BloomFilter {
     /**
      * @brief Construct storage for a bloom filter.
      *
-     * @param ctx Streaming context. The construction of the filter will be collective
-     * over this context.
+     * @param ctx Streaming context.
+     * @param comm Communicator for the collective operation.
      * @param seed Hash seed used when hashing values into the filter.
      * @param num_filter_blocks Number of blocks in the filter.
      */
     explicit BloomFilter(
-        std::shared_ptr<Context> ctx, std::uint64_t seed, std::size_t num_filter_blocks
+        std::shared_ptr<Context> ctx,
+        std::shared_ptr<Communicator> comm,
+        std::uint64_t seed,
+        std::size_t num_filter_blocks
     ) noexcept
-        : ctx_{std::move(ctx)}, seed_{seed}, num_filter_blocks_{num_filter_blocks} {}
+        : ctx_{std::move(ctx)},
+          comm_{std::move(comm)},
+          seed_{seed},
+          num_filter_blocks_{num_filter_blocks} {}
+
+    /**
+     * @brief Gets the communicator associated with this BloomFilter.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
 
     /**
      * @brief Build a bloom filter from the input channel.
@@ -58,7 +73,7 @@ struct BloomFilter {
      * @param tag Disambiguating tag to combine filters across ranks.
      * @return Coroutine representing the construction of the bloom filter.
      */
-    [[nodiscard]] Node build(
+    [[nodiscard]] Actor build(
         std::shared_ptr<Channel> ch_in, std::shared_ptr<Channel> ch_out, OpID tag
     );
 
@@ -76,7 +91,7 @@ struct BloomFilter {
      *
      * @return Coroutine representing the application of the bloom filter.
      */
-    [[nodiscard]] Node apply(
+    [[nodiscard]] Actor apply(
         std::shared_ptr<Channel> bloom_filter,
         std::shared_ptr<Channel> ch_in,
         std::shared_ptr<Channel> ch_out,
@@ -85,6 +100,7 @@ struct BloomFilter {
 
   private:
     std::shared_ptr<Context> ctx_{};
+    std::shared_ptr<Communicator> comm_{};
     std::uint64_t seed_{};
     std::size_t num_filter_blocks_{};
 };

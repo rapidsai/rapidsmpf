@@ -26,9 +26,6 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-
-class ShuffleInsertGroupedTest;
-
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -45,8 +42,6 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
-    friend class ::ShuffleInsertGroupedTest;
-
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -86,13 +81,11 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when a partition is finished.
-     * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -101,12 +94,10 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
         FinishedCallback&& finished_callback,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -114,12 +105,10 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -128,25 +117,23 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     )
-        : Shuffler(
-              comm,
-              progress_thread,
-              op_id,
-              total_num_partitions,
-              br,
-              nullptr,
-              statistics,
-              partition_owner
-          ) {}
+        : Shuffler(comm, op_id, total_num_partitions, br, nullptr, partition_owner) {}
 
     ~Shuffler();
+
+    /**
+     * @brief Gets the communicator associated with this Shuffler.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
 
     Shuffler(Shuffler const&) = delete;
     Shuffler& operator=(Shuffler const&) = delete;
@@ -157,14 +144,6 @@ class Shuffler {
      * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
-
-    /**
-     * @brief Insert a map of packed data, grouping them by destination rank, and
-     * concatenating into a single chunk per rank.
-     *
-     * @param chunks A map of partition IDs and their packed chunks.
-     */
-    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -248,9 +227,6 @@ class Shuffler {
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
      *
-     * In both modes, it adds to the "spill-device-limit-breach" statistic if not
-     * enough memory could be spilled.
-     *
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.
      * @return The amount of memory actually spilled.
@@ -278,14 +254,15 @@ class Shuffler {
     /**
      * @brief The mask for the counter in a chunk ID.
      */
-    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
+    static constexpr std::uint64_t counter_mask =
+        (std::uint64_t{1} << chunk_id_counter_bits) - 1;
 
     /**
      * @brief Extract the counter from a chunk ID.
      * @param cid The chunk ID.
      * @return The counter.
      */
-    static constexpr uint64_t extract_counter(detail::ChunkID cid) {
+    static constexpr std::uint64_t extract_counter(detail::ChunkID cid) {
         return cid & counter_mask;
     }
 
@@ -303,7 +280,7 @@ class Shuffler {
      * @param cid The chunk ID.
      * @return A pair of the rank and counter.
      */
-    static constexpr std::pair<Rank, uint64_t> extract_info(detail::ChunkID cid) {
+    static constexpr std::pair<Rank, std::uint64_t> extract_info(detail::ChunkID cid) {
         return std::make_pair(extract_rank(cid), extract_counter(cid));
     }
 
@@ -348,7 +325,6 @@ class Shuffler {
                                              ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
-    std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
 

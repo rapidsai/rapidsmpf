@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
+    from rapidsmpf.streaming.core.actor import PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.core.node import PyNode
 
 
 def make_messages(start: int, count: int) -> list[Message[ArbitraryChunk[int]]]:
@@ -26,7 +26,7 @@ def make_messages(start: int, count: int) -> list[Message[ArbitraryChunk[int]]]:
     ]
 
 
-@define_py_node()
+@define_actor()
 async def send_data(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -38,7 +38,7 @@ async def send_data(
     await ch_out.drain(ctx)
 
 
-@define_py_node()
+@define_actor()
 async def send_metadata_then_data(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -54,7 +54,7 @@ async def send_metadata_then_data(
     await ch_out.drain(ctx)
 
 
-@define_py_node()
+@define_actor()
 async def send_data_only_with_metadata_shutdown(
     ctx: Context,
     ch_out: Channel[ArbitraryChunk[int]],
@@ -67,7 +67,7 @@ async def send_data_only_with_metadata_shutdown(
     await ch_out.drain(ctx)
 
 
-@define_py_node()
+@define_actor()
 async def send_metadata_only(
     ctx: Context, ch_out: Channel[ArbitraryChunk[int]], metadata_values: list[int]
 ) -> None:
@@ -76,7 +76,7 @@ async def send_metadata_only(
     await ch_out.drain(ctx)
 
 
-@define_py_node()
+@define_actor()
 async def consume_metadata_then_data(
     ctx: Context,
     ch_in: Channel[ArbitraryChunk[int]],
@@ -95,19 +95,19 @@ def test_data_roundtrip_without_metadata(
 ) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     outputs: list[int] = []
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         send_data(context, ch, 0, 3),
     ]
 
-    @define_py_node()
+    @define_actor()
     async def consume_only_data(
         ctx: Context, ch_in: Channel[ArbitraryChunk[int]]
     ) -> None:
         while (msg := await ch_in.recv(ctx)) is not None:
             outputs.append(ArbitraryChunk.from_message(msg).release())
 
-    nodes.append(consume_only_data(context, ch))
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    actors.append(consume_only_data(context, ch))
+    run_actor_network(actors=actors, py_executor=py_executor)
 
     assert outputs == [0, 1, 2]
 
@@ -119,11 +119,11 @@ def test_metadata_then_data_roundtrip(
     metadata_out: list[int] = []
     data_out: list[int] = []
 
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         send_metadata_then_data(context, ch, [10, 20], 0, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
 
     assert metadata_out == [10, 20]
     assert data_out == [0, 1]
@@ -135,11 +135,11 @@ def test_data_only_with_metadata_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         send_data_only_with_metadata_shutdown(context, ch, 5, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
 
     assert metadata_out == []
     assert data_out == [5, 6]
@@ -151,11 +151,11 @@ def test_metadata_only_with_data_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         send_metadata_only(context, ch, [30, 31]),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+    run_actor_network(actors=actors, py_executor=py_executor)
 
     assert metadata_out == [30, 31]
     assert data_out == []
@@ -168,19 +168,19 @@ def test_producer_raises_after_metadata(
     metadata_out: list[int] = []
     data_out: list[int] = []
 
-    @define_py_node()
+    @define_actor()
     async def throwing_producer(
         ctx: Context, ch_out: Channel[ArbitraryChunk[int]]
     ) -> None:
         await ch_out.send_metadata(ctx, Message(0, ArbitraryChunk(99)))
         raise RuntimeError("producer failed")
 
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         throwing_producer(context, ch),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
     with pytest.raises(RuntimeError, match="producer failed"):
-        run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+        run_actor_network(actors=actors, py_executor=py_executor)
 
 
 def test_consumer_raises_with_metadata(
@@ -188,15 +188,15 @@ def test_consumer_raises_with_metadata(
 ) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
 
-    @define_py_node()
+    @define_actor()
     async def throwing_consumer(
         ctx: Context, ch_in: Channel[ArbitraryChunk[int]]
     ) -> None:
         raise RuntimeError("consumer failed")
 
-    nodes: list[PyNode] = [
+    actors: list[PyActor] = [
         send_metadata_then_data(context, ch, [1], 0, 1),
         throwing_consumer(context, ch),
     ]
     with pytest.raises(RuntimeError, match="consumer failed"):
-        run_streaming_pipeline(nodes=nodes, py_executor=py_executor)
+        run_actor_network(actors=actors, py_executor=py_executor)

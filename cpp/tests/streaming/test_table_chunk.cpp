@@ -52,7 +52,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
             Statistics::disabled()  // statistics
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_, br
+            options, GlobalEnvironment->comm_->logger(), br
         );
     }
 

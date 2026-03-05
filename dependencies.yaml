@@ -13,6 +13,7 @@ files:
       - build-cpp
       - build-python
       - build-mpi
+      - build-pmix
       - checks
       - clang_tidy
       - cuda
@@ -145,6 +146,7 @@ files:
       - depends_on_rmm
       - depends_on_pylibcudf
       - depends_on_librapidsmpf
+      - depends_on_ucxx
   py_test_rapidsmpf:
     output: pyproject
     pyproject_dir: python/rapidsmpf
@@ -155,7 +157,6 @@ files:
       - depends_on_cudf
       - depends_on_dask_cuda
       - depends_on_dask_cudf
-      - depends_on_ucxx
       - test_python
 channels:
   - rapidsai-nightly
@@ -176,6 +177,7 @@ dependencies:
           - cuda-nvcc
           - cxx-compiler
           - libnuma
+          - libpmix-devel >=5.0,<6.0
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
       - output_types: conda
@@ -217,11 +219,16 @@ dependencies:
         packages:
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
+  build-pmix:
+    common:
+      - output_types: conda
+        packages:
+          - libpmix-devel >=5.0,<6.0
   build-python:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cython>=3.0.3,<3.2.0
+          - cython>=3.2.2
   checks:
     common:
       - output_types: conda
@@ -286,8 +293,12 @@ dependencies:
             packages:
               - python=3.13
           - matrix:
+              py: "3.14"
             packages:
-              - python>=3.11,<3.14
+              - python=3.14
+          - matrix:
+            packages:
+              - python>=3.11
   test_cpp:
     common:
       - output_types: conda
@@ -322,17 +333,26 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - psutil  # Used for timeout_with_stack.py
-          - pytest<9.0.0
+          - pytest
           - nvidia-ml-py>=12
     specific:
       - output_types: conda
         matrices:
+          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
+          # https://github.com/rapidsai/rapidsmpf/issues/897
           - matrix:
               arch: x86_64
+              py: "3.14"
+            packages:
+          - matrix:
+              arch: x86_64
+              py: "3.*"
             packages:
               - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
+            packages:
+          - matrix:
             packages:
   run_rapidsmpf:
     common:
@@ -441,12 +461,18 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
+              py: "3.14"
+            packages:
+          - matrix:
+              arch: x86_64
+              py: "3.*"
             packages:
               - ray-default>=2.49,<2.52
           - matrix:
               arch: aarch64
             packages:
-
+          - matrix:
+            packages:
   depends_on_cudf:
     common:
       - output_types: conda

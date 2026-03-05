@@ -13,15 +13,16 @@ from libcpp.utility cimport move, pair
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 import asyncio
 
@@ -147,35 +148,38 @@ cdef extern from * nogil:
 
 def shuffler(
     Context ctx not None,
+    Communicator comm not None,
     Channel ch_in not None,
     Channel ch_out not None,
     int32_t op_id,
     uint32_t total_num_partitions,
 ):
     """
-    Launch a shuffler node for a single shuffle operation.
+    Launch a shuffler actor for a single shuffle operation.
 
-    Streaming variant of the RapdisMPF shuffler that reads packed, partitioned
+    Streaming variant of the RapidsMPF shuffler that reads packed, partitioned
     input chunks from an input channel and emits output chunks grouped by
     partition owner.
 
     Parameters
     ----------
     ctx
-        The node context to use.
+        The actor context to use.
+    comm
+        The communicator the shuffle is collective over.
     ch_in
         Input channel that supplies partitioned map chunks to be shuffled.
     ch_out
         Output channel that receives the grouped (vector) chunks.
     op_id
         Unique identifier for this shuffle operation. Must not be reused until
-        all nodes participating in the shuffle have shut down.
+        all actors participating in the shuffle have shut down.
     total_num_partitions
         Total number of logical partitions to shuffle the data into.
 
     Returns
     -------
-    A streaming node that finishes when shuffling is complete and `ch_out` has
+    A streaming actor that finishes when shuffling is complete and `ch_out` has
     been drained.
 
     Notes
@@ -184,16 +188,17 @@ def shuffler(
     policy (round-robin across ranks/nodes).
     """
 
-    cdef cpp_Node _ret
+    cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
+            comm._handle,
             ch_in._handle,
             ch_out._handle,
             op_id,
             total_num_partitions,
         )
-    return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner=None)
+    return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
 
 cdef class ShufflerAsync:
@@ -204,6 +209,8 @@ cdef class ShufflerAsync:
     ----------
     ctx
         Streaming context
+    comm
+        The communicator the shuffle is collective over.
     op_id
         Operation id identifying this shuffle. Must not be reused while
         this object is still live.
@@ -211,16 +218,32 @@ cdef class ShufflerAsync:
         Global number of output partitions in the shuffle.
     """
     def __init__(
-        self, Context ctx not None, int32_t op_id, uint32_t total_num_partitions
+        self,
+        Context ctx not None,
+        Communicator comm not None,
+        int32_t op_id,
+        uint32_t total_num_partitions,
     ):
+        self._comm = comm
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
-                ctx._handle, op_id, total_num_partitions
+                ctx._handle, comm._handle, op_id, total_num_partitions
             )
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @property
+    def comm(self):
+        """
+        Get the communicator used by the shuffler.
+
+        Returns
+        -------
+        The communicator.
+        """
+        return self._comm
 
     def insert(self, chunks):
         """

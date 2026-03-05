@@ -18,7 +18,7 @@
 namespace rapidsmpf {
 
 std::uint64_t get_total_host_memory() noexcept {
-    static const uint64_t ret = [] {
+    static const std::uint64_t ret = [] {
         auto const page_size = ::sysconf(_SC_PAGE_SIZE);
         auto const phys_pages = ::sysconf(_SC_PHYS_PAGES);
         RAPIDSMPF_EXPECTS_FATAL(

@@ -10,9 +10,9 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.actor import run_actor_network
+from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -20,6 +20,7 @@ from rapidsmpf.testing import assert_eq
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
@@ -32,6 +33,7 @@ def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
 
 def run_bloom_filter_pipeline(
     context: Context,
+    comm: Communicator,
     build_table: TableChunk,
     probe_table: TableChunk,
     *,
@@ -40,6 +42,7 @@ def run_bloom_filter_pipeline(
 ) -> list[Message]:
     bloom = BloomFilter(
         context,
+        comm,
         seed=seed,
         num_filter_blocks=BloomFilter.fitting_num_blocks(l2size),
     )
@@ -52,7 +55,7 @@ def run_bloom_filter_pipeline(
     ch_filter: Channel[BloomFilterChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
-    nodes = [
+    actors = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
         bloom.build(ch_in=ch_build, ch_out=ch_filter, tag=0),
@@ -63,21 +66,21 @@ def run_bloom_filter_pipeline(
             keys=(0,),
         ),
     ]
-    pull_node, deferred = pull_from_channel(context, ch_out)
-    nodes.append(pull_node)
-    run_streaming_pipeline(nodes=nodes)
+    pull_actor, deferred = pull_from_channel(context, ch_out)
+    actors.append(pull_actor)
+    run_actor_network(actors=actors)
     return deferred.release()
 
 
-def test_bloom_filter_roundtrip(context: Context) -> None:
-    if context.comm().nranks != 1:
+def test_bloom_filter_roundtrip(context: Context, comm: Communicator) -> None:
+    if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
     stream = context.get_stream_from_pool()
     values = np.arange(10, dtype=np.int32)
     build_table = make_table(values, stream=stream)
     probe_table = make_table(values, stream=stream)
-    messages = run_bloom_filter_pipeline(context, build_table, probe_table)
+    messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
     result = TableChunk.from_message(messages[0])
@@ -86,14 +89,16 @@ def test_bloom_filter_roundtrip(context: Context) -> None:
     assert_eq(result.table_view(), expected)
 
 
-def test_bloom_filter_empty_build_filters_all(context: Context) -> None:
-    if context.comm().nranks != 1:
+def test_bloom_filter_empty_build_filters_all(
+    context: Context, comm: Communicator
+) -> None:
+    if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
     stream = context.get_stream_from_pool()
     build_table = make_table(np.array([], dtype=np.int32), stream=stream)
     probe_table = make_table(np.arange(5, dtype=np.int32), stream=stream)
-    messages = run_bloom_filter_pipeline(context, build_table, probe_table)
+    messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
     result = TableChunk.from_message(messages[0])

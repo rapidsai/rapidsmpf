@@ -5,14 +5,12 @@ from __future__ import annotations
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 
 class AllGather:
     def __init__(
         self,
         comm: Communicator,
-        progress_thread: ProgressThread,
         op_id: int,
         br: BufferResource,
         statistics: Statistics | None = None,

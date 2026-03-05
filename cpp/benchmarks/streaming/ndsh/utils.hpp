@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <mpi.h>
@@ -19,12 +20,13 @@
 #include <cudf/wrappers/timestamps.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -62,6 +64,7 @@ namespace detail {
  * @brief Get cudf data types for all columns from parquet metadata.
  *
  * Reads parquet metadata to determine the cudf data type for each column.
+ * The data types are inferred from the first file found for the given table.
  *
  * @param input_directory Directory containing input parquet files
  * @param table_name Name of the table (e.g., "lineitem")
@@ -231,7 +234,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing the shutdown and discard of the channel.
  */
-[[nodiscard]] streaming::Node sink_channel(
+[[nodiscard]] streaming::Actor sink_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch
 );
 
@@ -246,7 +249,7 @@ std::unique_ptr<streaming::Filter> make_date_range_filter(
  *
  * @return Coroutine representing consuming and discarding messages in channel.
  */
-[[nodiscard]] streaming::Node consume_channel(
+[[nodiscard]] streaming::Actor consume_channel(
     std::shared_ptr<streaming::Context> ctx, std::shared_ptr<streaming::Channel> ch_in
 );
 
@@ -289,18 +292,17 @@ struct ProgramOptions {
 ProgramOptions parse_arguments(int argc, char** argv);
 
 /**
- * @brief Create a streaming execution context for a query.
+ * @brief Create a streaming execution context and communicator for a query.
  *
  * @param arguments Arguments to configure the context
  * @param mr Pointer to memory resource to use for all allocations
  * @warning The memory resource _must_ be kept alive until the final usage of the returned
  * Context is complete.
  *
- * @return Shared pointer to new streaming context.
+ * @return Pair of shared pointer to new streaming context and communicator.
  */
-std::shared_ptr<streaming::Context> create_context(
-    ProgramOptions& arguments, RmmResourceAdaptor* mr
-);
+std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
+create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr);
 
 /**
  * @brief Finalize MPI when going out of scope.

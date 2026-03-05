@@ -4,11 +4,10 @@
 from libcpp.memory cimport shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.communicator.communicator cimport Logger
 from rapidsmpf.config cimport Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.buffer_resource cimport BufferResource
-from rapidsmpf.statistics cimport Statistics
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     cpp_MemoryReserveOrWait
@@ -26,9 +25,8 @@ cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
 
 cdef class Context:
     cdef shared_ptr[cpp_Context] _handle
-    cdef Communicator _comm
+    cdef Logger _logger
     cdef BufferResource _br
     cdef Options _options
-    cdef Statistics _statistics
     cdef SpillableMessages _spillable_messages
     cdef dict _memory
