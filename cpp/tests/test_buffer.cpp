@@ -233,3 +233,262 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     EXPECT_NO_THROW(buffer->rebind_stream(stream2));
     EXPECT_EQ(buffer->stream().value(), stream2.value());
 }
+
+// =============================================================================
+// Buffer::copy_to test suite
+// =============================================================================
+
+namespace {
+
+/**
+ * @brief Identifies the memory kind of a buffer for parameterized copy_to tests.
+ *
+ * PINNED_64 and PINNED_128 both map to MemoryType::PINNED_HOST but use different
+ * fixed-size block sizes (64 B and 128 B respectively). Two separate BufferResources
+ * are used per test because a BufferResource may only hold one PinnedMemoryResource.
+ */
+enum class BufferKind {
+    DEVICE,
+    HOST,
+    PINNED_64,
+    PINNED_128
+};
+
+std::string_view buffer_kind_to_string(BufferKind kind) noexcept {
+    switch (kind) {
+    case BufferKind::DEVICE:
+        return "DEVICE";
+    case BufferKind::HOST:
+        return "HOST";
+    case BufferKind::PINNED_64:
+        return "PINNED64";
+    case BufferKind::PINNED_128:
+        return "PINNED128";
+    }
+    return "UNKNOWN";
+}
+
+MemoryType to_memory_type(BufferKind kind) noexcept {
+    switch (kind) {
+    case BufferKind::DEVICE:
+        return MemoryType::DEVICE;
+    case BufferKind::HOST:
+        return MemoryType::HOST;
+    case BufferKind::PINNED_64:
+    case BufferKind::PINNED_128:
+        return MemoryType::PINNED_HOST;
+    }
+    return MemoryType::HOST;
+}
+
+bool kind_needs_pinned(BufferKind kind) noexcept {
+    return kind == BufferKind::PINNED_64 || kind == BufferKind::PINNED_128;
+}
+
+struct CopyToParam {
+    BufferKind src_kind;
+    BufferKind dst_kind;
+    std::size_t copy_size;
+    std::ptrdiff_t src_offset;
+    std::ptrdiff_t dst_offset;
+};
+
+std::shared_ptr<BufferResource> make_copy_test_br(
+    BufferKind kind, std::shared_ptr<rmm::cuda_stream_pool> pool
+) {
+    std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled;
+    // 1 MiB pool is ample for the 1 KiB buffers used in these tests.
+    constexpr std::size_t kPoolCapacity = 1_MiB;
+    if (kind == BufferKind::PINNED_64) {
+        pinned_mr = PinnedMemoryResource::make_fixed_sized_if_available(
+            get_current_numa_node(), kPoolCapacity, kPoolCapacity, /*block_size=*/64
+        );
+    } else if (kind == BufferKind::PINNED_128) {
+        pinned_mr = PinnedMemoryResource::make_fixed_sized_if_available(
+            get_current_numa_node(), kPoolCapacity, kPoolCapacity, /*block_size=*/128
+        );
+    }
+    return std::make_shared<BufferResource>(
+        cudf::get_current_device_resource_ref(),
+        std::move(pinned_mr),
+        std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},
+        std::nullopt,
+        std::move(pool)
+    );
+}
+
+}  // namespace
+
+/**
+ * @brief Parameterized test fixture for `Buffer::copy_to`.
+ *
+ * Each `CopyToParam` specifies:
+ *   - src_kind / dst_kind — memory kind of the source and destination buffers
+ *   - copy_size           — bytes to copy (0, 11, 64, 128, 256)
+ *   - src_offset          — byte offset into the source buffer (0 or 512)
+ *   - dst_offset          — byte offset into the destination buffer (0 or 512)
+ *
+ * Both buffers are 1 KiB.  All (copy_size, offset) pairs satisfy
+ * `copy_size + offset ≤ 1024`, so every combination is in-bounds.
+ *
+ * Two independent BufferResources are created — one for the source and one for
+ * the destination — so that PINNED_64 and PINNED_128 can coexist in the same
+ * test case (each BR holds its own PinnedMemoryResource with a distinct block size).
+ */
+class BufferCopyToTest : public ::testing::TestWithParam<CopyToParam> {
+  protected:
+    static constexpr std::size_t kBufferSize = 1024;  // 1 KiB
+
+    void SetUp() override {
+        auto const& p = GetParam();
+
+        if ((kind_needs_pinned(p.src_kind) || kind_needs_pinned(p.dst_kind))
+            && !is_pinned_memory_resources_supported())
+        {
+            GTEST_SKIP() << "Pinned memory resources are not supported on this system";
+        }
+
+        stream_pool = std::make_shared<rmm::cuda_stream_pool>(2);
+        src_br = make_copy_test_br(p.src_kind, stream_pool);
+        dst_br = make_copy_test_br(p.dst_kind, stream_pool);
+    }
+
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool;
+    std::shared_ptr<BufferResource> src_br;
+    std::shared_ptr<BufferResource> dst_br;
+};
+
+TEST_P(BufferCopyToTest, CopiesDataCorrectly) {
+    auto const& p = GetParam();
+    MemoryType const src_type = to_memory_type(p.src_kind);
+    MemoryType const dst_type = to_memory_type(p.dst_kind);
+
+    // A single shared stream keeps all operations sequentially ordered, which
+    // simplifies synchronization: after one stream.synchronize() every prior
+    // operation on that stream is complete.
+    auto stream = stream_pool->get_stream();
+
+    // Source pattern: byte i == uint8_t(i), wrapping at 256.
+    auto const monotonic = iota_vector<uint8_t>(kBufferSize);
+
+    // ---- Allocate and initialize the source buffer ----
+
+    auto [src_alloc, src_ob] =
+        src_br->reserve(src_type, kBufferSize, AllowOverbooking::YES);
+    auto src_buf = src_br->allocate(kBufferSize, stream, src_alloc);
+
+    std::size_t src_offset = 0;
+    src_buf->write_access_blocks([&](std::span<std::byte> block,
+                                     rmm::cuda_stream_view stream) {
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            block.data(),
+            monotonic.data() + src_offset,
+            block.size(),
+            cudaMemcpyDefault,
+            stream
+        ));
+        src_offset += block.size();
+    });
+
+    // ---- Allocate the destination buffer (leave uninitialized) ----
+
+    auto [dst_alloc, dst_ob] =
+        dst_br->reserve(dst_type, kBufferSize, AllowOverbooking::YES);
+    auto dst_buf = dst_br->allocate(kBufferSize, stream, dst_alloc);
+
+    // ---- The operation under test ----
+
+    src_buf->copy_to(*dst_buf, p.copy_size, p.dst_offset, p.src_offset);
+
+    // copy_to enqueues on src_buf->stream() == stream; wait for completion.
+    stream.synchronize();
+
+    if (p.copy_size == 0) {
+        return;  // Zero-size copy: verify only that no exception was thrown.
+    }
+
+    // ---- Read back the copied region and verify ----
+
+    std::vector<uint8_t> result(p.copy_size);
+
+    // exclusive_data_access_blocks() works for all storage types:
+    // DEVICE/HOST yield one block (the full contiguous allocation);
+    // PINNED yields one pointer per fixed-size block.
+    // cudaMemcpyDefault is used so the same code handles all memory types.
+    {
+        auto blocks = dst_buf->exclusive_data_access_blocks();
+        std::size_t const block_size = kBufferSize / blocks.size();
+        std::size_t flat_off = p.dst_offset;
+        std::size_t result_off = 0;
+        std::size_t bytes_left = p.copy_size;
+        while (bytes_left > 0) {
+            std::size_t const bi = flat_off / block_size;
+            std::size_t const off = flat_off % block_size;
+            std::size_t const n = std::min(bytes_left, block_size - off);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpy(
+                result.data() + result_off, blocks[bi] + off, n, cudaMemcpyDefault
+            ));
+            flat_off += n;
+            result_off += n;
+            bytes_left -= n;
+        }
+        dst_buf->unlock();
+    }
+
+    auto to_string = [](auto const& vec, size_t offset, size_t size) {
+        std::stringstream ss;
+        for (size_t i = 0; i < size; ++i) {
+            ss << static_cast<int>(vec.at(offset + i)) << " ";
+        }
+        return ss.str();
+    };
+
+    SCOPED_TRACE("src: " + to_string(monotonic, p.src_offset, p.copy_size));
+    SCOPED_TRACE("dst: " + to_string(result, 0, result.size()));
+    EXPECT_TRUE(std::equal(
+        monotonic.begin() + p.src_offset,
+        monotonic.begin() + p.src_offset + p.copy_size,
+        result.begin()
+    ));
+}
+
+/// @brief Generate all (src_kind × dst_kind × copy_size × src_offset × dst_offset)
+/// combinations.
+std::vector<CopyToParam> all_copy_to_params() {
+    constexpr std::array kinds{
+        BufferKind::DEVICE,
+        BufferKind::HOST,
+        BufferKind::PINNED_64,
+        BufferKind::PINNED_128
+    };
+    constexpr std::array copy_sizes{0, 11, 64, 128, 256};
+    constexpr std::array src_offsets{0, 111, 512};
+    constexpr std::array dst_offsets{0, 111, 512};
+
+    std::vector<CopyToParam> params;
+    for (auto src : kinds) {
+        for (auto dst : kinds) {
+            for (std::size_t sz : copy_sizes) {
+                for (std::ptrdiff_t src_off : src_offsets) {
+                    for (std::ptrdiff_t dst_off : dst_offsets) {
+                        params.push_back({src, dst, sz, src_off, dst_off});
+                    }
+                }
+            }
+        }
+    }
+    return params;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    AllPairs,
+    BufferCopyToTest,
+    ::testing::ValuesIn(all_copy_to_params()),
+    [](::testing::TestParamInfo<CopyToParam> const& info) {
+        auto const& p = info.param;
+        return std::string(buffer_kind_to_string(p.src_kind)) + "_to_"
+               + std::string(buffer_kind_to_string(p.dst_kind)) + "_size"
+               + std::to_string(p.copy_size) + "_srcoff" + std::to_string(p.src_offset)
+               + "_dstoff" + std::to_string(p.dst_offset);
+    }
+);

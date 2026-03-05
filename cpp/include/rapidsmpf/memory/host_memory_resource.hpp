@@ -57,7 +57,7 @@ class HostMemoryResource {
      *
      * @throw std::invalid_argument Always.
      */
-    void* allocate_sync(std::size_t, std::size_t) {
+    virtual void* allocate_sync(std::size_t, std::size_t) {
         RAPIDSMPF_FAIL(
             "only async stream-ordered allocation must be used in RapidsMPF",
             std::invalid_argument
@@ -69,7 +69,7 @@ class HostMemoryResource {
      *
      * @throw std::invalid_argument Always.
      */
-    void deallocate_sync(void*, std::size_t, std::size_t) {
+    virtual void deallocate_sync(void*, std::size_t, std::size_t) {
         RAPIDSMPF_FAIL(
             "only async stream-ordered allocation must be used in RapidsMPF",
             std::invalid_argument

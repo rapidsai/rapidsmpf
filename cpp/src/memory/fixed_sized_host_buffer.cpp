@@ -75,7 +75,8 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_vectors(
 }
 
 FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
-    cucascade::memory::fixed_multiple_blocks_allocation&& allocation
+    cucascade::memory::fixed_multiple_blocks_allocation&& allocation,
+    rmm::cuda_stream_view stream
 ) {
     if (!allocation || allocation->size() == 0) {
         return {};
@@ -85,12 +86,13 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
     std::size_t total_bytes = storage->size_bytes();
     std::size_t block_sz = storage->block_size();
     return FixedSizedHostBuffer(
-        total_bytes, block_sz, std::move(blocks), OwningWrapper(storage)
+        total_bytes, block_sz, std::move(blocks), OwningWrapper(storage), stream
     );
 }
 
 void FixedSizedHostBuffer::reset() noexcept {
     storage_ = {};
+    stream_ = rmm::cuda_stream_view{};
     total_size_ = 0;
     block_size_ = 0;
     block_ptrs_ = {};
@@ -98,16 +100,17 @@ void FixedSizedHostBuffer::reset() noexcept {
 
 FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcept
     : storage_(std::move(other.storage_)),
+      stream_(other.stream_),
       total_size_(other.total_size_),
       block_size_(other.block_size_),
       block_ptrs_(other.block_ptrs_) {
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
-    FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
 ) noexcept {
     storage_ = std::move(other.storage_);
+    stream_ = other.stream_;
     total_size_ = other.total_size_;
     block_size_ = other.block_size_;
     block_ptrs_ = other.block_ptrs_;

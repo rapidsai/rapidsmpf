@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <cucascade/memory/fixed_size_host_memory_resource.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/owning_wrapper.hpp>
 
@@ -64,10 +65,12 @@ class FixedSizedHostBuffer {
      * returned to the memory resource via the allocation's destructor.
      *
      * @param allocation Unique pointer to the allocation (moved from).
+     * @param stream CUDA stream to associate with this buffer.
      * @return A buffer backed by the allocation's blocks.
      */
     static FixedSizedHostBuffer from_multi_blocks_alloc(
-        cucascade::memory::fixed_multiple_blocks_allocation&& allocation
+        cucascade::memory::fixed_multiple_blocks_allocation&& allocation,
+        rmm::cuda_stream_view stream
     );
 
     FixedSizedHostBuffer(FixedSizedHostBuffer const&) = delete;
@@ -79,8 +82,7 @@ class FixedSizedHostBuffer {
      * @return True if both buffers are empty or have the same total size, block size
      * and the same block pointers.
      */
-    [[nodiscard]] constexpr bool operator==(
-        FixedSizedHostBuffer const& other
+    [[nodiscard]] constexpr bool operator==(FixedSizedHostBuffer const& other
     ) const noexcept {
         return std::ranges::equal(block_ptrs_, other.block_ptrs_)
                && (block_ptrs_.empty() || block_size_ == other.block_size_);
@@ -98,6 +100,26 @@ class FixedSizedHostBuffer {
      * @return Reference to this buffer.
      */
     FixedSizedHostBuffer& operator=(FixedSizedHostBuffer&& other) noexcept;
+
+    /**
+     * @brief Get the CUDA stream associated with this buffer.
+     * @return CUDA stream view.
+     */
+    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
+        return stream_;
+    }
+
+    /**
+     * @brief Set the associated CUDA stream.
+     *
+     * This only updates the stored stream; it does not synchronize or
+     * establish ordering between the old and new streams.
+     *
+     * @param stream The new CUDA stream.
+     */
+    void set_stream(rmm::cuda_stream_view stream) noexcept {
+        stream_ = stream;
+    }
 
     /**
      * @brief Total size in bytes across all blocks.
@@ -190,14 +212,17 @@ class FixedSizedHostBuffer {
         std::size_t size,
         std::size_t block_size,
         std::span<std::byte*> block_ptrs,
-        OwningWrapper storage
+        OwningWrapper storage,
+        rmm::cuda_stream_view stream = rmm::cuda_stream_view{}
     )
         : storage_(std::move(storage)),
+          stream_(stream),
           total_size_(size),
           block_size_(block_size),
           block_ptrs_(block_ptrs) {}
 
     OwningWrapper storage_{};
+    rmm::cuda_stream_view stream_{};
     std::size_t total_size_{0};
     std::size_t block_size_{0};
     std::span<std::byte*> block_ptrs_{};

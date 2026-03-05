@@ -141,6 +141,11 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::allocate(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
+    RAPIDSMPF_EXPECTS(
+        reservation.br() == this,
+        "the reservation is not associated with this buffer resource",
+        std::invalid_argument
+    );
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
@@ -151,8 +156,21 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         ));
         break;
     case MemoryType::PINNED_HOST:
+        // ret = std::unique_ptr<Buffer>(new Buffer(
+        //     std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+        //     stream,
+        //     MemoryType::PINNED_HOST
+        // ));
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+        );
+
         ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+            std::make_unique<FixedSizedHostBuffer>(
+                FixedSizedHostBuffer::from_multi_blocks_alloc(
+                    pinned_mr_->allocate_fixed_sized(size), stream
+                )
+            ),
             stream,
             MemoryType::PINNED_HOST
         ));
@@ -192,7 +210,8 @@ std::unique_ptr<Buffer> BufferResource::move(
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto ret = allocate(buffer->size, buffer->stream(), reservation);
-        buffer_copy(*ret, *buffer, buffer->size);
+        // buffer_copy(*ret, *buffer, buffer->size);
+        buffer->copy_to(*ret, buffer->size);
         return ret;
     }
     return buffer;
@@ -246,20 +265,25 @@ memory_available_from_options(RmmResourceAdaptor* mr, config::Options options) {
     return {
         {MemoryType::DEVICE,
          LimitAvailableMemory{
-             mr, options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
-                 auto const [_, total_mem] = rmm::available_device_memory();
-                 return rmm::align_down(
-                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
-                     rmm::CUDA_ALLOCATION_ALIGNMENT
-                 );
-             })
+             mr,
+             options.get<std::int64_t>(
+                 "spill_device_limit",
+                 [](auto const& s) {
+                     auto const [_, total_mem] = rmm::available_device_memory();
+                     return rmm::align_down(
+                         parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                         rmm::CUDA_ALLOCATION_ALIGNMENT
+                     );
+                 }
+             )
          }}
     };
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
     return options.get<std::optional<Duration>>(
-        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+        "periodic_spill_check",
+        [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
                 return parse_duration("1ms");
             }
