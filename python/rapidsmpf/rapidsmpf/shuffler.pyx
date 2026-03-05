@@ -12,7 +12,6 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.progress_thread cimport ProgressThread
 
 
 cdef class Shuffler:
@@ -28,8 +27,6 @@ cdef class Shuffler:
     ----------
     comm
         The communicator to use for data exchange between ranks.
-    progress_thread
-        The progress thread to use for tracking progress.
     op_id
         The operation ID of the shuffle. Must have a value between 0 and
         ``max_concurrent_shuffles-1``.
@@ -58,18 +55,16 @@ cdef class Shuffler:
     def __init__(
         self,
         Communicator comm not None,
-        ProgressThread progress_thread not None,
         int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
     ):
-        self._comm = comm
         self._br = br
+        self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
-                progress_thread._handle,
                 op_id,
                 total_num_partitions,
                 br_,

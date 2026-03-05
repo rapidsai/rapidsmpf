@@ -26,12 +26,14 @@ Communicator
 
 Context
   The execution environment for {term}`Actor`s in a streaming pipeline. A Context provides access to essential resources including:
-  - A {term}`Communicator` for inter-rank communication
   - A {term}`BufferResource` for memory management
   - A {term}`ProgressThread` for background operations
   - A thread pool for executing coroutines
   - Configuration {term}`Options`
   - {term}`Statistics` for performance tracking
+  Note that the {term}`Context` only provides "local" resources. The same
+  context can be used in multiple different {term}`Collective Operation`s
+  by being used with different {term}`Communicator`s.
 
 Fanout
   A streaming operation that broadcasts messages from a single input {term}`Channel` to multiple output channels. Supports both bounded and unbounded policies for controlling message delivery.

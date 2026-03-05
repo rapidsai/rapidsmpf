@@ -241,7 +241,6 @@ def get_shuffler(
             assert ctx.comm is not None
             ctx.shufflers[shuffle_id] = Shuffler(
                 ctx.comm,
-                ctx.comm.progress_thread,
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 br=ctx.br,

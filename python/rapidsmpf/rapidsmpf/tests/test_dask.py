@@ -501,6 +501,9 @@ async def test_bootstrap_multiple_clients(
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
 
+    # https://github.com/python/cpython/issues/126831
+    ctx = multiprocessing.get_context("fork")
+
     def connect_from_subprocess(
         scheduler_address: str, q: multiprocessing.Queue
     ) -> None:
@@ -515,8 +518,8 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
-        p = multiprocessing.Process(
+        q: multiprocessing.Queue[bool] = ctx.Queue()
+        p = ctx.Process(
             target=connect_from_subprocess, args=(cluster.scheduler_address, q)
         )
         p.start()

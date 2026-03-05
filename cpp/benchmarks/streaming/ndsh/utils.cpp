@@ -117,7 +117,7 @@ streaming::Actor consume_channel(
         if (msg.holds<streaming::TableChunk>()) {
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            ctx->comm()->logger()->print(
+            ctx->logger()->print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
                 " rows and ",
@@ -128,9 +128,8 @@ streaming::Actor consume_channel(
     }
 }
 
-std::shared_ptr<streaming::Context> create_context(
-    ProgramOptions& arguments, RmmResourceAdaptor* mr
-) {
+std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
+create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr) {
     rmm::mr::set_current_device_resource(mr);
     rmm::mr::set_current_device_resource_ref(mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
@@ -199,7 +198,7 @@ std::shared_ptr<streaming::Context> create_context(
     default:
         RAPIDSMPF_FAIL("Unknown communicator type");
     }
-    auto ctx = std::make_shared<streaming::Context>(options, comm, br);
+    auto ctx = std::make_shared<streaming::Context>(options, comm->logger(), br);
     if (comm->rank() == 0) {
         comm->logger()->print(
             "Execution context on ",
@@ -209,7 +208,7 @@ std::shared_ptr<streaming::Context> create_context(
             " threads"
         );
     }
-    return ctx;
+    return {ctx, comm};
 }
 
 ProgramOptions parse_arguments(int argc, char** argv) {

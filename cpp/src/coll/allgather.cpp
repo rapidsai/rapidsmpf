@@ -384,27 +384,26 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
 AllGather::~AllGather() noexcept {
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
-        progress_thread_->remove_function(function_id_);
+        comm_->progress_thread()->remove_function(function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
     }
 }
 
 AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
-    std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
     std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
       br_{br},
       statistics_{std::move(statistics)},
       finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
-    function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
+    function_id_ =
+        comm_->progress_thread()->add_function([this]() { return event_loop(); });
     spill_function_id_ = br_->spill_manager().add_spill_function(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
