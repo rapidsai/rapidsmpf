@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -9,7 +9,15 @@ TIMEOUT_TOOL_PATH="${CI_PATH}"/timeout_with_stack.py
 VALIDATE_TOPOLOGY_PATH="${CI_PATH}"/validate_topology_json.py
 
 # Support customizing the ctests' install location
-cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/benchmarks/librapidsmpf/"
+INSTALL_BIN="${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin"
+
+# Confirm rrun is installed to the expected location
+if [[ ! -x "${INSTALL_BIN}/rrun" ]]; then
+  echo "Error: rrun not found at ${INSTALL_BIN}/rrun"
+  exit 1
+fi
+
+cd "${INSTALL_BIN}/benchmarks/librapidsmpf/"
 
 # Confirm no dependencies on OpenMPI variables
 unset OMPI_ALLOW_RUN_AS_ROOT

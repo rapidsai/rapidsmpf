@@ -38,7 +38,6 @@ install(
   TARGETS rrun
   COMPONENT tools
   DESTINATION bin
-  EXCLUDE_FROM_ALL
 )
 
 add_executable(
