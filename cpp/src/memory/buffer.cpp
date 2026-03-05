@@ -62,16 +62,22 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
 
 Buffer::Buffer(
     std::unique_ptr<FixedSizedHostBuffer> fixed_host_buffer,
+    std::size_t size,
     rmm::cuda_stream_view stream,
     MemoryType mem_type
 )
-    : size{fixed_host_buffer ? fixed_host_buffer->total_size() : 0},
+    : size{size},
       mem_type_{mem_type},
       storage_{std::move(fixed_host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<FixedSizedHostBufferT>(storage_) != nullptr,
         "the fixed_host_buffer cannot be NULL",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        size <= std::get<FixedSizedHostBufferT>(storage_)->total_size(),
+        "size exceeds the total size of the fixed_host_buffer",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(

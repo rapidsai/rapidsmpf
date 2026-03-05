@@ -215,9 +215,9 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
-    EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
+    EXPECT_THROW(std::ignore = chunk.table_view(), std::invalid_argument);
     // TODO: this is hack! 
-    EXPECT_EQ(chunk.make_available_cost(), spill_mem_type == MemoryType::HOST ? size : (1_MiB * ((size + 1_MiB - 1)/ 1_MiB)));
+    EXPECT_EQ(chunk.make_available_cost(), size);
 
     auto chunk2 = chunk.make_available(
         br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE)

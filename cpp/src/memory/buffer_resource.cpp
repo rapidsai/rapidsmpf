@@ -98,6 +98,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
         return {MemoryReservation(mem_type, this, 0), overbooking};
     }
     // Make the reservation.
+    // TODO: this is leaky with FixedSizedHostBuffer
     reserved += size;
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
@@ -165,12 +166,14 @@ std::unique_ptr<Buffer> BufferResource::allocate(
             pinned_mr_, "no pinned memory resource is available", std::invalid_argument
         );
 
+        // TODO: actual allocation will be higher than size! 
         ret = std::unique_ptr<Buffer>(new Buffer(
             std::make_unique<FixedSizedHostBuffer>(
                 FixedSizedHostBuffer::from_multi_blocks_alloc(
                     pinned_mr_->allocate_fixed_sized(size), stream
                 )
             ),
+            size,
             stream,
             MemoryType::PINNED_HOST
         ));

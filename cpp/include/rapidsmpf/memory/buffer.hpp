@@ -463,14 +463,19 @@ class Buffer {
      * buffers and will throw `std::logic_error`.
      *
      * @param fixed_host_buffer Unique pointer to a FixedSizedHostBuffer.
+     * @param size The logical size in bytes of the data. This may be smaller than
+     *   `fixed_host_buffer->total_size()` because the underlying allocation is
+     *   rounded up to a block-size boundary.
      * @param stream CUDA stream to associate with the Buffer.
      * @param mem_type The memory type (must be in `pinned_buffer_types`).
      *
      * @throws std::invalid_argument If @p fixed_host_buffer is null.
+     * @throws std::invalid_argument If @p size exceeds `fixed_host_buffer->total_size()`.
      * @throws std::logic_error If @p mem_type is not suitable for a pinned buffer.
      */
     Buffer(
         std::unique_ptr<FixedSizedHostBuffer> fixed_host_buffer,
+        std::size_t size,
         rmm::cuda_stream_view stream,
         MemoryType mem_type
     );

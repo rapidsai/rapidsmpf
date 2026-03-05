@@ -84,9 +84,10 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
-    GTEST_SKIP() << "TODO reenable this test";
-
     MemoryType mem_type = GetParam();
+    if (mem_type == MemoryType::PINNED_HOST) {
+        GTEST_SKIP() << "TODO reenable this test";
+    }
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.value(), stream2.value());
@@ -136,9 +137,10 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 }
 
 TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
-    GTEST_SKIP() << "TODO reenable this test";
-
     MemoryType mem_type = GetParam();
+    if (mem_type == MemoryType::PINNED_HOST) {
+        GTEST_SKIP() << "TODO reenable this test";
+    }
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.value(), stream2.value());
@@ -176,9 +178,10 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 }
 
 TEST_P(BufferRebindStreamTest, MultipleRebinds) {
-    GTEST_SKIP() << "TODO reenable this test";
-
     MemoryType mem_type = GetParam();
+    if (mem_type == MemoryType::PINNED_HOST) {
+        GTEST_SKIP() << "TODO reenable this test";
+    }
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.value(), stream2.value());
@@ -219,9 +222,10 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
 }
 
 TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
-    GTEST_SKIP() << "TODO reenable this test";
-
     MemoryType mem_type = GetParam();
+    if (mem_type == MemoryType::PINNED_HOST) {
+        GTEST_SKIP() << "TODO reenable this test";
+    }
     auto stream1 = stream_pool->get_stream();
     auto stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.value(), stream2.value());
