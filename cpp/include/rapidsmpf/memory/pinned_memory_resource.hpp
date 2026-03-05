@@ -118,8 +118,8 @@ class PinnedMemoryResource final : public HostMemoryResource {
      *
      * @param numa_id NUMA node from which memory should be allocated. By default,
      * the resource uses the NUMA node of the calling thread.
-     * @param mem_limit The maximum amount of memory to allocate.
-     * @param capacity The initial amount of memory to allocate.
+     * @param mem_limit The memory limit for reservations.
+     * @param capacity The total capacity of the resource.
      * @param block_size The size of each block.
      * @param pool_size The number of blocks in the pool.
      * @param initial_pools The number of pools to pre-allocate.
