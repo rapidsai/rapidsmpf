@@ -103,6 +103,20 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     primarily uses pinned host memory for spilling. Availability of pinned host memory
     can be checked using `is_pinned_memory_resources_supported()`.
 
+- **`pinned_initial_pool_size`**
+  - **Environment Variable**: `RAPIDSMPF_PINNED_INITIAL_POOL_SIZE`
+  - **Default**: `0`
+  - **Description**: Initial size (in bytes) of the pinned host memory pool when
+    `pinned_memory` is enabled. A value of `0` means the pool starts empty and grows
+    on demand. Accepts byte counts (e.g. `"1GiB"`, `"512MiB"`).
+
+- **`pinned_max_pool_size`**
+  - **Environment Variable**: `RAPIDSMPF_PINNED_MAX_POOL_SIZE`
+  - **Default**: `"disabled"`
+  - **Description**: Maximum size (in bytes) of the pinned host memory pool when
+    `pinned_memory` is enabled. When unset or empty, the pool is allowed to grow
+    without an upper bound. Accepts byte counts (e.g. `"4GiB"`, `"2048MiB"`).
+
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
   - **Default**: `80%`
@@ -145,20 +159,6 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     **Warning:** This feature assumes that each file slice is always read with
     identical read parameters, such as filters and schemas. No validation is
     performed. If these parameters differ, incorrect data may be returned.
-
-- **`pinned_initial_pool_size`**
-  - **Environment Variable**: `RAPIDSMPF_PINNED_INITIAL_POOL_SIZE`
-  - **Default**: `0`
-  - **Description**: Initial size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. A value of `0` means the pool starts empty and grows
-    on demand. Accepts byte counts (e.g. `"1GiB"`, `"512MiB"`).
-
-- **`pinned_max_pool_size`**
-  - **Environment Variable**: `RAPIDSMPF_PINNED_MAX_POOL_SIZE`
-  - **Default**: `"disabled"`
-  - **Description**: Maximum size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. When unset or empty, the pool is allowed to grow
-    without an upper bound. Accepts byte counts (e.g. `"4GiB"`, `"2048MiB"`).
 
 ### Dask Integration
 
