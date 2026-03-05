@@ -264,7 +264,11 @@ void cuda_memcpy_batch_async(
 }  // namespace
 
 void Buffer::copy_to(
-    Buffer& dst, std::size_t size, std::ptrdiff_t dst_offset, std::ptrdiff_t src_offset
+    Buffer& dst,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset,
+    std::shared_ptr<Statistics> statistics
 ) const {
     RAPIDSMPF_EXPECTS(
         &dst != this,
@@ -322,6 +326,7 @@ void Buffer::copy_to(
 
     latest_write_event().stream_wait(dst.stream());
 
+    StreamOrderedTiming timing{dst.stream(), statistics};
 
     std::vector<void const*> src_ptrs;
     std::vector<void const*> dst_ptrs;
@@ -385,6 +390,8 @@ void Buffer::copy_to(
     );
 
     dst.latest_write_event().stream_wait(stream_);
+
+    statistics->record_copy(mem_type_, dst.mem_type_, size, std::move(timing));
 }
 
 void buffer_copy(
@@ -433,7 +440,7 @@ void buffer_copy(
     // dst.latest_write_event().stream_wait(src.stream());
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
-
+    
     src.copy_to(dst, size, dst_offset, src_offset);
 }
 

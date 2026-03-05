@@ -352,6 +352,8 @@ class Buffer {
      * @param size Number of bytes to copy.
      * @param dst_offset Offset (in bytes) into the destination buffer.
      * @param src_offset Offset (in bytes) into this (source) buffer.
+     * @param statistics Statistics object used to record the copy operation. Pass
+     * `nullptr` or `Statistics::disabled()` to skip recording.
      *
      * @throws std::invalid_argument If @p dst is the same object as `*this`.
      * @throws std::invalid_argument If the copy range is out of bounds for either buffer.
@@ -360,7 +362,8 @@ class Buffer {
         Buffer& dst,
         std::size_t size,
         std::ptrdiff_t dst_offset = 0,
-        std::ptrdiff_t src_offset = 0
+        std::ptrdiff_t src_offset = 0,
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
     ) const;
 
     /**
