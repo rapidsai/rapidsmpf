@@ -10,6 +10,7 @@ import dask.dataframe as dd
 import pytest
 
 import rapidsmpf.integrations.single
+from rapidsmpf._testing import connect_dask_client_from_subprocess
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import (
@@ -494,12 +495,6 @@ def test_dask_cudf_join(
             dd.assert_eq(joined, expected, check_index=False)
 
 
-def _connect_from_subprocess(scheduler_address: str, q: multiprocessing.Queue) -> None:
-    client = Client(scheduler_address)
-    bootstrap_dask_cluster(client)
-    q.put(obj=True)
-
-
 @gen_test(timeout=30)
 @pytest.mark.filterwarnings("ignore")
 async def test_bootstrap_multiple_clients(
@@ -518,7 +513,8 @@ async def test_bootstrap_multiple_clients(
 
         q: multiprocessing.Queue[bool] = ctx.Queue()
         p = ctx.Process(
-            target=_connect_from_subprocess, args=(cluster.scheduler_address, q)
+            target=connect_dask_client_from_subprocess,
+            args=(cluster.scheduler_address, q),
         )
         p.start()
         result = q.get(timeout=5)
