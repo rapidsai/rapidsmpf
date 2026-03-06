@@ -8,6 +8,7 @@
 
 #include <cuda/memory_resource>
 
+#include <rmm/mr/pinned_host_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -112,6 +113,52 @@ void PinnedMemoryResource::deallocate(
     rmm::cuda_stream_view stream, void* ptr, std::size_t bytes, std::size_t alignment
 ) noexcept {
     pool_->deallocate(stream, ptr, bytes, alignment);
+}
+
+void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
+    return pool_->allocate_sync(bytes, alignment);
+}
+
+void PinnedMemoryResource::deallocate_sync(
+    void* ptr, std::size_t bytes, std::size_t alignment
+) {
+    pool_->deallocate_sync(ptr, bytes, alignment);
+}
+
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_available(
+    int numa_id,
+    PinnedPoolProperties pool_properties,
+    std::size_t block_size,
+    std::size_t pool_size
+) {
+    if (!is_pinned_memory_resources_supported()) {
+        return PinnedMemoryResource::Disabled;
+    }
+    auto mr = std::make_shared<PinnedMemoryResource>(numa_id, pool_properties);
+
+    size_t const capacity =
+        pool_properties.max_pool_size.value_or(get_numa_node_host_memory(numa_id));
+
+    size_t const initial_npools = std::max(
+        cucascade::memory::fixed_size_host_memory_resource::default_initial_number_pools,
+        pool_properties.initial_pool_size / (block_size * pool_size)
+    );
+
+    mr->fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
+        numa_id, *mr, capacity, capacity, block_size, pool_size, initial_npools
+    );
+    return mr;
+}
+
+PinnedMemoryResource::FixedSizedBlocksAllocation
+PinnedMemoryResource::allocate_fixed_sized(std::size_t size) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ != nullptr,
+        "fixed-size host memory resource not initialized; "
+        "use make_fixed_sized_if_available to create this resource",
+        std::invalid_argument
+    );
+    return fixed_size_host_mr_->allocate_multiple_blocks(size);
 }
 
 bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {

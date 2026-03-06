@@ -44,7 +44,9 @@ class StreamingTableChunk : public BaseStreamingFixture,
         stream = cudf::get_default_stream();
         br = std::make_shared<rapidsmpf::BufferResource>(
             mr_cuda,  // device_mr
-            rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
+            rapidsmpf::PinnedMemoryResource::make_fixed_sized_if_available(
+                get_current_numa_node()
+            ),  // pinned_mr
             memory_available,  // memory_available
             std::chrono::milliseconds{1},  // periodic_spill_check
             stream_pool,  // stream_pool
@@ -214,7 +216,8 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
-    EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
+    EXPECT_THROW(std::ignore = chunk.table_view(), std::invalid_argument);
+    // TODO: this is hack!
     EXPECT_EQ(chunk.make_available_cost(), size);
 
     auto chunk2 = chunk.make_available(

@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/fixed_sized_host_buffer.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -54,6 +55,9 @@ class Buffer {
     /// @brief Storage type for a host buffer.
     using HostBufferT = std::unique_ptr<HostBuffer>;
 
+    /// @brief Storage type for a pinned host buffer backed by fixed-size blocks.
+    using FixedSizedHostBufferT = std::unique_ptr<FixedSizedHostBuffer>;
+
     /**
      * @brief Memory types suitable for constructing a device backed buffer.
      *
@@ -72,6 +76,16 @@ class Buffer {
      */
     static constexpr std::array<MemoryType, 2> host_buffer_types{
         MemoryType::HOST, MemoryType::PINNED_HOST
+    };
+
+    /**
+     * @brief Memory types suitable for constructing a pinned host buffer backed
+     * by fixed-size blocks.
+     *
+     * A buffer may use `FixedSizedHostBufferT` only if its memory type is listed here.
+     */
+    static constexpr std::array<MemoryType, 1> pinned_buffer_types{
+        MemoryType::PINNED_HOST
     };
 
     /**
@@ -148,6 +162,69 @@ class Buffer {
     }
 
     /**
+     * @brief Provides stream-ordered write access to the buffer's memory as a
+     * sequence of contiguous blocks.
+     *
+     * Like `write_access()`, this is a stream-ordered operation: all work
+     * performed by @p f must be ordered on the buffer's stream. After all
+     * blocks have been visited, a write event is recorded on the stream.
+     *
+     * Unlike `write_access()`, this method works for **all** storage types:
+     *
+     * - **DEVICE / HOST** (contiguous): @p f is called once with a span
+     *   covering the entire allocation.
+     * - **PINNED_HOST** (`FixedSizedHostBuffer`): @p f is called once per
+     *   fixed-size block, in order.
+     *
+     * The callable must be invocable as:
+     *   - `void(std::span<std::byte> block, rmm::cuda_stream_view stream)`.
+     *
+     * @warning Each span is valid only for the duration of its individual call.
+     *
+     * @tparam F Callable type.
+     * @param f Callable that accepts `(std::span<std::byte>, rmm::cuda_stream_view)`.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     *
+     * @see write_access()
+     */
+    template <typename F>
+    void write_access_blocks(F&& f) {
+        using Fn = std::remove_reference_t<F>;
+        static_assert(
+            std::is_invocable_v<Fn, std::span<std::byte>, rmm::cuda_stream_view>,
+            "write_access_blocks() expects callable void(std::span<std::byte>, "
+            "rmm::cuda_stream_view)"
+        );
+
+        throw_if_locked();
+
+        std::visit(
+            overloaded{
+                [&](FixedSizedHostBufferT& buf) {
+                    for (auto block : buf->blocks()) {
+                        std::invoke(
+                            f, std::span<std::byte>{block, buf->block_size()}, stream_
+                        );
+                    }
+                },
+                [&](auto& buf) {
+                    std::invoke(
+                        std::forward<F>(f),
+                        std::span<std::byte>{
+                            reinterpret_cast<std::byte*>(buf->data()), buf->size()
+                        },
+                        stream_
+                    );
+                },
+            },
+            storage_
+        );
+
+        latest_write_event_.record(stream_);
+    }
+
+    /**
      * @brief Acquire non-stream-ordered exclusive access to the buffer's memory.
      *
      * Alternative to `write_access()`. Acquires an internal exclusive lock so that
@@ -177,6 +254,31 @@ class Buffer {
      * @see write_access(), is_locked(), unlock()
      */
     std::byte* exclusive_data_access();
+
+
+    /**
+     * @brief Acquire non-stream-ordered exclusive access to the buffer's memory
+     * as a list of block-start pointers.
+     *
+     * Like `exclusive_data_access()`, acquires the internal exclusive lock until
+     * `unlock()` is called. Unlike `exclusive_data_access()`, this method works
+     * for **all** storage types:
+     *
+     * - **DEVICE / HOST** (contiguous): returns a single-element vector whose
+     *   one pointer is the start of the contiguous allocation.
+     * - **PINNED_HOST** (`FixedSizedHostBuffer`): returns one pointer per
+     *   fixed-size block (equivalent to `FixedSizedHostBuffer::blocks()`).
+     *
+     * The pointers remain valid until `unlock()` is called.
+     *
+     * @return Vector of block-start pointers.
+     *
+     * @throws std::logic_error If the buffer is already locked.
+     * @throws std::logic_error If `is_latest_write_done() != true`.
+     *
+     * @see exclusive_data_access(), write_access_blocks(), unlock()
+     */
+    std::vector<std::byte*> exclusive_data_access_blocks();
 
     /**
      * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
@@ -240,6 +342,30 @@ class Buffer {
      * @endcode
      */
     void rebind_stream(rmm::cuda_stream_view new_stream);
+
+    /**
+     * @brief Asynchronously copy data from this buffer into @p dst.
+     *
+     * Copies @p size bytes from this buffer at @p src_offset into @p dst at @p
+     * dst_offset.
+     *
+     * @param dst Destination buffer (must not be `*this`).
+     * @param size Number of bytes to copy.
+     * @param dst_offset Offset (in bytes) into the destination buffer.
+     * @param src_offset Offset (in bytes) into this (source) buffer.
+     * @param statistics Statistics object used to record the copy operation. Pass
+     * `nullptr` or `Statistics::disabled()` to skip recording.
+     *
+     * @throws std::invalid_argument If @p dst is the same object as `*this`.
+     * @throws std::invalid_argument If the copy range is out of bounds for either buffer.
+     */
+    void copy_to(
+        Buffer& dst,
+        std::size_t size,
+        std::ptrdiff_t dst_offset = 0,
+        std::ptrdiff_t src_offset = 0,
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
+    ) const;
 
     /**
      * @brief Check whether the buffer's most recent write has completed.
@@ -337,6 +463,38 @@ class Buffer {
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 
     /**
+     * @brief Construct a stream-ordered Buffer from a fixed-sized host buffer.
+     *
+     * Adopts @p fixed_host_buffer as the Buffer's storage and associates the Buffer
+     * with @p stream for subsequent stream-ordered operations.
+     *
+     * @note The constructor does **not** perform any synchronization. The caller must
+     * ensure that @p fixed_host_buffer is already synchronized at the time of
+     * construction.
+     *
+     * @warning Many `Buffer` APIs (e.g., `data()`, `exclusive_data_access()`,
+     * `rebind_stream()`) are **not supported** for `FixedSizedHostBuffer`-backed
+     * buffers and will throw `std::logic_error`.
+     *
+     * @param fixed_host_buffer Unique pointer to a FixedSizedHostBuffer.
+     * @param size The logical size in bytes of the data. This may be smaller than
+     *   `fixed_host_buffer->total_size()` because the underlying allocation is
+     *   rounded up to a block-size boundary.
+     * @param stream CUDA stream to associate with the Buffer.
+     * @param mem_type The memory type (must be in `pinned_buffer_types`).
+     *
+     * @throws std::invalid_argument If @p fixed_host_buffer is null.
+     * @throws std::invalid_argument If @p size exceeds `fixed_host_buffer->total_size()`.
+     * @throws std::logic_error If @p mem_type is not suitable for a pinned buffer.
+     */
+    Buffer(
+        std::unique_ptr<FixedSizedHostBuffer> fixed_host_buffer,
+        std::size_t size,
+        rmm::cuda_stream_view stream,
+        MemoryType mem_type
+    );
+
+    /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
      *
      * @throws std::logic_error If the buffer is locked.
@@ -363,12 +521,22 @@ class Buffer {
      */
     [[nodiscard]] HostBufferT release_host_buffer();
 
+    /**
+     * @brief Release the underlying fixed-sized host buffer.
+     *
+     * @return The underlying fixed-sized host buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage a FixedSizedHostBuffer.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    [[nodiscard]] FixedSizedHostBufferT release_fixed_sized_host_buffer();
+
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
     MemoryType const mem_type_;
-    std::variant<DeviceBufferT, HostBufferT> storage_;
+    std::variant<DeviceBufferT, HostBufferT, FixedSizedHostBufferT> storage_;
     rmm::cuda_stream_view stream_;
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;

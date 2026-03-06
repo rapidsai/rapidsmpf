@@ -99,6 +99,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
         return {MemoryReservation(mem_type, this, 0), overbooking};
     }
     // Make the reservation.
+    // TODO: this is leaky with FixedSizedHostBuffer
     reserved += size;
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
@@ -144,6 +145,11 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 ) {
     auto const mem_type = reservation.mem_type_;
     StreamOrderedTiming timing{stream, statistics_};
+    RAPIDSMPF_EXPECTS(
+        reservation.br() == this,
+        "the reservation is not associated with this buffer resource",
+        std::invalid_argument
+    );
     std::unique_ptr<Buffer> ret;
     switch (mem_type) {
     case MemoryType::HOST:
@@ -154,8 +160,23 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         ));
         break;
     case MemoryType::PINNED_HOST:
+        // ret = std::unique_ptr<Buffer>(new Buffer(
+        //     std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+        //     stream,
+        //     MemoryType::PINNED_HOST
+        // ));
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+        );
+
+        // TODO: actual allocation will be higher than size!
         ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<HostBuffer>(size, stream, pinned_mr()),
+            std::make_unique<FixedSizedHostBuffer>(
+                FixedSizedHostBuffer::from_multi_blocks_alloc(
+                    pinned_mr_->allocate_fixed_sized(size), stream
+                )
+            ),
+            size,
             stream,
             MemoryType::PINNED_HOST
         ));
@@ -197,7 +218,8 @@ std::unique_ptr<Buffer> BufferResource::move(
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto const nbytes = buffer->size;
         auto ret = allocate(nbytes, buffer->stream(), reservation);
-        buffer_copy(statistics_, *ret, *buffer, nbytes);
+        // buffer_copy(statistics_, *ret, *buffer, nbytes);
+        buffer->copy_to(*ret, buffer->size);
         return ret;
     }
     return buffer;
