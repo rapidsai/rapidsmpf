@@ -10,6 +10,7 @@ import dask.dataframe as dd
 import pytest
 
 import rapidsmpf.integrations.single
+from rapidsmpf._testing import connect_dask_client_from_subprocess
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import (
@@ -501,15 +502,7 @@ async def test_bootstrap_multiple_clients(
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
 
-    # https://github.com/python/cpython/issues/126831
-    ctx = multiprocessing.get_context("fork")
-
-    def connect_from_subprocess(
-        scheduler_address: str, q: multiprocessing.Queue
-    ) -> None:
-        client = Client(scheduler_address)
-        bootstrap_dask_cluster(client)
-        q.put(obj=True)
+    ctx = multiprocessing.get_context("forkserver")
 
     with LocalCUDACluster(loop=loop) as cluster:
         with Client(cluster) as client_1:
@@ -520,10 +513,11 @@ async def test_bootstrap_multiple_clients(
 
         q: multiprocessing.Queue[bool] = ctx.Queue()
         p = ctx.Process(
-            target=connect_from_subprocess, args=(cluster.scheduler_address, q)
+            target=connect_dask_client_from_subprocess,
+            args=(cluster.scheduler_address, q),
         )
         p.start()
-        result = q.get(timeout=10)
+        result = q.get(timeout=5)
         p.join()
 
     assert result is True
