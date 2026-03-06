@@ -10,12 +10,21 @@ from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    PinnedPoolProperties,
+    is_pinned_memory_resources_supported,
+)
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
 
 def KiB(x: int) -> int:
     return x * 2**10
+
+
+def MiB(x: int) -> int:
+    return x * 2**20
 
 
 def test_limit_available_memory() -> None:
@@ -248,3 +257,20 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     with opaque_memory_usage(res):
         assert res.size == 0
     assert res.size == 0
+
+
+def test_pinned_pool_properties_reserve() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    props = PinnedPoolProperties(initial_pool_size=MiB(4), max_pool_size=MiB(16))
+    pmr = PinnedMemoryResource(pool_properties=props)
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(mr, pinned_mr=pmr)
+
+    assert br.memory_reserved(MemoryType.PINNED_HOST) == 0
+    res, _ = br.reserve(MemoryType.PINNED_HOST, KiB(64), allow_overbooking=False)
+    assert res.size == KiB(64)
+    assert br.memory_reserved(MemoryType.PINNED_HOST) == KiB(64)
+    del res
+    assert br.memory_reserved(MemoryType.PINNED_HOST) == 0
