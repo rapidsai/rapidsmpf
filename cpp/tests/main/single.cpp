@@ -22,7 +22,7 @@ TestEnvironmentType Environment::type() const {
 }
 
 void Environment::SetUp() {
-    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr)); // Initialize the CUDA context
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));  // Initialize the CUDA context
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(

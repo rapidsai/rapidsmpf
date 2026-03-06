@@ -107,7 +107,8 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
+    FixedSizedHostBuffer&& other
 ) noexcept {
     storage_ = std::move(other.storage_);
     stream_ = other.stream_;

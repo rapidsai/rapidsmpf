@@ -84,7 +84,8 @@ class Buffer {
      *
      * A buffer may use `FixedSizedHostBufferT` only if its memory type is listed here.
      */
-    static constexpr std::array<MemoryType, 1> pinned_buffer_types{MemoryType::PINNED_HOST
+    static constexpr std::array<MemoryType, 1> pinned_buffer_types{
+        MemoryType::PINNED_HOST
     };
 
     /**

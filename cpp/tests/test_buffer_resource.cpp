@@ -246,9 +246,8 @@ TEST(BufferResource, AllocStatistics) {
     RmmResourceAdaptor mr{mr_cuda};
     auto stats = std::make_shared<Statistics>(&mr);
     // TODO find better way to get pinned memory resource.
-    auto pinned_mr = PinnedMemoryResource::make_fixed_sized_if_available(
-        get_current_numa_node(), 1_GiB, 1_GiB, 1_MiB
-    );
+    auto pinned_mr =
+        PinnedMemoryResource::make_fixed_sized_if_available(get_current_numa_node());
     BufferResource br{
         mr,
         pinned_mr,
@@ -332,15 +331,15 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
 
 // Static assertions to verify that various container types can be used with
 // reserve_or_fail
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<decltype(MEMORY_TYPES)>,
-              MemoryType>);
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<std::vector<MemoryType>>,
-              MemoryType>);
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<std::span<MemoryType>>,
-              MemoryType>);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<decltype(MEMORY_TYPES)>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::vector<MemoryType>>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::span<MemoryType>>, MemoryType>
+);
 static_assert(std::convertible_to<
               std::ranges::range_value_t<std::initializer_list<MemoryType>>,
               MemoryType>);

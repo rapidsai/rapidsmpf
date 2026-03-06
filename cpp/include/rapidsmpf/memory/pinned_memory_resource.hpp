@@ -91,9 +91,11 @@ class PinnedMemoryResource final : public HostMemoryResource {
     /// @brief Sentinel value used to disable pinned host memory.
     static constexpr auto Disabled = nullptr;
 
+    /// @brief Type alias for the fixed-size host memory resource.
     using FixedSizedHostMemoryResource =
         cucascade::memory::fixed_size_host_memory_resource;
 
+    /// @brief Type alias for the fixed-size blocks allocation.
     using FixedSizedBlocksAllocation =
         cucascade::memory::fixed_multiple_blocks_allocation;
 
@@ -135,51 +137,20 @@ class PinnedMemoryResource final : public HostMemoryResource {
      *
      * @param numa_id NUMA node from which memory should be allocated. By default,
      * the resource uses the NUMA node of the calling thread.
-     * @param mem_limit The memory limit for reservations.
-     * @param capacity The total capacity of the resource.
+     * @param pool_properties Properties for configuring the pinned memory pool.
      * @param block_size The size of each block.
      * @param pool_size The number of blocks in the pool.
-     * @param initial_pools The number of pools to pre-allocate.
      *
      * @return A shared pointer to a new `PinnedMemoryResource` when supported,
      * otherwise `PinnedMemoryResource::Disabled`.
      */
     static std::shared_ptr<PinnedMemoryResource> make_fixed_sized_if_available(
         int numa_id,
-        std::size_t mem_limit,
-        std::size_t capacity,
+        PinnedPoolProperties pool_properties = {},
         std::size_t block_size =
             cucascade::memory::fixed_size_host_memory_resource::default_block_size,
         std::size_t pool_size =
-            cucascade::memory::fixed_size_host_memory_resource::default_pool_size,
-        std::size_t initial_pools = cucascade::memory::fixed_size_host_memory_resource::
-            default_initial_number_pools
-    );
-
-    /**
-     * @brief Create a pinned memory resource with a fixed-size host memory resource.
-     *
-     * @param numa_id NUMA node from which memory should be allocated. By default,
-     * the resource uses the NUMA node of the calling thread.
-     * @param mem_limit The memory limit for reservations.
-     * @param capacity The total capacity of the resource.
-     * @param block_size The size of each block.
-     * @param pool_size The number of blocks in the pool.
-     * @param initial_pools The number of pools to pre-allocate.
-     *
-     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
-     * otherwise `PinnedMemoryResource::Disabled`.
-     */
-    static std::shared_ptr<PinnedMemoryResource> make_fixed_sized_if_available(
-        int numa_id,
-        std::size_t mem_limit,
-        std::size_t capacity,
-        std::size_t block_size =
-            cucascade::memory::fixed_size_host_memory_resource::default_block_size,
-        std::size_t pool_size =
-            cucascade::memory::fixed_size_host_memory_resource::default_pool_size,
-        std::size_t initial_pools = cucascade::memory::fixed_size_host_memory_resource::
-            default_initial_number_pools
+            cucascade::memory::fixed_size_host_memory_resource::default_pool_size
     );
 
     /**

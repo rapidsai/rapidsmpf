@@ -224,7 +224,11 @@ void cuda_memcpy_batch_async(
     if (stream.value() == nullptr) {
         for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                const_cast<void*>(dst_ptrs[i]), src_ptrs[i], sizes[i], cudaMemcpyDefault, stream.value()
+                const_cast<void*>(dst_ptrs[i]),
+                src_ptrs[i],
+                sizes[i],
+                cudaMemcpyDefault,
+                stream.value()
             ));
         }
         return;
@@ -357,7 +361,7 @@ void Buffer::copy_to(
     while (offset < size) {
         src_ptrs.push_back(src_ptr);
         dst_ptrs.push_back(dst_ptr);
-        
+
         size_t advance = std::min({src_rem, dst_rem, size - offset});
         sizes.push_back(advance);
 
@@ -423,10 +427,10 @@ void buffer_copy(
     RAPIDSMPF_EXPECTS(statistics != nullptr, "the statistics pointer cannot be NULL");
 
     // // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
-    // // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
-    // src.latest_write_event().stream_wait(dst.stream());
-    // StreamOrderedTiming timing{dst.stream(), statistics};
-    // dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
+    // // might deallocate `src` before the memcpy enqueued on `dst.stream()` has
+    // completed. src.latest_write_event().stream_wait(dst.stream()); StreamOrderedTiming
+    // timing{dst.stream(), statistics}; dst.write_access([&](std::byte* dst_data,
+    // rmm::cuda_stream_view stream) {
     //     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
     //         dst_data + dst_offset,
     //         src.data() + src_offset,
@@ -435,12 +439,13 @@ void buffer_copy(
     //         stream
     //     ));
     // });
-    // // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
+    // // after the dst.write_access(), its last_write_event is recorded on dst.stream().
+    // So,
     // // we need the src.stream() to wait for that event.
     // dst.latest_write_event().stream_wait(src.stream());
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
-    
+
     src.copy_to(dst, size, dst_offset, src_offset);
 }
 

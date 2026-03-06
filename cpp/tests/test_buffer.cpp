@@ -54,7 +54,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
 
         br = std::make_unique<BufferResource>(
             cudf::get_current_device_resource_ref(),
-            PinnedMemoryResource::make_fixed_sized_if_available(get_current_numa_node(), 1_GiB, 1_GiB, 1_MiB),
+            PinnedMemoryResource::make_fixed_sized_if_available(get_current_numa_node()),
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},
             std::nullopt,
             stream_pool
@@ -310,14 +310,16 @@ std::shared_ptr<BufferResource> make_copy_test_br(
 ) {
     std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled;
     // 1 MiB pool is ample for the 1 KiB buffers used in these tests.
-    constexpr std::size_t kPoolCapacity = 1_MiB;
+    PinnedPoolProperties pool_properties{
+        .initial_pool_size = 1_MiB, .max_pool_size = 1_MiB
+    };
     if (kind == BufferKind::PINNED_64) {
         pinned_mr = PinnedMemoryResource::make_fixed_sized_if_available(
-            get_current_numa_node(), kPoolCapacity, kPoolCapacity, /*block_size=*/64
+            get_current_numa_node(), pool_properties, /*block_size=*/64
         );
     } else if (kind == BufferKind::PINNED_128) {
         pinned_mr = PinnedMemoryResource::make_fixed_sized_if_available(
-            get_current_numa_node(), kPoolCapacity, kPoolCapacity, /*block_size=*/128
+            get_current_numa_node(), pool_properties, /*block_size=*/128
         );
     }
     return std::make_shared<BufferResource>(
@@ -457,11 +459,13 @@ TEST_P(BufferCopyToTest, CopiesDataCorrectly) {
 
     SCOPED_TRACE("src: " + to_string(monotonic, p.src_offset, p.copy_size));
     SCOPED_TRACE("dst: " + to_string(result, 0, result.size()));
-    EXPECT_TRUE(std::equal(
-        monotonic.begin() + p.src_offset,
-        monotonic.begin() + p.src_offset + p.copy_size,
-        result.begin()
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            monotonic.begin() + p.src_offset,
+            monotonic.begin() + p.src_offset + p.copy_size,
+            result.begin()
+        )
+    );
 }
 
 /// @brief Generate all (src_kind × dst_kind × copy_size × src_offset × dst_offset)

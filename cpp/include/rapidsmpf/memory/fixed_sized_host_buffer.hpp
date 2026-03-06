@@ -82,7 +82,8 @@ class FixedSizedHostBuffer {
      * @return True if both buffers are empty or have the same total size, block size
      * and the same block pointers.
      */
-    [[nodiscard]] constexpr bool operator==(FixedSizedHostBuffer const& other
+    [[nodiscard]] constexpr bool operator==(
+        FixedSizedHostBuffer const& other
     ) const noexcept {
         return std::ranges::equal(block_ptrs_, other.block_ptrs_)
                && (block_ptrs_.empty() || block_size_ == other.block_size_);
@@ -207,6 +208,7 @@ class FixedSizedHostBuffer {
      * buffer).
      * @param storage Owning wrapper to the storage (e.g. vector, allocation
      * wrapper).
+     * @param stream CUDA stream to associate with this buffer.
      */
     FixedSizedHostBuffer(
         std::size_t size,

@@ -127,32 +127,31 @@ void PinnedMemoryResource::deallocate_sync(
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_available(
     int numa_id,
-    std::size_t mem_limit,
-    std::size_t capacity,
+    PinnedPoolProperties pool_properties,
     std::size_t block_size,
-    std::size_t pool_size,
-    std::size_t initial_pools
+    std::size_t pool_size
 ) {
     if (!is_pinned_memory_resources_supported()) {
         return PinnedMemoryResource::Disabled;
     }
-    auto mr = std::make_shared<PinnedMemoryResource>(numa_id);
-    mr->fixed_size_host_mr_ =
-        std::make_shared<FixedSizedHostMemoryResource>(
-            rmm::get_current_cuda_device().value(),
-            *mr,
-            mem_limit,
-            capacity,
-            block_size,
-            pool_size,
-            initial_pools
-        );
+    auto mr = std::make_shared<PinnedMemoryResource>(numa_id, pool_properties);
+
+    size_t const capacity =
+        pool_properties.max_pool_size.value_or(get_numa_node_host_memory(numa_id));
+
+    size_t const initial_npools = std::max(
+        cucascade::memory::fixed_size_host_memory_resource::default_initial_number_pools,
+        pool_properties.initial_pool_size / (block_size * pool_size)
+    );
+
+    mr->fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
+        numa_id, *mr, capacity, capacity, block_size, pool_size, initial_npools
+    );
     return mr;
 }
 
-PinnedMemoryResource::FixedSizedBlocksAllocation PinnedMemoryResource::allocate_fixed_sized(
-    std::size_t size
-) {
+PinnedMemoryResource::FixedSizedBlocksAllocation
+PinnedMemoryResource::allocate_fixed_sized(std::size_t size) {
     RAPIDSMPF_EXPECTS(
         fixed_size_host_mr_ != nullptr,
         "fixed-size host memory resource not initialized; "

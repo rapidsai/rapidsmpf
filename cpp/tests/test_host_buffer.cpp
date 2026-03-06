@@ -315,13 +315,15 @@ TEST_P(FixedSizedHostBufferTest, from_vector) {
         EXPECT_EQ((expected.size() + block_size - 1) / block_size, buf.num_blocks());
         for (size_t i = 0; i < buf.num_blocks(); ++i) {
             auto const offset = i * block_size;
-            EXPECT_TRUE(std::ranges::equal(
-                std::span<const std::byte>(
-                    expected.begin() + offset,
-                    std::min(block_size, expected.size() - offset)
-                ),
-                buf.block_data(i)
-            ));
+            EXPECT_TRUE(
+                std::ranges::equal(
+                    std::span<const std::byte>(
+                        expected.begin() + offset,
+                        std::min(block_size, expected.size() - offset)
+                    ),
+                    buf.block_data(i)
+                )
+            );
         }
     };
 
@@ -344,9 +346,11 @@ TEST_P(FixedSizedHostBufferTest, from_vectors) {
     std::vector<std::vector<std::byte>> vecs;
     vecs.reserve(num_vectors);
     for (size_t i = 0; i < num_vectors; ++i) {
-        vecs.emplace_back(iota_vector<std::byte>(
-            block_size, static_cast<std::byte>(i * block_size & 0xff)
-        ));
+        vecs.emplace_back(
+            iota_vector<std::byte>(
+                block_size, static_cast<std::byte>(i * block_size & 0xff)
+            )
+        );
     }
     auto const expected_vecs = vecs;
 
@@ -356,9 +360,13 @@ TEST_P(FixedSizedHostBufferTest, from_vectors) {
         EXPECT_EQ(num_vectors, buf.num_blocks());
         for (size_t i = 0; i < buf.num_blocks(); ++i) {
             EXPECT_EQ(block_size, buf.block_data(i).size());
-            EXPECT_TRUE(std::equal(
-                expected_vecs[i].begin(), expected_vecs[i].end(), buf.block_data(i).data()
-            ));
+            EXPECT_TRUE(
+                std::equal(
+                    expected_vecs[i].begin(),
+                    expected_vecs[i].end(),
+                    buf.block_data(i).data()
+                )
+            );
         }
     };
 
@@ -390,9 +398,11 @@ TEST_P(FixedSizedHostBufferTest, from_multi_blocks_alloc) {
     std::vector<std::vector<std::byte>> vecs;
     for (size_t i = 0; i < allocation->size(); ++i) {
         auto block = (*allocation)[i];
-        auto& fill = vecs.emplace_back(iota_vector<std::byte>(
-            block_size, static_cast<std::byte>(i * block_size & 0xff)
-        ));
+        auto& fill = vecs.emplace_back(
+            iota_vector<std::byte>(
+                block_size, static_cast<std::byte>(i * block_size & 0xff)
+            )
+        );
         std::ranges::copy(fill, block.begin());
     }
 
