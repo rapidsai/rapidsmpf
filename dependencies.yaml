@@ -33,6 +33,32 @@ files:
       - test_cpp_ndsh
       - test_python
       - docs
+  devcontainers:
+    output: none
+    includes:
+      # "devcontainers" includes everything in "all" except anything that includes ray-default (test_python and docs)
+      - build-universal
+      - build-cpp
+      - build-python
+      - build-mpi
+      - build-pmix
+      - checks
+      - clang_tidy
+      - cuda
+      - cuda_version
+      - depends_on_cudf
+      - depends_on_dask_cuda
+      - depends_on_dask_cudf
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
+      - depends_on_pylibcudf
+      - depends_on_rmm
+      - depends_on_ucxx
+      - py_version
+      - rapids_build_skbuild
+      - test_cpp
+      - test_cpp_ndsh
   test_cpp:
     output: none
     includes:
