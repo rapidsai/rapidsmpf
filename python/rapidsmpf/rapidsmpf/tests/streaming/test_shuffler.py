@@ -112,13 +112,10 @@ def test_single_rank_shuffler(
     pull_actor, out_messages = pull_from_channel(context, ch_in=ch4)
     actors.append(pull_actor)
 
-    # Run all actors. This blocks until every actor has completed.
     run_actor_network(actors=actors)
 
-    # Unwrap the messages into table chunks.
     output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
 
-    # Concatenate all output chunks into a single cuDF DataFrame
     result = cudf.concat(
         [
             pylibcudf_to_cudf_dataframe(chunk.table_view(), column_names=df.columns)
@@ -173,10 +170,7 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    use_any = use_extract_any or (
-        partition_assignment is PartitionAssignment.CONTIGUOUS
-    )
-    if use_any:
+    if use_extract_any:
         while (out := await shuffle.extract_any_async(context)) is not None:
             pid, data = out
             stream = context.get_stream_from_pool()
@@ -187,8 +181,7 @@ async def do_shuffle(
             )
             await ch_out.send(context, Message(pid, unpacked))
     else:
-        # TODO: this is only for a single rank
-        for pid in range(num_partitions):
+        for pid in shuffle.local_partitions():
             pd = await shuffle.extract_async(context, pid)
             assert pd is not None
             stream = context.get_stream_from_pool()
@@ -202,11 +195,13 @@ async def do_shuffle(
 
 
 @pytest.mark.parametrize("num_partitions", [4, 8])
+@pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_runtime_obeys_contiguous_assignment(
     context: Context,
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
     num_partitions: int,
+    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
     actors: list[CppActor | PyActor] = []
 
@@ -224,7 +219,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=False,
+            use_extract_any=use_extract_any,
             partition_assignment=PartitionAssignment.CONTIGUOUS,
         )
     )
