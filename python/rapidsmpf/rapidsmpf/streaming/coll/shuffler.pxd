@@ -15,6 +15,15 @@ from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
 
 
+cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
+    int32_t cpp_Shuffler_round_robin "rapidsmpf::shuffler::Shuffler::round_robin"(
+        const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t
+    )
+    int32_t cpp_Shuffler_contiguous "rapidsmpf::shuffler::Shuffler::contiguous"(
+        const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t
+    )
+
+
 cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
     cdef cpp_Actor cpp_shuffler \
         "rapidsmpf::streaming::actor::shuffler"(
@@ -32,6 +41,9 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             int32_t op_id,
             uint32_t total_num_partitions,
+            int32_t (*partition_owner)(
+                const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t
+            ),
         ) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +ex_handler
