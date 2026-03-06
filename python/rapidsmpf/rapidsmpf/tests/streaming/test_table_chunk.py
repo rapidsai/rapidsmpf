@@ -14,6 +14,7 @@ import pylibcudf as plc
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.content_description import ContentDescription
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
@@ -355,7 +356,8 @@ def test_data_alloc_size(context: Context, stream: Stream) -> None:
     assert host_chunk.data_alloc_size() == host_chunk.data_alloc_size(None)
 
 
-def test_shape_accessor(context: Context, stream: Stream) -> None:
+@pytest.mark.parametrize("from_pack", [False, True], ids=["from_table", "from_pack"])
+def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
     nrows = 64
     expect = plc.Table(
         [
@@ -367,7 +369,15 @@ def test_shape_accessor(context: Context, stream: Stream) -> None:
     )
     expected_shape = (expect.num_rows(), expect.num_columns())
 
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    if from_pack:
+        pd = PackedData.from_cudf_packed_columns(
+            plc.contiguous_split.pack(expect, stream), stream, context.br()
+        )
+        device_chunk = TableChunk.from_packed_data(pd)
+    else:
+        device_chunk = TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True
+        )
     assert device_chunk.is_available()
     assert device_chunk.shape == expected_shape
 
