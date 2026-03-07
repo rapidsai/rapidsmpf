@@ -31,7 +31,6 @@ class PinnedPoolProperties:
         performance for the first allocation. Defaults to 0.
     max_pool_size
         Maximum size of the pool in bytes. ``None`` means no limit.
-        Defaults to ``None``.
     """
     def __init__(self, initial_pool_size: int = 0, max_pool_size=None):
         self.initial_pool_size = initial_pool_size
