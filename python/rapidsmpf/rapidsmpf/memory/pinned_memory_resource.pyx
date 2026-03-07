@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from libc.stddef cimport size_t
 from libcpp.memory cimport make_shared
+from libcpp.optional cimport make_optional
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.utils.system_info import get_current_numa_node
 
 
 cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
@@ -15,6 +18,23 @@ cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
         "rapidsmpf::PinnedMemoryResource::from_options"(
             cpp_Options options
         ) except +ex_handler
+
+
+class PinnedPoolProperties:
+    """
+    Properties for configuring a pinned memory pool.
+
+    Parameters
+    ----------
+    initial_pool_size
+        Initial size of the pool in bytes. A larger initial size can improve
+        performance for the first allocation. Defaults to 0.
+    max_pool_size
+        Maximum size of the pool in bytes. ``None`` means no limit.
+    """
+    def __init__(self, initial_pool_size: int = 0, max_pool_size=None):
+        self.initial_pool_size = initial_pool_size
+        self.max_pool_size = max_pool_size
 
 
 cpdef bool_t is_pinned_memory_resources_supported():
@@ -45,6 +65,9 @@ cdef class PinnedMemoryResource:
     numa_id
         NUMA node from which memory should be allocated. By default, the
         resource uses the NUMA node of the calling thread.
+    pool_properties
+        Properties for configuring the pinned memory pool. If ``None``,
+        default pool properties are used.
 
     Raises
     ------
@@ -52,18 +75,25 @@ cdef class PinnedMemoryResource:
         If pinned host memory pools are not supported by the current CUDA
         version.
     """
-    def __init__(self, numa_id = None):
-        if numa_id is None:
-            self._handle = make_shared[cpp_PinnedMemoryResource]()
-        else:
-            self._handle = make_shared[cpp_PinnedMemoryResource](<int?>numa_id)
+    def __init__(self, numa_id=None, pool_properties=None):
+        cdef cpp_PinnedPoolProperties props
+        if pool_properties is not None:
+            props.initial_pool_size = pool_properties.initial_pool_size
+            if pool_properties.max_pool_size is not None:
+                props.max_pool_size = make_optional[size_t](
+                    <size_t?>pool_properties.max_pool_size
+                )
+        numa_id = numa_id if numa_id is not None else get_current_numa_node()
+        self._handle = make_shared[cpp_PinnedMemoryResource](
+            <int?>(numa_id), props
+        )
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
 
     @staticmethod
-    def make_if_available(numa_id = None):
+    def make_if_available(numa_id=None, pool_properties=None):
         """
         Create a pinned memory resource if the system supports pinned memory.
 
@@ -72,13 +102,16 @@ cdef class PinnedMemoryResource:
         numa_id
             NUMA node to associate with the resource. Defaults to the current
             NUMA node.
+        pool_properties
+            Properties for configuring the pinned memory pool. If ``None``,
+            default pool properties are used.
 
         Returns
         -------
         A pinned memory resource when supported, otherwise None.
         """
         if is_pinned_memory_resources_supported():
-            return PinnedMemoryResource(numa_id)
+            return PinnedMemoryResource(numa_id, pool_properties)
         return None
 
     @classmethod
