@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <atomic>
 #include <future>
 #include <memory>
@@ -838,6 +839,57 @@ TEST_F(PostBoxTest, ThreadSafety) {
     EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
 
     EXPECT_TRUE(postbox->empty());
+}
+
+class ContiguousPartitionAssignmentTest
+    : public ::testing::TestWithParam<rapidsmpf::shuffler::PartID> {
+  protected:
+    void SetUp() override {
+        comm = GlobalEnvironment->comm_;
+        nranks = comm->nranks();
+        rank = comm->rank();
+        total_num_partitions = GetParam();
+    }
+
+    std::shared_ptr<rapidsmpf::Communicator> comm;
+    rapidsmpf::Rank nranks;
+    rapidsmpf::Rank rank;
+    rapidsmpf::shuffler::PartID total_num_partitions;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PartitionAssignment,
+    ContiguousPartitionAssignmentTest,
+    testing::Values(1, 2, 3, 5, 7, 10, 16, 100),
+    [](const testing::TestParamInfo<rapidsmpf::shuffler::PartID>& info) {
+        return "nparts_" + std::to_string(info.param);
+    }
+);
+
+TEST_P(ContiguousPartitionAssignmentTest, contiguous) {
+    std::vector<std::vector<rapidsmpf::shuffler::PartID>> rank_partitions(nranks);
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        auto owner =
+            rapidsmpf::shuffler::Shuffler::contiguous(comm, pid, total_num_partitions);
+        EXPECT_GE(owner, 0);
+        EXPECT_LT(owner, nranks);
+        rank_partitions[owner].push_back(pid);
+    }
+
+    // Each rank's partitions must be contiguous.
+    for (rapidsmpf::Rank r = 0; r < nranks; ++r) {
+        auto const& pids = rank_partitions[r];
+        for (std::size_t i = 1; i < pids.size(); ++i) {
+            EXPECT_EQ(pids[i], pids[i - 1] + 1);
+        }
+    }
+
+    // Concatenating all rank partitions should cover [0, total_num_partitions).
+    std::vector<rapidsmpf::shuffler::PartID> all_pids;
+    for (auto const& pids : rank_partitions) {
+        all_pids.insert(all_pids.end(), pids.begin(), pids.end());
+    }
+    EXPECT_EQ(all_pids, iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions));
 }
 
 TEST(Shuffler, ShutdownWhilePaused) {
