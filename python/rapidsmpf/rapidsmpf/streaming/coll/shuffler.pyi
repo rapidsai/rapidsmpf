@@ -2,18 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Mapping
-from enum import IntEnum
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-
-class PartitionAssignment(IntEnum):
-    ROUND_ROBIN = ...
-    CONTIGUOUS = ...
 
 def shuffler(
     ctx: Context,
@@ -22,6 +18,7 @@ def shuffler(
     ch_out: Channel[PartitionVectorChunk],
     op_id: int,
     total_num_partitions: int,
+    partition_assignment: PartitionAssignment = ...,
 ) -> CppActor: ...
 
 class ShufflerAsync:
@@ -31,7 +28,7 @@ class ShufflerAsync:
         comm: Communicator,
         op_id: int,
         total_num_partitions: int,
-        partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
+        partition_assignment: PartitionAssignment = ...,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

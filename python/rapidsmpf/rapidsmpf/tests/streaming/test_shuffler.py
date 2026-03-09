@@ -13,8 +13,8 @@ import cudf
 import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
+from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.coll.shuffler import (
-    PartitionAssignment,
     ShufflerAsync,
     shuffler,
 )
