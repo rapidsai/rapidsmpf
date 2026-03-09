@@ -412,6 +412,9 @@ Shuffler::Shuffler(
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{br_->statistics()} {
+    RAPIDSMPF_EXPECTS(
+        total_num_partitions > 0, "number of partitions must be strictly positive"
+    );
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
 
