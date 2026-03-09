@@ -233,6 +233,14 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
+std::pair<cudf::size_type, cudf::size_type> TableChunk::shape() const noexcept {
+    if (packed_data_ != nullptr) {
+        auto view = cudf::packed_metadata_view(*packed_data_->metadata);
+        return {view.num_rows(), view.num_columns()};
+    }
+    return {table_view_->num_rows(), table_view_->num_columns()};
+}
+
 ContentDescription get_content_description(TableChunk const& obj) {
     ContentDescription ret{
         obj.is_spillable() ? ContentDescription::Spillable::YES
