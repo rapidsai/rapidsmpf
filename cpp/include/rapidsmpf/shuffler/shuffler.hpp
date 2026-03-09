@@ -51,7 +51,7 @@ class Shuffler {
         std::function<Rank(std::shared_ptr<Communicator> const&, PartID, PartID)>;
 
     /**
-     * @brief A `PartitionOwner` that distributes partitions using round robin.
+     * @brief A `PartitionOwner` that distributes partitions using round robin assignment.
      *
      * @param comm The communicator to use.
      * @param pid The partition ID to query.
@@ -68,6 +68,7 @@ class Shuffler {
 
     /**
      * @brief A `PartitionOwner` that assigns contiguous partition ID ranges to ranks.
+     *
      * Rank 0 gets [0, k), rank 1 gets [k, 2k), etc. Use for sort so that each rank's
      * local_partitions() are adjacent and in order.
      *
@@ -79,11 +80,9 @@ class Shuffler {
     static Rank contiguous(
         std::shared_ptr<Communicator> const& comm, PartID pid, PartID total_num_partitions
     ) {
-        auto const n_ranks = safe_cast<PartID>(comm->nranks());
-        if (n_ranks == 1 || total_num_partitions <= 1) {
-            return 0;
-        }
-        return safe_cast<Rank>(pid * n_ranks / total_num_partitions);
+        return safe_cast<Rank>(
+            (pid * safe_cast<PartID>(comm->nranks())) / total_num_partitions
+        );
     }
 
     /**
