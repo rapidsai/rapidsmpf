@@ -315,8 +315,7 @@ target_link_libraries(
          CCCL::CCCL
          $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-         $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
-         $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+         $<TARGET_NAME_IF_EXISTS:cuCascade::cucascade>
   PRIVATE cuco::cuco
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>

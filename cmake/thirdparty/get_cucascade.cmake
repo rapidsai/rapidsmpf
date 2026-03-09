@@ -26,33 +26,18 @@ function(find_and_configure_cucascade)
     set_target_properties(kvikio::kvikio PROPERTIES IMPORTED_GLOBAL TRUE)
   endif()
 
-  # rapids_cpm_find( cuCascade 0.1.0 GLOBAL_TARGETS cuCascade::cucascade CPM_ARGS GIT_REPOSITORY
-  # https://github.com/NVIDIA/cuCascade.git GIT_TAG main GIT_SHALLOW TRUE OPTIONS "BUILD_TESTS OFF"
-  # "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS OFF" "BUILD_STATIC_LIBS ON" "WARNINGS_AS_ERRORS OFF"
-  # EXCLUDE_FROM_ALL )
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
+    BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/nirandaperera/cuCascade.git
-    GIT_TAG accept_resouce_ref
+    GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
+    GIT_TAG main
     GIT_SHALLOW TRUE
     OPTIONS "BUILD_TESTS OFF" "BUILD_BENCHMARKS OFF" "BUILD_SHARED_LIBS OFF" "BUILD_STATIC_LIBS ON"
             "WARNINGS_AS_ERRORS OFF"
     EXCLUDE_FROM_ALL
   )
-
-  # cuCascade::cucascade is a CMake ALIAS target and cannot be added to an export set directly. Wrap
-  # it in a real INTERFACE target (similar to how libcoro is handled) so it can be linked PUBLIC
-  # from rapidsmpf, propagating include directories to all consumers.
-  if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
-    add_library(rapidsmpf_cucascade_internal INTERFACE)
-    target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
-    # Link kvikio to ensure cuDF's transitive dependency is satisfied
-    if(TARGET kvikio::kvikio)
-      target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
-    endif()
-  endif()
 endfunction()
 
 find_and_configure_cucascade()
