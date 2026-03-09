@@ -90,6 +90,15 @@ FixedSizedHostBuffer FixedSizedHostBuffer::from_multi_blocks_alloc(
     );
 }
 
+FixedSizedHostBuffer::~FixedSizedHostBuffer() {
+    // TODO: blocks are not stream ordered. So, we need to sync the stream before
+    // releasing them.
+    if (!block_ptrs_.empty()) {
+        stream_.synchronize();
+        reset();
+    }
+}
+
 void FixedSizedHostBuffer::reset() noexcept {
     storage_ = {};
     stream_ = rmm::cuda_stream_view{};
@@ -107,15 +116,16 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
-    FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
 ) noexcept {
-    storage_ = std::move(other.storage_);
-    stream_ = other.stream_;
-    total_size_ = other.total_size_;
-    block_size_ = other.block_size_;
-    block_ptrs_ = other.block_ptrs_;
-    other.reset();
+    if (this != &other) {
+        storage_ = std::move(other.storage_);
+        stream_ = other.stream_;
+        total_size_ = other.total_size_;
+        block_size_ = other.block_size_;
+        block_ptrs_ = other.block_ptrs_;
+        other.reset();
+    }
     return *this;
 }
 

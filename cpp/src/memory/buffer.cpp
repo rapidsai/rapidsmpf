@@ -446,7 +446,7 @@ void buffer_copy(
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
     // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
 
-    src.copy_to(dst, size, dst_offset, src_offset);
+    src.copy_to(dst, size, dst_offset, src_offset, std::move(statistics));
 }
 
 }  // namespace rapidsmpf

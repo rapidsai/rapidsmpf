@@ -35,6 +35,14 @@ class FixedSizedHostBuffer {
     FixedSizedHostBuffer() = default;
 
     /**
+     * @brief Destructor.
+     *
+     * @note This buffer's work on `stream()` needs to be finished before the buffer is
+     * destroyed.
+     */
+    ~FixedSizedHostBuffer();
+
+    /**
      * @brief Construct from a single contiguous vector split into fixed-size blocks.
      *
      * Takes ownership of @p vec by moving it into internal storage.
@@ -82,8 +90,7 @@ class FixedSizedHostBuffer {
      * @return True if both buffers are empty or have the same total size, block size
      * and the same block pointers.
      */
-    [[nodiscard]] constexpr bool operator==(
-        FixedSizedHostBuffer const& other
+    [[nodiscard]] constexpr bool operator==(FixedSizedHostBuffer const& other
     ) const noexcept {
         return std::ranges::equal(block_ptrs_, other.block_ptrs_)
                && (block_ptrs_.empty() || block_size_ == other.block_size_);
@@ -99,6 +106,9 @@ class FixedSizedHostBuffer {
      * @brief Move assignment; the moved-from buffer is left empty.
      * @param other Buffer to move from.
      * @return Reference to this buffer.
+     *
+     * @note This buffer's work on `stream()` needs to be finished before the `other`
+     * buffer's moved into this.
      */
     FixedSizedHostBuffer& operator=(FixedSizedHostBuffer&& other) noexcept;
 
