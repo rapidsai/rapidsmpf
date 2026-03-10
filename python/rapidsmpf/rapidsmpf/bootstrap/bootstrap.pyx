@@ -62,8 +62,9 @@ def create_ucxx_comm(
     progress_thread
         Progress thread to use in the initialized communicator.
     type
-        Backend type to use for coordination. By default, ``BackendType.AUTO`` is used,
-        which currently resolves to the file-based backend.
+        Backend type to use for coordination. By default,
+        :attr:`BackendType.AUTO` is used, which currently resolves to the
+        file-based backend.
     options
         Configuration options for the UCXX communicator. If ``None``, a default
         `rapidsmpf.config.Options` instance is used.
