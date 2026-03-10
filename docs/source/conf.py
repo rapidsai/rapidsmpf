@@ -81,6 +81,54 @@ intersphinx_mapping = {
 }
 
 
+# Custom autodoc documenter for Cython cpdef enum classes (IntEnum/IntFlag).
+# Without this, autodoc renders inherited int methods (denominator, imag, etc.)
+# instead of the actual enum members.
+from enum import IntEnum, IntFlag
+from typing import Any
+
+from sphinx.ext.autodoc import ClassDocumenter
+
+
+class CythonIntEnumDocumenter(ClassDocumenter):
+    objtype = "enum"
+    directivetype = "class"
+    priority = 10 + ClassDocumenter.priority
+
+    option_spec = dict(ClassDocumenter.option_spec)
+
+    @classmethod
+    def can_document_member(
+        cls, member: Any, membername: str, isattr: bool, parent: Any
+    ) -> bool:
+        try:
+            return issubclass(
+                member, (IntEnum, IntFlag)
+            ) and member.__module__.startswith("rapidsmpf")
+        except TypeError:
+            return False
+
+    def add_content(self, more_content) -> None:
+        doc_as_attr = self.doc_as_attr
+        self.doc_as_attr = False
+        super().add_content(more_content)
+        self.doc_as_attr = doc_as_attr
+        source_name = self.get_sourcename()
+        enum_object: IntEnum = self.object
+
+        self.add_line("", source_name)
+        self.add_line(".. container:: enum-members", source_name)
+        self.add_line("", source_name)
+
+        for the_member_name in enum_object.__members__:
+            self.add_line(f"   .. attribute:: {the_member_name}", source_name)
+            self.add_line("", source_name)
+
+
+def setup(app):
+    app.registry.add_documenter("enum", CythonIntEnumDocumenter)
+
+
 nitpick_ignore_regex = [
     # Ignore WARNING: py:class reference target not found: Table [ref.class] in unpack_and_concat
     ('py:class', 'Table'),
@@ -90,12 +138,6 @@ nitpick_ignore_regex = [
     ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
     # Unclear why this was causing a warning
     ("py:obj", "rapidsmpf.memory.buffer_resource.LimitAvailableMemory.__call__"),
-    # autodoc fails to generate references for integer methods (real, image, etc.)
-    # for IntEnums coming from Cython.
-    ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
-    ("py:obj", "rapidsmpf.memory.buffer.MemoryType.*"),
-    ("py:obj", "rapidsmpf.memory.scoped_memory_record.AllocType.*"),
-    ("py:obj", "(denominator|imag|numerator|real)"),
     ('py:class', 'rmm.pylibrmm.stream.Stream'),
     ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
     # We're subclassing this from RMM, and sphinx can't find these methods.

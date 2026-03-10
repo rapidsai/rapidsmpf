@@ -181,9 +181,9 @@ def shuffler(
     total_num_partitions
         Total number of logical partitions to shuffle the data into.
     partition_assignment
-        How to assign partition IDs to ranks: :attr:`PartitionAssignment.ROUND_ROBIN`
+        How to assign partition IDs to ranks: :attr:`~.PartitionAssignment.ROUND_ROBIN`
         (default) for load balance (e.g. hash shuffle), or
-        :attr:`PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
 
@@ -225,9 +225,9 @@ cdef class ShufflerAsync:
     total_num_partitions
         Global number of output partitions in the shuffle.
     partition_assignment
-        How to assign partition IDs to ranks: :attr:`PartitionAssignment.ROUND_ROBIN`
+        How to assign partition IDs to ranks: :attr:`~.PartitionAssignment.ROUND_ROBIN`
         (default) for load balance (e.g. hash shuffle), or
-        :attr:`PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
     """

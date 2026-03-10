@@ -128,8 +128,7 @@ def split_and_pack(
         The input table to split and pack. The table cannot be empty (the
         split points would not be valid).
     splits
-        The split points, equivalent to :func:`cudf::split`, i.e., one less than
-        the number of result partitions.
+        The split points, one less than the number of result partitions.
     stream
         The CUDA stream used for memory operations.
     br
