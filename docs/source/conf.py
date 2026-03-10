@@ -8,10 +8,16 @@
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+from __future__ import annotations
 
-project = 'rapidsmpf'
-copyright = '2025, NVIDIA Corporation'
-author = 'NVIDIA Corporation'
+from enum import IntEnum, IntFlag
+from typing import Any
+
+from sphinx.ext.autodoc import ClassDocumenter
+
+project = "rapidsmpf"
+copyright = "2025-2026, NVIDIA Corporation"
+author = "NVIDIA Corporation"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -31,7 +37,7 @@ extensions = [
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
 
-templates_path = ['_templates']
+templates_path = ["_templates"]
 exclude_patterns = []
 autosummary_generate = True
 
@@ -41,8 +47,8 @@ myst_heading_anchors = 3
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_static_path = ['_static']
-html_css_files = ['custom.css']
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 
 html_theme_options = {
@@ -81,16 +87,13 @@ intersphinx_mapping = {
 }
 
 
-# Custom autodoc documenter for Cython cpdef enum classes (IntEnum/IntFlag).
-# Without this, autodoc renders inherited int methods (denominator, imag, etc.)
-# instead of the actual enum members.
-from enum import IntEnum, IntFlag
-from typing import Any
-
-from sphinx.ext.autodoc import ClassDocumenter
-
-
 class CythonIntEnumDocumenter(ClassDocumenter):
+    """
+    Custom autodoc documenter for Cython cpdef enum classes (IntEnum/IntFlag).
+    Without this, autodoc renders inherited int methods (denominator, imag, etc.)
+    instead of the actual enum members.
+    """
+
     objtype = "enum"
     directivetype = "class"
     priority = 10 + ClassDocumenter.priority
@@ -130,16 +133,8 @@ def setup(app):
 
 
 nitpick_ignore_regex = [
-    # Ignore WARNING: py:class reference target not found: Table [ref.class] in unpack_and_concat
-    ('py:class', 'Table'),
-    # Ignore TypeVars being assumed to be classes
-    # https://github.com/sphinx-doc/sphinx/issues/10974
-    ("py:class", "DataFrameT"),
-    ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
-    # Unclear why this was causing a warning
+    # Cython turns __call__ into a slot_wrapper that autodoc doesn't understand.
     ("py:obj", "rapidsmpf.memory.buffer_resource.LimitAvailableMemory.__call__"),
-    ('py:class', 'rmm.pylibrmm.stream.Stream'),
-    ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
     # We're subclassing this from RMM, and sphinx can't find these methods.
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
