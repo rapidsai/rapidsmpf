@@ -230,7 +230,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         auto const nbytes = buffer->size;
         auto ret = allocate(nbytes, buffer->stream(), reservation);
         // buffer_copy(statistics_, *ret, *buffer, nbytes);
-        buffer->copy_to(*ret, buffer->size);
+        buffer->copy_to(*ret, buffer->size, 0, 0, statistics_);
         return ret;
     }
     return buffer;

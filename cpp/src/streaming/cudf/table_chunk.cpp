@@ -197,10 +197,9 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 size_t bytes_copied = 0;
                 dest_buffer->write_access_blocks([&](std::span<std::byte> block,
                                                      rmm::cuda_stream_view /* stream */) {
-                    RAPIDSMPF_EXPECTS(
-                        chunked_packer.has_next() && block.size() == block_size,
-                        "chunked packer has no next"
-                    );
+                    if (!chunked_packer.has_next()) {
+                        return;
+                    }
                     cudf::device_span<std::uint8_t> device_span(
                         reinterpret_cast<std::uint8_t*>(block.data()), block.size()
                     );

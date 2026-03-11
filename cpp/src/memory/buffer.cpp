@@ -390,7 +390,7 @@ void Buffer::copy_to(
         std::span<void const*>(src_ptrs),
         std::span<void const*>(dst_ptrs),
         std::span<std::size_t>(sizes),
-        stream_
+        dst.stream()
     );
 
     dst.latest_write_event().stream_wait(stream_);
