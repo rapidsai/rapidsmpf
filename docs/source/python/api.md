@@ -46,8 +46,8 @@ libraries.
 #### Partition
 
 ```{eval-rst}
-.. autofunction:: rapidsmpf.integrations.cudf.partition.split_and_pack
-.. autofunction:: rapidsmpf.integrations.cudf.partition.unpack_and_concat
+.. automodule:: rapidsmpf.integrations.cudf.partition
+   :members:
 ```
 
 ## Shuffler

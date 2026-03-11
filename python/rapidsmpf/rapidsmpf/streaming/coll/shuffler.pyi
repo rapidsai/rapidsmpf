@@ -5,6 +5,7 @@ from collections.abc import Mapping
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
@@ -17,11 +18,17 @@ def shuffler(
     ch_out: Channel[PartitionVectorChunk],
     op_id: int,
     total_num_partitions: int,
+    partition_assignment: PartitionAssignment = ...,
 ) -> CppActor: ...
 
 class ShufflerAsync:
     def __init__(
-        self, ctx: Context, comm: Communicator, op_id: int, total_num_partitions: int
+        self,
+        ctx: Context,
+        comm: Communicator,
+        op_id: int,
+        total_num_partitions: int,
+        partition_assignment: PartitionAssignment = ...,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

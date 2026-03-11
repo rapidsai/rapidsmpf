@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <atomic>
 #include <future>
 #include <memory>
@@ -130,7 +131,9 @@ void test_shuffler(
         // any distribution would work (as long as no rows are picked by multiple
         // ranks).
         // TODO: we should test different distributions of the input partitions.
-        if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
+        if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i, total_num_partitions)
+            == comm->rank())
+        {
             cudf::size_type row_end = row_offset + partiton_size;
             if (i == total_num_partitions - 1) {
                 // Include the reminder of rows in the very last partition.
@@ -170,7 +173,10 @@ void test_shuffler(
         );
 
         // We should only receive the partitions assigned to this rank.
-        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
+        EXPECT_EQ(
+            shuffler.partition_owner(comm, finished_partition, total_num_partitions),
+            comm->rank()
+        );
 
         // Check the result while ignoring the row order.
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
@@ -522,7 +528,7 @@ void run_wait_test(WaitFn&& wait_fn) {
     }
 
     auto local_partitions = rapidsmpf::shuffler::Shuffler::local_partitions(
-        comm, out_nparts, rapidsmpf::shuffler::Shuffler::round_robin
+        comm, out_nparts, &rapidsmpf::shuffler::Shuffler::round_robin
     );
 
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
@@ -745,7 +751,7 @@ class PostBoxTest : public cudf::test::BaseFixture {
 
     rapidsmpf::Rank partition_owner(rapidsmpf::shuffler::PartID part_id) {
         return rapidsmpf::shuffler::Shuffler::round_robin(
-            GlobalEnvironment->comm_, part_id
+            GlobalEnvironment->comm_, part_id, 0
         );
     }
 
@@ -833,6 +839,57 @@ TEST_F(PostBoxTest, ThreadSafety) {
     EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
 
     EXPECT_TRUE(postbox->empty());
+}
+
+class ContiguousPartitionAssignmentTest
+    : public ::testing::TestWithParam<rapidsmpf::shuffler::PartID> {
+  protected:
+    void SetUp() override {
+        comm = GlobalEnvironment->comm_;
+        nranks = comm->nranks();
+        rank = comm->rank();
+        total_num_partitions = GetParam();
+    }
+
+    std::shared_ptr<rapidsmpf::Communicator> comm;
+    rapidsmpf::Rank nranks;
+    rapidsmpf::Rank rank;
+    rapidsmpf::shuffler::PartID total_num_partitions;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PartitionAssignment,
+    ContiguousPartitionAssignmentTest,
+    testing::Values(1, 2, 3, 5, 7, 10, 16, 100),
+    [](const testing::TestParamInfo<rapidsmpf::shuffler::PartID>& info) {
+        return "nparts_" + std::to_string(info.param);
+    }
+);
+
+TEST_P(ContiguousPartitionAssignmentTest, contiguous) {
+    std::vector<std::vector<rapidsmpf::shuffler::PartID>> rank_partitions(nranks);
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        auto owner =
+            rapidsmpf::shuffler::Shuffler::contiguous(comm, pid, total_num_partitions);
+        EXPECT_GE(owner, 0);
+        EXPECT_LT(owner, nranks);
+        rank_partitions[owner].push_back(pid);
+    }
+
+    // Each rank's partitions must be contiguous.
+    for (rapidsmpf::Rank r = 0; r < nranks; ++r) {
+        auto const& pids = rank_partitions[r];
+        for (std::size_t i = 1; i < pids.size(); ++i) {
+            EXPECT_EQ(pids[i], pids[i - 1] + 1);
+        }
+    }
+
+    // Concatenating all rank partitions should cover [0, total_num_partitions).
+    std::vector<rapidsmpf::shuffler::PartID> all_pids;
+    for (auto const& pids : rank_partitions) {
+        all_pids.insert(all_pids.end(), pids.begin(), pids.end());
+    }
+    EXPECT_EQ(all_pids, iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions));
 }
 
 TEST(Shuffler, ShutdownWhilePaused) {
