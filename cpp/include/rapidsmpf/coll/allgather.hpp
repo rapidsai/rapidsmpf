@@ -455,6 +455,9 @@ class AllGather {
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
      *
+     * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
+     * locally.
+     *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
      * ordered with respect to their own stream.

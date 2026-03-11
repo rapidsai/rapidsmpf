@@ -78,6 +78,9 @@ class AllReduce {
      * @param finished_callback Optional callback run once locally when the allreduce
      * is finished and results are ready for extraction.
      *
+     * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
+     * locally.
+     *
      * @throws std::invalid_argument If the input and output buffers do not match
      * appropriately (same size, same memory type).
      */
