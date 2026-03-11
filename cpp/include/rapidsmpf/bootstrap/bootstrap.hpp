@@ -45,9 +45,9 @@ struct Context {
  * backend configuration. It should be called early in the application lifecycle.
  *
  * Environment variables checked (in order of precedence):
- * - RAPIDSMPF_RANK: Explicitly set rank
- * - RAPIDSMPF_NRANKS: Explicitly set total rank count
- * - RAPIDSMPF_COORD_DIR: File-based coordination directory
+ * - RRUN_RANK: Explicitly set rank
+ * - RRUN_NRANKS: Explicitly set total rank count
+ * - RRUN_COORD_DIR: File-based coordination directory
  *
  * @param type Backend type to use (default: AUTO for auto-detection).
  * @return Context object containing rank and coordination information.

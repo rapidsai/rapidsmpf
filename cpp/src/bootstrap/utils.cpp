@@ -114,7 +114,7 @@ int get_gpu_id() {
 }
 
 bool is_running_with_rrun() {
-    return getenv_optional("RAPIDSMPF_RANK").has_value();
+    return getenv_optional("RRUN_RANK").has_value();
 }
 
 bool is_running_with_slurm() {
@@ -123,7 +123,7 @@ bool is_running_with_slurm() {
 }
 
 Rank get_rank() {
-    if (auto rank_opt = getenv_int("RAPIDSMPF_RANK")) {
+    if (auto rank_opt = getenv_int("RRUN_RANK")) {
         return *rank_opt;
     } else if (auto rank_opt = getenv_int("PMIX_RANK")) {
         return *rank_opt;
@@ -132,13 +132,13 @@ Rank get_rank() {
     } else {
         throw std::runtime_error(
             "Could not determine number of ranks. "
-            "Ensure RAPIDSMPF_RANK, PMIX_RANK, or SLURM_PROCID is set."
+            "Ensure RRUN_RANK, PMIX_RANK, or SLURM_PROCID is set."
         );
     }
 }
 
 Rank get_nranks() {
-    if (auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS")) {
+    if (auto nranks_opt = getenv_int("RRUN_NRANKS")) {
         return *nranks_opt;
     } else if (auto nranks_opt = getenv_int("SLURM_NPROCS")) {
         return *nranks_opt;
@@ -147,7 +147,7 @@ Rank get_nranks() {
     } else {
         throw std::runtime_error(
             "Could not determine number of ranks. "
-            "Ensure RAPIDSMPF_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
+            "Ensure RRUN_NRANKS, SLURM_NPROCS, or SLURM_NTASKS is set."
         );
     }
 }
