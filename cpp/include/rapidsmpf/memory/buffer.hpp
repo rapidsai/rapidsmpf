@@ -316,6 +316,9 @@ class Buffer {
     [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
         return latest_write_event_;
     }
+    [[nodiscard]] CudaEvent& latest_write_event() noexcept {
+        return latest_write_event_;
+    }
 
     /**
      * @brief Rebind the buffer to a new CUDA stream.

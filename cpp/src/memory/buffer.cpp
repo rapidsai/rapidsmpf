@@ -393,6 +393,7 @@ void Buffer::copy_to(
         dst.stream()
     );
 
+    dst.latest_write_event().record(dst.stream());
     dst.latest_write_event().stream_wait(stream_);
 
     statistics->record_copy(mem_type_, dst.mem_type_, size, std::move(timing));
