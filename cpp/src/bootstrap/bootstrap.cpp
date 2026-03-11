@@ -28,8 +28,8 @@ namespace {
  */
 BackendType detect_backend() {
     // Check for rrun coordination first (explicit configuration takes priority).
-    // If RAPIDSMPF_COORD_DIR is set, rrun is coordinating and we should use FILE backend.
-    if (getenv_optional("RAPIDSMPF_COORD_DIR")) {
+    // If RRUN_COORD_DIR is set, rrun is coordinating and we should use FILE backend.
+    if (getenv_optional("RRUN_COORD_DIR")) {
         return BackendType::FILE;
     }
 
@@ -59,28 +59,28 @@ Context file_backend_init() {
     Context ctx;
     ctx.type = BackendType::FILE;
 
-    // Require explicit RAPIDSMPF_RANK and RAPIDSMPF_NRANKS
-    auto rank_opt = getenv_int("RAPIDSMPF_RANK");
-    auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
-    auto coord_dir_opt = getenv_optional("RAPIDSMPF_COORD_DIR");
+    // Require explicit RRUN_RANK and RRUN_NRANKS
+    auto rank_opt = getenv_int("RRUN_RANK");
+    auto nranks_opt = getenv_int("RRUN_NRANKS");
+    auto coord_dir_opt = getenv_optional("RRUN_COORD_DIR");
 
     if (!rank_opt.has_value()) {
         throw std::runtime_error(
-            "RAPIDSMPF_RANK environment variable not set. "
+            "RRUN_RANK environment variable not set. "
             "Set it or use a launcher like 'rrun'."
         );
     }
 
     if (!nranks_opt.has_value()) {
         throw std::runtime_error(
-            "RAPIDSMPF_NRANKS environment variable not set. "
+            "RRUN_NRANKS environment variable not set. "
             "Set it or use a launcher like 'rrun'."
         );
     }
 
     if (!coord_dir_opt.has_value()) {
         throw std::runtime_error(
-            "RAPIDSMPF_COORD_DIR environment variable not set. "
+            "RRUN_COORD_DIR environment variable not set. "
             "Set it or use a launcher like 'rrun'."
         );
     }
@@ -91,7 +91,7 @@ Context file_backend_init() {
 
     if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
         throw std::runtime_error(
-            "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
+            "Invalid rank: RRUN_RANK=" + std::to_string(ctx.rank)
             + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
         );
     }

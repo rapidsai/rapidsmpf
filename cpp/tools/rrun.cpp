@@ -866,8 +866,8 @@ int execute_single_node_mode(Config& cfg) {
 
     // Set rrun coordination environment variables so the application knows
     // it's being launched by rrun and should use bootstrap mode
-    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
-    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
+    setenv("RRUN_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
+    setenv("RRUN_NRANKS", std::to_string(cfg.slurm_ntasks).c_str(), 1);
 
     // Determine GPU for this Slurm task
     int gpu_id = -1;
@@ -1037,9 +1037,9 @@ int launch_ranks_fork_based(
  * @brief Launch a single rank locally (fork-based).
  *
  * @param cfg Configuration.
- * @param global_rank Global rank number (used for RAPIDSMPF_RANK).
+ * @param global_rank Global rank number (used for RRUN_RANK).
  * @param local_rank Local rank for GPU assignment (defaults to global_rank).
- * @param total_ranks Total number of ranks across all tasks (used for RAPIDSMPF_NRANKS).
+ * @param total_ranks Total number of ranks across all tasks (used for RRUN_NRANKS).
  * @param out_fd_stdout Output file descriptor for stdout.
  * @param out_fd_stderr Output file descriptor for stderr.
  * @return Child process PID.
@@ -1062,12 +1062,12 @@ pid_t launch_rank_local(
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
             }
 
-            setenv("RAPIDSMPF_RANK", std::to_string(global_rank).c_str(), 1);
-            setenv("RAPIDSMPF_NRANKS", std::to_string(total_ranks).c_str(), 1);
+            setenv("RRUN_RANK", std::to_string(global_rank).c_str(), 1);
+            setenv("RRUN_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
             // Set coordination directory for bootstrap initialization
             if (!cfg.coord_dir.empty()) {
-                setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
+                setenv("RRUN_COORD_DIR", cfg.coord_dir.c_str(), 1);
             }
 
             // Set CUDA_VISIBLE_DEVICES if GPUs are available
