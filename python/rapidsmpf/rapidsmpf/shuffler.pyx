@@ -34,6 +34,12 @@ cdef class Shuffler:
         Total number of partitions in the shuffle.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
+    partition_assignment
+        How to assign partition IDs to ranks: :attr:`~.PartitionAssignment.ROUND_ROBIN`
+        (default) for load balance (e.g. hash shuffle), or
+        :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        of partition IDs (e.g. for sort so concatenation order matches global order).
+        A custom callable may be supported in the future.
 
     Attributes
     ----------
@@ -58,6 +64,7 @@ cdef class Shuffler:
         int32_t op_id,
         uint32_t total_num_partitions,
         BufferResource br not None,
+        PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
     ):
         self._br = br
         self._comm = comm
@@ -68,6 +75,9 @@ cdef class Shuffler:
                 op_id,
                 total_num_partitions,
                 br_,
+                cpp_Shuffler.round_robin
+                if partition_assignment == PartitionAssignment.ROUND_ROBIN
+                else cpp_Shuffler.contiguous,
             )
 
     def __dealloc__(self):

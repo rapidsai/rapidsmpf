@@ -9,10 +9,12 @@ import cupy
 import pytest
 
 import cudf
+import pylibcudf as plc
 
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.content_description import ContentDescription
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
@@ -26,13 +28,12 @@ from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 
-    import pylibcudf
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.streaming.core.context import Context
 
 
-def random_table(nbytes: int) -> pylibcudf.Table:
+def random_table(nbytes: int) -> plc.Table:
     assert nbytes % 4 == 0
     return cudf_to_pylibcudf_table(
         cudf.DataFrame(
@@ -353,6 +354,48 @@ def test_data_alloc_size(context: Context, stream: Stream) -> None:
     # Verify default parameter works after copy too.
     assert host_chunk.data_alloc_size() == 1024
     assert host_chunk.data_alloc_size() == host_chunk.data_alloc_size(None)
+
+
+@pytest.mark.parametrize("from_pack", [False, True], ids=["from_table", "from_pack"])
+def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
+    nrows = 64
+    expect = plc.Table(
+        [
+            plc.Column.from_iterable_of_py(
+                ("abc" for _ in range(nrows)), stream=stream
+            ),
+            plc.Column.from_iterable_of_py(range(nrows), stream=stream),
+        ]
+    )
+    expected_shape = (expect.num_rows(), expect.num_columns())
+
+    if from_pack:
+        pd = PackedData.from_cudf_packed_columns(
+            plc.contiguous_split.pack(expect, stream), stream, context.br()
+        )
+        device_chunk = TableChunk.from_packed_data(pd)
+    else:
+        device_chunk = TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True
+        )
+    assert device_chunk.is_available()
+    assert device_chunk.shape == expected_shape
+
+    res, _ = context.br().reserve(
+        MemoryType.HOST,
+        device_chunk.data_alloc_size(MemoryType.DEVICE),
+        allow_overbooking=True,
+    )
+    host_chunk = device_chunk.copy(res)
+    assert not host_chunk.is_available()
+    assert host_chunk.shape == expected_shape
+
+    res, _ = context.br().reserve(
+        MemoryType.DEVICE, host_chunk.make_available_cost(), allow_overbooking=True
+    )
+    device_chunk = host_chunk.make_available(res)
+    assert device_chunk.is_available()
+    assert device_chunk.shape == expected_shape
 
 
 @pytest.mark.parametrize("chunk_location", ["device", "host"])

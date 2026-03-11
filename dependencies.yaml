@@ -27,6 +27,35 @@ files:
       - depends_on_pylibcudf
       - depends_on_rmm
       - depends_on_ucxx
+      - depends_on_ray
+      - py_version
+      - rapids_build_skbuild
+      - test_cpp
+      - test_cpp_ndsh
+      - test_python
+      - docs
+  devcontainers:
+    output: none
+    includes:
+      # "devcontainers" includes everything in "all" except "depends_on_ray"
+      - build-universal
+      - build-cpp
+      - build-python
+      - build-mpi
+      - build-pmix
+      - checks
+      - clang_tidy
+      - cuda
+      - cuda_version
+      - depends_on_cudf
+      - depends_on_dask_cuda
+      - depends_on_dask_cudf
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
+      - depends_on_pylibcudf
+      - depends_on_rmm
+      - depends_on_ucxx
       - py_version
       - rapids_build_skbuild
       - test_cpp
@@ -53,6 +82,7 @@ files:
       - depends_on_librapidsmpf
       - depends_on_librmm
       - depends_on_rapidsmpf
+      - depends_on_ray
       - depends_on_ucxx
       - py_version
       - run_rapidsmpf
@@ -84,6 +114,7 @@ files:
       - depends_on_ucxx
       - depends_on_librapidsmpf
       - depends_on_rapidsmpf
+      - depends_on_ray
       - docs
       - py_version
   py_build_librapidsmpf:
@@ -157,6 +188,7 @@ files:
       - depends_on_cudf
       - depends_on_dask_cuda
       - depends_on_dask_cudf
+      - depends_on_ray
       - test_python
 channels:
   - rapidsai-nightly
@@ -335,25 +367,6 @@ dependencies:
           - psutil  # Used for timeout_with_stack.py
           - pytest
           - nvidia-ml-py>=12
-    specific:
-      - output_types: conda
-        matrices:
-          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
-          # https://github.com/rapidsai/rapidsmpf/issues/897
-          - matrix:
-              arch: x86_64
-              py: "3.14"
-            packages:
-          - matrix:
-              arch: x86_64
-              py: "3.*"
-            packages:
-              - ray-default>=2.49,<2.52
-          - matrix:
-              arch: aarch64
-            packages:
-          - matrix:
-            packages:
   run_rapidsmpf:
     common:
       - output_types: [conda, requirements, pyproject]
@@ -456,23 +469,6 @@ dependencies:
           - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton
-    specific:
-      - output_types: conda
-        matrices:
-          - matrix:
-              arch: x86_64
-              py: "3.14"
-            packages:
-          - matrix:
-              arch: x86_64
-              py: "3.*"
-            packages:
-              - ray-default>=2.49,<2.52
-          - matrix:
-              arch: aarch64
-            packages:
-          - matrix:
-            packages:
   depends_on_cudf:
     common:
       - output_types: conda
@@ -698,3 +694,23 @@ dependencies:
           - matrix:
             packages:
               - *ucxx_unsuffixed
+  depends_on_ray:
+    specific:
+      - output_types: conda
+        matrices:
+          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
+          # https://github.com/rapidsai/rapidsmpf/issues/897
+          - matrix:
+              arch: x86_64
+              py: "3.14"
+            packages:
+          - matrix:
+              arch: x86_64
+              py: "3.*"
+            packages:
+              - ray-default>=2.49,<2.52
+          - matrix:
+              arch: aarch64
+            packages:
+          - matrix:
+            packages:
