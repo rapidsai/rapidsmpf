@@ -54,16 +54,17 @@ def create_ucxx_comm(
 
     This function bootstraps a UCXX-based communicator using the selected
     coordination backend (currently file-based), relying on environment
-    variables such as ``RAPIDSMPF_RANK``, ``RAPIDSMPF_NRANKS``, and
-    ``RAPIDSMPF_COORD_DIR``.
+    variables such as ``RRUN_RANK``, ``RRUN_NRANKS``, and
+    ``RRUN_COORD_DIR``.
 
     Parameters
     ----------
     progress_thread
         Progress thread to use in the initialized communicator.
     type
-        Backend type to use for coordination. By default, ``BackendType.AUTO`` is used,
-        which currently resolves to the file-based backend.
+        Backend type to use for coordination. By default,
+        :attr:`BackendType.AUTO` is used, which currently resolves to the
+        file-based backend.
     options
         Configuration options for the UCXX communicator. If ``None``, a default
         `rapidsmpf.config.Options` instance is used.
@@ -103,7 +104,7 @@ def is_running_with_rrun():
     Check whether the current process was launched via ``rrun``.
 
     This helper inspects the bootstrap environment (e.g. the presence of
-    ``RAPIDSMPF_RANK``) to determine if the process is running under
+    ``RRUN_RANK``) to determine if the process is running under
     ``rrun``-managed bootstrap mode.
 
     Returns
@@ -139,7 +140,7 @@ def get_rank():
 
     This helper retrieves the rank of the current process when running with a
     bootstrap launcher (rrun or Slurm). Checks environment variables in order:
-    1. RAPIDSMPF_RANK (set by rrun)
+    1. RRUN_RANK (set by rrun)
     2. PMIX_RANK (set by PMIx)
     3. SLURM_PROCID (set by Slurm)
 
@@ -164,7 +165,7 @@ def get_nranks():
     Get the number of ``rrun`` ranks.
 
     This helper retrieves the number of ranks when running with ``rrun``.
-    The number of ranks is fetched from the ``RAPIDSMPF_NRANKS`` environment variable.
+    The number of ranks is fetched from the ``RRUN_NRANKS`` environment variable.
 
     Returns
     -------
@@ -174,7 +175,7 @@ def get_nranks():
     Raises
     ------
     RuntimeError
-        If not running with ``rrun`` or if ``RAPIDSMPF_NRANKS`` is not set
+        If not running with ``rrun`` or if ``RRUN_NRANKS`` is not set
         or cannot be parsed.
     """
     cdef int ret

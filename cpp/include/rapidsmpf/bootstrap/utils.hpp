@@ -72,7 +72,7 @@ int get_gpu_id();
  * @brief Check if the current process was launched via `rrun`.
  *
  * This helper detects bootstrap mode by checking for the presence of the
- * `RAPIDSMPF_RANK` environment variable, which is set by `rrun`.
+ * `RRUN_RANK` environment variable, which is set by `rrun`.
  *
  * @return true if running under `rrun` bootstrap mode, false otherwise.
  */
@@ -93,7 +93,7 @@ bool is_running_with_slurm();
  *
  * This helper retrieves the rank of the current process when running with a
  * bootstrap launcher (rrun or Slurm). Checks environment variables in order:
- * 1. RAPIDSMPF_RANK (set by rrun)
+ * 1. RRUN_RANK (set by rrun)
  * 2. PMIX_RANK (set by PMIx)
  * 3. SLURM_PROCID (set by Slurm)
  *
@@ -109,7 +109,7 @@ Rank get_rank();
  *
  * This helper retrieves the number of ranks when running with a bootstrap
  * launcher (rrun or Slurm). Checks environment variables in order:
- * 1. RAPIDSMPF_NRANKS (set by rrun)
+ * 1. RRUN_NRANKS (set by rrun)
  * 2. SLURM_NPROCS (set by Slurm)
  * 3. SLURM_NTASKS (set by Slurm)
  *
