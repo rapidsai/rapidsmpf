@@ -317,44 +317,6 @@ class Chunk {
 };
 
 /**
- * @brief Represents a message indicating readiness to receive data for a specific chunk.
- */
-class ReadyForDataMessage {
-  public:
-    ChunkID cid;  ///< Chunk ID associated with the message.
-
-    /**
-     * @brief The size of the message in bytes when serialized.
-     *
-     * @return The size of the message in bytes.
-     */
-    static constexpr std::size_t byte_size = sizeof(ChunkID);
-
-    /**
-     * @brief Serializes the message into a byte array.
-     *
-     * @return A serialized byte vector representing the message.
-     */
-    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> pack();
-
-    /**
-     * @brief Deserializes a message from a byte array.
-     *
-     * @param msg A serialized message byte vector.
-     * @return A `ReadyForDataMessage` object.
-     */
-    [[nodiscard]] static ReadyForDataMessage unpack(
-        std::unique_ptr<std::vector<std::uint8_t>> const& msg
-    );
-
-    /**
-     * @brief Returns a description of this instance.
-     * @return The description.
-     */
-    [[nodiscard]] std::string str() const;
-};
-
-/**
  * @brief Overloads the stream insertion operator for the Chunk class.
  *
  * This function allows a description of a Chunk to be written to an output stream.
@@ -364,18 +326,6 @@ class ReadyForDataMessage {
  * @return A reference to the modified output stream.
  */
 std::ostream& operator<<(std::ostream& os, Chunk const& obj);
-
-/**
- * @brief Overloads the stream insertion operator for the ReadyForDataMessage class.
- *
- * This function allows a description of a ReadyForDataMessage to be written to an output
- * stream.
- *
- * @param os The output stream to write to.
- * @param obj The object to write.
- * @return A reference to the modified output stream.
- */
-std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj);
 
 }  // namespace detail
 }  // namespace rapidsmpf::shuffler

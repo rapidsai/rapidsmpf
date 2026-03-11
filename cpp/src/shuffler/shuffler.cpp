@@ -89,10 +89,9 @@ class Shuffler::Progress {
      * @brief Executes a single iteration of the shuffler's event loop.
      *
      * This function manages the movement of data chunks between ranks in the distributed
-     * system, handling tasks such as sending and receiving metadata, GPU data, and
-     * readiness messages. It also manages the processing of chunks in transit, both
-     * outgoing and incoming, and updates the necessary data structures for further
-     * processing.
+     * system, handling tasks such as sending and receiving metadata and GPU data. It also
+     * manages the processing of chunks in transit, both outgoing and incoming, and
+     * updates the necessary data structures for further processing.
      *
      * @return The progress state of the shuffler.
      */
@@ -101,26 +100,21 @@ class Shuffler::Progress {
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
-        Tag const ready_for_data_tag{shuffler_.op_id_, 0};
-        Tag const metadata_tag{shuffler_.op_id_, 1};
-        Tag const gpu_data_tag{shuffler_.op_id_, 2};
+        Tag const metadata_tag{shuffler_.op_id_, 0};
+        Tag const gpu_data_tag{shuffler_.op_id_, 1};
 
         auto& log = *shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;
 
-        // Check for new chunks in the inbox and send off their metadata.
         {
-            auto const t0_send_metadata = Clock::now();
+            auto const t0_send = Clock::now();
             auto ready_chunks = shuffler_.outgoing_postbox_.extract_all_ready();
-            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_send", ready_chunks.size());
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("shuffle_send", ready_chunks.size());
             for (auto&& chunk : ready_chunks) {
-                // All messages in the chunk maps to the same key (checked by the PostBox)
-                // thus we can use the partition ID of the first message in the chunk to
-                // determine the source rank of all of them.
                 auto dst = shuffler_.partition_owner(
                     shuffler_.comm_, chunk.part_id(), shuffler_.total_num_partitions
                 );
-                log.trace("send metadata to ", dst, ": ", chunk);
+                log.trace("send to ", dst, ": ", chunk);
                 RAPIDSMPF_EXPECTS(
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
                 );
@@ -129,25 +123,15 @@ class Shuffler::Progress {
                     shuffler_.comm_->send(chunk.serialize(), dst, metadata_tag)
                 );
                 if (chunk.data_size() > 0) {
-                    RAPIDSMPF_EXPECTS(
-                        outgoing_chunks_.emplace(chunk.chunk_id(), std::move(chunk))
-                            .second,
-                        "outgoing chunk already exist"
+                    shuffler_.statistics_->add_bytes_stat(
+                        "shuffle-payload-send", chunk.data_size()
                     );
-                    ready_ack_receives_[dst].push_back(
-                        shuffler_.comm_->recv_sync_host_data(
-                            dst,
-                            ready_for_data_tag,
-                            std::make_unique<std::vector<std::uint8_t>>(
-                                ReadyForDataMessage::byte_size
-                            )
-                        )
-                    );
+                    fire_and_forget_.push_back(shuffler_.comm_->send(
+                        chunk.release_data_buffer(), dst, gpu_data_tag
+                    ));
                 }
             }
-            stats.add_duration_stat(
-                "event-loop-metadata-send", Clock::now() - t0_send_metadata
-            );
+            stats.add_duration_stat("event-loop-send", Clock::now() - t0_send);
         }
 
         // Receive any incoming metadata of remote chunks and place them in
@@ -162,9 +146,6 @@ class Shuffler::Progress {
                 if (msg) {
                     auto chunk = Chunk::deserialize(*msg, false);
                     log.trace("recv_any from ", src, ": ", chunk);
-                    // All messages in the chunk maps to the same Rank (checked by the
-                    // PostBox) thus we can use the partition ID of the first message in
-                    // the chunk to determine the source rank of all of them.
                     RAPIDSMPF_EXPECTS(
                         shuffler_.partition_owner(
                             shuffler_.comm_,
@@ -247,11 +228,6 @@ class Shuffler::Progress {
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-recv", data_size
                     );
-                    // Tell the source of the chunk that we are ready to receive it.
-                    // All partition IDs in the chunk must map to the same key (rank).
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        ReadyForDataMessage{chunk_id}.pack(), src, ready_for_data_tag
-                    ));
                 } else {  // chunk contains control messages and/or metadata-only messages
                     // At this point we know we can process this item, so extract it.
                     // Note: extract_item invalidates the iterator, so must increment
@@ -266,44 +242,6 @@ class Shuffler::Progress {
             stats.add_duration_stat(
                 "event-loop-post-incoming-chunk-recv",
                 Clock::now() - t0_post_incoming_chunk_recv
-            );
-        }
-
-        // Receive any incoming ready-for-data messages and start sending the
-        // requested data.
-        {
-            auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(
-                "init_gpu_send",
-                std::transform_reduce(
-                    ready_ack_receives_.begin(),
-                    ready_ack_receives_.end(),
-                    0,
-                    std::plus<>(),
-                    [](auto& kv) { return kv.second.size(); }
-                )
-            );
-            // ready_ack_receives_ are separated by rank so that we
-            // can guarantee that we don't match messages out of order
-            // when using the UCXX communicator. See comment in
-            // ucxx.cpp::test_some.
-            for (auto& [dst, futures] : ready_ack_receives_) {
-                auto [finished, _] = shuffler_.comm_->test_some(futures);
-                for (auto&& future : finished) {
-                    auto const msg_data =
-                        shuffler_.comm_->release_sync_host_data(std::move(future));
-                    auto msg = ReadyForDataMessage::unpack(msg_data);
-                    auto chunk = extract_value(outgoing_chunks_, msg.cid);
-                    shuffler_.statistics_->add_bytes_stat(
-                        "shuffle-payload-send", chunk.data_size()
-                    );
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        chunk.release_data_buffer(), dst, gpu_data_tag
-                    ));
-                }
-            }
-            stats.add_duration_stat(
-                "event-loop-init-gpu-data-send", Clock::now() - t0_init_gpu_data_send
             );
         }
 
@@ -345,8 +283,8 @@ class Shuffler::Progress {
         return (shuffler_.active_.load(std::memory_order_acquire)
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
-                    && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-                    && in_transit_futures_.empty() && shuffler_.outgoing_postbox_.empty()
+                    && in_transit_chunks_.empty() && in_transit_futures_.empty()
+                    && shuffler_.outgoing_postbox_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
@@ -359,13 +297,9 @@ class Shuffler::Progress {
     std::multimap<Rank, detail::Chunk>
         incoming_chunks_;  ///< Chunks ready to be received.
     std::unordered_map<detail::ChunkID, detail::Chunk>
-        outgoing_chunks_;  ///< Chunks ready to be sent.
-    std::unordered_map<detail::ChunkID, detail::Chunk>
         in_transit_chunks_;  ///< Chunks currently in transit.
     std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
-    std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
-        ready_ack_receives_;  ///< Receives matching ready for data messages.
 
 #if RAPIDSMPF_VERBOSE_INFO
     std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
