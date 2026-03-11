@@ -64,19 +64,12 @@ PinnedMemoryResource::PinnedMemoryResource(
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
 ) {
-    // if (is_pinned_memory_resources_supported()) {
-    //     return std::make_shared<rapidsmpf::PinnedMemoryResource>(
-    //         numa_id, std::move(pool_properties)
-    //     );
-    // }
-    // return PinnedMemoryResource::Disabled;
-
-    // TODO: temporary set 
-    return PinnedMemoryResource::make_fixed_sized_if_available(
-        numa_id,
-        pool_properties,
-        8 << 20  // 8MB
-    );
+    if (is_pinned_memory_resources_supported()) {
+        return std::make_shared<rapidsmpf::PinnedMemoryResource>(
+            numa_id, std::move(pool_properties)
+        );
+    }
+    return PinnedMemoryResource::Disabled;
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
@@ -85,15 +78,18 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-    if (pinned_memory) {
+    bool const pinned_memory_fixed_size =
+        options.get<bool>("pinned_memory_fixed_size", [](auto const& s) {
+            return parse_string<bool>(s.empty() ? "False" : s);
+        });
+    if (pinned_memory || pinned_memory_fixed_size) {
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
                 [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size",
-                [](auto const& s) -> std::optional<size_t> {
+                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
                     auto parsed = parse_optional(s);
                     if (parsed.has_value() && !parsed->empty()) {
                         return parse_nbytes_unsigned(*parsed);
@@ -102,10 +98,23 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 }
             )
         };
-        return PinnedMemoryResource::make_if_available(
-            get_current_numa_node(), std::move(pool_properties)
+
+        if (pinned_memory) {
+            return PinnedMemoryResource::make_if_available(
+                get_current_numa_node(), std::move(pool_properties)
+            );
+        }
+
+        auto const fixed_size_block_size =
+            options.get<size_t>("pinned_memory_fixed_size_block_size", [](auto const& s) {
+                return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
+            });
+
+        return PinnedMemoryResource::make_fixed_sized_if_available(
+            get_current_numa_node(), std::move(pool_properties), fixed_size_block_size
         );
     }
+
     return PinnedMemoryResource::Disabled;
 }
 
@@ -114,22 +123,36 @@ PinnedMemoryResource::~PinnedMemoryResource() = default;
 void* PinnedMemoryResource::allocate(
     rmm::cuda_stream_view stream, std::size_t bytes, std::size_t alignment
 ) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr, "allocate called with fixed size mr available"
+    );
     return pool_->allocate(stream, bytes, alignment);
 }
 
 void PinnedMemoryResource::deallocate(
     rmm::cuda_stream_view stream, void* ptr, std::size_t bytes, std::size_t alignment
 ) noexcept {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr, "deallocate called with fixed size mr available"
+    );
     pool_->deallocate(stream, ptr, bytes, alignment);
 }
 
 void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr,
+        "allocate_sync called with fixed size mr available"
+    );
     return pool_->allocate_sync(bytes, alignment);
 }
 
 void PinnedMemoryResource::deallocate_sync(
     void* ptr, std::size_t bytes, std::size_t alignment
 ) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr,
+        "deallocate_sync called with fixed size mr available"
+    );
     pool_->deallocate_sync(ptr, bytes, alignment);
 }
 
@@ -153,7 +176,7 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_
     );
 
     mr->fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-        numa_id, *mr, capacity, capacity, block_size, pool_size, initial_npools
+        numa_id, mr->pool_, capacity, capacity, block_size, pool_size, initial_npools
     );
     return mr;
 }
@@ -171,7 +194,8 @@ PinnedMemoryResource::allocate_fixed_sized(std::size_t size) {
 
 bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
     auto const* o = dynamic_cast<PinnedMemoryResource const*>(&other);
-    return o != nullptr && pool_ == o->pool_;
+    return o != nullptr && pool_ == o->pool_
+           && fixed_size_host_mr_ == o->fixed_size_host_mr_;
 }
 
 }  // namespace rapidsmpf

@@ -212,9 +212,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     "bytes copied does not match total contiguous size"
                 );
 
-                return TableChunk(std::make_unique<PackedData>(
-                    chunked_packer.build_metadata(), std::move(dest_buffer)
-                ));
+                return TableChunk(
+                    std::make_unique<PackedData>(
+                        chunked_packer.build_metadata(), std::move(dest_buffer)
+                    )
+                );
             }
             break;
         case MemoryType::HOST:

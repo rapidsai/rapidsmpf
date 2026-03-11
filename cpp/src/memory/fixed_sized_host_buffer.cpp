@@ -116,7 +116,8 @@ FixedSizedHostBuffer::FixedSizedHostBuffer(FixedSizedHostBuffer&& other) noexcep
     other.reset();
 }
 
-FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(FixedSizedHostBuffer&& other
+FixedSizedHostBuffer& FixedSizedHostBuffer::operator=(
+    FixedSizedHostBuffer&& other
 ) noexcept {
     if (this != &other) {
         storage_ = std::move(other.storage_);
