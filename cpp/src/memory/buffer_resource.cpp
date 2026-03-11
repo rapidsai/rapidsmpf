@@ -81,6 +81,13 @@ rmm::host_async_resource_ref BufferResource::pinned_mr() {
     return *pinned_mr_;
 }
 
+PinnedMemoryResource const& BufferResource::access_pinned_mr() const {
+    RAPIDSMPF_EXPECTS(
+        pinned_mr_, "no pinned memory resource is available", std::invalid_argument
+    );
+    return *pinned_mr_;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {

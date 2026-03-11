@@ -145,7 +145,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * otherwise `PinnedMemoryResource::Disabled`.
      */
     static std::shared_ptr<PinnedMemoryResource> make_fixed_sized_if_available(
-        int numa_id,
+        int numa_id = get_current_numa_node(),
         PinnedPoolProperties pool_properties = {},
         std::size_t block_size =
             cucascade::memory::fixed_size_host_memory_resource::default_block_size,
@@ -245,6 +245,16 @@ class PinnedMemoryResource final : public HostMemoryResource {
     friend void get_property(
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
+
+    [[nodiscard]] std::size_t block_size() const {
+        RAPIDSMPF_EXPECTS(
+            fixed_size_host_mr_ != nullptr,
+            "fixed-size host memory resource not initialized; "
+            "use make_fixed_sized_if_available to create this resource",
+            std::invalid_argument
+        );
+        return fixed_size_host_mr_->get_block_size();
+    }
 
   private:
     // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /

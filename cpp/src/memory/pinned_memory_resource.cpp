@@ -64,12 +64,19 @@ PinnedMemoryResource::PinnedMemoryResource(
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
 ) {
-    if (is_pinned_memory_resources_supported()) {
-        return std::make_shared<rapidsmpf::PinnedMemoryResource>(
-            numa_id, std::move(pool_properties)
-        );
-    }
-    return PinnedMemoryResource::Disabled;
+    // if (is_pinned_memory_resources_supported()) {
+    //     return std::make_shared<rapidsmpf::PinnedMemoryResource>(
+    //         numa_id, std::move(pool_properties)
+    //     );
+    // }
+    // return PinnedMemoryResource::Disabled;
+
+    // TODO: temporary set 
+    return PinnedMemoryResource::make_fixed_sized_if_available(
+        numa_id,
+        pool_properties,
+        8 << 20  // 8MB
+    );
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
@@ -85,7 +92,8 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
+                "pinned_max_pool_size",
+                [](auto const& s) -> std::optional<size_t> {
                     auto parsed = parse_optional(s);
                     if (parsed.has_value() && !parsed->empty()) {
                         return parse_nbytes_unsigned(*parsed);
