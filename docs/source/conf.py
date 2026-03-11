@@ -131,11 +131,13 @@ class CythonIntEnumDocumenter(ClassDocumenter):
 def setup(app):
     app.registry.add_documenter("enum", CythonIntEnumDocumenter)
 
-    # HACK HACK HACK: figure out why this is necessary
     # Prevent Sphinx from replacing native Cython modules with .pyi stubs.
     # When .pyi files are installed alongside .so files, Sphinx 8.2+ prefers
     # the stub, which causes autodoc to miss Cython module-level functions
     # (they lack docstrings in the stub and get skipped as undocumented).
+    # The importer skips this lookup if the module already happens to be
+    # imported which is why it only seems to exhibit as not finding docs
+    # for some modules.
     import sphinx.ext.autodoc.importer as _importer
 
     _importer._find_type_stub_spec = lambda spec, modname: (spec, None)
