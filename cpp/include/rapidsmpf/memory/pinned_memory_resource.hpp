@@ -10,6 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include <cuda/cmath>
 #include <cuda/memory_resource>
 
 #include <cucascade/memory/fixed_size_host_memory_resource.hpp>
@@ -246,14 +247,12 @@ class PinnedMemoryResource final : public HostMemoryResource {
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
 
-    [[nodiscard]] std::size_t block_size() const {
-        RAPIDSMPF_EXPECTS(
-            fixed_size_host_mr_ != nullptr,
-            "fixed-size host memory resource not initialized; "
-            "use make_fixed_sized_if_available to create this resource",
-            std::invalid_argument
-        );
-        return fixed_size_host_mr_->get_block_size();
+    [[nodiscard]] constexpr std::size_t block_size() const noexcept {
+        return block_size_;
+    }
+
+    [[nodiscard]] constexpr size_t round_up_to_block_size(size_t size) const noexcept {
+        return cuda::round_up(size, block_size());
     }
 
   private:
@@ -266,6 +265,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
     cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
     std::shared_ptr<cucascade::memory::fixed_size_host_memory_resource>
         fixed_size_host_mr_;
+    size_t block_size_{};
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

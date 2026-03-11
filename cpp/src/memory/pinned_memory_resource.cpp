@@ -178,6 +178,7 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_
     mr->fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
         numa_id, mr->pool_, capacity, capacity, block_size, pool_size, initial_npools
     );
+    mr->block_size_ = block_size;
     return mr;
 }
 

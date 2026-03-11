@@ -13,6 +13,8 @@
 #include <cudf/types.hpp>
 #include <cudf/wrappers/dictionary.hpp>
 
+#include <cudf/contiguous_split.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -136,15 +138,16 @@ std::size_t estimated_memory_usage(
 std::size_t estimated_memory_usage(
     cudf::table_view const& tbl, rmm::cuda_stream_view stream
 ) {
-    return std::transform_reduce(
-        tbl.begin(),
-        tbl.end(),
-        std::size_t{0},
-        std::plus{},
-        [&stream](cudf::column_view const& col) {
-            return estimated_memory_usage(col, stream);
-        }
-    );
+    // return std::transform_reduce(
+    //     tbl.begin(),
+    //     tbl.end(),
+    //     std::size_t{0},
+    //     std::plus{},
+    //     [&stream](cudf::column_view const& col) {
+    //         return estimated_memory_usage(col, stream);
+    //     }
+    // );
+    return cudf::packed_size(tbl, stream);
 }
 
 }  // namespace rapidsmpf

@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cuda/cmath>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -136,8 +138,8 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
-        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
-            + format_nbytes(size) + ") T: " + to_string(reservation.mem_type()),
+        "MemoryReservation(" + std::to_string(reservation.size_) + ") isn't big enough ("
+            + std::to_string(size) + ") T: " + to_string(reservation.mem_type()),
         rapidsmpf::reservation_error
     );
     std::size_t& reserved =
@@ -185,8 +187,6 @@ std::unique_ptr<Buffer> BufferResource::allocate(
                     pinned_mr_->allocate_fixed_sized(size), stream
                 )
             );
-            // update size to the actual size of the blocks
-            size = blocks->total_size();
             ret = std::unique_ptr<Buffer>(
                 new Buffer(std::move(blocks), size, stream, MemoryType::PINNED_HOST)
             );

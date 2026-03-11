@@ -20,6 +20,7 @@
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
@@ -32,8 +33,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
                             public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
   protected:
     void SetUp() override {
-        rapidsmpf::config::Options options(
-            rapidsmpf::config::get_environment_variables()
+        rapidsmpf::config::Options options(rapidsmpf::config::get_environment_variables()
         );
 
         std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
@@ -461,7 +461,8 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     EXPECT_FALSE(m.content_description().spillable());
     EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(
-        m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
+        m.content_description().content_size(MemoryType::DEVICE),
+        rapidsmpf::estimated_memory_usage(expect, stream)
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
 }
