@@ -251,11 +251,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         *shuffler,
         total_num_partitions,
         [&](auto&& packed_chunks) { shuffler->insert(std::move(packed_chunks)); },
-        [&]() {
-            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-                shuffler->insert_finished(i);
-            }
-        },
+        [&]() { shuffler->insert_finished(); },
         total_num_rows,
         seed,
         hash_fn,
@@ -271,11 +267,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
         *shuffler,
         total_num_partitions,
         [&](auto&& packed_chunks) { shuffler->insert(std::move(packed_chunks)); },
-        [&]() {
-            shuffler->insert_finished(
-                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
-            );
-        },
+        [&]() { shuffler->insert_finished(); },
         total_num_rows,
         seed,
         hash_fn,
@@ -370,11 +362,7 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
         [&](auto& shuffler, auto&& packed_chunks) {
             shuffler.insert(std::move(packed_chunks));
         },
-        [&](auto& shuffler) {
-            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-                shuffler.insert_finished(i);
-            }
-        }
+        [&](auto& shuffler) { shuffler.insert_finished(); }
     ));
 }
 
@@ -384,11 +372,7 @@ TEST_P(ConcurrentShuffleTest, round_trip_finished_grouped) {
         [&](auto& shuffler, auto&& packed_chunks) {
             shuffler.insert(std::move(packed_chunks));
         },
-        [&](auto& shuffler) {
-            shuffler.insert_finished(
-                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
-            );
-        }
+        [&](auto& shuffler) { shuffler.insert_finished(); }
     ));
 }
 
@@ -954,8 +938,7 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         if (!chunks.empty()) {
             shuffler->insert(std::move(chunks));
         }
-        auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
-        shuffler->insert_finished(std::move(pids));
+        shuffler->insert_finished();
     }
 
     void verify_extracted_chunks(auto expected_empty_fn) {
@@ -1042,7 +1025,7 @@ TEST(ShufflerTest, multiple_shutdowns) {
     auto shuffler =
         std::make_unique<rapidsmpf::shuffler::Shuffler>(comm, 0, comm->nranks(), &br);
 
-    shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));
+    shuffler->insert_finished();
     std::ignore = shuffler->extract(shuffler->wait_any());
 
     constexpr int n_threads = 10;

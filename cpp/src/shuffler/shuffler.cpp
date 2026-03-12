@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -429,29 +430,23 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     br_->spill_manager().spill_to_make_headroom(0);
 }
 
-void Shuffler::insert_finished(PartID pid) {
-    insert_finished(std::vector<PartID>{pid});
-}
-
-void Shuffler::insert_finished(std::vector<PartID>&& pids) {
-    RAPIDSMPF_EXPECTS(pids.size() > 0, "insert_finished with empty pids");
-
+void Shuffler::insert_finished() {
     std::vector<detail::ChunkID> expected_num_chunks;
-    expected_num_chunks.reserve(pids.size());
+    expected_num_chunks.reserve(total_num_partitions);
 
     // collect expected number of chunks for each partition
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        for (auto pid : pids) {
+        for (auto pid : std::ranges::iota_view(PartID{0}, total_num_partitions)) {
             expected_num_chunks.push_back(outbound_chunk_counter_[pid]);
         }
     }
 
     // insert a finished chunk for each partition
-    for (std::size_t i = 0; i < pids.size(); ++i) {
+    for (auto pid : std::ranges::iota_view(PartID{0}, total_num_partitions)) {
         insert(
             detail::Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                get_new_cid(), pid, expected_num_chunks[pid] + 1
             )
         );
     }

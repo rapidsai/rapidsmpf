@@ -82,7 +82,7 @@ TEST(ShufflerManyStreams, Test) {
 
     // Insert all partitions.
     shuffler.insert(std::move(partitions));
-    shuffler.insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(num_partitions));
+    shuffler.insert_finished();
 
     // Extract and validate the partitions as they finishes.
     while (!shuffler.finished()) {
