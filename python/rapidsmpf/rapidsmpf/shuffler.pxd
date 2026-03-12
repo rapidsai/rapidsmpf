@@ -16,13 +16,30 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 
+cdef extern from *:
+    """
+    enum class PartitionAssignment : std::int32_t {
+        ROUND_ROBIN = 0,
+        CONTIGUOUS = 1
+    };
+    """
+    cpdef enum class PartitionAssignment(int32_t):
+        ROUND_ROBIN
+        CONTIGUOUS
+
+
 cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
+    ctypedef int32_t (*cpp_PartitionOwner
+                      "rapidsmpf::shuffler::Shuffler::PartitionOwner")(
+        const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t
+    )
     cdef cppclass cpp_Shuffler "rapidsmpf::shuffler::Shuffler":
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
             int32_t op_id,
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
+            cpp_PartitionOwner partition_owner,
         ) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void shutdown() except +ex_handler
@@ -35,6 +52,12 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         void wait_on(uint32_t pid) except +ex_handler
         span[const uint32_t] local_partitions() except +ex_handler
         string str() except +ex_handler
+
+        @staticmethod
+        int32_t round_robin(const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t)
+
+        @staticmethod
+        int32_t contiguous(const shared_ptr[cpp_Communicator]&, uint32_t, uint32_t)
 
 
 # Insert PackedData into a partition map. We implement this in C++ because

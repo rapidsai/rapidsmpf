@@ -17,9 +17,12 @@ from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
-from rapidsmpf.shuffler cimport cpp_insert_chunk_into_partition_map
+from rapidsmpf.shuffler cimport (PartitionAssignment,
+                                 cpp_insert_chunk_into_partition_map,
+                                 cpp_Shuffler)
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.coll.shuffler cimport cpp_ShufflerAsync
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
@@ -153,6 +156,7 @@ def shuffler(
     Channel ch_out not None,
     int32_t op_id,
     uint32_t total_num_partitions,
+    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -176,19 +180,20 @@ def shuffler(
         all actors participating in the shuffle have shut down.
     total_num_partitions
         Total number of logical partitions to shuffle the data into.
+    partition_assignment
+        How to assign partition IDs to ranks: :attr:`~.PartitionAssignment.ROUND_ROBIN`
+        (default) for load balance (e.g. hash shuffle), or
+        :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        of partition IDs (e.g. for sort so concatenation order matches global order).
+        A custom callable may be supported in the future.
 
     Returns
     -------
     A streaming actor that finishes when shuffling is complete and `ch_out` has
     been drained.
 
-    Notes
-    -----
-    Partition ownership is assigned per the underlying C++ implementation's default
-    policy (round-robin across ranks/nodes).
     """
 
-    cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -197,6 +202,9 @@ def shuffler(
             ch_out._handle,
             op_id,
             total_num_partitions,
+            cpp_Shuffler.round_robin
+            if partition_assignment == PartitionAssignment.ROUND_ROBIN
+            else cpp_Shuffler.contiguous,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
@@ -216,6 +224,12 @@ cdef class ShufflerAsync:
         this object is still live.
     total_num_partitions
         Global number of output partitions in the shuffle.
+    partition_assignment
+        How to assign partition IDs to ranks: :attr:`~.PartitionAssignment.ROUND_ROBIN`
+        (default) for load balance (e.g. hash shuffle), or
+        :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
+        of partition IDs (e.g. for sort so concatenation order matches global order).
+        A custom callable may be supported in the future.
     """
     def __init__(
         self,
@@ -223,11 +237,15 @@ cdef class ShufflerAsync:
         Communicator comm not None,
         int32_t op_id,
         uint32_t total_num_partitions,
+        PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
     ):
         self._comm = comm
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
-                ctx._handle, comm._handle, op_id, total_num_partitions
+                ctx._handle, comm._handle, op_id, total_num_partitions,
+                cpp_Shuffler.round_robin
+                if partition_assignment == PartitionAssignment.ROUND_ROBIN
+                else cpp_Shuffler.contiguous,
             )
 
     def __dealloc__(self):

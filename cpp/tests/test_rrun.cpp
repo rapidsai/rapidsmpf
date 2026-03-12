@@ -33,7 +33,7 @@ class TopologyBindingTest : public ::testing::Test {
   protected:
     void SetUp() override {
         if (!rapidsmpf::bootstrap::is_running_with_rrun()) {
-            GTEST_SKIP() << "Test must be run with rrun (RAPIDSMPF_RANK not set)";
+            GTEST_SKIP() << "Test must be run with rrun (RRUN_RANK not set)";
         }
 
         if (!discovery_.discover()) {

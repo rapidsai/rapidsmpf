@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from enum import IntEnum
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+
+class PartitionAssignment(IntEnum):
+    ROUND_ROBIN = ...
+    CONTIGUOUS = ...
 
 class Shuffler:
     max_concurrent_shuffles: int
@@ -16,6 +21,7 @@ class Shuffler:
         op_id: int,
         total_num_partitions: int,
         br: BufferResource,
+        partition_assignment: PartitionAssignment = ...,
     ) -> None: ...
     def shutdown(self) -> None: ...
     def __str__(self) -> str: ...
