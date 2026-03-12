@@ -267,6 +267,10 @@ void cuda_memcpy_batch_async(
 
 }  // namespace
 
+void Buffer::record_write(rmm::cuda_stream_view stream) {
+    latest_write_event_.record(stream);
+}
+
 void Buffer::copy_to(
     Buffer& dst,
     std::size_t size,
@@ -294,17 +298,18 @@ void Buffer::copy_to(
         return;
     }
 
-    auto block_bounds = [](Buffer const& buf, size_t offset) -> std::span<std::byte> {
+    auto block_bounds = [](Buffer const& buf,
+                           size_t offset) -> std::span<std::byte const> {
         return std::visit(
             overloaded{
-                [&](FixedSizedHostBufferT const& buf) {
+                [&](FixedSizedHostBufferT const& buf) -> std::span<std::byte const> {
                     auto block_idx = offset / buf->block_size();
                     auto block_offset = offset % buf->block_size();
                     return buf->block_data(block_idx).subspan(block_offset);
                 },
-                [&](auto& buf) {
-                    return std::span<std::byte>(
-                        reinterpret_cast<std::byte*>(buf->data()) + offset,
+                [&](auto& buf) -> std::span<std::byte const> {
+                    return std::span<std::byte const>(
+                        reinterpret_cast<std::byte const*>(buf->data()) + offset,
                         buf->size() - offset
                     );
                 },
@@ -349,8 +354,8 @@ void Buffer::copy_to(
     // Prime the running block state for both buffers — one std::visit each.
     auto src_span = block_bounds(*this, static_cast<size_t>(src_offset));
     auto dst_span = block_bounds(dst, static_cast<size_t>(dst_offset));
-    std::byte* src_ptr = src_span.data();
-    std::byte* dst_ptr = dst_span.data();
+    std::byte const* src_ptr = src_span.data();
+    std::byte const* dst_ptr = dst_span.data();
     size_t src_rem = src_span.size();
     size_t dst_rem = dst_span.size();
 
@@ -393,7 +398,7 @@ void Buffer::copy_to(
         dst.stream()
     );
 
-    dst.latest_write_event().record(dst.stream());
+    dst.record_write(dst.stream());
     dst.latest_write_event().stream_wait(stream_);
 
     statistics->record_copy(mem_type_, dst.mem_type_, size, std::move(timing));

@@ -371,6 +371,17 @@ class Buffer {
     ) const;
 
     /**
+     * @brief Record that a write has been enqueued on the given stream.
+     *
+     * Records the buffer's latest-write event on @p stream. Use after enqueuing
+     * a copy or other write to this buffer on @p stream so that subsequent
+     * consumers see the write.
+     *
+     * @param stream The stream on which the write was enqueued.
+     */
+    void record_write(rmm::cuda_stream_view stream);
+
+    /**
      * @brief Check whether the buffer's most recent write has completed.
      *
      * Returns whether the CUDA event that tracks the most recent write into this
