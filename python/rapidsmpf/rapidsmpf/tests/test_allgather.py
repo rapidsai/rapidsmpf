@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Tests for AllGather functionality."""
 
@@ -12,11 +12,10 @@ import pytest
 import cudf
 from pylibcudf.contiguous_split import pack
 
-from rapidsmpf.allgather import AllGather
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource
+from rapidsmpf.coll import AllGather
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
-from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,
@@ -133,13 +132,11 @@ def test_basic_allgather(
     should receive all data from all ranks.
     """
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread(comm)
     statistics = Statistics(enable=False)
 
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
-        progress_thread=progress_thread,
         op_id=0,  # Use operation ID 0
         br=br,
         statistics=statistics,

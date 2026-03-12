@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -12,12 +12,11 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {
 
@@ -32,7 +31,6 @@ namespace rapidsmpf {
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
- * @param statistics The statistics instance to use (disabled by default).
  * @param allow_overbooking If true, allow overbooking (true by default)
  *
  * @return A vector of each partition and a table that owns the device memory.
@@ -48,11 +46,10 @@ partition_and_split(
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed,
+    std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -66,7 +63,6 @@ partition_and_split(
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
- * @param statistics The statistics instance to use (disabled by default).
  * @param allow_overbooking If true, allow overbooking (true by default)
  * // TODO: disable this by default https://github.com/rapidsmpf/rapidsmpf/issues/449
  *
@@ -83,11 +79,10 @@ partition_and_split(
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed,
+    std::uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -99,7 +94,6 @@ partition_and_split(
  * the number of result partitions.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
- * @param statistics The statistics instance to use (disabled by default).
  * @param allow_overbooking If true, allow overbooking (true by default)
  * // TODO: disable this by default https://github.com/rapidsmpf/rapidsmpf/issues/449
  *
@@ -116,8 +110,7 @@ partition_and_split(
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 
@@ -134,12 +127,11 @@ partition_and_split(
  * @param stream CUDA stream on which concatenation occurs and on which the resulting
  * table is ordered.
  * @param br Buffer resource used for memory allocations.
- * @param statistics Statistics instance to use (disabled by default).
  * @param allow_overbooking If true, allow overbooking (true by default).
  * @return The concatenated table resulting from unpacking the input partitions.
  *
- * @throws std::overflow_error If the buffer resource cannot reserve enough memory to
- * concatenate all partitions.
+ * @throws rapidsmpf::reservation_error If the buffer resource cannot reserve enough
+ * memory to concatenate all partitions.
  * @throws std::logic_error If the partitions are not in device memory.
  *
  * @see partition_and_pack
@@ -150,8 +142,7 @@ partition_and_split(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = true
+    AllowOverbooking allow_overbooking = AllowOverbooking::YES
 );
 
 /**
@@ -167,16 +158,13 @@ partition_and_split(
  *
  * @param partitions The partitions to spill.
  * @param br Buffer resource used to reserve host memory and perform the move.
- * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of `PackedData`, where each buffer resides in host memory.
  *
- * @throws std::overflow_error If host memory reservation fails.
+ * @throws rapidsmpf::reservation_error If host memory reservation fails.
  */
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions,
-    BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    std::vector<PackedData>&& partitions, BufferResource* br
 );
 
 /**
@@ -195,18 +183,16 @@ std::vector<PackedData> spill_partitions(
  * @param br Buffer resource responsible for memory reservation and spills.
  * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
  * reservation; otherwise, allows overbooking even if spilling was insufficient.
- * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of `PackedData`, each with a buffer in device memory.
  *
- * @throws std::overflow_error If overbooking exceeds the amount spilled and
+ * @throws rapidsmpf::reservation_error If overbooking exceeds the amount spilled and
  *         `allow_overbooking` is false.
  */
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    bool allow_overbooking,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    AllowOverbooking allow_overbooking
 );
 
 }  // namespace rapidsmpf

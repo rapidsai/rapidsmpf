@@ -1,24 +1,35 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, make_unique
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
-                                             ScopedMemoryRecord,
                                              cpp_RmmResourceAdaptor)
 
+import os
 
-# Since `Statistics::Stat` doesn't have a default ctor, we use the following
-# getters.
+
+cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
+    cdef shared_ptr[cpp_Statistics] cpp_from_options \
+        "rapidsmpf::Statistics::from_options"(
+            cpp_RmmResourceAdaptor* mr, cpp_Options options
+        ) except +ex_handler
+
+
 cdef extern from *:
     """
+    #include <filesystem>
+    #include <sstream>
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name
     ) {
@@ -29,17 +40,39 @@ cdef extern from *:
     ) {
         return stats.get_stat(name).value();
     }
+    double cpp_get_statistic_max(
+        rapidsmpf::Statistics const& stats, std::string const& name
+    ) {
+        return stats.get_stat(name).max();
+    }
     std::vector<std::string> cpp_list_stat_names(rapidsmpf::Statistics const& stats) {
         return stats.list_stat_names();
     }
     void cpp_clear_statistics(rapidsmpf::Statistics& stats) {
         stats.clear();
     }
+    void cpp_write_json(
+        rapidsmpf::Statistics const& stats, std::string const& filepath
+    ) {
+        stats.write_json(std::filesystem::path(filepath));
+    }
+    std::string cpp_write_json_string(rapidsmpf::Statistics const& stats) {
+        std::ostringstream ss;
+        stats.write_json(ss);
+        return ss.str();
+    }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
-    vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
-    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    double cpp_get_statistic_max(cpp_Statistics stats, string name) \
+        except +ex_handler nogil
+    vector[string] cpp_list_stat_names(cpp_Statistics stats) except +ex_handler nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except +ex_handler nogil
+    void cpp_write_json(cpp_Statistics stats, string filepath) \
+        except +ex_handler nogil
+    string cpp_write_json_string(cpp_Statistics stats) except +ex_handler nogil
 
 cdef class Statistics:
     """
@@ -52,9 +85,9 @@ cdef class Statistics:
     mr
         Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
+    def __init__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
         cdef cpp_RmmResourceAdaptor* mr_handle
-        self._mr = mr  # Keep mr alive.
+        self._mr = mr
         if enable and mr is not None:
             mr_handle = mr.get_handle()
             with nogil:
@@ -62,6 +95,29 @@ cdef class Statistics:
         else:
             with nogil:
                 self._handle = make_shared[cpp_Statistics](enable)
+
+    @classmethod
+    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+        """
+        Construct from configuration options.
+
+        Parameters
+        ----------
+        mr
+            Pointer to a memory resource used for memory profiling.
+        options
+            Configuration options.
+
+        Returns
+        -------
+        The constructed Statistics instance.
+        """
+        cdef Statistics ret = cls.__new__(cls)
+        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        with nogil:
+            ret._handle = cpp_from_options(mr_handle, options._handle)
+        ret._mr = mr
+        return ret
 
     def __dealloc__(self):
         with nogil:
@@ -116,15 +172,17 @@ cdef class Statistics:
         cdef string name_ = str.encode(name)
         cdef size_t count
         cdef double value
+        cdef double max_val
         try:
             with nogil:
                 count = cpp_get_statistic_count(deref(self._handle), name_)
                 value = cpp_get_statistic_value(deref(self._handle), name_)
+                max_val = cpp_get_statistic_max(deref(self._handle), name_)
         except IndexError:
             # The C++ implementation throws a std::out_of_range exception
             # which we / Cython translate to a KeyError.
             raise KeyError(f"Statistic '{name}' does not exist") from None
-        return {"count": count, "value": value}
+        return {"count": count, "value": value, "max": max_val}
 
     def list_stat_names(self):
         """
@@ -148,16 +206,10 @@ cdef class Statistics:
             Name of the statistic.
         value
             Value to add.
-
-        Returns
-        -------
-        Updated total value.
         """
         cdef string name_ = str.encode(name)
-        cdef double ret
         with nogil:
-            ret = deref(self._handle).add_stat(name_, value)
-        return ret
+            deref(self._handle).add_stat(name_, value)
 
     @property
     def memory_profiling_enabled(self):
@@ -245,6 +297,46 @@ cdef class Statistics:
         with nogil:
             cpp_clear_statistics(deref(self._handle))
 
+    def write_json(self, filepath) -> None:
+        """
+        Writes a JSON report of all collected statistics to a file.
+
+        Parameters
+        ----------
+        filepath
+            Path to the output file. Created or overwritten.
+
+        Raises
+        ------
+        OSError
+            If the file cannot be opened or writing fails.
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
+        """
+        cdef string path = <bytes>os.fsencode(filepath)
+        with nogil:
+            cpp_write_json(deref(self._handle), path)
+
+    def write_json_string(self) -> str:
+        """
+        Returns a JSON representation of all collected statistics as a string.
+
+        Returns
+        -------
+        A JSON-formatted string.
+
+        Raises
+        ------
+        ValueError
+            If any stat name or memory record name contains a double quote, backslash,
+            or ASCII control character (0x00–0x1F).
+        """
+        cdef string result
+        with nogil:
+            result = cpp_write_json_string(deref(self._handle))
+        return result.decode("utf-8")
+
 
 @dataclass
 class MemoryRecord:
@@ -314,3 +406,4 @@ cdef class MemoryRecorder:
         if self._mr is not None:
             with nogil:
                 self._handle.reset()
+        return False  # do not suppress exceptions

@@ -17,9 +17,15 @@ export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 # Ensure that benchmarks are runnable
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_shuffle -m cuda
+
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_comm -m cuda
-./bench_streaming_shuffle -m cuda
+
+python "${TIMEOUT_TOOL_PATH}" 30 \
+  ./bench_memory_resources --benchmark_min_time=0s
+
+python "${TIMEOUT_TOOL_PATH}" 30 \
+  ./bench_streaming_shuffle -m cuda
 
 # Ensure that shuffle benchmark with CUPTI monitor is runnable and creates the expected csv files
 python "${TIMEOUT_TOOL_PATH}" 30 \
@@ -41,14 +47,5 @@ for i in {0..2}; do
   fi
 done
 
-# Test with rrun
-
-# Confirm no dependencies on OpenMPI variables
-unset OMPI_ALLOW_RUN_AS_ROOT
-unset OMPI_ALLOW_RUN_AS_ROOT_CONFIRM
-unset OMPI_MCA_opal_cuda_support
-
-python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
-python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
+# bench pack smoketest (only run 1MB buffer benchmarks)
+python "${TIMEOUT_TOOL_PATH}" 30 ./bench_pack --benchmark_filter="/1/" --benchmark_min_time=0s

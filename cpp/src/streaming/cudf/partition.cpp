@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <memory>
@@ -11,17 +11,17 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming::actor {
 
 
-Node partition_and_pack(
+Actor partition_and_pack(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     std::vector<cudf::size_type> columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
-    uint32_t seed
+    std::uint32_t seed
 ) {
     ShutdownAtExit c{ch_in, ch_out};
 
@@ -32,8 +32,8 @@ Node partition_and_pack(
             break;
         }
         auto table = msg.release<TableChunk>();
-        auto reservation = ctx->br()->reserve_and_spill(
-            MemoryType::DEVICE, table.make_available_cost(), false
+        auto reservation = ctx->br()->reserve_device_memory_and_spill(
+            table.make_available_cost(), AllowOverbooking::NO
         );
         auto tbl = table.make_available(reservation);
 
@@ -45,8 +45,7 @@ Node partition_and_pack(
                 hash_function,
                 seed,
                 tbl.stream(),
-                ctx->br(),
-                ctx->statistics()
+                ctx->br().get()
             )
         };
 
@@ -58,7 +57,7 @@ Node partition_and_pack(
     co_await ch_out->drain(ctx->executor());
 }
 
-Node unpack_and_concat(
+Actor unpack_and_concat(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out
@@ -86,10 +85,11 @@ Node unpack_and_concat(
         auto stream = ctx->br()->stream_pool().get_stream();
 
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(data), ctx->br(), false),
+            rapidsmpf::unspill_partitions(
+                std::move(data), ctx->br().get(), AllowOverbooking::NO
+            ),
             stream,
-            ctx->br(),
-            ctx->statistics()
+            ctx->br().get()
         );
         co_await ch_out->send(
             to_message(seq, std::make_unique<TableChunk>(std::move(ret), stream))
@@ -98,4 +98,4 @@ Node unpack_and_concat(
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace rapidsmpf::streaming::actor

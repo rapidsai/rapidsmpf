@@ -1,69 +1,139 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.resource cimport BufferResource
-from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.communicator.communicator cimport Logger
 from rapidsmpf.config cimport Options
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 from rapidsmpf.config import get_environment_variables
 
 from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
+from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
+    MemoryReserveOrWait
+
+from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 
 cdef class Context:
     """
-    Context for streaming nodes (coroutines) in RapidsMPF.
+    Context for actors (coroutines) in rapidsmpf.
+
+    The context owns shared resources used during execution, including the
+    coroutine executor and memory reservation infrastructure.
+
+    A ``Context`` instance must be created and shut down on the same thread.
+    Shutting down the context from a different thread results in program
+    termination. This is particularly important in coroutine-based code, where
+    execution and stack unwinding may occur on different threads if ownership
+    is not carefully managed.
+
+    In Python, it is easy to accidentally keep dangling references to a
+    ``Context`` instance, which may delay destruction and cause shutdown to
+    occur on an unintended thread. For this reason, it is strongly recommended
+    to use ``Context`` as a context manager (that is, via a ``with`` statement),
+    which guarantees that ``shutdown()`` is invoked deterministically and on
+    the same thread that created the context.
 
     Parameters
     ----------
-    comm
-        The communicator to use.
+    logger
+        The logger to use.
     br
-        Buffer resource to use.
+        The buffer resource to use.
     options
-        Configuration options to use. Missing config options are read
-        from environment variables.
-    statistics
-        The statistics instance to use. If None, statistics are disabled.
+        The configuration options to use. Missing options are read from environment
+        variables.
+
+    Examples
+    --------
+    >>> with streaming.Context(
+    ...     logger=...,
+    ...     br=BufferResource(...),
+    ...     options=Options(...),
+    ... ) as ctx:
+    ...     ch = ctx.create_channel()
     """
     def __cinit__(
         self,
-        Communicator comm,
-        BufferResource br,
+        Logger logger not None,
+        BufferResource br not None,
         Options options = None,
-        Statistics statistics = None,
     ):
-        self._comm = comm
         self._br = br
-
         self._options = options
+        self._logger = logger
         if self._options is None:
             self._options = Options()
         # Insert missing config options from environment variables.
         self._options.insert_if_absent(get_environment_variables())
 
-        self._statistics = statistics
-        if statistics is None:
-            self._statistics = Statistics(enable=False)  # Disables statistics.
-
         with nogil:
             self._handle = make_shared[cpp_Context](
                 self._options._handle,
-                self._comm._handle,
+                self._logger._handle,
                 self._br._handle,
-                self._statistics._handle,
             )
 
+        self._spillable_messages = SpillableMessages.from_handle(
+            deref(self._handle).spillable_messages()
+        )
+        self._memory = {}
+        for mem_type in py_MemoryType:
+            self._memory[mem_type] = MemoryReserveOrWait.from_handle(
+                deref(self._handle).memory(mem_type), self._br
+            )
+
+    @classmethod
+    def from_options(
+        cls,
+        Logger logger not None,
+        RmmResourceAdaptor mr not None,
+        Options options not None
+    ):
+        return cls(
+            logger=logger,
+            br=BufferResource.from_options(mr, options),
+            options=options,
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.shutdown()
+        return False  # do not suppress exceptions
+
     def __dealloc__(self):
+        # Shut down the C++ context explicitly to ensure shutdown happens immediately
+        # and not later via a dangling reference on another thread. Recall that
+        # shutting down a C++ context on a different thread than the one that created
+        # it results in program termination.
         with nogil:
+            deref(self._handle).shutdown()
             self._handle.reset()
+
+    def shutdown(self):
+        """
+        Shut down the context.
+
+        This method is idempotent and only performs shutdown once. Subsequent calls
+        have no effect.
+
+        Warnings
+        --------
+        Shutdown must be initiated from the same thread that constructed the
+        executor. Calling this method from a different thread results in program
+        termination.
+        """
+        with nogil:
+            deref(self._handle).shutdown()
 
     def options(self):
         """
@@ -75,15 +145,15 @@ cdef class Context:
         """
         return self._options
 
-    def comm(self):
+    def logger(self):
         """
-        Get the communicator.
+        Get the logger.
 
         Returns
         -------
-        The communicator associated with this context.
+        The logger associated with this context.
         """
-        return self._comm
+        return self._logger
 
     def br(self):
         """
@@ -103,7 +173,7 @@ cdef class Context:
         -------
         The statistics associated with this context.
         """
-        return self._statistics
+        return self._br.statistics
 
     def get_stream_from_pool(self):
         """
@@ -141,3 +211,37 @@ cdef class Context:
         with nogil:
             ret = deref(self._handle).create_channel()
         return Channel.from_handle(move(ret))
+
+    def spillable_messages(self):
+        """
+        Get spillable messages.
+
+        Returns
+        -------
+        The spillable messages associated with this context.
+        """
+        return self._spillable_messages
+
+    def memory(self, MemoryType mem_type):
+        """
+        Get the memory reservation handle for a given memory type.
+
+        Returns an object that coordinates asynchronous memory reservation requests
+        for the specified memory type. The returned instance provides backpressure
+        and global progress guarantees and should be used to reserve memory before
+        performing operations that require memory.
+
+        A recommended usage pattern is to reserve all required memory up front as a
+        single atomic reservation. This allows callers to await the reservation and
+        only start executing the operation once all required memory is available.
+
+        Parameters
+        ----------
+        mem_type
+            Memory type for which reservations are requested.
+
+        Returns
+        -------
+        Handle that coordinates memory reservation requests for the given memory type.
+        """
+        return self._memory[mem_type]

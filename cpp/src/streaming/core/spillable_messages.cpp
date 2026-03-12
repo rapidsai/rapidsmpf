@@ -1,8 +1,7 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
-
 
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
@@ -24,6 +23,29 @@ Message SpillableMessages::extract(MessageId mid) {
     // If the item is being spilled, we block here until the spilling is done.
     std::unique_lock item_lock(item->mutex);
     return std::exchange(item->message, std::nullopt).value();
+}
+
+Message SpillableMessages::copy(MessageId mid, MemoryReservation& reservation) {
+    // Find item, if it exist.
+    std::unique_lock global_lock(global_mutex_);
+    auto item_it = items_.find(mid);
+    RAPIDSMPF_EXPECTS(
+        item_it != items_.end(),
+        "message not found " + std::to_string(mid),
+        std::out_of_range
+    );
+    std::shared_ptr<Item> item = item_it->second;
+    global_lock.unlock();
+
+    // Acquire the item's lock and verify that it still holds a message,
+    // since it may have been extracted while the global lock was released.
+    std::unique_lock item_lock(item->mutex);
+    RAPIDSMPF_EXPECTS(
+        item->message.has_value(),
+        "message not found " + std::to_string(mid),
+        std::out_of_range
+    );
+    return item->message->copy(reservation);
 }
 
 std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
@@ -54,7 +76,7 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     }
 
     // Spill item in-place.
-    auto res = br->reserve_or_fail(msg.copy_cost(), MemoryType::HOST);
+    auto res = br->reserve_or_fail(msg.copy_cost(), SPILL_TARGET_MEMORY_TYPES);
     item->message = msg.copy(res);
     auto const new_cd = item->message.value().content_description();
     item_lock.unlock();
@@ -75,4 +97,18 @@ SpillableMessages::get_content_descriptions() const {
     std::unique_lock global_lock(global_mutex_);
     return content_descriptions_;
 }
+
+ContentDescription rapidsmpf::streaming::SpillableMessages::get_content_description(
+    MessageId mid
+) const {
+    std::lock_guard global_lock(global_mutex_);
+    auto it = content_descriptions_.find(mid);
+    RAPIDSMPF_EXPECTS(
+        it != content_descriptions_.end(),
+        "message not found " + std::to_string(mid),
+        std::out_of_range
+    );
+    return it->second;
+}
+
 }  // namespace rapidsmpf::streaming

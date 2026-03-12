@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Integration for Ray clusters."""
 
@@ -12,6 +12,8 @@ from ray.actor import ActorClass
 
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
@@ -19,12 +21,14 @@ if TYPE_CHECKING:
 
 class RapidsMPFActor:
     """
-    RapidsMPFActor is a base class that instantiates a UCXX communication within them.
+    RapidsMPFActor is a base class that instantiates a UCXX communicator across all workers.
 
     Parameters
     ----------
     nranks
         The number of workers in the cluster.
+    statistics
+        Optional statistics tracking object.
 
     Examples
     --------
@@ -34,10 +38,11 @@ class RapidsMPFActor:
     >>> ray.get([actor.status_check.remote() for actor in actors]
     """
 
-    def __init__(self, nranks: int):
+    def __init__(self, nranks: int, statistics: Statistics | None = None):
         self._rank: int = -1
         self._nranks: int = nranks
         self._comm: Communicator | None = None
+        self._stats = Statistics(enable=False) if statistics is None else statistics
 
     def setup_root(self) -> tuple[int, bytes]:
         """
@@ -51,7 +56,11 @@ class RapidsMPFActor:
             The address of the root.
         """
         self._comm = new_communicator(
-            self._nranks, None, None, Options(get_environment_variables())
+            self._nranks,
+            None,
+            None,
+            Options(get_environment_variables()),
+            ProgressThread(self._stats),
         )
         self._rank = self._comm.rank
         self._comm.logger.trace(f"Rank {self._rank} created as root")
@@ -73,7 +82,11 @@ class RapidsMPFActor:
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
             # create a comm pointing to the root_address
             self._comm = new_communicator(
-                self._nranks, None, root_address, Options(get_environment_variables())
+                self._nranks,
+                None,
+                root_address,
+                Options(get_environment_variables()),
+                ProgressThread(self._stats),
             )
             self._rank = self._comm.rank
             self._comm.logger.trace(f"Rank {self._rank} created")
@@ -84,8 +97,7 @@ class RapidsMPFActor:
 
         if self._nranks != self._comm.nranks:
             raise RuntimeError(
-                f"Number of ranks mismatch in the communicator: \
-                               {self._nranks} != {self._comm.nranks}"
+                f"Number of ranks mismatch in the communicator: {self._nranks} != {self._comm.nranks}"
             )
 
     def to_string(self) -> str:
@@ -98,11 +110,14 @@ class RapidsMPFActor:
 
         Raises
         ------
-        RuntimeError if the communicator is not initialized
+        RuntimeError
+            If the communicator is not initialized.
         """
         if self._comm:
-            return f"RapidsMPFActor(rank:{self._rank}, nranks:{self._nranks}, \
-                                Communicator:{self._comm.get_str()})"
+            return (
+                f"RapidsMPFActor(rank:{self._rank}, nranks:{self._nranks},"
+                f" Communicator:{self._comm.get_str()})"
+            )
         else:
             raise RuntimeError("Communicator not initialized")
 
@@ -126,6 +141,17 @@ class RapidsMPFActor:
         """
         return self._rank
 
+    @property
+    def statistics(self) -> Statistics:
+        """
+        The statistics object used on this actor.
+
+        Returns
+        -------
+        Statistics object.
+        """
+        return self._stats
+
     def nranks(self) -> int:
         """
         Get the number of ranks in the UCXX communicator.
@@ -147,7 +173,8 @@ class RapidsMPFActor:
 
         Raises
         ------
-        RuntimeError if the communicator is not initialized
+        RuntimeError
+            If the communicator is not initialized.
 
         Notes
         -----

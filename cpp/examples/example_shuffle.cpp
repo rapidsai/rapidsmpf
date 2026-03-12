@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,10 +8,10 @@
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -26,19 +26,19 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
-    // First, we have to create a Communicator, which we will use throughout the
-    // example. Notice, if you want to do multiple shuffles concurrently, each shuffle
-    // should use its own Communicator backed by its own MPI communicator.
-    std::shared_ptr<rapidsmpf::Communicator> comm =
-        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
-
     // Create a statistics instance for the shuffler that tracks useful information.
     auto stats = std::make_shared<rapidsmpf::Statistics>();
 
-    // Then a progress thread where the shuffler event loop executes is created. A single
-    // progress thread may be used by multiple shufflers simultaneously.
-    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
+    // The communicator has a progress thread where the shuffler event loop executes. A
+    // single progress thread may be used by multiple shufflers simultaneously.
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
+
+    // Now we have to create a Communicator, which we will use throughout the
+    // example. Multiple concurrent shuffles are possible on the same communicator by
+    // providing differentiating "OpID" arguments.
+    std::shared_ptr<rapidsmpf::Communicator> comm =
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
+
 
     // The Communicator provides a logger.
     auto& log = comm->logger();
@@ -64,11 +64,9 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmpf::shuffler::Shuffler shuffler(
         comm,
-        progress_thread,
         0,  // op_id
         total_num_partitions,
         &br,
-        stats,
         rapidsmpf::shuffler::Shuffler::round_robin  // partition owner
     );
 
@@ -117,7 +115,9 @@ int main(int argc, char** argv) {
         // convenience function.
         local_outputs.push_back(
             rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(std::move(packed_chunks), &br, true),
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), &br, rapidsmpf::AllowOverbooking::YES
+                ),
                 stream,
                 &br
             )
@@ -125,10 +125,12 @@ int main(int argc, char** argv) {
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
-    log.print("Finished shuffle with ", local_outputs.size(), " local output partitions");
+    log->print(
+        "Finished shuffle with ", local_outputs.size(), " local output partitions"
+    );
 
     // Log the statistics report.
-    log.print(stats->report());
+    log->print(stats->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

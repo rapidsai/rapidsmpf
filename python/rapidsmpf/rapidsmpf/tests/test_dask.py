@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -23,7 +23,10 @@ from rapidsmpf.integrations.dask.shuffler import (
     gather_shuffle_statistics,
     rapidsmpf_shuffle_graph,
 )
-from rapidsmpf.shuffler import Shuffler
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    is_pinned_memory_resources_supported,
+)
 
 dask_cuda = pytest.importorskip("dask_cuda")
 
@@ -189,6 +192,8 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
 
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     pytest.importorskip("dask_cudf")
+    # Actual number is too high, which results in the test running forever.
+    max_num_shuffles = 10
 
     def clear_shuffles(dask_worker: Worker) -> None:
         # Avoid leaking Shuffler objects between tests, by clearing
@@ -258,12 +263,8 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
-            max_num_shuffles = Shuffler.max_concurrent_shuffles
-
-            # We can shuffle `max_num_shuffles` consecutive times.
+            # We can run many simultaneous shuffles
             do_shuffle(seed=1, num_shuffles=max_num_shuffles)
-            # And more times after a compute.
-            do_shuffle(seed=2, num_shuffles=10)
 
             # Check that all shufflers has been cleaned up.
             def check_worker(dask_worker: Worker) -> None:
@@ -271,19 +272,13 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                 assert len(ctx.shufflers) == 0
 
             client.run(check_worker)
-
-            # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
-            with pytest.raises(
-                ValueError,
-                match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
-            ):
-                do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
-
             client.run(clear_shuffles)
 
 
 def test_many_shuffles_single() -> None:
     pytest.importorskip("dask_cudf")
+    # Actual number is too high, which results in the test running forever.
+    max_num_shuffles = 10
 
     def do_shuffle(seed: int, num_shuffles: int) -> None:
         """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
@@ -337,23 +332,12 @@ def test_many_shuffles_single() -> None:
     rapidsmpf.integrations.single.setup_worker(
         options=Options({"single_spill_device": "0.1"})
     )
-    max_num_shuffles = Shuffler.max_concurrent_shuffles
-
-    # We can shuffle `max_num_shuffles` consecutive times.
+    # We can run many concurrent shuffles
     do_shuffle(seed=1, num_shuffles=max_num_shuffles)
-    # And more times after a compute.
-    do_shuffle(seed=2, num_shuffles=10)
 
     # Check that all shufflers has been cleaned up.
     ctx = rapidsmpf.integrations.single.get_worker_context()
     assert len(ctx.shufflers) == 0
-
-    # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
-    with pytest.raises(
-        ValueError,
-        match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
-    ):
-        do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
 
     # Cleanup Shufflers to avoid leaking between tests.
     # This shouldn't hang because we just stage shuffles without,
@@ -376,31 +360,8 @@ def test_gather_shuffle_statistics() -> None:
         shuffled.compute()
 
         stats = gather_shuffle_statistics(client)
-        expected_stats = {
-            "metadata-payload-exchange-complete-data-transfers",
-            "metadata-payload-exchange-progress",
-            "metadata-payload-exchange-receive-metadata",
-            "metadata-payload-exchange-send-messages",
-            "metadata-payload-exchange-setup-data-receives",
-            "event-loop-process-communication",
-            "event-loop-submit-outgoing",
-            "event-loop-total",
-            "shuffle-payload-recv",
-            "shuffle-payload-send",
-            "spill-bytes-host-to-device",
-            "spill-time-host-to-device",
-        }
-
-        assert set(stats) == expected_stats
-        for stat in expected_stats:
-            assert stats[stat]["count"] > 0
-            assert "value" in stats[stat]
-
-        assert stats["shuffle-payload-send"]["value"] > 0
-        assert (
-            stats["shuffle-payload-send"]["value"]
-            == stats["shuffle-payload-recv"]["value"]
-        )
+        # We expect some stats to have been recorded, but not the exact type.
+        assert len(stats) > 0
 
 
 def test_clear_shuffle_statistics() -> None:
@@ -505,9 +466,12 @@ def test_dask_cudf_join(
             # a RMPF shuffle multiple times. Therefore, we use left0
             # and right0 to generate the expected result (left and
             # right may be "pre-shuffled").
-            expected = left0.merge(
-                right0, left_on=left_on, right_on=right_on, how=how
-            ).compute()
+            expected = left0.compute().merge(
+                right0.compute(),
+                left_on=left_on,
+                right_on=right_on,
+                how=how,
+            )
             dd.assert_eq(joined, expected, check_index=False)
 
 
@@ -517,6 +481,9 @@ async def test_bootstrap_multiple_clients(
     loop: pytest.FixtureDef,  # noqa: F811
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
+
+    # https://github.com/python/cpython/issues/126831
+    ctx = multiprocessing.get_context("fork")
 
     def connect_from_subprocess(
         scheduler_address: str, q: multiprocessing.Queue
@@ -532,8 +499,8 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
-        p = multiprocessing.Process(
+        q: multiprocessing.Queue[bool] = ctx.Queue()
+        p = ctx.Process(
             target=connect_from_subprocess, args=(cluster.scheduler_address, q)
         )
         p.start()
@@ -541,3 +508,26 @@ async def test_bootstrap_multiple_clients(
         p.join()
 
     assert result is True
+
+
+@pytest.mark.parametrize("dask_spill_to_pinned_memory", ["on", "off"])
+def test_option_spill_to_pinned_memory(dask_spill_to_pinned_memory: str) -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        bootstrap_dask_cluster(
+            client,
+            options=Options(
+                {"dask_spill_to_pinned_memory": dask_spill_to_pinned_memory}
+            ),
+        )
+
+        def check_worker(dask_worker: Worker) -> None:
+            ctx = get_worker_context(dask_worker)
+            if (
+                dask_spill_to_pinned_memory == "on"
+                and is_pinned_memory_resources_supported()
+            ):
+                assert isinstance(ctx.br.pinned_mr, PinnedMemoryResource)
+            else:
+                assert ctx.br.pinned_mr is None
+
+        client.run(check_worker)

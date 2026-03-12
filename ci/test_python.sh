@@ -1,14 +1,17 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
 . /opt/conda/etc/profile.d/conda.sh
 
+rapids-logger "Configuring conda strict channel priority"
+conda config --set channel_priority strict
+
 rapids-logger "Downloading artifacts from previous jobs"
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
-PYTHON_CHANNEL=$(rapids-download-conda-from-github python)
+PYTHON_CHANNEL=$(rapids-download-from-github "$(rapids-package-name "conda_python" rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")")
 
 rapids-logger "Generate Python testing dependencies"
 rapids-dependency-file-generator \
@@ -40,7 +43,7 @@ cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
 # Trap ERR so that `EXITCODE` is printed when a command fails and the script
 # exits with error status
 EXITCODE=0
-# shellcheck disable=SC2317
+# shellcheck disable=SC2329
 set_exit_code() {
     EXITCODE=$?
     rapids-logger "Test failed with exit code ${EXITCODE}"

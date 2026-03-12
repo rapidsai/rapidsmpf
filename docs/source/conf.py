@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 # numpydoc ignore=GL08
 # Configuration file for the Sphinx documentation builder.
@@ -8,10 +8,16 @@
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+from __future__ import annotations
 
-project = 'rapidsmpf'
-copyright = '2025, NVIDIA Corporation'
-author = 'NVIDIA Corporation'
+from enum import IntEnum, IntFlag
+from typing import Any
+
+from sphinx.ext.autodoc import ClassDocumenter
+
+project = "rapidsmpf"
+copyright = "2025-2026, NVIDIA Corporation"
+author = "NVIDIA Corporation"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -31,7 +37,7 @@ extensions = [
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
 
-templates_path = ['_templates']
+templates_path = ["_templates"]
 exclude_patterns = []
 autosummary_generate = True
 
@@ -41,7 +47,8 @@ myst_heading_anchors = 3
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_static_path = ['_static']
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 
 html_theme_options = {
@@ -50,7 +57,7 @@ html_theme_options = {
     "icon_links": [],
     "github_url": "https://github.com/rapidsai/rapidsmpf",
     "twitter_url": "https://twitter.com/rapidsai",
-    "show_toc_level": 1,
+    "show_toc_level": 2,
     "navbar_align": "right",
     "navigation_with_keys": True,
 }
@@ -80,23 +87,65 @@ intersphinx_mapping = {
 }
 
 
+class CythonIntEnumDocumenter(ClassDocumenter):
+    """
+    Custom autodoc documenter for Cython cpdef enum classes (IntEnum/IntFlag).
+    Without this, autodoc renders inherited int methods (denominator, imag, etc.)
+    instead of the actual enum members.
+    """
+
+    objtype = "enum"
+    directivetype = "class"
+    priority = 10 + ClassDocumenter.priority
+
+    option_spec = dict(ClassDocumenter.option_spec)
+
+    @classmethod
+    def can_document_member(
+        cls, member: Any, membername: str, isattr: bool, parent: Any
+    ) -> bool:
+        try:
+            return issubclass(
+                member, (IntEnum, IntFlag)
+            ) and member.__module__.startswith("rapidsmpf")
+        except TypeError:
+            return False
+
+    def add_content(self, more_content) -> None:
+        doc_as_attr = self.doc_as_attr
+        self.doc_as_attr = False
+        super().add_content(more_content)
+        self.doc_as_attr = doc_as_attr
+        source_name = self.get_sourcename()
+        enum_object: IntEnum = self.object
+
+        self.add_line("", source_name)
+        self.add_line(".. container:: enum-members", source_name)
+        self.add_line("", source_name)
+
+        for the_member_name in enum_object.__members__:
+            self.add_line(f"   .. attribute:: {the_member_name}", source_name)
+            self.add_line("", source_name)
+
+
+def setup(app):
+    app.registry.add_documenter("enum", CythonIntEnumDocumenter)
+
+    # Prevent Sphinx from replacing native Cython modules with .pyi stubs.
+    # When .pyi files are installed alongside .so files, Sphinx 8.2+ prefers
+    # the stub, which causes autodoc to miss Cython module-level functions
+    # (they lack docstrings in the stub and get skipped as undocumented).
+    # The importer skips this lookup if the module already happens to be
+    # imported which is why it only seems to exhibit as not finding docs
+    # for some modules.
+    import sphinx.ext.autodoc.importer as _importer
+
+    _importer._find_type_stub_spec = lambda spec, modname: (spec, None)
+
+
 nitpick_ignore_regex = [
-    # Ignore WARNING: py:class reference target not found: Table [ref.class] in unpack_and_concat
-    ('py:class', 'Table'),
-    # Ignore TypeVars being assumed to be classes
-    # https://github.com/sphinx-doc/sphinx/issues/10974
-    ("py:class", "DataFrameT"),
-    ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
-    # Unclear why this was causing a warning
-    ("py:obj", "rapidsmpf.buffer.resource.LimitAvailableMemory.__call__"),
-    # autodoc fails to generate references for integer methods (real, image, etc.)
-    # for IntEnums coming from Cython.
-    ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
-    ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
-    ("py:obj", "(denominator|imag|numerator|real)"),
-    ('py:obj', 'rapidsmpf.rmm_resource_adaptor.AllocType.*'),
-    ('py:class', 'rmm.pylibrmm.stream.Stream'),
-    ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
+    # Cython turns __call__ into a slot_wrapper that autodoc doesn't understand.
+    ("py:obj", "rapidsmpf.memory.buffer_resource.LimitAvailableMemory.__call__"),
     # We're subclassing this from RMM, and sphinx can't find these methods.
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),

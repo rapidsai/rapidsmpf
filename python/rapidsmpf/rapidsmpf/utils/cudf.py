@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """cudf utilities."""
 
@@ -12,7 +12,7 @@ import pylibcudf
 
 def cudf_to_pylibcudf_table(df: cudf.DataFrame) -> pylibcudf.Table:
     """
-    Convert a cuDF DataFrame to a pylibcudf Table (read-only).
+    Convert a cuDF DataFrame to a pylibcudf Table.
 
     Parameters
     ----------
@@ -24,7 +24,7 @@ def cudf_to_pylibcudf_table(df: cudf.DataFrame) -> pylibcudf.Table:
     pylibcudf.Table
         A pylibcudf Table representation of the input DataFrame.
     """
-    return pylibcudf.Table([col.to_pylibcudf(mode="read") for col in df._columns])
+    return pylibcudf.Table([col.to_pylibcudf() for col in df._columns])
 
 
 def pylibcudf_to_cudf_dataframe(

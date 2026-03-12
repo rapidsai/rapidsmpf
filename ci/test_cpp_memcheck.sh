@@ -1,10 +1,13 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
 
 . /opt/conda/etc/profile.d/conda.sh
+
+rapids-logger "Configuring conda strict channel priority"
+conda config --set channel_priority strict
 
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
 
@@ -34,7 +37,7 @@ nvidia-smi
 # Trap ERR so that `EXITCODE` is printed when a command fails and the script
 # exits with error status
 EXITCODE=0
-# shellcheck disable=SC2317
+# shellcheck disable=SC2329
 set_exit_code() {
     EXITCODE=$?
     rapids-logger "Test failed with exit code ${EXITCODE}"

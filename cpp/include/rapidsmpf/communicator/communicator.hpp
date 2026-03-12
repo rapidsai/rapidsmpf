@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,14 +8,15 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -37,22 +38,47 @@ using Rank = std::int32_t;
  * @brief Operation ID defined by the user. This allows users to concurrently execute
  * multiple operations, and each operation will be identified by its OpID.
  *
- * @note This limits the total number of concurrent operations to 2^8
+ * @note Although typed as an `int32`, the number of distinct operations is limited to
+ * `2^20`.
  */
-using OpID = std::uint8_t;
+using OpID = std::int32_t;
 
 /**
  * @typedef StageID
  * @brief Identifier for a stage of a communication operation.
+ *
+ * @note Although typed as an `int32`, the number of distinct stages is limited to
+ * `2^3`.
  */
-using StageID = std::uint8_t;
+using StageID = std::int32_t;
 
 /**
  * @brief A tag used for identifying messages in a communication operation.
  *
- * @note The tag is a 32-bit integer, with the following layout:
- * bits     |31:16| 15:8 | 7:0 |
- * value    |empty|  op  |stage|
+ * The tag is a 32-bit integer, with the following layout (low bits to high bits
+ * left-to-right)
+ *
+ * @code{}
+ * bits   | 012       | 34567 01234567 0123456 | 7 01234567
+ *        |           |                        |
+ * value  | stage (3) | operation (20)         | empty (9)
+ *        |           |                        |
+ * @endcode{}
+ *
+ * The restriction of 23 used bits comes from empirical MPI implementation limits for
+ * `MPI_TAG_UB`. For example, when using UCX as a transport layer, OpenMPI is restricted
+ * to `2^23` distinct tags.
+ *
+ * All messages in rapidsmpf over the same `Communicator` are disambiguated by `Tag`s. A
+ * message sent with a given `Tag` can only be matched by a receive with a matching `Tag`.
+ *
+ * In the same way, collective operations over a `Communicator` are disambiguated by an
+ * `OpID`: two different collectives with different `OpID`s will not interfere.
+ *
+ * Due to implementation restrictions, we are limited in the number of distinct tags we
+ * can use (the `Tag` constructor checks for overflow but not reuse). In particular, we
+ * support at most `2^20` distinct `OpIDs`, corresponding to `2^20` distinct collectives
+ * running simultaneously.
  */
 class Tag {
   public:
@@ -63,13 +89,13 @@ class Tag {
     using StorageT = std::int32_t;
 
     /// @brief Number of bits for the stage ID
-    static constexpr int stage_id_bits{sizeof(StageID) * 8};
+    static constexpr int stage_id_bits{3};
 
     /// @brief Mask for the stage ID
     static constexpr StorageT stage_id_mask{(1 << stage_id_bits) - 1};
 
     /// @brief Number of bits for the operation ID
-    static constexpr int op_id_bits{sizeof(OpID) * 8};
+    static constexpr int op_id_bits{20};
 
     /// @brief Mask for the operation ID
     static constexpr StorageT op_id_mask{
@@ -79,19 +105,31 @@ class Tag {
     /**
      * @brief Constructs a tag
      *
+     * @throws std::overflow_error If either the `op` or `stage` values are negative or
+     * too large.
+     *
      * @param op The operation ID
      * @param stage The stage ID
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
               (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
-          } {}
+          } {
+        RAPIDSMPF_EXPECTS(
+            stage >= 0 && stage < (1 << stage_id_bits),
+            "Invalid stage value",
+            std::overflow_error
+        );
+        RAPIDSMPF_EXPECTS(
+            op >= 0 && op < (1 << op_id_bits), "Invalid OpID value", std::overflow_error
+        );
+    }
 
     /**
      * @brief Returns the max number of bits used for the tag
      * @return bit length
      */
-    [[nodiscard]] static constexpr size_t bit_length() noexcept {
+    [[nodiscard]] static constexpr std::size_t bit_length() noexcept {
         return op_id_bits + stage_id_bits;
     }
 
@@ -137,6 +175,15 @@ class Tag {
  * Provides an interface for sending and receiving messages between nodes, supporting
  * asynchronous operations, GPU data transfers, and custom logging. Implementations must
  * define the virtual methods to enable specific communication backends.
+ *
+ * The API of the `Communicator` is _not_ stream-ordered (since the concrete libraries we
+ * use to implement communication patterns are not stream-ordered). A consequence of this
+ * is that the user must ensure that any stream-ordered work on buffers is complete before
+ * passing a buffer into `send` or `recv`. As a corollary, after completing a future, the
+ * extracted `Buffer` is valid on its stream (it has no stream-ordered work queued up).
+ *
+ * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
+ * _must_ provide that there is no message overtaking.
  */
 class Communicator {
   public:
@@ -199,7 +246,7 @@ class Communicator {
          * @param level The log level.
          * @return The corresponding log level name or "UNKNOWN" if out of range.
          */
-        static constexpr const char* level_name(LOG_LEVEL level) {
+        static constexpr char const* level_name(LOG_LEVEL level) {
             auto index = static_cast<std::size_t>(level);
             return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
         }
@@ -216,10 +263,10 @@ class Communicator {
          *  - DEBUG: Debug messages.
          *  - TRACE: Trace messages.
          *
-         * @param comm The `Communicator` to use.
+         * @param rank The rank of the calling process.
          * @param options Configuration options.
          */
-        Logger(Communicator* comm, config::Options options);
+        Logger(Rank rank, config::Options options);
         virtual ~Logger() noexcept = default;
 
         /**
@@ -336,24 +383,15 @@ class Communicator {
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
             std::ostringstream full_log_msg;
-            full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
-                         << get_thread_id() << "] " << ss.str();
+            full_log_msg << "[" << level_name(level) << ":" << rank_ << ":"
+                         << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }
 
-        /**
-         * @brief Get the communicator used by the logger.
-         *
-         * @return Pointer to the Communicator instance.
-         */
-        Communicator* get_communicator() const {
-            return comm_;
-        }
-
       private:
         std::mutex mutex_;
-        Communicator* comm_;
+        Rank rank_;
         LOG_LEVEL const level_;
 
         /// Counter used by `std::this_thread::get_id()` to abbreviate the large
@@ -388,28 +426,37 @@ class Communicator {
      * This is used to send data that resides in host memory and is guaranteed
      * to be valid at the time of the call.
      *
+     * Use `release_sync_host_data` to obtain the data buffer again once the
+     * future is completed.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @throws std::invalid_argument If @p msg is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+        std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
     ) = 0;
 
     /**
-     * @brief Sends a message (device or host) to a specific rank.
+     * @brief Sends a message (device or host) to a specific rank. Use `release_data` to
+     * obtain the data buffer again once the future is completed.
      *
      * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      *
+     * @throws std::invalid_argument If @p msg is `nullptr`.
+     * @throws std::logic_error If @p msg is not ready (see warning for more details).
+     *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * and data are already valid before calling, for example, when a CUDA allocation
      * and/or copy are done asynchronously. Specifically, the caller should ensure
-     * `Buffer::is_ready()` returns true before calling this function, if not, a
-     * warning is printed and the application will terminate.
+     * `Buffer::is_ready()` returns true before calling this function. Providing a
+     * non-ready buffer leads to an irrecoverable condition.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
@@ -424,11 +471,15 @@ class Communicator {
      * @param recv_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      *
+     * @throws std::invalid_argument If @p recv_buffer is `nullptr`.
+     * @throws std::logic_error If @p recv_buffer is not ready (see warning for more
+     * details).
+     *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * is already valid before calling, for example, when a CUDA allocation
      * and/or copy are done asynchronously. Specifically, the caller should ensure
-     * `Buffer::is_ready()` returns true before calling this function, if not, a
-     * warning is printed and the application will terminate.
+     * `Buffer::is_ready()` returns true before calling this function. Providing a
+     * non-ready buffer leads to an irrecoverable condition.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
@@ -443,9 +494,11 @@ class Communicator {
      * @param tag Message tag for identification.
      * @param synced_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @throws std::invalid_argument If @p synced_buffer is `nullptr`.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv_sync_host_data(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+        Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
     ) = 0;
 
     /**
@@ -457,9 +510,8 @@ class Communicator {
      * @note If no message is available this is indicated by returning
      * a `nullptr` in the first slot of the pair.
      */
-    [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
-        Tag tag
-    ) = 0;
+    [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank>
+    recv_any(Tag tag) = 0;
 
     /**
      * @brief Receives a message from a specific rank (blocking).
@@ -471,7 +523,7 @@ class Communicator {
      *
      * @note If no message is available, this function returns a nullptr.
      */
-    [[nodiscard]] virtual std::unique_ptr<std::vector<uint8_t>> recv_from(
+    [[nodiscard]] virtual std::unique_ptr<std::vector<std::uint8_t>> recv_from(
         Rank src, Tag tag
     ) = 0;
 
@@ -495,6 +547,25 @@ class Communicator {
     std::vector<std::size_t> virtual test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) = 0;
+
+    /**
+     * @brief Test for completion of a single future.
+     *
+     * @param future Future to test
+     * @return True if the future is completed. After `test` returns true, it is safe to
+     * call `release_data()`.
+     */
+    [[nodiscard]] virtual bool test(std::unique_ptr<Communicator::Future>& future) = 0;
+
+    /**
+     * @brief Wait for completion of all futures and return their data buffers.
+     *
+     * @param futures Futures to wait for completion of, consumed.
+     * @return A vector of the contained data buffers.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
     ) = 0;
 
     /**
@@ -530,15 +601,23 @@ class Communicator {
      *
      * @throws std::runtime_error if the future has no data.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_sync_host_data(
-        std::unique_ptr<Communicator::Future> future
-    ) = 0;
+    [[nodiscard]] std::
+        unique_ptr<std::vector<std::uint8_t>> virtual release_sync_host_data(
+            std::unique_ptr<Communicator::Future> future
+        ) = 0;
 
     /**
      * @brief Retrieves the logger associated with this communicator.
-     * @return Reference to the logger.
+     * @return Shared pointer to the logger.
      */
-    [[nodiscard]] virtual Logger& logger() = 0;
+    [[nodiscard]] virtual std::shared_ptr<Communicator::Logger> const& logger() = 0;
+
+    /**
+     * @brief Retrieves the progress thread associated with this communicator.
+     * @return Shared pointer to the progress thread.
+     */
+    [[nodiscard]] virtual std::shared_ptr<ProgressThread> const&
+    progress_thread() const = 0;
 
     /**
      * @brief Provides a string representation of the communicator.

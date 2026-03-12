@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -12,6 +12,7 @@ include(rapids-cpm)
 rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(rapidsmpf-python)
 
@@ -37,6 +38,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # version RAPIDS uses in CI that causes it to handle the resulting -M* flags incorrectly with
 # gcc>=14. We can remove this once we upgrade to a newer sccache version.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+# ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 

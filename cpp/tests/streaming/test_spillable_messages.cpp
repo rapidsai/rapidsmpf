@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,7 +19,16 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 
-using StreamingSpillableMessages = BaseStreamingFixture;
+class StreamingSpillableMessages : public BaseStreamingFixture {
+  public:
+    void SetUp() override {
+        SetUpWithThreads(8);
+    }
+
+    void TearDown() override {
+        BaseStreamingFixture::TearDown();
+    }
+};
 
 /**
  * @brief Create a simple integer message for testing.
@@ -171,4 +180,115 @@ TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
     // All inserted messages had payload=1
     EXPECT_EQ(extracted_sum.load(), total_msgs);
     EXPECT_TRUE(msgs.get_content_descriptions().empty());
+}
+
+TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
+    constexpr int num_producer_producer_pairs = 16;
+    constexpr int msgs_per_producer = 100;
+    std::vector<Actor> actors;
+    std::atomic<std::size_t> spilled_expect{0};
+    std::atomic<std::size_t> spilled_got{0};
+
+    // Create many producer-consumer pairs and spill in-flight messages.
+    for (int i = 0; i < num_producer_producer_pairs; ++i) {
+        auto ch = ctx->create_channel();
+        actors.emplace_back(
+            [](int i,
+               std::shared_ptr<Context> ctx,
+               std::shared_ptr<Channel> ch_out) -> Actor {
+                ShutdownAtExit c{ch_out};
+                co_await ctx->executor()->schedule();
+                for (int j = 0; j < msgs_per_producer; ++j) {
+                    auto seq = i * num_producer_producer_pairs + j;
+                    co_await ch_out->send(create_int_msg(
+                        seq, seq, MemoryType::DEVICE, ContentDescription::Spillable::YES
+                    ));
+                }
+                co_await ch_out->drain(ctx->executor());
+            }(i, ctx, ch)
+        );
+        actors.emplace_back(
+            [](int i,
+               std::atomic<std::size_t>& spilled_expect,
+               std::atomic<std::size_t>& spilled_got,
+               std::shared_ptr<Context> ctx,
+               std::shared_ptr<Channel> ch_in) -> Actor {
+                ShutdownAtExit c{ch_in};
+                co_await ctx->executor()->schedule();
+                for (int j = 0; j < msgs_per_producer; ++j) {
+                    spilled_expect.fetch_add(
+                        ctx->br()->spill_manager().spill(1024), std::memory_order_relaxed
+                    );
+
+                    auto msg = co_await ch_in->receive();
+                    if (msg.empty()) {
+                        break;
+                    }
+
+                    spilled_got.fetch_add(
+                        msg.content_description().content_size(MemoryType::HOST),
+                        std::memory_order_relaxed
+                    );
+                    auto seq = i * num_producer_producer_pairs + j;
+                    EXPECT_EQ(msg.sequence_number(), seq);
+                    EXPECT_EQ(msg.release<int>(), seq);
+                }
+            }(i, spilled_expect, spilled_got, ctx, ch)
+        );
+    }
+
+    // Randomize the actor order.
+    std::shuffle(actors.begin(), actors.end(), std::mt19937{std::random_device{}()});
+    run_actor_network(std::move(actors));
+
+    EXPECT_EQ(
+        spilled_expect.load(std::memory_order_relaxed),
+        spilled_got.load(std::memory_order_relaxed)
+    );
+}
+
+TEST_F(StreamingSpillableMessages, CopyInvalidIdThrows) {
+    SpillableMessages msgs;
+
+    // Try to copy a non-existent ID should throw.
+    auto reservation = br->reserve_or_fail(10, MemoryType::DEVICE);
+    EXPECT_THROW(std::ignore = msgs.copy(1234, reservation), std::out_of_range);
+}
+
+TEST_F(StreamingSpillableMessages, Copy) {
+    SpillableMessages msgs;
+
+    // Original message is HOST-backed and spillable.
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::HOST, ContentDescription::Spillable::YES)
+    );
+
+    // Sanity check of the initial content description.
+    auto cds_before = msgs.get_content_descriptions();
+    ASSERT_EQ(cds_before.size(), 1);
+    EXPECT_EQ(cds_before.at(mid).content_size(MemoryType::HOST), sizeof(int));
+    EXPECT_EQ(cds_before.at(mid).content_size(MemoryType::DEVICE), 0);
+
+    // Let's copy.
+    auto reservation = br->reserve_or_fail(10, MemoryType::DEVICE);
+    auto copy = msgs.copy(mid, reservation);
+
+    // Copied message has same sequence number and payload.
+    EXPECT_EQ(copy.sequence_number(), 1);
+    EXPECT_EQ(copy.get<int>(), 42);
+
+    // Copied message should now report DEVICE-backed content, not HOST.
+    EXPECT_EQ(copy.content_description().content_size(MemoryType::DEVICE), sizeof(int));
+    EXPECT_EQ(copy.content_description().content_size(MemoryType::HOST), 0);
+
+    // Original message is still present and unchanged in the container.
+    auto cds_after = msgs.get_content_descriptions();
+    ASSERT_EQ(cds_after.size(), 1);
+    EXPECT_EQ(cds_after.at(mid).content_size(MemoryType::HOST), sizeof(int));
+    EXPECT_EQ(cds_after.at(mid).content_size(MemoryType::DEVICE), 0);
+
+    // We can still extract the original message and it has the same payload.
+    auto original = msgs.extract(mid);
+    EXPECT_EQ(original.sequence_number(), 1);
+    EXPECT_EQ(original.get<int>(), 42);
 }

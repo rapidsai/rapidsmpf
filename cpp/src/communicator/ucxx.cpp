@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,9 +11,11 @@
 #include <mutex>
 #include <utility>
 
+#include <ucxx/request.h>
+
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -66,7 +68,8 @@ class HostFuture {
      * @param data A unique pointer to the data buffer.
      */
     HostFuture(
-        std::shared_ptr<::ucxx::Request> req, std::unique_ptr<std::vector<uint8_t>> data
+        std::shared_ptr<::ucxx::Request> req,
+        std::unique_ptr<std::vector<std::uint8_t>> data
     )
         : req_{std::move(req)}, data_buffer_{std::move(data)} {}
 
@@ -82,7 +85,7 @@ class HostFuture {
   private:
     std::shared_ptr<::ucxx::Request>
         req_;  ///< The UCXX request associated with the operation.
-    std::unique_ptr<std::vector<uint8_t>> data_buffer_;  ///< The data buffer.
+    std::unique_ptr<std::vector<std::uint8_t>> data_buffer_;  ///< The data buffer.
 };
 
 }  // namespace
@@ -357,13 +360,14 @@ class SharedResources {
 
     void barrier() {
         // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_to_endpoint_.size() != static_cast<size_t>(nranks())) {
+        while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<std::size_t>(nranks()))
+        {
             progress_worker();
         }
 
         if (rank_ == 0) {
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
-            requests.reserve(static_cast<size_t>(nranks() - 1));
+            requests.reserve(safe_cast<std::size_t>(nranks() - 1));
             // send to all other ranks
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
@@ -462,18 +466,18 @@ class SharedResources {
 
 namespace {
 
-size_t get_size(ControlData const& data) {
+std::size_t get_size(ControlData const& data) {
     return std::visit(
         [](auto const& data) { return sizeof(std::decay_t<decltype(data)>); }, data
     );
 }
 
-void encode(void* dest, void const* src, size_t bytes, size_t& offset) {
+void encode(void* dest, void const* src, std::size_t bytes, std::size_t& offset) {
     memcpy(static_cast<char*>(dest) + offset, src, bytes);
     offset += bytes;
 }
 
-void decode(void* dest, void const* src, size_t bytes, size_t& offset) {
+void decode(void* dest, void const* src, std::size_t bytes, std::size_t& offset) {
     memcpy(dest, static_cast<char const*>(src) + offset, bytes);
     offset += bytes;
 }
@@ -487,21 +491,21 @@ void decode(void* dest, void const* src, size_t bytes, size_t& offset) {
  *
  * @return vector of bytes to be sent over the wire.
  */
-std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
+std::unique_ptr<std::vector<std::uint8_t>> listener_address_pack(
     ListenerAddress const& listener_address
 ) {
     return std::visit(
         overloaded{
             [&listener_address](HostPortPair const& remote_address) {
-                size_t offset{0};
+                std::size_t offset{0};
                 auto type = ListenerAddressType::HostPort;
                 auto host_size = remote_address.first.size();
-                size_t const total_size = sizeof(type) + sizeof(host_size) + host_size
-                                          + sizeof(remote_address.second)
-                                          + sizeof(listener_address.rank);
-                auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+                std::size_t const total_size = sizeof(type) + sizeof(host_size)
+                                               + host_size + sizeof(remote_address.second)
+                                               + sizeof(listener_address.rank);
+                auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
-                auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+                auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
                     encode(packed->data(), data, bytes, offset);
                 };
 
@@ -513,14 +517,15 @@ std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
                 return packed;
             },
             [&listener_address](std::shared_ptr<::ucxx::Address> const& remote_address) {
-                size_t offset{0};
+                std::size_t offset{0};
                 auto type = ListenerAddressType::WorkerAddress;
                 auto address_size = remote_address->getLength();
-                size_t const total_size = sizeof(type) + sizeof(address_size)
-                                          + address_size + sizeof(listener_address.rank);
-                auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+                std::size_t const total_size = sizeof(type) + sizeof(address_size)
+                                               + address_size
+                                               + sizeof(listener_address.rank);
+                auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
-                auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+                auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
                     encode(packed->data(), data, bytes, offset);
                 };
 
@@ -544,10 +549,12 @@ std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
  *
  * @return listener address contained in the packed message.
  */
-ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> packed) {
-    size_t offset{0};
+ListenerAddress listener_address_unpack(
+    std::unique_ptr<std::vector<std::uint8_t>> packed
+) {
+    std::size_t offset{0};
 
-    auto decode_ = [&offset, &packed](void* data, size_t bytes) {
+    auto decode_ = [&offset, &packed](void* data, std::size_t bytes) {
         decode(data, packed->data(), bytes, offset);
     };
 
@@ -555,7 +562,7 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
     decode_(&type, sizeof(type));
 
     if (type == ListenerAddressType::WorkerAddress) {
-        size_t address_size;
+        std::size_t address_size;
         decode_(&address_size, sizeof(address_size));
 
         auto address = std::string(address_size, '\0');
@@ -567,7 +574,7 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
         auto ret = ListenerAddress{::ucxx::createAddressFromString(address), rank};
         return ret;
     } else if (type == ListenerAddressType::HostPort) {
-        size_t host_size;
+        std::size_t host_size;
         decode_(&host_size, sizeof(host_size));
 
         auto host = std::string(host_size, '\0');
@@ -579,9 +586,8 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
         decode_(&rank, sizeof(rank));
 
         return ListenerAddress{std::make_pair(host, port), rank};
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Wrong type");
     }
+    RAPIDSMPF_FAIL("Wrong type");
 }
 
 /**
@@ -593,18 +599,18 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
  * @param control type of control message.
  * @param data data associated with the control message.
  */
-std::unique_ptr<std::vector<uint8_t>> control_pack(
+std::unique_ptr<std::vector<std::uint8_t>> control_pack(
     ControlMessage control, ControlData data
 ) {
-    size_t offset{0};
+    std::size_t offset{0};
 
     if (control == ControlMessage::AssignRank
         || control == ControlMessage::QueryListenerAddress)
     {
-        size_t const total_size = sizeof(control) + get_size(data);
-        auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+        std::size_t const total_size = sizeof(control) + get_size(data);
+        auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
-        auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+        auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
             encode(packed->data(), data, bytes, offset);
         };
 
@@ -618,13 +624,14 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
-        size_t packed_listener_address_size = packed_listener_address->size();
+        std::size_t packed_listener_address_size = packed_listener_address->size();
 
-        size_t const total_size = sizeof(control) + sizeof(packed_listener_address_size)
-                                  + packed_listener_address_size;
-        auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+        std::size_t const total_size = sizeof(control)
+                                       + sizeof(packed_listener_address_size)
+                                       + packed_listener_address_size;
+        auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
-        auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+        auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
             encode(packed->data(), data, bytes, offset);
         };
 
@@ -633,9 +640,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         encode_(packed_listener_address->data(), packed_listener_address_size);
 
         return packed;
-    } else {
-        RAPIDSMPF_EXPECTS(false, "Invalid control type");
     }
+    RAPIDSMPF_FAIL("Invalid control type");
 };
 
 /**
@@ -662,9 +668,9 @@ void control_unpack(
     ucp_ep_h ep,
     std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 ) {
-    size_t offset{0};
+    std::size_t offset{0};
 
-    auto decode_ = [&offset, &buffer](void* data, size_t bytes) {
+    auto decode_ = [&offset, &buffer](void* data, std::size_t bytes) {
         decode(data, buffer->data(), bytes, offset);
     };
 
@@ -678,11 +684,11 @@ void control_unpack(
     } else if (control == ControlMessage::QueryRank) {
         Rank client_rank = shared_resources->get_next_worker_rank();
 
-        size_t packed_listener_address_size;
+        std::size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
 
         auto packed_listener_address =
-            std::make_unique<std::vector<uint8_t>>(packed_listener_address_size);
+            std::make_unique<std::vector<std::uint8_t>>(packed_listener_address_size);
         decode_(packed_listener_address->data(), packed_listener_address_size);
 
         ListenerAddress listener_address =
@@ -722,10 +728,10 @@ void control_unpack(
 
         shared_resources->add_delayed_progress_callback(std::move(callback));
     } else if (control == ControlMessage::ReplyListenerAddress) {
-        size_t packed_listener_address_size;
+        std::size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
         auto packed_listener_address =
-            std::make_unique<std::vector<uint8_t>>(packed_listener_address_size);
+            std::make_unique<std::vector<std::uint8_t>>(packed_listener_address_size);
         decode_(packed_listener_address->data(), packed_listener_address_size);
 
         ListenerAddress listener_address =
@@ -1026,12 +1032,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 }
 
 UCXX::UCXX(
-    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+    config::Options options,
+    std::shared_ptr<ProgressThread> progress_thread
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_(this, options_) {
-    shared_resources_->logger = &logger_;
+      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
+      progress_thread_{std::move(progress_thread)} {
+    shared_resources_->logger = logger_.get();
 }
 
 [[nodiscard]] Rank UCXX::rank() const {
@@ -1045,24 +1054,38 @@ UCXX::UCXX(
 constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // The rapidsmpf::ucxx::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
-    // 64-bit tags as aid in identifying the sender of a message. Since we're
-    // currently limited to 26-bits for ranks (see
-    // `rapidsmpf::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
-    // 58-bits for the tags and the remaining 6-bits may be used in the future,
-    // such as to identify groups.
-    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
+    // 64-bit tags as aid in identifying the sender of a message.
+    // Note that there is an implementation-defined limit on the maximum number of ranks
+    // in an MPI communicator (often 2^20). In rapidsmpf, due to our chunk identification
+    // scheme in `rapidsmpf::shuffler::Shuffler::get_new_cid()` we have a "soft" limit of
+    // 2^26 distinct ranks. Consequently, the 64 bit `ucxx::Tag` is split into (from low
+    // to high):
+    //
+    // clang-format off
+    // bits   | 01234567 01234567 01234567 01234567 | 01234567 01234567 01234567 01 | 234567
+    //        |                                     |                               |
+    // value  |          user tag (32)              |           rank (26)           | empty (6)
+    //        |                                     |                               |
+    // clang-format on
+    //
+    // If we want to support duplicating communicators (which could be done by using the
+    // empty 6 bits to disambiguate message), we could reduce the number of bits required
+    // for ranks since we are unlikely to need 2^26 ranks.
+    return ::ucxx::Tag(
+        static_cast<std::uint64_t>(rank) << 32 | static_cast<std::uint64_t>(tag)
+    );
 }
 
-constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<uint32_t>::max()};
+constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<std::uint32_t>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
-    Logger& log = logger();
+    auto& log = logger();
     try {
         auto ep = shared_resources_->get_endpoint(rank);
-        log.trace("Endpoint for rank ", rank, " already available, returning to caller");
+        log->trace("Endpoint for rank ", rank, " already available, returning to caller");
         return ep;
     } catch (std::out_of_range const&) {
-        log.trace(
+        log->trace(
             "Endpoint for rank ", rank, " not available, requesting listener address"
         );
         auto packed_listener_address_rank =
@@ -1111,7 +1134,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         );
         shared_resources_->register_endpoint(rank, endpoint);
 
-        log.trace(
+        log->trace(
             "Endpoint for rank ",
             rank,
             " established successfully, requesting listener address"
@@ -1122,8 +1145,9 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+    std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
 ) {
+    RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
@@ -1135,7 +1159,8 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1145,8 +1170,12 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    RAPIDSMPF_EXPECTS(recv_buffer != nullptr, "recv buffer is nullptr");
-    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
+    RAPIDSMPF_EXPECTS(
+        recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        recv_buffer->is_latest_write_done(), "msg must be ready", std::logic_error
+    );
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->exclusive_data_access(),
         recv_buffer->size,
@@ -1157,9 +1186,11 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
-    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+    Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
 ) {
-    RAPIDSMPF_EXPECTS(synced_buffer != nullptr, "recv host buffer is nullptr");
+    RAPIDSMPF_EXPECTS(
+        synced_buffer != nullptr, "recv host buffer cannot be null", std::invalid_argument
+    );
     auto req = get_endpoint(rank)->tagRecv(
         synced_buffer->data(),
         synced_buffer->size(),
@@ -1169,7 +1200,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
     return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
-std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
+std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask, true
@@ -1179,8 +1210,8 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
         return {nullptr, 0};
     }
     auto info = probe->getInfo();
-    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
-    auto msg = std::make_unique<std::vector<uint8_t>>(
+    auto sender_rank = safe_cast<Rank>(info.senderTag >> 32);
+    auto msg = std::make_unique<std::vector<std::uint8_t>>(
         info.length
     );  // TODO: choose between host and device
 
@@ -1194,7 +1225,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     return {std::move(msg), sender_rank};
 }
 
-std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
+std::unique_ptr<std::vector<std::uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull, true
@@ -1204,7 +1235,7 @@ std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
         return nullptr;
     }
     auto info = probe->getInfo();
-    auto msg = std::make_unique<std::vector<uint8_t>>(
+    auto msg = std::make_unique<std::vector<std::uint8_t>>(
         info.length
     );  // TODO: choose between host and device
 
@@ -1224,9 +1255,9 @@ UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vecto
         return {};
     }
     progress_worker();
-    std::vector<size_t> indices;
+    std::vector<std::size_t> indices;
     indices.reserve(future_vector.size());
-    for (size_t i = 0; i < future_vector.size(); i++) {
+    for (std::size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
@@ -1264,7 +1295,7 @@ std::vector<std::size_t> UCXX::test_some(
         future_map
 ) {
     progress_worker();
-    std::vector<size_t> completed;
+    std::vector<std::size_t> completed;
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
@@ -1276,11 +1307,46 @@ std::vector<std::size_t> UCXX::test_some(
     return completed;
 }
 
+bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    progress_worker();
+    auto flag = ucxx_future->req_->isCompleted();
+    ucxx_future->req_->checkError();
+    return flag;
+}
+
+std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(futures.size());
+    for (auto const& future : futures) {
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        reqs.push_back(ucxx_future->req_);
+    }
+    while (!std::ranges::all_of(reqs, [](auto&& req) {
+        auto flag = req->isCompleted();
+        req->checkError();
+        return flag;
+    }))
+    {
+        progress_worker();
+    }
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    for (auto&& future : futures) {
+        result.push_back(release_data(std::move(future)));
+    }
+    return result;
+}
+
 void UCXX::barrier() {
-    Logger& log = logger();
-    log.trace("Barrier started on rank ", shared_resources_->rank());
+    auto& log = logger();
+    log->trace("Barrier started on rank ", shared_resources_->rank());
     shared_resources_->barrier();
-    log.trace("Barrier completed on rank ", shared_resources_->rank());
+    log->trace("Barrier completed on rank ", shared_resources_->rank());
 }
 
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
@@ -1302,7 +1368,7 @@ std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future>
     return std::move(ucxx_future->data_buffer_);
 }
 
-std::unique_ptr<std::vector<uint8_t>> UCXX::release_sync_host_data(
+std::unique_ptr<std::vector<std::uint8_t>> UCXX::release_sync_host_data(
     std::unique_ptr<Communicator::Future> future
 ) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
@@ -1323,8 +1389,8 @@ std::string UCXX::str() const {
 }
 
 UCXX::~UCXX() noexcept {
-    Logger& log = logger();
-    log.trace("UCXX destructor");
+    auto& log = logger();
+    log->trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
     shared_resources_->logger = nullptr;
 }
@@ -1338,8 +1404,8 @@ ListenerAddress UCXX::listener_address() {
 }
 
 std::shared_ptr<UCXX> UCXX::split() {
-    Logger& log = logger();
-    log.trace("Splitting communicator on rank ", shared_resources_->rank());
+    auto log = logger().get();
+    log->trace("Splitting communicator on rank ", shared_resources_->rank());
 
     // Get the context from shared resources
     auto context = shared_resources_->get_context();
@@ -1370,7 +1436,9 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
+    return std::make_shared<UCXX>(
+        std::move(initialized_rank), options_, progress_thread_
+    );
 }
 
 }  // namespace ucxx

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,9 +8,9 @@
 #include <unordered_set>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 
 namespace rapidsmpf::streaming {
@@ -53,6 +53,7 @@ class ShufflerAsync {
      * @brief Constructs a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
+     * @param comm Communicator for the collective operation.
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
      * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
@@ -65,6 +66,7 @@ class ShufflerAsync {
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
+        std::shared_ptr<Communicator> comm,
         OpID op_id,
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
@@ -84,6 +86,15 @@ class ShufflerAsync {
      */
     [[nodiscard]] constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
+    }
+
+    /**
+     * @brief Gets the communicator associated with this shuffler.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return shuffler_.comm();
     }
 
     /**
@@ -125,7 +136,7 @@ class ShufflerAsync {
      *
      * @return A coroutine that, when awaited, indicates the shuffle has completed.
      */
-    [[nodiscard]] Node insert_finished(std::vector<shuffler::PartID>&& pids);
+    [[nodiscard]] Actor insert_finished();
 
     /**
      * @brief Asynchronously extracts all data for a specific partition.
@@ -189,10 +200,10 @@ class ShufflerAsync {
      * @return A coroutine representing the completion of all notifications and the
      * shutdown of the semaphore.
      */
-    [[nodiscard]] Node finished_drain();
+    [[nodiscard]] Actor finished_drain();
 
     std::shared_ptr<Context> ctx_;
-    coro::task_container<coro::thread_pool>
+    coro::task_group<coro::thread_pool>
         notifications_;  ///< Container tracking the notifications that have fired.
     Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)
     coro::latch
@@ -211,9 +222,9 @@ class ShufflerAsync {
     std::unordered_set<shuffler::PartID> extracted_pids_;
 };
 
-namespace node {
+namespace actor {
 /**
- * @brief Launches a shuffler node for a single shuffle operation.
+ * @brief Launches a shuffler actor for a single shuffle operation.
  *
  * This is a streaming version of `rapidsmpf::shuffler::Shuffler` that operates on
  * packed partition chunks using channels.
@@ -222,18 +233,20 @@ namespace node {
  * chunks grouped by `partition_owner`.
  *
  * @param ctx The context to use.
+ * @param comm Communicator for the collective operation.
  * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
  * @param ch_out Output channel where the resulting PartitionVectorChunks are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until all
- * nodes have called `Shuffler::shutdown()`.
+ * actors have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
  *
- * @return A streaming node that completes when the shuffling has finished and the
+ * @return A streaming actor that completes when the shuffling has finished and the
  * output channel is drained.
  */
-[[nodiscard]] Node shuffler(
+[[nodiscard]] Actor shuffler(
     std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
@@ -241,6 +254,6 @@ namespace node {
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-}  // namespace node
+}  // namespace actor
 
 }  // namespace rapidsmpf::streaming

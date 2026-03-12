@@ -7,9 +7,8 @@ from collections.abc import Iterable
 from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource
-from rapidsmpf.statistics import Statistics
+from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.packed_data import PackedData
 
 def partition_and_pack(
     table: Table,
@@ -33,12 +32,10 @@ def spill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
-    statistics: Statistics | None = None,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
     allow_overbooking: bool,
-    statistics: Statistics | None = None,
 ) -> list[PackedData]: ...

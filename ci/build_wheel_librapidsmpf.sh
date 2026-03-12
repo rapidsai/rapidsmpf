@@ -1,8 +1,9 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
+
 source rapids-init-pip
 
 package_name="librapidsmpf"
@@ -27,12 +28,18 @@ rapids-pip-retry install \
 # 0 really means "add --no-build-isolation" (ref: https://github.com/pypa/pip/issues/5735)
 export PIP_NO_BUILD_ISOLATION=0
 
-export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BENCHMARKS=OFF;-DBUILD_EXAMPLES=OFF;-DBUILD_NUMA_SUPPORT=OFF"
+export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BENCHMARKS=OFF;-DBUILD_EXAMPLES=OFF;-DBUILD_NUMA_SUPPORT=OFF;-DRAPIDSMPF_CLANG_TIDY=OFF"
+
+# Needed to find nvml.h
+SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+export SITE_PACKAGES
 
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
     --exclude libcudf.so \
+    --exclude libkvikio.so \
+    --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude libucp.so.0 \

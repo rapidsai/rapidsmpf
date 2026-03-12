@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,7 +53,7 @@ FinishCounter::FinishCounter(
     FinishedCallback&& finished_callback
 )
     : nranks_{nranks},
-      n_unfinished_partitions_{static_cast<PartID>(local_partitions.size())},
+      n_unfinished_partitions_{safe_cast<PartID>(local_partitions.size())},
       finished_callback_{std::forward<FinishedCallback>(finished_callback)} {
     // Initially, none of the partitions are ready to wait on.
     goalposts_.reserve(local_partitions.size());

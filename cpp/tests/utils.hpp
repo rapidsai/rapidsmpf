@@ -1,31 +1,88 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <numeric>
 #include <random>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 
 /**
- * @brief User-defined literal for specifying memory sizes in MiB.
+ * @brief RAII temporary directory created under GTest's temp directory.
+ *
+ * The directory is created on construction and recursively removed on
+ * destruction. Removal errors are ignored.
  */
+class TempDir {
+  public:
+    TempDir() : path_(unique_path()) {
+        std::error_code ec;
+        if (!std::filesystem::create_directories(path_, ec) || ec) {
+            throw std::runtime_error(
+                "Failed to create temp directory: " + path_.string()
+            );
+        }
+    }
+
+    ~TempDir() noexcept {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+        // Intentionally ignore errors in destructor.
+    }
+
+    TempDir(TempDir const&) = delete;
+    TempDir& operator=(TempDir const&) = delete;
+    TempDir(TempDir&&) = delete;
+    TempDir& operator=(TempDir&&) = delete;
+
+    /// @brief Returns the path to the temporary directory.
+    [[nodiscard]] std::filesystem::path const& path() const noexcept {
+        return path_;
+    }
+
+  private:
+    static std::filesystem::path unique_path() {
+        static std::atomic<std::uint64_t> counter{0};
+        return std::filesystem::path(testing::TempDir())
+               / ("tmp_" + std::to_string(::getpid()) + "_"
+                  + std::to_string(counter.fetch_add(1, std::memory_order_relaxed)));
+    }
+
+    std::filesystem::path path_;
+};
+
+/// @brief User-defined literal for specifying memory sizes in KiB.
+constexpr std::size_t operator"" _KiB(unsigned long long val) {
+    return val * (1 << 10);
+}
+
+/// @brief User-defined literal for specifying memory sizes in MiB.
 constexpr std::size_t operator"" _MiB(unsigned long long val) {
     return val * (1ull << 20);
+}
+
+/// @brief User-defined literal for specifying memory sizes in GiB.
+constexpr std::size_t operator"" _GiB(unsigned long long val) {
+    return val * (1 << 30);
 }
 
 template <typename T>
@@ -97,15 +154,17 @@ template <std::integral T = std::int64_t>
 
 /// @brief Create a PackedData object from a host buffer
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
-    std::span<uint8_t const> metadata,
-    std::span<uint8_t const> data,
+    std::span<std::uint8_t const> metadata,
+    std::span<std::uint8_t const> data,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br
 ) {
     auto metadata_ptr =
-        std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
+        std::make_unique<std::vector<std::uint8_t>>(metadata.begin(), metadata.end());
 
-    auto reservation = br->reserve(rapidsmpf::MemoryType::DEVICE, data.size(), true);
+    auto reservation = br->reserve(
+        rapidsmpf::MemoryType::DEVICE, data.size(), rapidsmpf::AllowOverbooking::YES
+    );
     auto data_ptr =
         std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
     return rapidsmpf::PackedData{
@@ -132,7 +191,7 @@ template <std::integral T = std::int64_t>
 ) {
     auto values = iota_vector<int>(n_elements, offset);
 
-    auto metadata = std::make_unique<std::vector<uint8_t>>(n_elements * sizeof(int));
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(n_elements * sizeof(int));
     std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
 
     auto data = std::make_unique<rmm::device_buffer>(
@@ -168,10 +227,9 @@ inline void validate_packed_data(
     }
 
     EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
-    auto copied_vec = br.allocate(
-        stream, br.reserve_or_fail(n_elements * sizeof(int), rapidsmpf::MemoryType::HOST)
-    );
-    rapidsmpf::buffer_copy(*copied_vec, *packed_data.data, n_elements * sizeof(int));
+
+    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
+    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
-    EXPECT_EQ(metadata, *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host());
+    EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
 }

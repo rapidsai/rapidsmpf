@@ -1,0 +1,16 @@
+/* Compact enum member entries */
+.enum-members dl.py.attribute {
+    margin-bottom: 0;
+}
+.enum-members dl.py.attribute > dd {
+    display: none;
+}
+
+/* Widen the content area so code blocks don't require horizontal scrolling */
+.bd-page-width {
+    max-width: 95rem;
+}
+
+.bd-main .bd-content .bd-article-container {
+    max-width: 100%;
+}

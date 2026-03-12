@@ -29,7 +29,7 @@ endif()
 list(
   APPEND
   RAPIDSMPF_CUDA_FLAGS
-  -Xcompiler=-Wall,-Werror,-Wextra,-Wsign-conversion,-Wno-unknown-pragmas,-Wno-missing-field-initializes,-Wno-error=deprecated-declarations
+  -Xcompiler=-Wall,-Werror,-Wextra,-Wsign-conversion,-Wno-unknown-pragmas,-Wno-missing-field-initializers,-Wno-error=deprecated-declarations
 )
 # This warning needs to be suppressed because some parts of cudf instantiate templated CCCL
 # functions in contexts where the resulting instantiations would have internal linkage (e.g. in

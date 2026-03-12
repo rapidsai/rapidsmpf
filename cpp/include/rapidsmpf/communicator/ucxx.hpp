@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -15,6 +15,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
 
@@ -22,8 +23,8 @@ namespace ucxx {
 
 
 using HostPortPair =
-    std::pair<std::string, uint16_t>;  ///< A string with hostname or IP address, and the
-                                       ///< port a listener is bound to.
+    std::pair<std::string, std::uint16_t>;  ///< A string with hostname or IP address, and
+                                            ///< the port a listener is bound to.
 using RemoteAddress = std::variant<
     HostPortPair,
     std::shared_ptr<::ucxx::Address>>;  ///< Host/port pair or worker address identifying
@@ -140,7 +141,7 @@ class UCXX final : public Communicator {
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,
-            std::unique_ptr<std::vector<uint8_t>> synced_host_data
+            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
         )
             : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
 
@@ -150,7 +151,7 @@ class UCXX final : public Communicator {
         std::shared_ptr<::ucxx::Request> req_;
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
-        std::unique_ptr<std::vector<uint8_t>> synced_host_data_;
+        std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
     };
 
     /**
@@ -161,8 +162,13 @@ class UCXX final : public Communicator {
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
      * @param options Configuration options.
+     * @param progress_thread Progress thread for this communicator
      */
-    UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options);
+    UCXX(
+        std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+        config::Options options,
+        std::shared_ptr<ProgressThread> progress_thread
+    );
 
     ~UCXX() noexcept override;
 
@@ -180,7 +186,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
+        std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
     ) override;
 
     // clang-format off
@@ -201,11 +207,11 @@ class UCXX final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
+     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+        Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
     ) override;
 
     /**
@@ -214,7 +220,7 @@ class UCXX final : public Communicator {
      * @throws ucxx::Error if there is a message but the receive does not complete
      * successfully.
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> recv_any(
         Tag tag
     ) override;
 
@@ -224,7 +230,7 @@ class UCXX final : public Communicator {
      * @throws ucxx::Error if there is a message but the receive does not complete
      * successfully.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> recv_from(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> recv_from(
         Rank src, Tag tag
     ) override;
 
@@ -250,6 +256,13 @@ class UCXX final : public Communicator {
             future_map
     ) override;
 
+    /// @copydoc Communicator::test
+    bool test(std::unique_ptr<Communicator::Future>& future) override;
+    /// @copydoc Communicator::wait_all
+    std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) override;
+
     /**
      * @copydoc Communicator::wait
      *
@@ -269,15 +282,23 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::release_sync_host_data
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_sync_host_data(
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] Logger& logger() override {
+    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
         return logger_;
+    }
+
+    /**
+     * @copydoc Communicator::progress_thread
+     */
+    [[nodiscard]] std::shared_ptr<ProgressThread> const&
+    progress_thread() const override {
+        return progress_thread_;
     }
 
     /**
@@ -317,7 +338,8 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     config::Options options_;
-    Logger logger_;
+    std::shared_ptr<Logger> logger_;
+    std::shared_ptr<ProgressThread> progress_thread_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

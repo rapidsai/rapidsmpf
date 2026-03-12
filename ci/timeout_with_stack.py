@@ -1,4 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """
 Module for running commands with timeout and capturing stack traces.
@@ -20,12 +21,12 @@ Examples
 
 from __future__ import annotations
 
+import argparse
 import os
 import signal
 import subprocess
 import sys
 import time
-import argparse
 from contextlib import suppress
 from enum import IntEnum
 from typing import TYPE_CHECKING
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
 
 
 class StackType(IntEnum):
+    """Enum representing the type of stack trace to capture."""
+
     C = 0
     Python = 1
 
@@ -76,7 +79,7 @@ def get_child_pids(pid: int) -> list[int]:
         return []
 
 
-def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
+def capture_stack_trace(pid: int, stack_type=StackType.C) -> None:
     """
     Capture stack trace for a given process.
 
@@ -128,7 +131,7 @@ def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
     print(proc.stdout)
 
 
-def capture_all_stacks(pid: int, enable_python: bool = False) -> None:
+def capture_all_stacks(pid: int, *, enable_python: bool = False) -> None:
     """
     Capture stack traces for parent and all child processes.
 
@@ -222,7 +225,9 @@ def terminate_process_tree(pid: int) -> None:
         pass
 
 
-def run_with_timeout(cmd: Sequence[str], timeout: float, enable_python: bool = False) -> int:
+def run_with_timeout(
+    cmd: Sequence[str], timeout: float, *, enable_python: bool = False
+) -> int:
     """
     Run a command with a timeout and capture stack traces if it exceeds the timeout.
 
@@ -288,9 +293,13 @@ def run_with_timeout(cmd: Sequence[str], timeout: float, enable_python: bool = F
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run a command with timeout and capture stack traces")
+    parser = argparse.ArgumentParser(
+        description="Run a command with timeout and capture stack traces"
+    )
     parser.add_argument("timeout", type=float, help="Timeout in seconds")
-    parser.add_argument("--enable-python", action="store_true", help="Enable Python stack trace capture")
+    parser.add_argument(
+        "--enable-python", action="store_true", help="Enable Python stack trace capture"
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run")
 
     args = parser.parse_args()
@@ -298,5 +307,7 @@ if __name__ == "__main__":
     if not args.command:
         parser.error("No command specified")
 
-    exit_code = run_with_timeout(args.command, args.timeout, enable_python=args.enable_python)
+    exit_code = run_with_timeout(
+        args.command, args.timeout, enable_python=args.enable_python
+    )
     sys.exit(exit_code)

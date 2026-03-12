@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules shuffler.pyx)
+set(cython_modules allgather.pyx shuffler.pyx)
 
 rapids_cython_create_modules(
   CXX

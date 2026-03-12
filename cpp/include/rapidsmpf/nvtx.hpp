@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -9,10 +9,16 @@
 
 #include <nvtx3/nvtx3.hpp>
 
-#include <rapidsmpf/utils.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+
+namespace rapidsmpf::detail {
 
 /**
- * @brief Help function to convert value to 64 bit signed integer
+ * @brief Convert an integral value to a 64-bit signed integer.
+ *
+ * @tparam T An integral type.
+ * @param value The value to convert.
+ * @return The value as `std::int64_t`.
  */
 template <typename T>
     requires std::is_integral_v<T>
@@ -26,17 +32,22 @@ template <typename T>
             );
         }
     }
-    return std::int64_t(value);
+    return rapidsmpf::safe_cast<std::int64_t>(value);
 }
 
 /**
- * @brief Help function to convert value to 64 bit float
+ * @brief Convert a floating-point value to `double`.
+ *
+ * @tparam T A floating-point type.
+ * @param value The value to convert.
+ * @return The value as `double`.
  */
 template <typename T>
     requires std::is_floating_point_v<T>
 [[nodiscard]] double convert_to_64bit(T value) {
     return double(value);
 }
+}  // namespace rapidsmpf::detail
 
 /**
  * @brief Tag type for rapidsmpf's NVTX domain.
@@ -48,30 +59,62 @@ struct rapidsmpf_domain {
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.
 #define RAPIDSMPF_REGISTER_STRING(msg)                                         \
-    [](const char* a_msg) -> auto& {                                           \
+    [](char const* a_msg) -> auto& {                                           \
         static nvtx3::registered_string_in<rapidsmpf_domain> a_reg_str{a_msg}; \
         return a_reg_str;                                                      \
     }(msg)
 
-// Macro overloads of RAPIDSMPF_NVTX_FUNC_RANGE
-#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
+// implement the func range macro with a value
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL(val)              \
+    static_assert(                                                \
+        std::is_arithmetic_v<decltype(val)>,                      \
+        "Value must be integral or floating point type"           \
+    );                                                            \
+    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT(    \
+        _rapidsmpf_nvtx_range, __LINE__                           \
+    ) {                                                           \
+        nvtx3::event_attributes {                                 \
+            RAPIDSMPF_REGISTER_STRING(__func__), nvtx3::payload { \
+                rapidsmpf::detail::convert_to_64bit(val)          \
+            }                                                     \
+        }                                                         \
+    }
+
+// implement the func range macro without a value
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
+
+// Macro selector for 0 vs 1 arguments
+#define RAPIDSMPF_GET_MACRO_FUNC(_0, _1, NAME, ...) NAME
+
+// unwrap the arguments and call the appropriate macro
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(...)                                                                                                          \
+    RAPIDSMPF_GET_MACRO_FUNC(dummy __VA_OPT__(, ) __VA_ARGS__, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITH_VAL, RAPIDSMPF_NVTX_FUNC_RANGE_IMPL_WITHOUT_VAL)( \
+        __VA_ARGS__                                                                                                                                  \
+    )
 
 /**
  * @brief Convenience macro for generating an NVTX range in the `rapidsmpf` domain
  * from the lifetime of a function.
  *
- * Takes no arguments. The name of the immediately enclosing function returned by
- * `__func__` is used as the message.
+ * The name of the immediately enclosing function returned by `__func__` is used as
+ * the message.
+ *
+ * Usage:
+ * - `RAPIDSMPF_NVTX_FUNC_RANGE()` - Annotate with function name only
+ * - `RAPIDSMPF_NVTX_FUNC_RANGE(payload)` - Annotate with function name and payload
+ *
+ * The optional argument is the payload to annotate (integral or floating-point value).
  *
  * Example:
  * ```
  * void some_function(){
- *    RAPIDSMPF_NVTX_FUNC_RANGE();  // The name `some_function` is used as the message
+ *    RAPIDSMPF_NVTX_FUNC_RANGE();        // `some_function` is used as the message
+ *    RAPIDSMPF_NVTX_FUNC_RANGE(42);      // With payload
  *    ...
  * }
  * ```
  */
-#define RAPIDSMPF_NVTX_FUNC_RANGE() RAPIDSMPF_NVTX_FUNC_RANGE_IMPL()
+#define RAPIDSMPF_NVTX_FUNC_RANGE(...) RAPIDSMPF_NVTX_FUNC_RANGE_IMPL(__VA_ARGS__)
 
 // implement the scoped range macro with a value
 #define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITH_VAL(msg, val)    \
@@ -80,7 +123,7 @@ struct rapidsmpf_domain {
     ) {                                                        \
         nvtx3::event_attributes {                              \
             RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {   \
-                convert_to_64bit(val)                          \
+                rapidsmpf::detail::convert_to_64bit(val)       \
             }                                                  \
         }                                                      \
     }
@@ -130,9 +173,37 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_SCOPED_RANGE(...) RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(__VA_ARGS__)
 
-#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
-    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
-        RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
+/**
+ * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
+ * that is only active when RAPIDSMPF_VERBOSE_INFO is defined.
+ *
+ * This macro behaves identically to RAPIDSMPF_NVTX_SCOPED_RANGE, but only creates
+ * the NVTX range when the RAPIDSMPF_VERBOSE_INFO compile-time flag is set.
+ *
+ * Usage:
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(message)` - Annotate with message only
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(message, payload)` - Annotate with message and
+ * payload
+ *
+ * Example:
+ * ```
+ * void some_function(){
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("detailed operation");
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("detailed operation", count);
+ *    ...
+ * }
+ * ```
+ */
+#if RAPIDSMPF_VERBOSE_INFO
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(...) RAPIDSMPF_NVTX_SCOPED_RANGE(__VA_ARGS__)
+#else
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(...)
+#endif
+
+#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                     \
+    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{    \
+        RAPIDSMPF_REGISTER_STRING(msg),                          \
+        nvtx3::payload{rapidsmpf::detail::convert_to_64bit(val)} \
     })
 
 /**
@@ -146,3 +217,20 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_MARKER(message, payload) \
     RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+
+/**
+ * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to
+ * annotate a certain time point, that is only activate when RAPIDSMPF_VERBOSE_INFO is
+ * defined.
+ *
+ * @param message The message to annotate.
+ * @param payload The payload to annotate.
+ *
+ * Use this macro to annotate asynchronous operations.
+ */
+#if RAPIDSMPF_VERBOSE_INFO
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload) \
+    RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+#else
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload)
+#endif

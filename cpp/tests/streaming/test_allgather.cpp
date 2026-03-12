@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,26 +10,27 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
+#include <coro/latch.hpp>
+
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
+#include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/core/leaf_node.hpp>
-#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
 #include "base_streaming_fixture.hpp"
 
-#include <coro/latch.hpp>
-
 using namespace rapidsmpf;
 
-class AsyncAllGather : public BaseStreamingFixture,
-                       public ::testing::WithParamInterface<std::tuple<int, MemoryType>> {
+class StreamingAllGather
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<int, MemoryType>> {
   public:
     void SetUp() override {
         BaseStreamingFixture::SetUpWithThreads(std::get<0>(GetParam()));
@@ -43,23 +44,24 @@ class AsyncAllGather : public BaseStreamingFixture,
 };
 
 INSTANTIATE_TEST_SUITE_P(
-    AsyncAllGather,
-    AsyncAllGather,
+    StreamingAllGather,
+    StreamingAllGather,
     ::testing::Combine(
         ::testing::Values(1, 4), ::testing::Values(MemoryType::HOST, MemoryType::DEVICE)
     ),
-    [](testing::TestParamInfo<AsyncAllGather::ParamType> const& info) {
+    [](testing::TestParamInfo<StreamingAllGather::ParamType> const& info) {
         return "nthreads_" + std::to_string(std::get<0>(info.param)) + "_mem_type_"
                + (std::get<1>(info.param) == MemoryType::HOST ? "HOST" : "DEVICE");
     }
 );
 
-TEST_P(AsyncAllGather, basic) {
+TEST_P(StreamingAllGather, basic) {
     auto mem_type = std::get<1>(GetParam());
-    auto allgather = streaming::AllGather(ctx, OpID{0});
+    auto comm = GlobalEnvironment->comm_;
+    auto allgather = streaming::AllGather(ctx, comm, OpID{0});
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
 
@@ -86,9 +88,7 @@ TEST_P(AsyncAllGather, basic) {
         });
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
-        allgather.insert(
-            sequence, streaming::PackedDataChunk{{std::move(meta), std::move(buf)}}
-        );
+        allgather.insert(sequence, PackedData{std::move(meta), std::move(buf)});
         latch.count_down();
         co_return;
     };
@@ -103,20 +103,20 @@ TEST_P(AsyncAllGather, basic) {
         std::size_t offset{0};
         for (auto& pd : data) {
             RAPIDSMPF_EXPECTS(
-                pd.data.metadata->size() == sizeof(int), "Invalid metadata buffer size"
+                pd.metadata->size() == sizeof(int), "Invalid metadata buffer size"
             );
             int msize;
-            std::memcpy(&msize, pd.data.metadata->data(), sizeof(int));
+            std::memcpy(&msize, pd.metadata->data(), sizeof(int));
             RAPIDSMPF_EXPECTS(msize == size, "Corrupted metadata value");
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 result.data() + offset,
-                pd.data.data->data(),
-                pd.data.data->size,
+                pd.data->data(),
+                pd.data->size,
                 cudaMemcpyDefault,
-                pd.data.data->stream()
+                pd.data->stream()
             ));
             offset += msize;
-            pd.data.data->stream().synchronize();
+            pd.data->stream().synchronize();
         }
     };
 
@@ -127,20 +127,21 @@ TEST_P(AsyncAllGather, basic) {
     }
     pipeline.push_back(ctx->executor()->schedule(insert_finished()));
     pipeline.push_back(ctx->executor()->schedule(extract()));
-    streaming::run_streaming_pipeline(std::move(pipeline));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> expected(size * size * n_inserts);
     std::iota(expected.begin(), expected.end(), 0);
     EXPECT_EQ(expected, result);
 }
 
-TEST_P(AsyncAllGather, streaming_node) {
+TEST_P(StreamingAllGather, streaming_actor) {
     auto mem_type = std::get<1>(GetParam());
 
     auto ch_in = ctx->create_channel();
     auto ch_out = ctx->create_channel();
 
-    int size = ctx->comm()->nranks();
-    int rank = ctx->comm()->rank();
+    auto comm = GlobalEnvironment->comm_;
+    int size = comm->nranks();
+    int rank = comm->rank();
 
     constexpr int n_inserts{100};
     std::vector<streaming::Message> input_messages;
@@ -169,29 +170,26 @@ TEST_P(AsyncAllGather, streaming_node) {
         input_messages.emplace_back(
             streaming::to_message(
                 insertion_id,
-                std::make_unique<streaming::PackedDataChunk>(streaming::PackedDataChunk{
-                    PackedData{std::move(meta), std::move(buf)}
-                })
+                std::make_unique<PackedData>(std::move(meta), std::move(buf))
             )
         );
     }
     std::vector<streaming::Message> output_messages;
     std::vector<coro::task<void>> pipeline{};
     pipeline.push_back(ctx->executor()->schedule(
-        streaming::node::push_to_channel(ctx, ch_in, std::move(input_messages))
+        streaming::actor::push_to_channel(ctx, ch_in, std::move(input_messages))
     ));
-    pipeline.push_back(
-        ctx->executor()->schedule(streaming::node::allgather(ctx, ch_in, ch_out, OpID{0}))
-    );
     pipeline.push_back(ctx->executor()->schedule(
-        streaming::node::pull_from_channel(ctx, ch_out, output_messages)
+        streaming::actor::allgather(ctx, comm, ch_in, ch_out, OpID{0})
     ));
-    streaming::run_streaming_pipeline(std::move(pipeline));
+    pipeline.push_back(ctx->executor()->schedule(
+        streaming::actor::pull_from_channel(ctx, ch_out, output_messages)
+    ));
+    streaming::run_actor_network(std::move(pipeline));
     std::vector<int> actual(size * size * n_inserts);
     std::size_t offset{0};
     for (auto& msg : output_messages) {
-        auto chunk = msg.release<streaming::PackedDataChunk>();
-        auto& pd = chunk.data;
+        auto pd = msg.release<PackedData>();
         RAPIDSMPF_EXPECTS(
             pd.metadata->size() == sizeof(int), "Invalid metadata buffer size"
         );

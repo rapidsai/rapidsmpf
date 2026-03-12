@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -14,6 +14,7 @@ include(rapids-cuda)
 include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
 include(rapids-export)
 include(rapids-find)
+include(${rapids-cmake-dir}/cython-core/find_prefix_paths.cmake)
 
 rapids_cuda_init_architectures(RAPIDSMPF)
 
@@ -45,6 +46,7 @@ option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
 option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
 option(BUILD_NUMA_SUPPORT "Build RapidsMPF with NUMA support" ON)
+option(BUILD_SLURM_SUPPORT "Build RapidsMPF with Slurm/PMIx bootstrap support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -53,6 +55,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
+option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -60,6 +63,7 @@ message(STATUS "  BUILD_UCXX_SUPPORT      : ${BUILD_UCXX_SUPPORT}")
 message(STATUS "  BUILD_STREAMING_SUPPORT : ${BUILD_STREAMING_SUPPORT}")
 message(STATUS "  BUILD_CUPTI_SUPPORT     : ${BUILD_CUPTI_SUPPORT}")
 message(STATUS "  BUILD_NUMA_SUPPORT      : ${BUILD_NUMA_SUPPORT}")
+message(STATUS "  BUILD_SLURM_SUPPORT     : ${BUILD_SLURM_SUPPORT}")
 message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
@@ -67,6 +71,7 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
+message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
@@ -74,6 +79,7 @@ set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
 set(RAPIDSMPF_HAVE_CUPTI ${BUILD_CUPTI_SUPPORT})
 set(RAPIDSMPF_HAVE_NUMA ${BUILD_NUMA_SUPPORT})
+set(RAPIDSMPF_HAVE_SLURM OFF) # Will be set to ON if PMIx is found
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
@@ -97,6 +103,15 @@ endif()
 rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
 
 # ##################################################################################################
+# * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
+find_package(Python COMPONENTS Interpreter)
+if(Python_FOUND)
+  rapids_cython_find_prefix_paths("${Python_EXECUTABLE}" wheel_prefix_paths)
+  set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
+  list(APPEND CMAKE_PREFIX_PATH ${wheel_prefix_paths})
+endif()
+
+# ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
 rapids_find_package(
   CUDAToolkit REQUIRED
@@ -115,13 +130,12 @@ rapids_find_package(
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
 
-# NOTE: get_cccl_cudax.cmake needs to be included before rmm and cudf, because both require CCCL
-# (but without CUDAX). All of these will call rapids_cpm_cccl. So, if get_cccl_cudax is included
-# after, the CCCL::cudax target will not be available.
-include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cuco.cmake)
+include(../cmake/thirdparty/get_cucascade.cmake)
+
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -142,6 +156,18 @@ endif()
 if(RAPIDSMPF_HAVE_STREAMING)
   include(../cmake/thirdparty/get_libcoro.cmake)
 endif()
+if(BUILD_SLURM_SUPPORT)
+  include(../cmake/thirdparty/get_pmix.cmake)
+  find_and_configure_pmix()
+  if(PMIx_FOUND)
+    set(RAPIDSMPF_HAVE_SLURM ON)
+    message(STATUS "PMIx found (version ${PMIx_VERSION}) - Slurm bootstrap backend enabled")
+  else()
+    message(WARNING "PMIx not found - Slurm bootstrap backend will be disabled. "
+                    "Set PMIx_ROOT or PMIX_ROOT to the PMIx installation directory."
+    )
+  endif()
+endif()
 
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
@@ -154,21 +180,29 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/allgather/allgather.cpp
+  src/coll/allgather.cpp
+  src/coll/allreduce.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
-  src/buffer/buffer.cpp
-  src/buffer/pinned_memory_resource.cu
-  src/buffer/resource.cpp
-  src/buffer/spill_manager.cpp
+  src/bootstrap/utils.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
+  src/integrations/cudf/bloom_filter.cu
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/memory/buffer.cpp
+  src/memory/buffer_resource.cpp
+  src/memory/host_buffer.cpp
+  src/memory/host_memory_resource.cpp
+  src/memory/memory_reservation.cpp
+  src/memory/memory_type.cpp
+  src/memory/pinned_memory_resource.cpp
+  src/memory/scoped_memory_record.cpp
+  src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
@@ -177,22 +211,31 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
-  src/utils.cpp
+  src/stream_ordered_timing.cpp
+  src/system_info.cpp
+  src/utils/misc.cpp
+  src/utils/string.cpp
 )
+
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
     PRIVATE src/streaming/chunks/partition.cpp
             src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
+            src/streaming/core/actor.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
-            src/streaming/core/leaf_node.cpp
-            src/streaming/core/node.cpp
+            src/streaming/core/coro_executor.cpp
+            src/streaming/core/fanout.cpp
+            src/streaming/core/leaf_actor.cpp
+            src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/spillable_messages.cpp
+            src/streaming/cudf/bloom_filter.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
+            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -206,6 +249,9 @@ if(RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX)
 endif()
 if(RAPIDSMPF_HAVE_CUPTI)
   target_sources(rapidsmpf PRIVATE src/cupti.cpp)
+endif()
+if(RAPIDSMPF_HAVE_SLURM)
+  target_sources(rapidsmpf PRIVATE src/bootstrap/slurm_backend.cpp)
 endif()
 
 set_target_properties(
@@ -234,17 +280,50 @@ target_include_directories(
   INTERFACE "$<INSTALL_INTERFACE:include>"
 )
 
+# Try to locate NVML headers when building wheels (installed in site-packages) Prefer any existing
+# include path resolution first; fall back to scanning Python site-packages
+find_path(
+  NVML_INCLUDE_DIR
+  NAMES nvml.h
+  HINTS ${CUDAToolkit_INCLUDE_DIRS}
+  PATH_SUFFIXES include
+)
+
+if(NOT NVML_INCLUDE_DIR)
+  # Use environment-provided site-packages if available (set by CI/build scripts)
+  if(DEFINED ENV{SITE_PACKAGES})
+    file(GLOB _nvml_sites "$ENV{SITE_PACKAGES}/nvidia/*/include")
+    foreach(_cand IN LISTS _nvml_sites)
+      if(EXISTS "${_cand}/nvml.h")
+        set(NVML_INCLUDE_DIR "${_cand}")
+        break()
+      endif()
+    endforeach()
+  endif()
+endif()
+
+if(NVML_INCLUDE_DIR)
+  message(STATUS "Found NVML headers at: ${NVML_INCLUDE_DIR}")
+  target_include_directories(rapidsmpf PRIVATE ${NVML_INCLUDE_DIR})
+endif()
+
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+  PRIVATE cuco::cuco
+          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
+          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
-          $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
+          ${CMAKE_DL_LIBS}
 )
+
+target_link_options(rapidsmpf PUBLIC "$<BUILD_LOCAL_INTERFACE:-Wl,--allow-shlib-undefined>")
 
 target_compile_definitions(
   rapidsmpf
@@ -253,6 +332,8 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+         $<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:RAPIDSMPF_HAVE_SLURM>
+         $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
@@ -312,6 +393,12 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
+  # Set BUILD_TESTING to ON. It may be set to OFF by libcoro's CMake code and is needed for CTest to
+  # generate test lists.
+  set(BUILD_TESTING
+      ON
+      CACHE BOOL "Build the testing tree." FORCE
+  )
   include(CTest)
   add_subdirectory(tests)
 endif()
@@ -365,6 +452,7 @@ string(
   "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
   "set(RAPIDSMPF_HAVE_STREAMING [=[${RAPIDSMPF_HAVE_STREAMING}]=])"
   "set(RAPIDSMPF_HAVE_CUPTI [=[${RAPIDSMPF_HAVE_CUPTI}]=])"
+  "set(RAPIDSMPF_HAVE_SLURM [=[${RAPIDSMPF_HAVE_SLURM}]=])"
 )
 
 rapids_export(
