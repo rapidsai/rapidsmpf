@@ -32,24 +32,6 @@ Chunk::Chunk(
       metadata_{std::move(metadata)},
       data_{std::move(data)} {}
 
-Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
-    if (is_control_message()) {
-        return from_finished_partition(new_chunk_id, part_id(), expected_num_chunks());
-    }
-    auto stream = br->stream_pool().get_stream();
-
-    return Chunk(
-        new_chunk_id,
-        part_id_,
-        expected_num_chunks_,
-        metadata_size_,
-        data_size_,
-        std::move(metadata_),
-        data_ ? std::move(data_)
-              : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
-    );
-}
-
 Chunk Chunk::from_packed_data(
     ChunkID chunk_id, PartID part_id, PackedData&& packed_data
 ) {
@@ -72,7 +54,9 @@ Chunk Chunk::from_finished_partition(
     return {chunk_id, part_id, expected_num_chunks, 0, 0};
 }
 
-Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
+Chunk Chunk::deserialize(
+    std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate
+) {
     if (validate) {
         RAPIDSMPF_EXPECTS(
             validate_format(msg), "serialized message does not follow the expected format"
@@ -104,6 +88,16 @@ Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
         msg.begin() + safe_cast<std::int64_t>(offset), msg.end()
     );
 
+    std::unique_ptr<Buffer> data;
+    if (expected_num_chunks == 0 && br != nullptr) {
+        data = br->allocate(
+            br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+        );
+        if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
+            br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);
+        }
+    }
+
     return {
         chunk_id,
         part_id,
@@ -111,7 +105,7 @@ Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
         metadata_size,
         data_size,
         std::move(concat_metadata),
-        nullptr
+        std::move(data)
     };
 }
 
@@ -183,32 +177,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
     return metadata_buf;
 }
 
-std::unique_ptr<std::vector<std::uint8_t>> ReadyForDataMessage::pack() {
-    auto msg = std::make_unique<std::vector<std::uint8_t>>(sizeof(ChunkID));
-    std::memcpy(msg->data(), &cid, sizeof(cid));
-    return msg;
-}
-
-ReadyForDataMessage ReadyForDataMessage::unpack(
-    std::unique_ptr<std::vector<std::uint8_t>> const& msg
-) {
-    ChunkID cid;
-    std::memcpy(&cid, msg->data(), sizeof(cid));
-    return ReadyForDataMessage{cid};
-}
-
-std::string ReadyForDataMessage::str() const {
-    std::stringstream ss;
-    ss << "ReadyForDataMessage(cid=" << cid << ")";
-    return ss.str();
-}
-
 std::ostream& operator<<(std::ostream& os, Chunk const& obj) {
-    os << obj.str();
-    return os;
-}
-
-std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj) {
     os << obj.str();
     return os;
 }

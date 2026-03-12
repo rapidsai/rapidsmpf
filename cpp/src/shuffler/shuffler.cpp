@@ -8,6 +8,7 @@
 #include <memory>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
@@ -126,10 +127,9 @@ class Shuffler::Progress {
      * @brief Executes a single iteration of the shuffler's event loop.
      *
      * This function manages the movement of data chunks between ranks in the distributed
-     * system, handling tasks such as sending and receiving metadata, GPU data, and
-     * readiness messages. It also manages the processing of chunks in transit, both
-     * outgoing and incoming, and updates the necessary data structures for further
-     * processing.
+     * system, handling tasks such as sending and receiving metadata and GPU data. It also
+     * manages the processing of chunks in transit, both outgoing and incoming, and
+     * updates the necessary data structures for further processing.
      *
      * @return The progress state of the shuffler.
      */
@@ -185,7 +185,8 @@ class Shuffler::Progress {
             auto completed_messages = shuffler_.mpe_->recv();
 
             for (auto&& message : completed_messages) {
-                auto chunk = detail::Chunk::deserialize(message->metadata(), false);
+                auto chunk =
+                    detail::Chunk::deserialize(message->metadata(), /*br=*/nullptr, false);
                 if (message->data() != nullptr) {
                     chunk.set_data_buffer(message->release_data());
                 }
@@ -211,8 +212,7 @@ class Shuffler::Progress {
                     }
                 }
 
-                auto chunk_copy = chunk.get_data(chunk.chunk_id(), shuffler_.br_);
-                shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
+                shuffler_.insert_into_ready_postbox(std::move(chunk));
             }
 
             stats.add_duration_stat(

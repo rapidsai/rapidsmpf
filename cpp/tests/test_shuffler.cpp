@@ -50,8 +50,9 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_FALSE(expect.is_metadata_buffer_set());
 
     // Create a new chunk by deserializing the message.
-    auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg);
+    auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg, br.get());
 
+    EXPECT_TRUE(expect.data_size() == 0 || result.is_data_buffer_set());
     // They should be identical.
     EXPECT_EQ(expect.part_id(), result.part_id());
     EXPECT_EQ(expect.chunk_id(), result.chunk_id());
