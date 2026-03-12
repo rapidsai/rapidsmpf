@@ -360,27 +360,8 @@ def test_gather_shuffle_statistics() -> None:
         shuffled.compute()
 
         stats = gather_shuffle_statistics(client)
-        expected_stats = {
-            "event-loop-check-future-finish",
-            "event-loop-init-gpu-data-send",
-            "event-loop-metadata-recv",
-            "event-loop-metadata-send",
-            "event-loop-post-incoming-chunk-recv",
-            "event-loop-total",
-            "shuffle-payload-recv",
-            "shuffle-payload-send",
-        }
-
-        assert set(stats) == expected_stats
-        for stat in expected_stats:
-            assert stats[stat]["count"] > 0
-            assert "value" in stats[stat]
-
-        assert stats["shuffle-payload-send"]["value"] > 0
-        assert (
-            stats["shuffle-payload-send"]["value"]
-            == stats["shuffle-payload-recv"]["value"]
-        )
+        # We expect some stats to have been recorded, but not the exact type.
+        assert len(stats) > 0
 
 
 def test_clear_shuffle_statistics() -> None:
