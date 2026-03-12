@@ -218,51 +218,49 @@ void cuda_memcpy_batch_async(
         std::invalid_argument
     );
 
+    // Temporary: use cudaMemcpyAsync per segment instead of cudaMemcpyBatchAsync.
     // cudaMemcpyBatchAsync does not support the null/legacy stream or the per-thread
-    // default stream — passing either returns cudaErrorInvalidValue. Fall back to
-    // individual cudaMemcpyAsync calls in that case.
-    if (stream.value() == nullptr) {
-        for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                const_cast<void*>(dst_ptrs[i]),
-                src_ptrs[i],
-                sizes[i],
-                cudaMemcpyDefault,
-                stream.value()
-            ));
-        }
-        return;
+    // default stream — passing either returns cudaErrorInvalidValue.
+    for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            const_cast<void*>(dst_ptrs[i]),
+            src_ptrs[i],
+            sizes[i],
+            cudaMemcpyDefault,
+            stream.value()
+        ));
     }
 
-    cudaMemcpyAttributes attrs{};
-    attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
-    std::array<size_t, 1> attrsIdxs{0};
-
-#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
-        dst_ptrs.data(),
-        src_ptrs.data(),
-        sizes.data(),
-        src_ptrs.size(),
-        &attrs,
-        attrsIdxs.data(),
-        attrsIdxs.size(),
-        stream.value()
-    ));
-#else
-    size_t failIdx{};
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
-        const_cast<void**>(dst_ptrs.data()),
-        const_cast<void**>(src_ptrs.data()),
-        sizes.data(),
-        src_ptrs.size(),
-        &attrs,
-        attrsIdxs.data(),
-        attrsIdxs.size(),
-        &failIdx,
-        stream.value()
-    ));
-#endif
+    // cudaMemcpyAttributes attrs{};
+    // attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
+    // attrs.srcAccessOrder = cudaMemcpySrcAccessOrderAny;
+    // std::array<size_t, 1> attrsIdxs{0};
+    //
+    // #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
+    // RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
+    //     dst_ptrs.data(),
+    //     src_ptrs.data(),
+    //     sizes.data(),
+    //     src_ptrs.size(),
+    //     &attrs,
+    //     attrsIdxs.data(),
+    //     attrsIdxs.size(),
+    //     stream.value()
+    // ));
+    // #else
+    // size_t failIdx{};
+    // RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
+    //     const_cast<void**>(dst_ptrs.data()),
+    //     const_cast<void**>(src_ptrs.data()),
+    //     sizes.data(),
+    //     src_ptrs.size(),
+    //     &attrs,
+    //     attrsIdxs.data(),
+    //     attrsIdxs.size(),
+    //     &failIdx,
+    //     stream.value()
+    // ));
+    // #endif
 }
 
 }  // namespace
