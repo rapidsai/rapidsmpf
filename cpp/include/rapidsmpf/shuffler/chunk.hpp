@@ -128,21 +128,6 @@ class Chunk {
     }
 
     /**
-     * @brief Get the data of the message, as a new chunk.
-     *
-     * @param new_chunk_id The ID of the new chunk.
-     * @param br The buffer resource to use for copying the data.
-     * @return A new chunk containing the data of the message.
-     *
-     * @note This will create a copy of the packed data using a new stream from
-     * `br->stream_pool()`. If the message is a data message, the buffers will be moved
-     * to the new chunk. If the message is a control message, the metadata and data
-     * buffers will be nullptr. For a metadata-only message, the data buffer will be an
-     * empty HOST buffer.
-     */
-    Chunk get_data(ChunkID new_chunk_id, BufferResource* br);
-
-    /**
      * @brief Get the size of the metadata of the message.
      *
      * @return The size of the metadata of the message. Zero when the message is a

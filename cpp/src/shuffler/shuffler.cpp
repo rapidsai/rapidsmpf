@@ -208,8 +208,7 @@ class Shuffler::Progress {
                     } else {
                         // Control messages and metadata-only messages go
                         // directly to the ready postbox.
-                        auto chunk_copy = chunk.get_data(chunk.chunk_id(), shuffler_.br_);
-                        shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
+                        shuffler_.insert_into_ready_postbox(std::move(chunk));
                     }
                     n_processed++;
                 }
@@ -238,9 +237,7 @@ class Shuffler::Progress {
                         shuffler_.comm_->release_data(std::move(future))
                     );
 
-                    shuffler_.insert_into_ready_postbox(
-                        chunk.get_data(chunk.chunk_id(), shuffler_.br_)
-                    );
+                    shuffler_.insert_into_ready_postbox(std::move(chunk));
                 }
             }
 

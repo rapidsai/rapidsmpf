@@ -32,24 +32,6 @@ Chunk::Chunk(
       metadata_{std::move(metadata)},
       data_{std::move(data)} {}
 
-Chunk Chunk::get_data(ChunkID new_chunk_id, BufferResource* br) {
-    if (is_control_message()) {
-        return from_finished_partition(new_chunk_id, part_id(), expected_num_chunks());
-    }
-    auto stream = br->stream_pool().get_stream();
-
-    return Chunk(
-        new_chunk_id,
-        part_id_,
-        expected_num_chunks_,
-        metadata_size_,
-        data_size_,
-        std::move(metadata_),
-        data_ ? std::move(data_)
-              : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
-    );
-}
-
 Chunk Chunk::from_packed_data(
     ChunkID chunk_id, PartID part_id, PackedData&& packed_data
 ) {
