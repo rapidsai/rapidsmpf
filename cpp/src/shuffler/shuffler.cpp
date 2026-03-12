@@ -186,30 +186,21 @@ class Shuffler::Progress {
 
             for (auto&& message : completed_messages) {
                 auto chunk =
-                    detail::Chunk::deserialize(message->metadata(), /*br=*/nullptr, false);
+                    detail::Chunk::deserialize(message->metadata(), shuffler_.br_, false);
                 if (message->data() != nullptr) {
+                    std::ignore = chunk.release_data_buffer();
                     chunk.set_data_buffer(message->release_data());
                 }
 
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(
-                        shuffler_.comm_,
-                        chunk.part_id(),
-                        shuffler_.total_num_partitions
+                        shuffler_.comm_, chunk.part_id(), shuffler_.total_num_partitions
                     ) == shuffler_.comm_->rank(),
                     "receiving chunk not owned by us"
                 );
 
                 if (chunk.data_size() > 0) {
                     stats.add_bytes_stat("shuffle-payload-recv", chunk.data_size());
-                    if (rapidsmpf::contains(
-                            SPILL_TARGET_MEMORY_TYPES, chunk.data_memory_type()
-                        ))
-                    {
-                        stats.add_bytes_stat(
-                            "recv-into-host-memory", chunk.data_size()
-                        );
-                    }
                 }
 
                 shuffler_.insert_into_ready_postbox(std::move(chunk));

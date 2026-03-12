@@ -89,7 +89,10 @@ Chunk Chunk::deserialize(
     );
 
     std::unique_ptr<Buffer> data;
-    if (expected_num_chunks == 0 && br != nullptr) {
+    if (expected_num_chunks == 0) {
+        RAPIDSMPF_EXPECTS(
+            br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
+        );
         data = br->allocate(
             br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
         );

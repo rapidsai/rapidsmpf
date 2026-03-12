@@ -236,13 +236,12 @@ class Chunk {
      * @param validate Whether to validate the metadata buffer.
      * @return The chunk.
      *
-     * @throws std::runtime_error if the metadata buffer does not follow the expected
-     * format and `validate` is true.
+     * @throws std::logic_error if the chunk is not a control message and no buffer
+     * resource is provided. @throws std::runtime_error if the metadata buffer does not
+     * follow the expected format and `validate` is true.
      */
     static Chunk deserialize(
-        std::vector<std::uint8_t> const& msg,
-        BufferResource* br = nullptr,
-        bool validate = true
+        std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate = true
     );
 
     /**
