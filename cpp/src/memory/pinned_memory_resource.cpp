@@ -61,6 +61,15 @@ PinnedMemoryResource::PinnedMemoryResource(
 )
     : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))} {}
 
+PinnedMemoryResource::PinnedMemoryResource(
+    cuda::mr::shared_resource<cuda::pinned_memory_pool> pool,
+    std::shared_ptr<FixedSizedHostMemoryResource> fixed_size_host_mr,
+    std::size_t block_size
+)
+    : pool_{std::move(pool)},
+      fixed_size_host_mr_{std::move(fixed_size_host_mr)},
+      block_size_{block_size} {}
+
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
 ) {
@@ -89,7 +98,8 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
+                "pinned_max_pool_size",
+                [](auto const& s) -> std::optional<size_t> {
                     auto parsed = parse_optional(s);
                     if (parsed.has_value() && !parsed->empty()) {
                         return parse_nbytes_unsigned(*parsed);
@@ -165,8 +175,6 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_
     if (!is_pinned_memory_resources_supported()) {
         return PinnedMemoryResource::Disabled;
     }
-    auto mr = std::make_shared<PinnedMemoryResource>(numa_id, pool_properties);
-
     size_t const capacity =
         pool_properties.max_pool_size.value_or(get_numa_node_host_memory(numa_id));
 
@@ -175,11 +183,15 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_
         pool_properties.initial_pool_size / (block_size * pool_size)
     );
 
-    mr->fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-        numa_id, mr->pool_, capacity, capacity, block_size, pool_size, initial_npools
+    auto pool = make_pinned_memory_pool(numa_id, std::move(pool_properties));
+
+    auto fixed_size_host_mr = std::make_shared<FixedSizedHostMemoryResource>(
+        numa_id, pool, capacity, capacity, block_size, pool_size, initial_npools
     );
-    mr->block_size_ = block_size;
-    return mr;
+
+    return std::make_shared<PinnedMemoryResource>(
+        std::move(pool), std::move(fixed_size_host_mr), block_size
+    );
 }
 
 PinnedMemoryResource::FixedSizedBlocksAllocation

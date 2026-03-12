@@ -256,6 +256,13 @@ class PinnedMemoryResource final : public HostMemoryResource {
     }
 
   private:
+    /// @brief Construct from an existing pool and fixed-size host MR (for make_fixed_sized_if_available).
+    PinnedMemoryResource(
+        cuda::mr::shared_resource<cuda::pinned_memory_pool> pool,
+        std::shared_ptr<FixedSizedHostMemoryResource> fixed_size_host_mr,
+        std::size_t block_size
+    );
+
     // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /
     // host_async_resource_ref: the ref only stores a pointer, but its constructor
     // requires the referenced type to be copyable and movable (CCCL __basic_any_ref

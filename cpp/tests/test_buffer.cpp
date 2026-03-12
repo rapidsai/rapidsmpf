@@ -367,6 +367,32 @@ class BufferCopyToTest : public ::testing::TestWithParam<CopyToParam> {
         dst_br = make_copy_test_br(p.dst_kind, stream_pool);
     }
 
+    /// Read back @p size bytes from @p buf starting at @p offset into a vector.
+    /// Uses exclusive_data_access_blocks() so it works for all storage types.
+    std::vector<std::uint8_t> ReadBackFromBuffer(
+        Buffer& buf, std::size_t size, std::size_t offset
+    ) {
+        std::vector<std::uint8_t> result(size);
+        auto blocks = buf.exclusive_data_access_blocks();
+        std::size_t const block_size = kBufferSize / blocks.size();
+        std::size_t flat_off = offset;
+        std::size_t result_off = 0;
+        std::size_t bytes_left = size;
+        while (bytes_left > 0) {
+            std::size_t const bi = flat_off / block_size;
+            std::size_t const off = flat_off % block_size;
+            std::size_t const n = std::min(bytes_left, block_size - off);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpy(
+                result.data() + result_off, blocks[bi] + off, n, cudaMemcpyDefault
+            ));
+            flat_off += n;
+            result_off += n;
+            bytes_left -= n;
+        }
+        buf.unlock();
+        return result;
+    }
+
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool;
     std::shared_ptr<BufferResource> src_br;
     std::shared_ptr<BufferResource> dst_br;
@@ -410,43 +436,15 @@ TEST_P(BufferCopyToTest, CopiesDataCorrectly) {
         dst_br->reserve(dst_type, kBufferSize, AllowOverbooking::YES);
     auto dst_buf = dst_br->allocate(kBufferSize, stream, dst_alloc);
 
-    // ---- The operation under test ----
+    // ---- The operation under test: src -> dst ----
 
     src_buf->copy_to(*dst_buf, p.copy_size, p.dst_offset, p.src_offset);
 
-    // copy_to enqueues on src_buf->stream() == stream; wait for completion.
+    // copy_to enqueues on dst stream; wait for completion.
     stream.synchronize();
 
     if (p.copy_size == 0) {
         return;  // Zero-size copy: verify only that no exception was thrown.
-    }
-
-    // ---- Read back the copied region and verify ----
-
-    std::vector<uint8_t> result(p.copy_size);
-
-    // exclusive_data_access_blocks() works for all storage types:
-    // DEVICE/HOST yield one block (the full contiguous allocation);
-    // PINNED yields one pointer per fixed-size block.
-    // cudaMemcpyDefault is used so the same code handles all memory types.
-    {
-        auto blocks = dst_buf->exclusive_data_access_blocks();
-        std::size_t const block_size = kBufferSize / blocks.size();
-        std::size_t flat_off = p.dst_offset;
-        std::size_t result_off = 0;
-        std::size_t bytes_left = p.copy_size;
-        while (bytes_left > 0) {
-            std::size_t const bi = flat_off / block_size;
-            std::size_t const off = flat_off % block_size;
-            std::size_t const n = std::min(bytes_left, block_size - off);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpy(
-                result.data() + result_off, blocks[bi] + off, n, cudaMemcpyDefault
-            ));
-            flat_off += n;
-            result_off += n;
-            bytes_left -= n;
-        }
-        dst_buf->unlock();
     }
 
     auto to_string = [](auto const& vec, size_t offset, size_t size) {
@@ -458,14 +456,19 @@ TEST_P(BufferCopyToTest, CopiesDataCorrectly) {
     };
 
     SCOPED_TRACE("src: " + to_string(monotonic, p.src_offset, p.copy_size));
-    SCOPED_TRACE("dst: " + to_string(result, 0, result.size()));
-    EXPECT_TRUE(
-        std::equal(
+
+    // ---- Read back from dst and verify ----
+    {
+        auto dst_result = ReadBackFromBuffer(
+            *dst_buf, p.copy_size, static_cast<std::size_t>(p.dst_offset)
+        );
+        SCOPED_TRACE("dst: " + to_string(dst_result, 0, dst_result.size()));
+        EXPECT_TRUE(std::equal(
             monotonic.begin() + p.src_offset,
             monotonic.begin() + p.src_offset + p.copy_size,
-            result.begin()
-        )
-    );
+            dst_result.begin()
+        ));
+    }
 }
 
 /// @brief Generate all (src_kind × dst_kind × copy_size × src_offset × dst_offset)
