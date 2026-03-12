@@ -189,9 +189,9 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_
         numa_id, pool, capacity, capacity, block_size, pool_size, initial_npools
     );
 
-    return std::make_shared<PinnedMemoryResource>(
+    return std::shared_ptr<PinnedMemoryResource>(new PinnedMemoryResource(
         std::move(pool), std::move(fixed_size_host_mr), block_size
-    );
+    ));
 }
 
 PinnedMemoryResource::FixedSizedBlocksAllocation
