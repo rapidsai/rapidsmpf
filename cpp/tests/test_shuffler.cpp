@@ -505,42 +505,41 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
  */
 template <typename WaitFn>
 void run_wait_test(WaitFn&& wait_fn) {
-    rapidsmpf::shuffler::PartID out_nparts = 20;
     auto comm = GlobalEnvironment->comm_;
 
     if (comm->rank() != 0) {
         GTEST_SKIP() << "Test only runs on rank 0";
     }
 
+    // Use nranks partitions so each rank owns exactly 1 partition (round robin).
+    rapidsmpf::shuffler::PartID out_nparts =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+
     auto local_partitions = rapidsmpf::shuffler::Shuffler::local_partitions(
         comm, out_nparts, &rapidsmpf::shuffler::Shuffler::round_robin
     );
+    ASSERT_EQ(local_partitions.size(), 1);
 
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
         comm->nranks(), local_partitions
     );
 
-    // pick some local partition to test
+    // pick the single local partition to test
     auto p_id = local_partitions[0];
 
     // none of the partitions are finished now. So, wait_fn should timeout
     EXPECT_THROW(wait_fn(finish_counter, p_id), std::runtime_error);
 
-    // move goalpost by 2, one for a simulated data chunk and another for the finished
-    // chunk
-    finish_counter.move_goalpost(p_id, 2);
-    for (auto i = 0; i < comm->nranks() - 1; i++) {
-        // mark that no more chunks from other ranks by adding finished chunk
-        finish_counter.move_goalpost(p_id, 1);
+    // For nranks ranks, each rank sends 1 data chunk + 1 control, so
+    // move_goalpost(rank, 2) per rank.
+    for (rapidsmpf::Rank r = 0; r < comm->nranks(); r++) {
+        finish_counter.move_goalpost(r, 2);
     }
 
-    // add finished for the simulated data chunk
-    finish_counter.add_finished_chunk(p_id);
-
-    // every rank should indicate that the partition is finished
-    for (auto i = 0; i < comm->nranks(); i++) {
-        // add the finished chunk for partition p_id
-        finish_counter.add_finished_chunk(p_id);
+    // Add finished chunks: 1 data chunk per rank + 1 control per rank = 2 * nranks
+    for (rapidsmpf::Rank r = 0; r < comm->nranks(); r++) {
+        finish_counter.add_finished_chunk();  // data chunk
+        finish_counter.add_finished_chunk();  // control chunk
     }
 
     // pass the wait_fn result to extract_pid_fn. It should return p_id
@@ -640,9 +639,11 @@ class FinishCounterMultithreadingTest
     }
 
     void produce_data() {
-        for (auto& pid : local_partitions) {
-            finish_counter->move_goalpost(pid, 1);  // move goalpost for finished msg
-            finish_counter->add_finished_chunk(pid);
+        // Simulate nranks=1: one rank reports chunk count = npartitions + 1
+        // (one data chunk per partition + 1 control message)
+        finish_counter->move_goalpost(rapidsmpf::Rank{0}, npartitions + 1);
+        for (rapidsmpf::shuffler::PartID i = 0; i <= npartitions; i++) {
+            finish_counter->add_finished_chunk();
         }
     }
 };

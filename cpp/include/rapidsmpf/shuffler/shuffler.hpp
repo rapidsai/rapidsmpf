@@ -342,7 +342,7 @@ class Shuffler {
     std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
-    std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
+    std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     mutable std::mutex outbound_chunk_counter_mutex_;
 
     // We protect ready_postbox extraction to avoid returning a chunk that is in the
