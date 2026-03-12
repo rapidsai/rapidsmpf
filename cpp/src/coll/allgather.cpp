@@ -471,7 +471,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             }
         }
         // Poll for any remaining finish messages. As soon as all finish messages are
-        // received we stop polling for more finish messages so that a subsequence
+        // received we stop polling for more finish messages so that a subsequent
         // collective using the same OpID doesn't get matched here, even if the event loop
         // continues to process actual data messages.
         while (remote_finish_counter_ > 0) {
