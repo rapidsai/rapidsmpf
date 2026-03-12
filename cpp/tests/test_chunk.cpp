@@ -52,7 +52,7 @@ TEST_F(ChunkTest, FromFinishedPartition) {
     test_chunk(chunk);
 
     auto msg = chunk.serialize();
-    auto chunk2 = Chunk::deserialize(*msg, true);
+    auto chunk2 = Chunk::deserialize(*msg, br.get(), true);
     test_chunk(chunk2);
 
     auto chunk3 = chunk2.get_data(chunk_id, br.get());
@@ -94,7 +94,8 @@ TEST_F(ChunkTest, FromPackedData) {
     test_chunk(chunk);
 
     auto msg = chunk.serialize();
-    auto chunk2 = Chunk::deserialize(*msg, true);
+    auto chunk2 = Chunk::deserialize(*msg, br.get(), true);
+    std::ignore = chunk2.release_data_buffer();
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 

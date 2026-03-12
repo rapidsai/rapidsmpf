@@ -144,7 +144,8 @@ class Shuffler::Progress {
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
                 if (msg) {
-                    auto chunk = Chunk::deserialize(*msg, false);
+                    auto chunk =
+                        Chunk::deserialize(*msg, shuffler_.br_, /*validate=*/false);
                     log.trace("recv_any from ", src, ": ", chunk);
                     RAPIDSMPF_EXPECTS(
                         shuffler_.partition_owner(
@@ -179,25 +180,6 @@ class Shuffler::Progress {
                 // If the chunk contains GPU data, we need to receive it. Otherwise, it
                 // goes directly to the ready postbox.
                 if (chunk.data_size() > 0) {
-                    if (!chunk.is_data_buffer_set()) {
-                        // Create a new buffer and let the buffer resource decide the
-                        // memory type.
-                        chunk.set_data_buffer(shuffler_.br_->allocate(
-                            shuffler_.br_->stream_pool().get_stream(),
-                            shuffler_.br_->reserve_or_fail(
-                                chunk.data_size(), MEMORY_TYPES
-                            )
-                        ));
-                        if (rapidsmpf::contains(
-                                SPILL_TARGET_MEMORY_TYPES, chunk.data_memory_type()
-                            ))
-                        {
-                            stats.add_bytes_stat(
-                                "recv-into-host-memory", chunk.data_size()
-                            );
-                        }
-                    }
-
                     // Check if the buffer is ready to be used
                     if (!chunk.is_ready()) {
                         // Buffer is not ready yet, skip to next item

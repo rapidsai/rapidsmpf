@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 namespace rapidsmpf::shuffler {
@@ -245,13 +246,18 @@ class Chunk {
      * @brief Create a chunk by deserializing a metadata message.
      *
      * @param msg The metadata message received from another rank.
+     * @param br Buffer resource for allocating a the data buffer of the deserialized
+     * message.
      * @param validate Whether to validate the metadata buffer.
      * @return The chunk.
      *
-     * @throws std::runtime_error if the metadata buffer does not follow the expected
-     * format and `validate` is true.
+     * @throws std::logic_error if the chunk is not a control message and no buffer
+     * resource is provided. @throws std::runtime_error if the metadata buffer does not
+     * follow the expected format and `validate` is true.
      */
-    static Chunk deserialize(std::vector<std::uint8_t> const& msg, bool validate = true);
+    static Chunk deserialize(
+        std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate = true
+    );
 
     /**
      * @brief Validate if a deserialized buffer follows the Chunk format.

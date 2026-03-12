@@ -72,7 +72,9 @@ Chunk Chunk::from_finished_partition(
     return {chunk_id, part_id, expected_num_chunks, 0, 0};
 }
 
-Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
+Chunk Chunk::deserialize(
+    std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate
+) {
     if (validate) {
         RAPIDSMPF_EXPECTS(
             validate_format(msg), "serialized message does not follow the expected format"
@@ -104,6 +106,19 @@ Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
         msg.begin() + safe_cast<std::int64_t>(offset), msg.end()
     );
 
+    std::unique_ptr<Buffer> data;
+    if (expected_num_chunks == 0) {
+        RAPIDSMPF_EXPECTS(
+            br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
+        );
+        data = br->allocate(
+            br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+        );
+        if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
+            br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);
+        }
+    }
+
     return {
         chunk_id,
         part_id,
@@ -111,7 +126,7 @@ Chunk Chunk::deserialize(std::vector<std::uint8_t> const& msg, bool validate) {
         metadata_size,
         data_size,
         std::move(concat_metadata),
-        nullptr
+        std::move(data)
     };
 }
 
