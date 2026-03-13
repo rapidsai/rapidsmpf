@@ -455,6 +455,9 @@ class AllGather {
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
      *
+     * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
+     * locally.
+     *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
      * ordered with respect to their own stream.
@@ -556,6 +559,15 @@ class AllGather {
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread
     SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
+    // We track remote finishes separately from the finish_counter_ above since the path
+    // through the event loop state machine for a local finish marker is slightly
+    // different from a remote finish marker.
+    /// @brief Number of remote finish messages received.
+    Rank remote_finish_counter_;
+    /// @brief Total expected data-carrying messages.
+    std::uint64_t num_expected_messages_{0};
+    /// @brief Total data-carrying messages messages received so far.
+    std::uint64_t num_received_messages_{0};
     /// @brief Chunks being received from left neighbor
     std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
     /// @brief Fire-and-forget communication futures

@@ -723,7 +723,7 @@ def rmpf_worker_local_setup(
     # Create a buffer resource with a limiting availability function.
     total_memory = rmm.mr.available_device_memory()[1]
     spill_device = options.get_or_default(
-        f"{option_prefix}spill_device", default_value=0.50
+        f"{option_prefix}spill_device", default_value=0.5
     )
     memory_available = {
         MemoryType.DEVICE: LimitAvailableMemory(

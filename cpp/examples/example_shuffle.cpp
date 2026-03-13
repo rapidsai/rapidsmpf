@@ -92,13 +92,9 @@ int main(int argc, char** argv) {
     // distributed shuffle is being processed underneath.
     shuffler.insert(std::move(packed_inputs));
 
-    // When we are finished inserting to a specific partition, we tell the shuffler.
-    // Again, this is non-blocking and should be done as soon as we known that we don't
-    // have more inputs for a specific partition. In this case, we are finished with all
-    // partitions.
-    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
-    }
+    // When we are finished inserting data, we tell the shuffler. This sends one control
+    // message per target rank, informing each that this rank has finished inserting data.
+    shuffler.insert_finished();
 
     // Vector to hold the local results of the shuffle operation.
     std::vector<std::unique_ptr<cudf::table>> local_outputs;

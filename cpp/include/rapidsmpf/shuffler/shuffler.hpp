@@ -178,20 +178,12 @@ class Shuffler {
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
-     * @brief Insert a finish mark for a partition.
+     * @brief Signal that no more data will be inserted into the shuffle.
      *
-     * This tells the shuffler that no more chunks of the specified partition are coming.
-     *
-     * @param pid The partition ID to mark as finished.
+     * This informs the shuffler that this rank has finished inserting data. Must be
+     * called exactly once.
      */
-    void insert_finished(PartID pid);
-
-    /**
-     * @brief Insert a finish mark for a list of partitions.
-     *
-     * @param pids The list of partition IDs to mark as finished.
-     */
-    void insert_finished(std::vector<PartID>&& pids);
+    void insert_finished();
 
     /**
      * @brief Extract all chunks belonging to the specified partition.
@@ -213,14 +205,6 @@ class Shuffler {
      * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool finished() const;
-
-    /**
-     * @brief Check if a partition is finished.
-     *
-     * @param pid The partition ID to check.
-     * @return True if the partition is finished, otherwise False.
-     */
-    [[nodiscard]] bool is_finished(PartID pid) const;
 
     /**
      * @brief Wait for any partition to finish.
@@ -358,7 +342,7 @@ class Shuffler {
     std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
-    std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
+    std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     mutable std::mutex outbound_chunk_counter_mutex_;
 
     // We protect ready_postbox extraction to avoid returning a chunk that is in the

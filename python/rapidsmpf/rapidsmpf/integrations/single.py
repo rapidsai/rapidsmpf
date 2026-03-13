@@ -96,8 +96,7 @@ def _barrier(
     """
     for shuffle_id in shuffle_ids:
         shuffler = get_shuffler(get_worker_context(), shuffle_id)
-        for pid in range(partition_count):
-            shuffler.insert_finished(pid)
+        shuffler.insert_finished()
 
 
 def _stage_shuffle(shuffle_id: int, partition_count: int) -> None:
