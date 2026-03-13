@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -57,7 +57,7 @@ class HostMemoryResource {
      *
      * @throw std::invalid_argument Always.
      */
-    void* allocate_sync(std::size_t, std::size_t) {
+    virtual void* allocate_sync(std::size_t, std::size_t) {
         RAPIDSMPF_FAIL(
             "only async stream-ordered allocation must be used in RapidsMPF",
             std::invalid_argument
@@ -69,7 +69,7 @@ class HostMemoryResource {
      *
      * @throw std::invalid_argument Always.
      */
-    void deallocate_sync(void*, std::size_t, std::size_t) {
+    virtual void deallocate_sync(void*, std::size_t, std::size_t) {
         RAPIDSMPF_FAIL(
             "only async stream-ordered allocation must be used in RapidsMPF",
             std::invalid_argument
@@ -157,10 +157,21 @@ class HostMemoryResource {
     friend void get_property(
         HostMemoryResource const&, cuda::mr::host_accessible
     ) noexcept {}
+
+
+    // TODO: remove this 
+    /**
+     * @brief Enables the `cuda::mr::host_accessible` property
+     *
+     * This property declares that a `HostMemoryResource` provides host accessible memory
+     */
+    friend void get_property(
+        HostMemoryResource const&, cuda::mr::device_accessible
+    ) noexcept {}
 };
 
 static_assert(cuda::mr::resource<HostMemoryResource>);
 static_assert(cuda::mr::resource_with<HostMemoryResource, cuda::mr::host_accessible>);
-static_assert(!cuda::mr::resource_with<HostMemoryResource, cuda::mr::device_accessible>);
+static_assert(cuda::mr::resource_with<HostMemoryResource, cuda::mr::device_accessible>);
 
 }  // namespace rapidsmpf

@@ -183,8 +183,42 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 br->release(reservation, nbytes);
                 return TableChunk(std::move(table), stream());
             }
-        case MemoryType::HOST:
         case MemoryType::PINNED_HOST:
+            if (packed_data_ == nullptr) {  // data is in device memory as a table
+                size_t const block_size = br->access_pinned_mr().block_size();
+
+                auto chunked_packer = cudf::chunked_pack(
+                    table_view(), block_size, stream(), br->device_mr()
+                );
+                auto dest_buffer = br->allocate(
+                    chunked_packer.get_total_contiguous_size(), stream(), reservation
+                );
+
+                size_t bytes_copied = 0;
+                dest_buffer->write_access_blocks([&](std::span<std::byte> block,
+                                                     rmm::cuda_stream_view /* stream */) {
+                    if (!chunked_packer.has_next()) {
+                        return;
+                    }
+                    cudf::device_span<std::uint8_t> device_span(
+                        reinterpret_cast<std::uint8_t*>(block.data()), block.size()
+                    );
+                    bytes_copied += chunked_packer.next(device_span);
+                });
+
+                RAPIDSMPF_EXPECTS(
+                    bytes_copied == dest_buffer->size,
+                    "bytes copied does not match total contiguous size"
+                );
+
+                return TableChunk(
+                    std::make_unique<PackedData>(
+                        chunked_packer.build_metadata(), std::move(dest_buffer)
+                    )
+                );
+            }
+            break;
+        case MemoryType::HOST:
             // Case 2.
             if (packed_data_ == nullptr) {
                 // We use libcudf's pack() to serialize `table_view()` into a
@@ -222,7 +256,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             RAPIDSMPF_FAIL("MemoryType: unknown");
         }
     }
-    // Note, `is_available() == false` implies `packed_data_ != nullptr`.
+    // Note, `!is_available()` implies `packed_data_ != nullptr`.
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
     // Case 3.

@@ -10,18 +10,22 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include <cuda/cmath>
 #include <cuda/memory_resource>
 
+#include <cucascade/memory/fixed_size_host_memory_resource.hpp>
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
+
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 // NOLINTBEGIN(modernize-macro-to-enum)
@@ -89,6 +93,14 @@ class PinnedMemoryResource final : public HostMemoryResource {
     /// @brief Sentinel value used to disable pinned host memory.
     static constexpr auto Disabled = nullptr;
 
+    /// @brief Type alias for the fixed-size host memory resource.
+    using FixedSizedHostMemoryResource =
+        cucascade::memory::fixed_size_host_memory_resource;
+
+    /// @brief Type alias for the fixed-size blocks allocation.
+    using FixedSizedBlocksAllocation =
+        cucascade::memory::fixed_multiple_blocks_allocation;
+
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
@@ -120,6 +132,27 @@ class PinnedMemoryResource final : public HostMemoryResource {
      */
     static std::shared_ptr<PinnedMemoryResource> make_if_available(
         int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
+    );
+
+    /**
+     * @brief Create a pinned memory resource with a fixed-size host memory resource.
+     *
+     * @param numa_id NUMA node from which memory should be allocated. By default,
+     * the resource uses the NUMA node of the calling thread.
+     * @param pool_properties Properties for configuring the pinned memory pool.
+     * @param block_size The size of each block.
+     * @param pool_size The number of blocks in the pool.
+     *
+     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
+     * otherwise `PinnedMemoryResource::Disabled`.
+     */
+    static std::shared_ptr<PinnedMemoryResource> make_fixed_sized_if_available(
+        int numa_id = get_current_numa_node(),
+        PinnedPoolProperties pool_properties = {},
+        std::size_t block_size =
+            cucascade::memory::fixed_size_host_memory_resource::default_block_size,
+        std::size_t pool_size =
+            cucascade::memory::fixed_size_host_memory_resource::default_pool_size
     );
 
     /**
@@ -166,6 +199,36 @@ class PinnedMemoryResource final : public HostMemoryResource {
     ) noexcept override;
 
     /**
+     * @brief Synchronously allocates pinned host memory.
+     *
+     * @param size Number of bytes to allocate.
+     * @param alignment Required alignment.
+     * @return Pointer to the allocated memory.
+     *
+     * @throw std::bad_alloc If the allocation fails.
+     */
+    void* allocate_sync(std::size_t size, std::size_t alignment) override;
+
+    /**
+     * @brief Synchronously deallocates pinned host memory.
+     *
+     * @param ptr Pointer to the memory to deallocate. May be nullptr.
+     * @param size Number of bytes previously allocated at @p ptr.
+     * @param alignment Alignment originally used for the allocation.
+     */
+    void deallocate_sync(void* ptr, std::size_t size, std::size_t alignment) override;
+
+    /**
+     * @brief Allocates pinned host memory with a fixed-size host memory resource.
+     *
+     * @param size Number of bytes to allocate.
+     * @return A fixed-size blocks allocation.
+     *
+     * @throw std::bad_alloc If the allocation fails.
+     */
+    FixedSizedBlocksAllocation allocate_fixed_sized(std::size_t size);
+
+    /**
      * @brief Compares this resource to another resource.
      *
      * Two resources are considered equal if memory allocated by one may be
@@ -185,7 +248,26 @@ class PinnedMemoryResource final : public HostMemoryResource {
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
 
+    [[nodiscard]] std::size_t block_size() const noexcept {
+        RAPIDSMPF_EXPECTS(fixed_size_host_mr_ != nullptr,
+            "fixed size host memory resource is not set",
+            std::invalid_argument
+        );
+        return fixed_size_host_mr_->get_block_size();
+    }
+
   private:
+    /// @brief Construct with fixed-size host MR (for make_fixed_sized_if_available).
+    /// Pool is created first so fixed_size_host_mr can reference pool_ and stay valid.
+    PinnedMemoryResource(
+        int numa_id,
+        PinnedPoolProperties pool_properties,
+        std::size_t block_size,
+        std::size_t pool_size,
+        std::size_t capacity,
+        std::size_t initial_npools
+    );
+
     // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /
     // host_async_resource_ref: the ref only stores a pointer, but its constructor
     // requires the referenced type to be copyable and movable (CCCL __basic_any_ref
@@ -193,6 +275,10 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // PinnedMemoryResource, which holds the pool in a shared_resource and is copyable and
     // movable. Copies share the same pool (is_equal compares pool_ pointers).
     cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
+
+    HostMemoryResource host_mr_{};
+    std::shared_ptr<cucascade::memory::fixed_size_host_memory_resource>
+        fixed_size_host_mr_;
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);
