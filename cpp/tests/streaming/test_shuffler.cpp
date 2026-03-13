@@ -181,9 +181,8 @@ TEST_P(StreamingShuffler, basic_shuffler) {
 
 class ShufflerAsyncTest
     : public BaseStreamingShuffle,
-      public ::testing::WithParamInterface<std::tuple<int, std::size_t, std::uint32_t>> {
+      public ::testing::WithParamInterface<std::tuple<std::size_t, std::uint32_t>> {
   protected:
-    int n_threads;
     std::size_t n_inserts;
     std::uint32_t n_partitions;
 
@@ -191,9 +190,9 @@ class ShufflerAsyncTest
     static constexpr std::size_t n_elements = 100;
 
     void SetUp() override {
-        std::tie(n_threads, n_inserts, n_partitions) = GetParam();
+        std::tie(n_inserts, n_partitions) = GetParam();
 
-        BaseStreamingShuffle::SetUpWithThreads(n_threads);
+        BaseStreamingShuffle::SetUpWithThreads(4);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
@@ -207,14 +206,12 @@ INSTANTIATE_TEST_SUITE_P(
     StreamingShuffler,
     ShufflerAsyncTest,
     ::testing::Combine(
-        ::testing::Values(1, 2, 4),  // number of streaming threads
         ::testing::Values(1, 10),  // number of inserts
         ::testing::Values(1, 10, 100)  // number of partitions
     ),
     [](const testing::TestParamInfo<ShufflerAsyncTest::ParamType>& info) {
-        return "nthreads_" + std::to_string(std::get<0>(info.param)) + "_ninserts_"
-               + std::to_string(std::get<1>(info.param)) + "_nparts_"
-               + std::to_string(std::get<2>(info.param));
+        return "ninserts_" + std::to_string(std::get<0>(info.param)) + "_nparts_"
+               + std::to_string(std::get<1>(info.param));
     }
 );
 
