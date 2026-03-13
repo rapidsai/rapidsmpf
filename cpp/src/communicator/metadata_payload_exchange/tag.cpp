@@ -86,14 +86,16 @@ void TagMetadataPayloadExchange::send(
         );
 
         // Send data immediately after metadata (if any)
-        if (message->data() != nullptr) {
+        if (payload_size > 0) {
             fire_and_forget_.push_back(
                 comm_->send(message->release_data(), dst, gpu_data_tag_)
             );
         }
     }
 
-    statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
+    statistics_->add_duration_stat(
+        "metadata-payload-exchange-send-messages", Clock::now() - t0
+    );
 }
 
 void TagMetadataPayloadExchange::progress() {
@@ -110,7 +112,9 @@ void TagMetadataPayloadExchange::progress() {
 
     cleanup_completed_operations();
 
-    statistics_->add_duration_stat("comms-interface-progress", Clock::now() - t0);
+    statistics_->add_duration_stat(
+        "metadata-payload-exchange-progress", Clock::now() - t0
+    );
 }
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
@@ -176,7 +180,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
         );
     }
 
-    statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
+    statistics_->add_duration_stat(
+        "metadata-payload-exchange-receive-metadata", Clock::now() - t0
+    );
 }
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
@@ -257,7 +263,7 @@ TagMetadataPayloadExchange::setup_data_receives() {
     }
 
     statistics_->add_duration_stat(
-        "comms-interface-setup-data-receives", Clock::now() - t0
+        "metadata-payload-exchange-setup-data-receives", Clock::now() - t0
     );
 
     return completed_messages;
@@ -318,14 +324,16 @@ TagMetadataPayloadExchange::complete_data_transfers() {
     }
 
     statistics_->add_duration_stat(
-        "comms-interface-complete-data-transfers", Clock::now() - t0
+        "metadata-payload-exchange-complete-data-transfers", Clock::now() - t0
     );
 
     return completed_messages;
 }
 
 void TagMetadataPayloadExchange::cleanup_completed_operations() {
-    std::ignore = comm_->test_some(fire_and_forget_);
+    if (!fire_and_forget_.empty()) {
+        std::ignore = comm_->test_some(fire_and_forget_);
+    }
 }
 
 
