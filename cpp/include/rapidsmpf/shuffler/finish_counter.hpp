@@ -9,7 +9,6 @@
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <span>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -43,27 +42,25 @@ namespace detail {
 class FinishCounter {
   public:
     /**
-     * @brief Callback function type called when a partition is finished.
-     *
-     * The callback receives the partition ID of the finished partition.
+     * @brief Callback function type called when all partitions are finished.
      *
      * @warning A callback must be fast and non-blocking and should not call any of the
      * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
      * to signal a separate thread to do the actual processing.
      */
-    using FinishedCallback = std::function<void(PartID)>;
+    using FinishedCallback = std::function<void()>;
 
     /**
      * @brief Construct a finish counter.
      *
      * @param nranks The total number of ranks participating in the shuffle.
-     * @param local_partitions The partition IDs local to the current rank.
-     * @param finished_callback The callback to notify when a partition is finished
+     * @param n_local_partitions The number of local partitions owned by this rank.
+     * @param finished_callback The callback to notify when all partitions are finished
      * (optional).
      */
     FinishCounter(
         Rank nranks,
-        std::span<PartID const> local_partitions,
+        PartID n_local_partitions,
         FinishedCallback&& finished_callback = nullptr
     );
 
@@ -136,9 +133,8 @@ class FinishCounter {
     ChunkID total_chunk_goal_{0};  ///< sum of all rank chunk goals
     ChunkID total_finished_chunks_{0};  ///< global finished chunk counter
     std::vector<bool> rank_reported_;  ///< indexed by rank, prevents double-reporting
-    std::span<PartID const> local_partitions_;  ///< for firing callbacks
     /// Set to true exactly once when all chunks have arrived. Ensures callback only fires
-    /// once for each partition.
+    /// once.
     bool all_done_{false};
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?

@@ -466,6 +466,38 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 }
 
+TEST(FinishCounterTests, zero_local_partitions_fires_callback) {
+    bool callback_fired = false;
+    rapidsmpf::shuffler::detail::FinishCounter finish_counter(
+        /*nranks=*/2, /*n_local_partitions=*/0, [&]() { callback_fired = true; }
+    );
+
+    EXPECT_TRUE(callback_fired);
+    EXPECT_TRUE(finish_counter.all_finished());
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+}
+
+TEST(FinishCounterTests, nonzero_local_partitions_fires_callback) {
+    bool callback_fired = false;
+    rapidsmpf::shuffler::detail::FinishCounter finish_counter(
+        /*nranks=*/1, /*n_local_partitions=*/2, [&]() { callback_fired = true; }
+    );
+
+    EXPECT_FALSE(callback_fired);
+    EXPECT_FALSE(finish_counter.all_finished());
+
+    // One rank sends 3 chunks total.
+    finish_counter.move_goalpost(0, 3);
+    finish_counter.add_finished_chunk();
+    finish_counter.add_finished_chunk();
+    EXPECT_FALSE(callback_fired);
+
+    finish_counter.add_finished_chunk();
+    EXPECT_TRUE(callback_fired);
+    EXPECT_TRUE(finish_counter.all_finished());
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+}
+
 TEST(FinishCounterTests, wait_with_timeout) {
     auto comm = GlobalEnvironment->comm_;
 
@@ -482,7 +514,7 @@ TEST(FinishCounterTests, wait_with_timeout) {
     ASSERT_EQ(local_partitions.size(), 1);
 
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
-        comm->nranks(), local_partitions
+        comm->nranks(), local_partitions.size()
     );
 
     // none of the partitions are finished now. So, wait should timeout
@@ -529,10 +561,12 @@ class FinishCounterMultithreadingTest
         n_finished_pids = 0;
 
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID pid) {
+            nranks, npartitions, [&]() {
                 {
                     std::lock_guard lock(mtx);
-                    finished_pids.push_back(pid);
+                    for (auto pid : local_partitions) {
+                        finished_pids.push_back(pid);
+                    }
                 }
                 cv.notify_all();
             }

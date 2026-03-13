@@ -47,15 +47,18 @@ void wait_for_if_timeout_else_wait(
 }  // namespace
 
 FinishCounter::FinishCounter(
-    Rank nranks,
-    std::span<PartID const> local_partitions,
-    FinishedCallback&& finished_callback
+    Rank nranks, PartID n_local_partitions, FinishedCallback&& finished_callback
 )
     : nranks_{nranks},
-      n_unfinished_partitions_{safe_cast<PartID>(local_partitions.size())},
+      n_unfinished_partitions_{n_local_partitions},
       rank_reported_(safe_cast<std::size_t>(nranks), false),
-      local_partitions_(local_partitions),
-      finished_callback_{std::forward<FinishedCallback>(finished_callback)} {}
+      // If we own no partitions we will immediately be ready.
+      all_done_{n_local_partitions == 0},
+      finished_callback_{std::forward<FinishedCallback>(finished_callback)} {
+    if (all_done_ && finished_callback_) {
+        finished_callback_();
+    }
+}
 
 bool FinishCounter::all_finished() const {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -92,10 +95,8 @@ void FinishCounter::add_finished_chunk() {
 
         wait_cv_.notify_all();  // notify any waiting threads
 
-        if (finished_callback_) {  // notify the callback for each partition
-            for (auto pid : local_partitions_) {
-                finished_callback_(pid);
-            }
+        if (finished_callback_) {
+            finished_callback_();
         }
     }
 }

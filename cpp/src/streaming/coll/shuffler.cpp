@@ -101,19 +101,21 @@ ShufflerAsync::ShufflerAsync(
           op_id,
           total_num_partitions,
           ctx_->br().get(),
-          [this](shuffler::PartID pid) -> void {
+          [this]() -> void {
               shuffler_.comm()->logger()->trace(
-                  "notifying waiters that ", pid, " is ready"
+                  "notifying waiters that all pids are ready"
               );
               // Libcoro may resume suspended coroutines during cv notification, using the
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
-              RAPIDSMPF_EXPECTS(
-                  notifications_.start(
-                      insert_and_notify(mtx_, semaphore_, latch_, ready_pids_, pid)
-                  ),
-                  "failed to start task to notify waiters that the partition is ready"
-              );
+              for (auto pid : shuffler_.local_partitions()) {
+                  RAPIDSMPF_EXPECTS(
+                      notifications_.start(
+                          insert_and_notify(mtx_, semaphore_, latch_, ready_pids_, pid)
+                      ),
+                      "failed to start task to notify waiters that the partition is ready"
+                  );
+              }
           },
           std::move(partition_owner)
       ) {}
