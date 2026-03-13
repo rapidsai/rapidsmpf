@@ -244,24 +244,7 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-// Test with insert_finished called individually per partition
 TEST_P(MemoryAvailable_NumPartition, round_trip) {
-    EXPECT_NO_FATAL_FAILURE(test_shuffler(
-        GlobalEnvironment->comm_,
-        *shuffler,
-        total_num_partitions,
-        [&](auto&& packed_chunks) { shuffler->insert(std::move(packed_chunks)); },
-        [&]() { shuffler->insert_finished(); },
-        total_num_rows,
-        seed,
-        hash_fn,
-        stream,
-        br.get()
-    ));
-}
-
-// Test with insert_finished called once with all partition IDs
-TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
         GlobalEnvironment->comm_,
         *shuffler,
@@ -358,16 +341,6 @@ class ConcurrentShuffleTest
 
 // Test with insert_finished called individually per partition
 TEST_P(ConcurrentShuffleTest, round_trip) {
-    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
-        [&](auto& shuffler, auto&& packed_chunks) {
-            shuffler.insert(std::move(packed_chunks));
-        },
-        [&](auto& shuffler) { shuffler.insert_finished(); }
-    ));
-}
-
-// Test with insert_finished called once with all partition IDs
-TEST_P(ConcurrentShuffleTest, round_trip_finished_grouped) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
             shuffler.insert(std::move(packed_chunks));
