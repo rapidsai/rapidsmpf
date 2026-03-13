@@ -37,6 +37,9 @@ test = [
 [project.urls]
 Homepage = "https://github.com/rapidsai/rapidsmpf"
 
+[project.scripts]
+rrun = "librapidsmpf._rrun:main"
+
 [project.entry-points."cmake.prefix"]
 librapidsmpf = "librapidsmpf"
 
