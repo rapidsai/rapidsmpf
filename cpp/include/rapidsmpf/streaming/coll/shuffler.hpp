@@ -36,7 +36,7 @@ namespace rapidsmpf::streaming {
  * while (...) {
  *   shuffle.insert(...);
  * }
- * auto finished_token = shuffle.insert_finished(...);
+ * auto finished_token = shuffle.insert_finished();
  * for (auto i = 0; i < shuffle.local_partitions().size(); i++) {
  *   auto part = co_await shuffle.extract_any_async();
  * }
@@ -123,7 +123,7 @@ class ShufflerAsync {
     void insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks);
 
     /**
-     * @copydoc rapidsmpf::shuffler::Shuffler::insert_finished(std::vector<PartID>&&)
+     * @copydoc rapidsmpf::shuffler::Shuffler::insert_finished()
      *
      * @note This function itself is not a coroutine. Instead, it returns a coroutine that
      * must be awaited to ensure the shuffler has fully completed its asynchronous

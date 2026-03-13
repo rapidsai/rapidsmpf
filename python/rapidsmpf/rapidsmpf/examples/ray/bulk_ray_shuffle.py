@@ -214,8 +214,7 @@ class BulkRayShufflerActor(RapidsMPFActor):
 
     def insert_finished(self) -> None:
         """Tell the shuffler that we are done inserting data."""
-        for pid in range(self.total_nparts):
-            self.shuffler.insert_finished(pid)
+        self.shuffler.insert_finished()
         self.comm.logger.info("Insert finished")
 
     def extract(self) -> Iterator[tuple[int, plc.Table]]:

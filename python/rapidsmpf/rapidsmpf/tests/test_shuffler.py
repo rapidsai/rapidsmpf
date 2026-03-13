@@ -58,7 +58,7 @@ def test_shuffler_single_nonempty_partition(
         stream=DEFAULT_STREAM,
     )
     shuffler.insert_chunks(packed_inputs)
-    shuffler.insert_finished(list(range(total_num_partitions)))
+    shuffler.insert_finished()
 
     my_partitions = shuffler.local_partitions()
     expected_partitions = set(my_partitions)
@@ -158,7 +158,7 @@ def test_shuffler_uniform(
         shuffler.insert_chunks(packed_inputs)
 
     # Tell shuffler we are done adding data
-    shuffler.insert_finished(list(range(total_num_partitions)))
+    shuffler.insert_finished()
 
     expected_partitions = set(shuffler.local_partitions())
     extracted_partitions = set()

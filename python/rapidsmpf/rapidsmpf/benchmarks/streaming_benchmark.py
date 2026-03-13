@@ -169,8 +169,7 @@ def streaming_shuffle(
 
         shuffler.insert_chunks(chunks)
     # finish inserting all partitions
-    for i in range(output_nparts):
-        shuffler.insert_finished(i)
+    shuffler.insert_finished()
 
     # wait for the consumer thread to finish.
     consumer_thread.join(timeout=wait_timeout)
