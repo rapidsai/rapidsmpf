@@ -351,7 +351,6 @@ class Shuffler {
     std::shared_ptr<Communicator> comm_;
     std::unique_ptr<communicator::MetadataPayloadExchange> mpe_;
     ProgressThread::FunctionID progress_thread_function_id_;
-    OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
 

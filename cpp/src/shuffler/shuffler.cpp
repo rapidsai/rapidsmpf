@@ -281,7 +281,6 @@ Shuffler::Shuffler(
                     br_->statistics()
                 )
       },
-      op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
