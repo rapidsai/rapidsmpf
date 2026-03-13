@@ -495,24 +495,6 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     finish_counter_.wait(std::move(timeout));
 }
 
-PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait(std::move(timeout));
-    RAPIDSMPF_EXPECTS(
-        wait_any_idx_ < local_partitions_.size(),
-        "no more partitions to wait on",
-        std::out_of_range
-    );
-    return local_partitions_[wait_any_idx_++];
-}
-
-void Shuffler::wait_on(
-    [[maybe_unused]] PartID pid, std::optional<std::chrono::milliseconds> timeout
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait(std::move(timeout));
-}
-
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spill_need{0};

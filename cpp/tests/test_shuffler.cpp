@@ -161,8 +161,8 @@ void test_shuffler(
     // Tell the shuffler that we have no more input partitions.
     insert_finished_fn();
 
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any(wait_timeout);
+    shuffler.wait(wait_timeout);
+    for (auto finished_partition : shuffler.local_partitions()) {
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(
@@ -864,8 +864,8 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
     }
 
     void verify_extracted_chunks(auto expected_empty_fn) {
-        while (!shuffler->finished()) {
-            auto pid = shuffler->wait_any(wait_timeout);
+        shuffler->wait(wait_timeout);
+        for (auto pid : shuffler->local_partitions()) {
             SCOPED_TRACE("pid: " + std::to_string(pid));
             std::vector<rapidsmpf::PackedData> chunks;
             EXPECT_NO_THROW({ chunks = shuffler->extract(pid); });
@@ -948,7 +948,10 @@ TEST(ShufflerTest, multiple_shutdowns) {
         std::make_unique<rapidsmpf::shuffler::Shuffler>(comm, 0, comm->nranks(), &br);
 
     shuffler->insert_finished();
-    std::ignore = shuffler->extract(shuffler->wait_any());
+    shuffler->wait();
+    for (auto pid : shuffler->local_partitions()) {
+        std::ignore = shuffler->extract(pid);
+    }
 
     constexpr int n_threads = 10;
     std::vector<std::future<void>> futures;
