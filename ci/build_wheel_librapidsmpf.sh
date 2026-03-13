@@ -36,6 +36,24 @@ export SITE_PACKAGES
 
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
+# patchelf (used internally by auditwheel) corrupts ELF executables when it
+# must grow PT_LOAD segments to fit new RPATH data.  Shared libraries are fine,
+# but standalone binaries like rrun end up with .dynstr/.dynamic outside any
+# loadable segment, causing a dynamic-linker crash before main().
+# The -Wl,-z,noseparate-code linker flag mitigates this on most toolchains but
+# is not universally sufficient, so we also save the original binary before
+# auditwheel runs and re-inject it afterward.  The _rrun.py entry-point shim
+# sets LD_LIBRARY_PATH so the restored binary finds the excluded RAPIDS libs.
+UNREPAIRED_WHEEL=$(ls "${package_dir}"/dist/*.whl)
+RRUN_ORIG=$(mktemp)
+python3 - "${UNREPAIRED_WHEEL}" "${RRUN_ORIG}" <<'EOF'
+import shutil, sys, zipfile
+whl, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(whl) as z, z.open("librapidsmpf/bin/rrun") as src, open(dst, "wb") as f:
+    shutil.copyfileobj(src, f)
+EOF
+chmod 755 "${RRUN_ORIG}"
+
 python -m auditwheel repair \
     --exclude libcudf.so \
     --exclude libkvikio.so \
@@ -45,6 +63,18 @@ python -m auditwheel repair \
     --exclude libucp.so.0 \
     --exclude libucxx.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
-    ${package_dir}/dist/*
+    "${UNREPAIRED_WHEEL}"
+
+REPAIRED_WHEEL=$(ls "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"/*.whl)
+python3 - "${REPAIRED_WHEEL}" "${RRUN_ORIG}" <<'EOF'
+import os, sys, zipfile
+whl, rrun = sys.argv[1], sys.argv[2]
+tmp = whl + ".tmp"
+with zipfile.ZipFile(whl) as zin, zipfile.ZipFile(tmp, "w") as zout:
+    for item in zin.infolist():
+        data = open(rrun, "rb").read() if item.filename == "librapidsmpf/bin/rrun" else zin.read(item.filename)
+        zout.writestr(item, data)
+os.replace(tmp, whl)
+EOF
 
 ./ci/validate_wheel.sh "${package_dir}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"
