@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -283,6 +284,7 @@ Shuffler::Shuffler(
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
+      outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
       statistics_{br_->statistics()} {
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
@@ -334,23 +336,22 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
     log->trace("insert_into_outbox: ", chunk);
 
-    auto pid = chunk.part_id();
     if (chunk.is_control_message()) {
-        finish_counter_.move_goalpost(pid, chunk.expected_num_chunks());
+        Rank src_rank = extract_rank(chunk.chunk_id());
+        finish_counter_.move_goalpost(src_rank, chunk.expected_num_chunks());
     } else {
         ready_postbox_.insert(std::move(chunk));
     }
-    finish_counter_.add_finished_chunk(pid);
+    finish_counter_.add_finished_chunk();
 }
 
 void Shuffler::insert(detail::Chunk&& chunk) {
-    {
+    Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
+    if (!chunk.is_control_message()) {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        ++outbound_chunk_counter_[chunk.part_id()];
+        ++outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)];
     }
-
-    Rank p0_target_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
-    if (p0_target_rank == comm_->rank()) {
+    if (dst_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
         if (chunk.is_data_buffer_set()) {
             statistics_->add_bytes_stat("shuffle-payload-send", chunk.data_size());
@@ -390,29 +391,35 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     br_->spill_manager().spill_to_make_headroom(0);
 }
 
-void Shuffler::insert_finished(PartID pid) {
-    insert_finished(std::vector<PartID>{pid});
-}
-
-void Shuffler::insert_finished(std::vector<PartID>&& pids) {
-    RAPIDSMPF_EXPECTS(pids.size() > 0, "insert_finished with empty pids");
-
-    std::vector<detail::ChunkID> expected_num_chunks;
-    expected_num_chunks.reserve(pids.size());
-
-    // collect expected number of chunks for each partition
+void Shuffler::insert_finished() {
+    std::vector<detail::ChunkID> counts;
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        for (auto pid : pids) {
-            expected_num_chunks.push_back(outbound_chunk_counter_[pid]);
-        }
+        counts = outbound_chunk_counter_;
     }
 
-    // insert a finished chunk for each partition
-    for (std::size_t i = 0; i < pids.size(); ++i) {
+    // Pick an arbitrary representative partition for each rank so we can route one
+    // control message per rank. Ranks that own no partitions do not need to be sent a
+    // control message because they will never receive any messages.
+    // TODO: I suspect this logic will need to change once we try and avoid cross-talk
+    // between shuffles, ranks that own no partitions will still need to participate in
+    // the completion process.
+    std::vector<PartID> representative_pid(
+        safe_cast<std::size_t>(comm_->nranks()), total_num_partitions
+    );
+    for (PartID p = 0; p < total_num_partitions; ++p) {
+        auto r = safe_cast<std::size_t>(partition_owner(comm_, p, total_num_partitions));
+        representative_pid[r] = p;
+    }
+
+    for (Rank r = 0; r < safe_cast<Rank>(counts.size()); ++r) {
+        auto pid = representative_pid[safe_cast<std::size_t>(r)];
+        if (pid == total_num_partitions) {
+            continue;  // rank owns no partitions
+        }
         insert(
             detail::Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                get_new_cid(), pid, counts[safe_cast<std::size_t>(r)] + 1
             )
         );
     }

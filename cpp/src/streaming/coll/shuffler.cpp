@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <numeric>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -142,9 +141,7 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
 }
 
 Actor ShufflerAsync::insert_finished() {
-    std::vector<shuffler::PartID> pids(total_num_partitions());
-    std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
-    shuffler_.insert_finished(std::move(pids));
+    shuffler_.insert_finished();
     return finished_drain();
 }
 

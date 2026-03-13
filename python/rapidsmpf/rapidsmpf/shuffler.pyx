@@ -144,33 +144,15 @@ cdef class Shuffler:
         with nogil:
             deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, pids):
+    def insert_finished(self):
         """
-        Mark partitions as finished.
+        Signal that no more data will be inserted into the shuffle.
 
-        This informs the shuffler that no more chunks for the specified partitions
-        will be inserted.
-
-        Parameters
-        ----------
-        pids
-            Partition IDs to mark as finished (int or an iterable of ints).
-
-        Notes
-        -----
-        Once a partition is marked as finished, it is considered complete and no
-        further chunks will be accepted for that partition.
+        This informs the shuffler that this rank has finished inserting
+        data. Must be called exactly once.
         """
-        cdef vector[uint32_t] _pids
-
-        if isinstance(pids, int):
-            _pids.push_back(pids)
-        else:
-            for pid in pids:
-                _pids.push_back(pid)
-
         with nogil:
-            deref(self._handle).insert_finished(move(_pids))
+            deref(self._handle).insert_finished()
 
     def extract(self, uint32_t pid):
         """

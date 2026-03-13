@@ -134,8 +134,7 @@ class ShufflingActor(RapidsMPFActor):
             shuffler.insert_chunks(packed_inputs)
 
         # Tell shuffler we are done adding data
-        for pid in range(self._total_nparts):
-            shuffler.insert_finished(pid)
+        shuffler.insert_finished()
 
         # Extract and check shuffled partitions
         while not shuffler.finished():
