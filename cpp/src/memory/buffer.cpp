@@ -301,9 +301,11 @@ void Buffer::copy_to(
         return std::visit(
             overloaded{
                 [&](FixedSizedHostBufferT const& buf) -> std::span<std::byte const> {
-                    auto block_idx = offset / buf->block_size();
-                    auto block_offset = offset % buf->block_size();
-                    return buf->block_data(block_idx).subspan(block_offset);
+                    auto const block_idx = offset / buf->block_size();
+                    auto const block_offset = offset % buf->block_size();
+                    auto const block_size =
+                        std::min(buf->block_size(), buf->total_size() - offset);
+                    return buf->block_data(block_idx).subspan(block_offset, block_size);
                 },
                 [&](auto& buf) -> std::span<std::byte const> {
                     return std::span<std::byte const>(
