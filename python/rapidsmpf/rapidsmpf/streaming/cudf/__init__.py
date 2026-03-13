@@ -7,11 +7,15 @@ from __future__ import annotations
 from rapidsmpf.streaming.cudf.channel_metadata import (
     ChannelMetadata,
     HashScheme,
+    OrderScheme,
     Partitioning,
 )
+from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 __all__ = [
     "ChannelMetadata",
     "HashScheme",
+    "OrderScheme",
     "Partitioning",
+    "TableChunk",
 ]
