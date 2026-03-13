@@ -303,9 +303,8 @@ void Buffer::copy_to(
                 [&](FixedSizedHostBufferT const& buf) -> std::span<std::byte const> {
                     auto const block_idx = offset / buf->block_size();
                     auto const block_offset = offset % buf->block_size();
-                    auto const block_size =
-                        std::min(buf->block_size(), buf->total_size() - offset);
-                    return buf->block_data(block_idx).subspan(block_offset, block_size);
+                    // buf->block_data(block_idx) returns the size fixed to valid memory.
+                    return buf->block_data(block_idx).subspan(block_offset);
                 },
                 [&](auto& buf) -> std::span<std::byte const> {
                     return std::span<std::byte const>(
