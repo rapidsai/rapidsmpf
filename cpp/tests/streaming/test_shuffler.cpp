@@ -29,6 +29,29 @@ namespace actor = rapidsmpf::streaming::actor;
 
 class BaseStreamingShuffle : public BaseStreamingFixture {};
 
+TEST_F(BaseStreamingShuffle, zero_owned_partitions_completes) {
+    auto comm = GlobalEnvironment->comm_;
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Need at least 2 ranks so that some rank owns 0 partitions";
+    }
+    constexpr Rank owner = 0;
+    auto collapse = [](std::shared_ptr<Communicator> const&,
+                       shuffler::PartID,
+                       shuffler::PartID) -> Rank { return owner; };
+    constexpr OpID op_id = 0;
+    constexpr shuffler::PartID total = 4;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, total, collapse);
+
+    coro::sync_wait(shuffler->insert_finished());
+
+    auto local_pids = shuffler->local_partitions();
+    if (comm->rank() == owner) {
+        EXPECT_EQ(local_pids.size(), total);
+    } else {
+        EXPECT_TRUE(local_pids.empty());
+    }
+}
+
 class StreamingShuffler : public BaseStreamingShuffle,
                           public ::testing::WithParamInterface<int> {
   public:
