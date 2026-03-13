@@ -10,7 +10,6 @@
 #include <mutex>
 #include <optional>
 #include <span>
-#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -103,51 +102,23 @@ class FinishCounter {
     [[nodiscard]] bool all_finished() const;
 
     /**
-     * @brief Returns the partition ID of a finished partition that hasn't been waited on
-     * (blocking). Optionally a timeout (in ms) can be provided.
+     * @brief Wait for all partitions to be finished (blocking). Optionally a timeout
+     * (in ms) can be provided.
      *
      * This function blocks until all partitions are finished and ready to be processed.
-     * If the timeout is set and a partition is not available within the specified
+     * If the timeout is set and the partitions are not finished within the specified
      * timeout, a std::runtime_error will be thrown.
      *
+     * @note We previously supported per-partition completion mechanisms but since the
+     * usual usecase for a shuffle is a dense all to all this did not actually provide any
+     * additional concurrency. See also https://github.com/rapidsai/rapidsmpf/pull/914
+     *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @note Due to the completion mechanism once `wait_any` returns any partition, all
-     * local partitions will be available for extraction. We previously supported
-     * per-partition completion mechanisms but since the usual usecase for a shuffle is a
-     * dense all to all this did not actually provide any additional concurrency. See also
-     * https://github.com/rapidsai/rapidsmpf/pull/914
-     *
-     * @return The partition ID of a finished partition.
-     *
-     * @throws std::out_of_range If all partitions have already been waited on.
-     * @throws std::runtime_error If timeout was set and no partitions have been finished
-     * by the expiration.
+     * @throws std::runtime_error If timeout was set and the partitions are not all ready
+     * by the expiration time.
      */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for a specific partition to be finished (blocking). Optionally a
-     * timeout (in ms) can be provided.
-     *
-     * This function blocks until all partitions are finished and the desired partition
-     * is ready to be processed. If the timeout is set and the requested partition is not
-     * available within the specified timeout, a std::runtime_error will be thrown.
-     *
-     * @param pid The desired partition ID.
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @note Due to the completion mechanism once `wait_on` returns successfully, all
-     * local partitions will be available for extraction. We previously supported
-     * per-partition completion mechanisms but since the usual usecase for a shuffle is a
-     * dense all to all this did not actually provide any additional concurrency. See also
-     * https://github.com/rapidsai/rapidsmpf/pull/914
-     *
-     * @throws std::out_of_range If the desired partition is unavailable.
-     * @throws std::runtime_error If timeout was set and requested partition has been
-     * finished by the expiration.
-     */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
@@ -166,9 +137,6 @@ class FinishCounter {
     ChunkID total_finished_chunks_{0};  ///< global finished chunk counter
     std::vector<bool> rank_reported_;  ///< indexed by rank, prevents double-reporting
     std::span<PartID const> local_partitions_;  ///< for firing callbacks
-    /// Partitions not yet consumed by wait_any/wait_on; populated at construction and
-    /// then only ever decreases in size as partitions are consumed
-    std::unordered_set<PartID> pending_pids_;
     /// Set to true exactly once when all chunks have arrived. Ensures callback only fires
     /// once for each partition.
     bool all_done_{false};

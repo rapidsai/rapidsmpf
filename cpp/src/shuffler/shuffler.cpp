@@ -490,14 +490,27 @@ bool Shuffler::finished() const {
     return finish_counter_.all_finished() && ready_postbox_.empty();
 }
 
-PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    return finish_counter_.wait_any(std::move(timeout));
+    finish_counter_.wait(std::move(timeout));
 }
 
-void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
+PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait_on(pid, std::move(timeout));
+    finish_counter_.wait(std::move(timeout));
+    RAPIDSMPF_EXPECTS(
+        wait_any_idx_ < local_partitions_.size(),
+        "no more partitions to wait on",
+        std::out_of_range
+    );
+    return local_partitions_[wait_any_idx_++];
+}
+
+void Shuffler::wait_on(
+    [[maybe_unused]] PartID pid, std::optional<std::chrono::milliseconds> timeout
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    finish_counter_.wait(std::move(timeout));
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

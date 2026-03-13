@@ -191,7 +191,7 @@ class Shuffler {
      * It is valid to extract a partition that has not yet been fully received.
      * In such cases, only the chunks received so far are returned.
      *
-     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
      * @param pid The ID of the partition to extract.
@@ -207,22 +207,38 @@ class Shuffler {
     [[nodiscard]] bool finished() const;
 
     /**
-     * @brief Wait for any partition to finish.
+     * @brief Wait for all partitions to finish (blocking).
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of the next finished partition.
-     *
      * @throws std::runtime_error if the timeout is reached.
+     */
+    void wait(std::optional<std::chrono::milliseconds> timeout = {});
+
+    /**
+     * @brief Wait for any partition to finish.
+     *
+     * @deprecated Use `wait()` followed by iterating `local_partitions()` instead.
+     *
+     * All local partitions complete simultaneously, so this just calls `wait()` and
+     * returns an arbitrary local partition ID.
+     *
+     * @param timeout Optional timeout (ms) to wait.
+     * @return The partition ID of a local partition.
+     * @throws std::runtime_error if the timeout is reached.
+     * @throws std::out_of_range if called more times than there are local partitions.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to finish (blocking).
      *
-     * @param pid The desired partition ID.
-     * @param timeout Optional timeout (ms) to wait.
+     * @deprecated Use `wait()` instead.
      *
+     * All local partitions complete simultaneously, so this just calls `wait()`.
+     *
+     * @param pid The desired partition ID (unused, retained for API compatibility).
+     * @param timeout Optional timeout (ms) to wait.
      * @throws std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
@@ -342,6 +358,7 @@ class Shuffler {
     std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
+    std::size_t wait_any_idx_{0};  ///< next index into local_partitions_ for wait_any()
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     mutable std::mutex outbound_chunk_counter_mutex_;
 

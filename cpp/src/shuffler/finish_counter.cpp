@@ -55,7 +55,6 @@ FinishCounter::FinishCounter(
       n_unfinished_partitions_{safe_cast<PartID>(local_partitions.size())},
       rank_reported_(safe_cast<std::size_t>(nranks), false),
       local_partitions_(local_partitions),
-      pending_pids_(local_partitions.begin(), local_partitions.end()),
       finished_callback_{std::forward<FinishedCallback>(finished_callback)} {}
 
 bool FinishCounter::all_finished() const {
@@ -101,32 +100,9 @@ void FinishCounter::add_finished_chunk() {
     }
 }
 
-PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, wait_cv_, timeout, [&] {
-        return all_done_ || pending_pids_.empty();
-    });
-
-    RAPIDSMPF_EXPECTS(
-        !pending_pids_.empty(), "no more partitions to wait on", std::out_of_range
-    );
-
-    auto it = pending_pids_.begin();
-    PartID pid = *it;
-    pending_pids_.erase(it);
-    return pid;
-}
-
-void FinishCounter::wait_on(
-    PartID pid, std::optional<std::chrono::milliseconds> timeout
-) {
+void FinishCounter::wait(std::optional<std::chrono::milliseconds> timeout) {
     std::unique_lock<std::mutex> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, wait_cv_, timeout, [&] { return all_done_; });
-    RAPIDSMPF_EXPECTS(
-        pending_pids_.erase(pid) > 0,
-        "PartID has already been extracted",
-        std::out_of_range
-    );
 }
 
 std::string detail::FinishCounter::str() const {

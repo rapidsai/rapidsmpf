@@ -466,18 +466,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 }
 
-/**
- * @brief A test util that runs the wait test by first calling wait_fn lambda with no
- * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass.
- *
- * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
- * the result of the wait function.
- *
- * @param wait_fn wait lambda
- */
-template <typename WaitFn>
-void run_wait_test(WaitFn&& wait_fn) {
+TEST(FinishCounterTests, wait_with_timeout) {
     auto comm = GlobalEnvironment->comm_;
 
     if (comm->rank() != 0) {
@@ -485,8 +474,7 @@ void run_wait_test(WaitFn&& wait_fn) {
     }
 
     // Use nranks partitions so each rank owns exactly 1 partition (round robin).
-    rapidsmpf::shuffler::PartID out_nparts =
-        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+    auto out_nparts = rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     auto local_partitions = rapidsmpf::shuffler::Shuffler::local_partitions(
         comm, out_nparts, &rapidsmpf::shuffler::Shuffler::round_robin
@@ -497,11 +485,8 @@ void run_wait_test(WaitFn&& wait_fn) {
         comm->nranks(), local_partitions
     );
 
-    // pick the single local partition to test
-    auto p_id = local_partitions[0];
-
-    // none of the partitions are finished now. So, wait_fn should timeout
-    EXPECT_THROW(wait_fn(finish_counter, p_id), std::runtime_error);
+    // none of the partitions are finished now. So, wait should timeout
+    EXPECT_THROW(finish_counter.wait(std::chrono::milliseconds(10)), std::runtime_error);
 
     // For nranks ranks, each rank sends 1 data chunk + 1 control, so
     // move_goalpost(rank, 2) per rank.
@@ -515,27 +500,9 @@ void run_wait_test(WaitFn&& wait_fn) {
         finish_counter.add_finished_chunk();  // control chunk
     }
 
-    // pass the wait_fn result to extract_pid_fn. It should return p_id
-    EXPECT_EQ(p_id, wait_fn(finish_counter, p_id));
-}
-
-TEST(FinishCounterTests, wait_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(
-        run_wait_test([](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-                         rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            return finish_counter.wait_any(std::chrono::milliseconds(10));
-        })
-    );
-}
-
-TEST(FinishCounterTests, wait_on_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(
-        run_wait_test([&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-                          rapidsmpf::shuffler::PartID const& exp_pid) {
-            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
-            return exp_pid;  // return expected PID as wait_on return void
-        })
-    );
+    // After completion, wait should return immediately
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+    EXPECT_TRUE(finish_counter.all_finished());
 }
 
 class FinishCounterMultithreadingTest
@@ -649,12 +616,12 @@ TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
     EXPECT_TRUE(finish_counter->all_finished());
 }
 
-TEST_P(FinishCounterMultithreadingTest, wait_any) {
+TEST_P(FinishCounterMultithreadingTest, wait) {
     produce_data();
 
     std::atomic<std::uint32_t> n_wait_calls{0};
     auto futures = create_consumer_threads_with_wait([&](auto /* pid */) {
-        finish_counter->wait_any(timeout);
+        finish_counter->wait(timeout);
         n_wait_calls.fetch_add(1, std::memory_order_relaxed);
     });
 
@@ -663,26 +630,7 @@ TEST_P(FinishCounterMultithreadingTest, wait_any) {
     EXPECT_EQ(npartitions, n_wait_calls);
     EXPECT_TRUE(finish_counter->all_finished());
 
-    // callbacks should still receive all finished partitions, even after the wait_any
-    auto cb_futures = create_consumer_threads_with_cb();
-    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
-}
-
-TEST_P(FinishCounterMultithreadingTest, wait_on) {
-    produce_data();
-
-    std::atomic<std::uint32_t> n_wait_calls{0};
-    auto futures = create_consumer_threads_with_wait([&](auto pid) {
-        finish_counter->wait_on(pid, timeout);
-        n_wait_calls.fetch_add(1, std::memory_order_relaxed);
-    });
-
-    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
-
-    EXPECT_EQ(npartitions, n_wait_calls);
-    EXPECT_TRUE(finish_counter->all_finished());
-
-    // callbacks should still receive all finished partitions, even after the wait_on
+    // callbacks should still receive all finished partitions, even after the wait
     auto cb_futures = create_consumer_threads_with_cb();
     EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
