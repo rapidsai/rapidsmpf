@@ -18,7 +18,6 @@
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/mr/system_memory_resource.hpp>
 
 
 #include <rapidsmpf/config.hpp>
@@ -277,7 +276,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // movable. Copies share the same pool (is_equal compares pool_ pointers).
     cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
 
-    rmm::mr::system_memory_resource host_mr_{};
+    HostMemoryResource host_mr_{};
     std::shared_ptr<cucascade::memory::fixed_size_host_memory_resource>
         fixed_size_host_mr_;
 };
