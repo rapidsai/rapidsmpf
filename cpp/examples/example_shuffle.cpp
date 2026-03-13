@@ -99,11 +99,11 @@ int main(int argc, char** argv) {
     // Vector to hold the local results of the shuffle operation.
     std::vector<std::unique_ptr<cudf::table>> local_outputs;
 
-    // Wait for and process the shuffle results for each partition.
-    while (!shuffler.finished()) {
-        // Block until a partition is ready and retrieve its partition ID.
-        rapidsmpf::shuffler::PartID finished_partition = shuffler.wait_any();
+    // Wait for all partitions to finish.
+    shuffler.wait();
 
+    // Process the shuffle results for each partition.
+    for (auto finished_partition : shuffler.local_partitions()) {
         // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);
 

@@ -322,7 +322,11 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
-      finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
+      finish_counter_{
+          comm_->nranks(),
+          safe_cast<PartID>(local_partitions_.size()),
+          std::move(finished_callback)
+      },
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
       statistics_{br_->statistics()} {
     RAPIDSMPF_EXPECTS(
@@ -490,14 +494,9 @@ bool Shuffler::finished() const {
     return finish_counter_.all_finished() && ready_postbox_.empty();
 }
 
-PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    return finish_counter_.wait_any(std::move(timeout));
-}
-
-void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait_on(pid, std::move(timeout));
+    finish_counter_.wait(std::move(timeout));
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

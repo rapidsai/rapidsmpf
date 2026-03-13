@@ -80,13 +80,11 @@ TEST(ShufflerManyStreams, Test) {
         );
     }
 
-    // Insert all partitions.
     shuffler.insert(std::move(partitions));
     shuffler.insert_finished();
 
-    // Extract and validate the partitions as they finishes.
-    while (!shuffler.finished()) {
-        auto pid = shuffler.wait_any(wait_timeout);
+    shuffler.wait(wait_timeout);
+    for (auto pid : shuffler.local_partitions()) {
         std::vector<PackedData> partition_chunks = shuffler.extract(pid);
         for (PackedData& chunk : partition_chunks) {
             auto stream = chunk.data->stream();
