@@ -107,10 +107,16 @@ class FinishCounter {
      * (blocking). Optionally a timeout (in ms) can be provided.
      *
      * This function blocks until all partitions are finished and ready to be processed.
-     * If the timeout is set and a partition is not available by the time, a
-     * std::runtime_error will be thrown.
+     * If the timeout is set and a partition is not available within the specified
+     * timeout, a std::runtime_error will be thrown.
      *
      * @param timeout Optional timeout (ms) to wait.
+     *
+     * @note Due to the completion mechanism once `wait_any` returns any partition, all
+     * local partitions will be available for extraction. We previously supported
+     * per-partition completion mechanisms but since the usual usecase for a shuffle is a
+     * dense all to all this did not actually provide any additional concurrency. See also
+     * https://github.com/rapidsai/rapidsmpf/pull/914
      *
      * @return The partition ID of a finished partition.
      *
@@ -126,10 +132,16 @@ class FinishCounter {
      *
      * This function blocks until all partitions are finished and the desired partition
      * is ready to be processed. If the timeout is set and the requested partition is not
-     * available by the time, a std::runtime_error will be thrown.
+     * available within the specified timeout, a std::runtime_error will be thrown.
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
+     *
+     * @note Due to the completion mechanism once `wait_on` returns successfully, all
+     * local partitions will be available for extraction. We previously supported
+     * per-partition completion mechanisms but since the usual usecase for a shuffle is a
+     * dense all to all this did not actually provide any additional concurrency. See also
+     * https://github.com/rapidsai/rapidsmpf/pull/914
      *
      * @throws std::out_of_range If the desired partition is unavailable.
      * @throws std::runtime_error If timeout was set and requested partition has been
@@ -154,9 +166,12 @@ class FinishCounter {
     ChunkID total_finished_chunks_{0};  ///< global finished chunk counter
     std::vector<bool> rank_reported_;  ///< indexed by rank, prevents double-reporting
     std::span<PartID const> local_partitions_;  ///< for firing callbacks
-    std::unordered_set<PartID>
-        pending_pids_;  ///< partitions not yet consumed by wait_any/wait_on
-    bool all_done_{false};  ///< prevents double-firing of callbacks
+    /// Partitions not yet consumed by wait_any/wait_on; populated at construction and
+    /// then only ever decreases in size as partitions are consumed
+    std::unordered_set<PartID> pending_pids_;
+    /// Set to true exactly once when all chunks have arrived. Ensures callback only fires
+    /// once for each partition.
+    bool all_done_{false};
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
     mutable std::condition_variable wait_cv_;
