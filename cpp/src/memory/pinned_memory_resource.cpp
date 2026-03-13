@@ -69,11 +69,13 @@ PinnedMemoryResource::PinnedMemoryResource(
     std::size_t capacity,
     std::size_t initial_npools
 )
-    : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))},
-      block_size_{block_size} {
+    : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))} {
     fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-        numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+        numa_id, host_mr_, capacity, capacity, block_size, pool_size, initial_npools
     );
+    // fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
+    //     numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+    // );
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(

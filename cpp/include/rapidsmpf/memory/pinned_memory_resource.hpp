@@ -18,6 +18,8 @@
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/system_memory_resource.hpp>
+
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -247,12 +249,12 @@ class PinnedMemoryResource final : public HostMemoryResource {
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
 
-    [[nodiscard]] constexpr std::size_t block_size() const noexcept {
-        return block_size_;
-    }
-
-    [[nodiscard]] constexpr size_t round_up_to_block_size(size_t size) const noexcept {
-        return cuda::round_up(size, block_size());
+    [[nodiscard]] std::size_t block_size() const noexcept {
+        RAPIDSMPF_EXPECTS(fixed_size_host_mr_ != nullptr,
+            "fixed size host memory resource is not set",
+            std::invalid_argument
+        );
+        return fixed_size_host_mr_->get_block_size();
     }
 
   private:
@@ -274,9 +276,10 @@ class PinnedMemoryResource final : public HostMemoryResource {
     // PinnedMemoryResource, which holds the pool in a shared_resource and is copyable and
     // movable. Copies share the same pool (is_equal compares pool_ pointers).
     cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
+
+    rmm::mr::system_memory_resource host_mr_{};
     std::shared_ptr<cucascade::memory::fixed_size_host_memory_resource>
         fixed_size_host_mr_;
-    size_t block_size_{};
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);
