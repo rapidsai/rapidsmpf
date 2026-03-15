@@ -36,6 +36,23 @@ export SITE_PACKAGES
 
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
+# patchelf (used by auditwheel) corrupts ELF executables when it must grow
+# PT_LOAD segments to fit new RPATH data — shared libraries are fine but
+# standalone binaries like rrun end up with .dynstr/.dynamic outside any
+# loadable segment, causing a dynamic-linker crash before main().
+# Fix: save the original rrun binary, let auditwheel run so it discovers and
+# bundles rrun's shared-library dependencies, then replace the corrupted copy
+# with the original binary patched to the RPATH auditwheel chose.
+UNREPAIRED_WHEEL=$(ls "${package_dir}"/dist/*.whl)
+RRUN_ORIG=$(mktemp)
+python3 - "${UNREPAIRED_WHEEL}" "${RRUN_ORIG}" <<'EOF'
+import shutil, sys, zipfile
+whl, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(whl) as z, z.open("librapidsmpf/bin/rrun") as src, open(dst, "wb") as f:
+    shutil.copyfileobj(src, f)
+EOF
+chmod 755 "${RRUN_ORIG}"
+
 python -m auditwheel repair \
     --exclude libcudf.so \
     --exclude libkvikio.so \
@@ -45,6 +62,30 @@ python -m auditwheel repair \
     --exclude libucp.so.0 \
     --exclude libucxx.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
-    ${package_dir}/dist/*
+    "${UNREPAIRED_WHEEL}"
+
+# Determine the .libs directory auditwheel created (e.g. librapidsmpf.libs).
+# rrun lives at {site-packages}/librapidsmpf/bin/rrun so it needs two levels
+# up to reach the .libs directory at {site-packages}/<libs_dir>/.
+REPAIRED_WHEEL=$(ls "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"/*.whl)
+python3 - "${REPAIRED_WHEEL}" "${RRUN_ORIG}" <<'EOF'
+import os, shutil, sys, zipfile
+whl, rrun = sys.argv[1], sys.argv[2]
+
+with zipfile.ZipFile(whl) as z:
+    libs_dir = next(n.split("/")[0] for n in z.namelist() if n.endswith(".libs/"))
+
+os.execlp("patchelf", "patchelf", "--set-rpath", f"$ORIGIN/../../{libs_dir}", rrun)
+EOF
+python3 - "${REPAIRED_WHEEL}" "${RRUN_ORIG}" <<'EOF'
+import os, sys, zipfile
+whl, rrun = sys.argv[1], sys.argv[2]
+tmp = whl + ".tmp"
+with zipfile.ZipFile(whl) as zin, zipfile.ZipFile(tmp, "w") as zout:
+    for item in zin.infolist():
+        data = open(rrun, "rb").read() if item.filename == "librapidsmpf/bin/rrun" else zin.read(item.filename)
+        zout.writestr(item, data)
+os.replace(tmp, whl)
+EOF
 
 ./ci/validate_wheel.sh "${package_dir}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"

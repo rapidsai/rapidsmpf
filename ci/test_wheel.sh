@@ -20,5 +20,6 @@ rapids-pip-retry install \
 
 # Verify the rrun entry point was installed and is on PATH
 which rrun
+rrun --help
 
 python -m pytest ./python/rapidsmpf/rapidsmpf/tests
