@@ -110,7 +110,7 @@ class Shuffler {
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when a partition is finished.
+     * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect

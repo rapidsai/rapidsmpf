@@ -125,9 +125,8 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
-    PartID
-        n_unfinished_partitions_;  ///< aux counter to track the number of unfinished
-                                   ///< partitions (without using the goalposts.empty())
+    PartID n_unfinished_partitions_;  ///< aux counter to track the number of unfinished
+                                      ///< partitions; set to zero when all chunks arrive
 
     Rank n_ranks_with_goalpost_{0};  ///< how many ranks have called move_goalpost
     ChunkID total_chunk_goal_{0};  ///< sum of all rank chunk goals
