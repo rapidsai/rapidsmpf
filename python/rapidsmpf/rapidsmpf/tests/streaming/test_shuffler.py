@@ -155,7 +155,6 @@ async def do_shuffle(
     op_id: int,
     num_partitions: int,
     *,
-    use_extract_any: bool,
     partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
 ) -> None:
     shuffle = ShufflerAsync(
@@ -170,38 +169,24 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    if use_extract_any:
-        while (out := await shuffle.extract_any_async(context)) is not None:
-            pid, data = out
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(data, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
-    else:
-        for pid in shuffle.local_partitions():
-            pd = await shuffle.extract_async(context, pid)
-            assert pd is not None
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(pd, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
+    for pid in shuffle.local_partitions():
+        data = shuffle.extract(pid)
+        stream = context.get_stream_from_pool()
+        unpacked = TableChunk.from_pylibcudf_table(
+            unpack_and_concat(data, stream, context.br()),
+            stream,
+            exclusive_view=True,
+        )
+        await ch_out.send(context, Message(pid, unpacked))
     await ch_out.drain(context)
 
 
 @pytest.mark.parametrize("num_partitions", [4, 8])
-@pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_runtime_obeys_contiguous_assignment(
     context: Context,
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
     num_partitions: int,
-    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
     actors: list[CppActor | PyActor] = []
 
@@ -219,7 +204,6 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=use_extract_any,
             partition_assignment=PartitionAssignment.CONTIGUOUS,
         )
     )
@@ -242,12 +226,10 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     assert len(received_pids) == len(expected_local)
 
 
-@pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_object_interface(
     context: Context,
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
-    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
     actors: list[CppActor | PyActor] = []
 
@@ -266,7 +248,6 @@ def test_shuffler_object_interface(
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=use_extract_any,
         )
     )
     actor, deferred = pull_from_channel(context, ch_shuffled)
@@ -276,10 +257,7 @@ def test_shuffler_object_interface(
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5
-    if use_extract_any:
-        assert {msg.sequence_number for msg in messages} == set(range(num_partitions))
-    else:
-        assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
+    assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
     chunks = [(msg.sequence_number, TableChunk.from_message(msg)) for msg in messages]
 
     full_column = np.arange(num_rows * num_chunks, dtype=np.int32)

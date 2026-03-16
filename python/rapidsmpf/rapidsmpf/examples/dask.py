@@ -141,7 +141,7 @@ class DaskCudfIntegration:
 
         assert ctx.br is not None
         column_names = options["column_names"]
-        shuffler.wait_on(partition_id)
+        shuffler.wait()
         table = unpack_and_concat(
             unspill_partitions(
                 shuffler.extract(partition_id),

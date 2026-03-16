@@ -110,7 +110,7 @@ class Shuffler {
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when a partition is finished.
+     * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -191,7 +191,7 @@ class Shuffler {
      * It is valid to extract a partition that has not yet been fully received.
      * In such cases, only the chunks received so far are returned.
      *
-     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
      * @param pid The ID of the partition to extract.
@@ -207,25 +207,13 @@ class Shuffler {
     [[nodiscard]] bool finished() const;
 
     /**
-     * @brief Wait for any partition to finish.
+     * @brief Wait for all partitions to finish (blocking).
      *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition ID of the next finished partition.
-     *
-     * @throws std::runtime_error if the timeout is reached.
-     */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for a specific partition to finish (blocking).
-     *
-     * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
      * @throws std::runtime_error if the timeout is reached.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
