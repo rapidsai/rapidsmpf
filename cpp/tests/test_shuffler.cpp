@@ -161,8 +161,8 @@ void test_shuffler(
     // Tell the shuffler that we have no more input partitions.
     insert_finished_fn();
 
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any(wait_timeout);
+    shuffler.wait(wait_timeout);
+    for (auto finished_partition : shuffler.local_partitions()) {
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(
@@ -466,18 +466,39 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 }
 
-/**
- * @brief A test util that runs the wait test by first calling wait_fn lambda with no
- * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass.
- *
- * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
- * the result of the wait function.
- *
- * @param wait_fn wait lambda
- */
-template <typename WaitFn>
-void run_wait_test(WaitFn&& wait_fn) {
+TEST(FinishCounterTests, zero_local_partitions_fires_callback) {
+    bool callback_fired = false;
+    rapidsmpf::shuffler::detail::FinishCounter finish_counter(
+        /*nranks=*/2, /*n_local_partitions=*/0, [&]() { callback_fired = true; }
+    );
+
+    EXPECT_TRUE(callback_fired);
+    EXPECT_TRUE(finish_counter.all_finished());
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+}
+
+TEST(FinishCounterTests, nonzero_local_partitions_fires_callback) {
+    bool callback_fired = false;
+    rapidsmpf::shuffler::detail::FinishCounter finish_counter(
+        /*nranks=*/1, /*n_local_partitions=*/2, [&]() { callback_fired = true; }
+    );
+
+    EXPECT_FALSE(callback_fired);
+    EXPECT_FALSE(finish_counter.all_finished());
+
+    // One rank sends 3 chunks total.
+    finish_counter.move_goalpost(0, 3);
+    finish_counter.add_finished_chunk();
+    finish_counter.add_finished_chunk();
+    EXPECT_FALSE(callback_fired);
+
+    finish_counter.add_finished_chunk();
+    EXPECT_TRUE(callback_fired);
+    EXPECT_TRUE(finish_counter.all_finished());
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+}
+
+TEST(FinishCounterTests, wait_with_timeout) {
     auto comm = GlobalEnvironment->comm_;
 
     if (comm->rank() != 0) {
@@ -485,8 +506,7 @@ void run_wait_test(WaitFn&& wait_fn) {
     }
 
     // Use nranks partitions so each rank owns exactly 1 partition (round robin).
-    rapidsmpf::shuffler::PartID out_nparts =
-        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+    auto out_nparts = rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     auto local_partitions = rapidsmpf::shuffler::Shuffler::local_partitions(
         comm, out_nparts, &rapidsmpf::shuffler::Shuffler::round_robin
@@ -494,14 +514,11 @@ void run_wait_test(WaitFn&& wait_fn) {
     ASSERT_EQ(local_partitions.size(), 1);
 
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
-        comm->nranks(), local_partitions
+        comm->nranks(), local_partitions.size()
     );
 
-    // pick the single local partition to test
-    auto p_id = local_partitions[0];
-
-    // none of the partitions are finished now. So, wait_fn should timeout
-    EXPECT_THROW(wait_fn(finish_counter, p_id), std::runtime_error);
+    // none of the partitions are finished now. So, wait should timeout
+    EXPECT_THROW(finish_counter.wait(std::chrono::milliseconds(10)), std::runtime_error);
 
     // For nranks ranks, each rank sends 1 data chunk + 1 control, so
     // move_goalpost(rank, 2) per rank.
@@ -515,27 +532,9 @@ void run_wait_test(WaitFn&& wait_fn) {
         finish_counter.add_finished_chunk();  // control chunk
     }
 
-    // pass the wait_fn result to extract_pid_fn. It should return p_id
-    EXPECT_EQ(p_id, wait_fn(finish_counter, p_id));
-}
-
-TEST(FinishCounterTests, wait_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(
-        run_wait_test([](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-                         rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            return finish_counter.wait_any(std::chrono::milliseconds(10));
-        })
-    );
-}
-
-TEST(FinishCounterTests, wait_on_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(
-        run_wait_test([&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-                          rapidsmpf::shuffler::PartID const& exp_pid) {
-            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
-            return exp_pid;  // return expected PID as wait_on return void
-        })
-    );
+    // After completion, wait should return immediately
+    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
+    EXPECT_TRUE(finish_counter.all_finished());
 }
 
 class FinishCounterMultithreadingTest
@@ -562,10 +561,12 @@ class FinishCounterMultithreadingTest
         n_finished_pids = 0;
 
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID pid) {
+            nranks, npartitions, [&]() {
                 {
                     std::lock_guard lock(mtx);
-                    finished_pids.push_back(pid);
+                    for (auto pid : local_partitions) {
+                        finished_pids.push_back(pid);
+                    }
                 }
                 cv.notify_all();
             }
@@ -649,12 +650,12 @@ TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
     EXPECT_TRUE(finish_counter->all_finished());
 }
 
-TEST_P(FinishCounterMultithreadingTest, wait_any) {
+TEST_P(FinishCounterMultithreadingTest, wait) {
     produce_data();
 
     std::atomic<std::uint32_t> n_wait_calls{0};
     auto futures = create_consumer_threads_with_wait([&](auto /* pid */) {
-        finish_counter->wait_any(timeout);
+        finish_counter->wait(timeout);
         n_wait_calls.fetch_add(1, std::memory_order_relaxed);
     });
 
@@ -663,26 +664,7 @@ TEST_P(FinishCounterMultithreadingTest, wait_any) {
     EXPECT_EQ(npartitions, n_wait_calls);
     EXPECT_TRUE(finish_counter->all_finished());
 
-    // callbacks should still receive all finished partitions, even after the wait_any
-    auto cb_futures = create_consumer_threads_with_cb();
-    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
-}
-
-TEST_P(FinishCounterMultithreadingTest, wait_on) {
-    produce_data();
-
-    std::atomic<std::uint32_t> n_wait_calls{0};
-    auto futures = create_consumer_threads_with_wait([&](auto pid) {
-        finish_counter->wait_on(pid, timeout);
-        n_wait_calls.fetch_add(1, std::memory_order_relaxed);
-    });
-
-    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
-
-    EXPECT_EQ(npartitions, n_wait_calls);
-    EXPECT_TRUE(finish_counter->all_finished());
-
-    // callbacks should still receive all finished partitions, even after the wait_on
+    // callbacks should still receive all finished partitions, even after the wait
     auto cb_futures = create_consumer_threads_with_cb();
     EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
@@ -916,8 +898,8 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
     }
 
     void verify_extracted_chunks(auto expected_empty_fn) {
-        while (!shuffler->finished()) {
-            auto pid = shuffler->wait_any(wait_timeout);
+        shuffler->wait(wait_timeout);
+        for (auto pid : shuffler->local_partitions()) {
             SCOPED_TRACE("pid: " + std::to_string(pid));
             std::vector<rapidsmpf::PackedData> chunks;
             EXPECT_NO_THROW({ chunks = shuffler->extract(pid); });
@@ -1000,7 +982,10 @@ TEST(ShufflerTest, multiple_shutdowns) {
         std::make_unique<rapidsmpf::shuffler::Shuffler>(comm, 0, comm->nranks(), &br);
 
     shuffler->insert_finished();
-    std::ignore = shuffler->extract(shuffler->wait_any());
+    shuffler->wait();
+    for (auto pid : shuffler->local_partitions()) {
+        std::ignore = shuffler->extract(pid);
+    }
 
     constexpr int n_threads = 10;
     std::vector<std::future<void>> futures;

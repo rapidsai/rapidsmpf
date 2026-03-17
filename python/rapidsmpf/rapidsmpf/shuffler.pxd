@@ -48,8 +48,7 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         void insert_finished() except +ex_handler
         vector[cpp_PackedData] extract(uint32_t pid)  except +ex_handler
         bool finished() except +ex_handler
-        uint32_t wait_any() except +ex_handler
-        void wait_on(uint32_t pid) except +ex_handler
+        void wait() except +ex_handler
         span[const uint32_t] local_partitions() except +ex_handler
         string str() except +ex_handler
 

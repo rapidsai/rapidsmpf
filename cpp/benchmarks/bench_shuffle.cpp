@@ -312,8 +312,8 @@ rapidsmpf::Duration do_run(
         // insert partitions into the shuffler
         shuffle_insert_fn(shuffler);
 
-        while (!shuffler.finished()) {
-            auto finished_partition = shuffler.wait_any();
+        shuffler.wait();
+        for (auto finished_partition : shuffler.local_partitions()) {
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(

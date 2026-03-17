@@ -39,6 +39,7 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +ex_handler
         span[const uint32_t] local_partitions() except +ex_handler
+        vector[cpp_PackedData] extract(uint32_t pid) except +ex_handler
 
 
 cdef class ShufflerAsync:

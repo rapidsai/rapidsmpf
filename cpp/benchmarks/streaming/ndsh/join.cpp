@@ -582,8 +582,7 @@ streaming::Actor shuffle(
     }
     co_await shuffler.insert_finished();
     for (auto pid : shuffler.local_partitions()) {
-        auto packed_data = co_await shuffler.extract_async(pid);
-        RAPIDSMPF_EXPECTS(packed_data.has_value(), "Partition already extracted");
+        auto packed_data = shuffler.extract(pid);
         auto stream = ctx->br()->stream_pool().get_stream();
         co_await ch_out->send(
             streaming::to_message(
@@ -591,9 +590,7 @@ streaming::Actor shuffle(
                 std::make_unique<streaming::TableChunk>(
                     unpack_and_concat(
                         unspill_partitions(
-                            std::move(*packed_data),
-                            ctx->br().get(),
-                            AllowOverbooking::YES
+                            std::move(packed_data), ctx->br().get(), AllowOverbooking::YES
                         ),
                         stream,
                         ctx->br().get()

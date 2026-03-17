@@ -6,10 +6,9 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
-from libcpp.optional cimport optional
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
-from libcpp.utility cimport move, pair
+from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -33,73 +32,6 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> extract_async_task(
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::uint32_t pid,
-        std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>> output
-    ) {
-        *output = co_await shuffle->extract_async(pid);
-    }
-
-    std::shared_ptr<std::optional<std::vector<rapidsmpf::PackedData>>>
-    cpp_extract_async(
-        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::uint32_t pid,
-        void (*cpp_set_py_future)(void*, const char *),
-        rapidsmpf::OwningWrapper py_future
-    ) {
-        auto output = std::make_shared<
-            std::optional<std::vector<rapidsmpf::PackedData>>
-        >();
-        RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn_detached(
-                cython_libcoro_task_wrapper(
-                    cpp_set_py_future,
-                    std::move(py_future),
-                    extract_async_task(shuffle, pid, output)
-                )
-            ),
-            "libcoro's spawn_detached() failed to spawn task"
-        );
-        return output;
-    }
-
-    coro::task<void> extract_any_async_task(
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
-        std::shared_ptr<
-            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
-        > output
-    ) {
-        *output = co_await shuffle->extract_any_async();
-    }
-
-    std::shared_ptr<
-        std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
-    > cpp_extract_any_async(
-        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
-        void (*cpp_set_py_future)(void*, const char *),
-        rapidsmpf::OwningWrapper py_future
-    ) {
-        auto output = std::make_shared<
-            std::optional<std::pair<std::uint32_t, std::vector<rapidsmpf::PackedData>>>
-        >();
-        RAPIDSMPF_EXPECTS(
-            ctx->executor()->spawn_detached(
-                cython_libcoro_task_wrapper(
-                    cpp_set_py_future,
-                    std::move(py_future),
-                    extract_any_async_task(
-                        shuffle, output
-                    )
-                )
-            ),
-            "libcoro's spawn_detached() failed to spawn task"
-        );
-        return output;
-    }
-
     coro::task<void> insert_finished_task(
         rapidsmpf::streaming::ShufflerAsync *shuffle
     ) {
@@ -125,22 +57,6 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    shared_ptr[optional[vector[cpp_PackedData]]] cpp_extract_async(
-        shared_ptr[cpp_Context] ctx,
-        cpp_ShufflerAsync *shuffle,
-        uint32_t pid,
-        void (*cpp_set_py_future)(void*, const char *),
-        cpp_OwningWrapper py_future
-    ) except +ex_handler
-
-    shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] \
-        cpp_extract_any_async(
-        shared_ptr[cpp_Context] ctx,
-        cpp_ShufflerAsync *shuffle,
-        void (*cpp_set_py_future)(void*, const char *),
-        cpp_OwningWrapper py_future
-    ) except +ex_handler
-
     void cpp_insert_finished(
         shared_ptr[cpp_Context] ctx,
         cpp_ShufflerAsync *shuffle,
@@ -303,76 +219,26 @@ cdef class ShufflerAsync:
             )
         await ret
 
-    async def extract_async(self, Context ctx not None, uint32_t pid):
+    def extract(self, uint32_t pid):
         """
-        Suspend and extract a partition from the shuffle.
+        Extract all chunks belonging to the specified partition.
+
+        Must only be called after awaiting :meth:`insert_finished`.
 
         Parameters
         ----------
-        ctx
-            Streaming context.
         pid
             The partition to extract.
 
         Returns
         -------
         list[PackedData]
-            The PackedData representing the extracted partition.
-        None
-            If the partition has already been extracted.
+            The PackedData chunks associated with the partition.
         """
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
-        cdef shared_ptr[optional[vector[cpp_PackedData]]] c_ret
+        cdef vector[cpp_PackedData] c_ret
         with nogil:
-            c_ret = cpp_extract_async(
-                ctx._handle,
-                self._handle.get(),
-                pid,
-                cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
-            )
-        await ret
-        if deref(c_ret).has_value():
-            return packed_data_vector_to_list(move(deref(deref(c_ret))))
-        else:
-            return None
-
-    async def extract_any_async(self, Context ctx not None):
-        """
-        Suspend and extract any partition from the shuffle.
-
-        Parameters
-        ----------
-        ctx
-            Streaming context.
-
-        Returns
-        -------
-        tuple[int, list[PackedData]]
-            The identifier for the extracted partition and the PackedData
-            of the partition.
-        None
-            If there are no more partitions to extract.
-        """
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
-        cdef shared_ptr[optional[pair[uint32_t, vector[cpp_PackedData]]]] c_ret
-        with nogil:
-            c_ret = cpp_extract_any_async(
-                ctx._handle,
-                self._handle.get(),
-                cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
-            )
-        await ret
-        if deref(c_ret).has_value():
-            return (
-                deref(c_ret).value().first,
-                packed_data_vector_to_list(move(deref(c_ret).value().second))
-            )
-        else:
-            return None
+            c_ret = deref(self._handle).extract(pid)
+        return packed_data_vector_to_list(move(c_ret))
 
     def local_partitions(self):
         """
