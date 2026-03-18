@@ -4,12 +4,14 @@
  */
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <sstream>
 
+#include <cuda/cmath>
+
 #include <cudf/contiguous_split.hpp>
 #include <cudf/io/parquet.hpp>
-#include <filesystem>
 
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -200,8 +202,10 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     br->allocate(total_contiguous_size, stream(), reservation);
 
                 size_t bytes_copied = 0;
+                size_t count = 0;
                 dest_buffer->write_access_blocks([&](std::span<std::byte> block,
                                                      rmm::cuda_stream_view /* stream */) {
+                    count++;
                     if (!chunked_packer.has_next()) {
                         return;
                     }
@@ -211,10 +215,17 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     bytes_copied += chunked_packer.next(device_span);
                 });
 
+                RAPIDSMPF_EXPECTS(
+                    count == cuda::ceil_div(total_contiguous_size, block_size),
+                    "count does not match total contiguous size"
+                );
+
                 if (bytes_copied != total_contiguous_size) {
-                    auto const timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch()
-                    ).count();
+                    auto const timestamp_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch()
+                        )
+                            .count();
                     std::ostringstream name_stream;
                     name_stream << "rapidsmpf_chunked_pack_debug_" << timestamp_ms
                                 << "_bytes_" << bytes_copied << "_expected_"
