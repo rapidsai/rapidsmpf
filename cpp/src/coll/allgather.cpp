@@ -436,25 +436,38 @@ ProgressThread::ProgressState AllGather::event_loop() {
      */
     Rank const dst = (comm_->rank() + 1) % comm_->nranks();
     Rank const src = (comm_->rank() + comm_->nranks() - 1) % comm_->nranks();
-    // gpu data sends and metadata sends can be arbitrarily interleaved. To ensure that
-    // once we are locally finished (and have called wait_and_extract!) with an allgather
-    // it is possible to reuse the op_id we need a number of invariants that this send
-    // scheme enforces. All metadata must be sent on the same tag, so that metadata from
-    // AG1 is ordered before AG2. Finish messages and normal metadata messages can be
-    // arbitrarily interleaved in this order _within_ an allgather, but there is an
-    // effective "barrier" stopping interleaving between allgathers. To enforce this
-    // "barrier" we need all metadata messages and all data sends/receives to be pushed
-    // into the communicator _before_ wait_and_extract can return. This is guaranteed
-    // because the finish condition is that we have received finish messages from everyone
-    // (these move the extraction goalpost) _and_ the extraction postbox is the correct
-    // size (i.e. equal to the final extraction goalpost). Data is pushed into the
-    // extraction postbox only after we have posted it for sending (and hence pushed into
-    // the gpu_data_tag "channel" in order), so wait_and_extract cannot return until all
-    // sends and receives have been (at least) posted, enforcing the ordering requirement.
-    // The final piece is to ensure that we don't post more receives than is correct, this
-    // is handled by the stop condition on receiving metadata: we expect to receive only
-    // while we have not received finish messages from every rank, and have not yet
-    // received all metadata messages.
+    // GPU data sends and metadata sends can be arbitrarily interleaved. To allow reuse of
+    // `op_id` once `wait_and_extract()` returns, we rely on a number of invariants
+    // enforced by the communication scheme.
+    //
+    // Suppose we have two successive allgathers separated by a wait_and_extract "barrier"
+    // that reuse the op_id:
+    //
+    // AG1(op_id)
+    // AG1.wait_and_extract()
+    // AG2(op_id)
+    //
+    // The requirements for safe reuse of the tag are that:
+    // 1. all metadata sends/receives from AG1 are posted before wait_and_extract returns
+    // 2. all data sends/receives are posted before wait_and_extract returns
+    //
+    // There can be arbitrary interleaving of messages (e.g. finish messages and normal
+    // metadata messages), and data messages and metadata messages, as long as these two
+    // invariants are upheld.
+    //
+    // The communication scheme in this loop enforces this in the following way.
+    // The finish condition requires that:
+    // - we have received finish messages from all ranks, defining the final extraction
+    //   goalpost;
+    // - The extraction postbox has reached a size equal to the advertised goalpost.
+    //
+    // Posting receives for more metadata is gated on both of these conditions, so we only
+    // post exactly the correct number of receives.
+    //
+    // To ensure that data sends/receives are correctly posted, note that data is only put
+    // in the extraction postbox _after_ it has been posted for send, therefore
+    // `wait_and_extract()` cannot return until all sends/receives have at least been
+    // posted, upholding the required invariants.
     Tag metadata_tag{op_id_, 0};
     Tag gpu_data_tag{op_id_, 1};
     if (comm_->nranks() == 1) {
@@ -493,7 +506,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
         // Receive metadata messages. All messages (data + finish) share metadata_tag, so
         // the no-overtaking guarantee ensures current-collective messages arrive before
         // any new-collective messages that reuse the same op_id. While either of these
-        // conditions are true, this allgather needs to consumer more metadata messages.
+        // conditions are true, this allgather needs to consume more metadata messages.
         while (remote_finish_counter_ > 0
                || num_received_messages_ < num_expected_messages_)
         {
