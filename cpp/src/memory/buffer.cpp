@@ -204,29 +204,6 @@ void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
     std::visit([&](auto& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
-void Buffer::set_size(std::size_t new_size) {
-    throw_if_locked();
-    std::visit(
-        overloaded{
-            [&](FixedSizedHostBufferT& buf) {
-                RAPIDSMPF_EXPECTS(
-                    new_size <= buf->total_size(),
-                    "set_size: new size exceeds buffer capacity",
-                    std::invalid_argument
-                );
-                buf->set_size(new_size);
-                size = new_size;
-            },
-            [](auto&) {
-                RAPIDSMPF_FAIL(
-                    "set_size() is only supported for FixedSizedHostBuffer-backed buffers"
-                );
-            },
-        },
-        storage_
-    );
-}
-
 namespace {
 
 void cuda_memcpy_batch_async(

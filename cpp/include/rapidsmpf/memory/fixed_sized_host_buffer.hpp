@@ -182,16 +182,6 @@ class FixedSizedHostBuffer {
     }
 
     /**
-     * @brief Set the logical size in bytes.
-     *
-     * The new size must not exceed the capacity (num_blocks() * block_size()).
-     *
-     * @param size New logical size in bytes.
-     * @throws std::invalid_argument If @p size exceeds capacity.
-     */
-    void set_size(std::size_t size);
-
-    /**
      * @brief Reset to empty state (release storage, zero sizes, clear block span).
      */
     void reset() noexcept;

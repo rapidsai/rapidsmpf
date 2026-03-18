@@ -99,16 +99,6 @@ FixedSizedHostBuffer::~FixedSizedHostBuffer() {
     }
 }
 
-void FixedSizedHostBuffer::set_size(std::size_t size) {
-    std::size_t const capacity = num_blocks() * block_size_;
-    RAPIDSMPF_EXPECTS(
-        size <= capacity,
-        "set_size: size exceeds capacity (num_blocks() * block_size())",
-        std::invalid_argument
-    );
-    total_size_ = size;
-}
-
 void FixedSizedHostBuffer::reset() noexcept {
     storage_ = {};
     stream_ = rmm::cuda_stream_view{};
