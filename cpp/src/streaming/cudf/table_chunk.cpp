@@ -3,9 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <chrono>
 #include <memory>
+#include <sstream>
 
 #include <cudf/contiguous_split.hpp>
+#include <cudf/io/parquet.hpp>
+#include <filesystem>
 
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -207,10 +211,30 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     bytes_copied += chunked_packer.next(device_span);
                 });
 
-                RAPIDSMPF_EXPECTS(
-                    bytes_copied == total_contiguous_size,
-                    "bytes copied does not match total contiguous size"
-                );
+                if (bytes_copied != total_contiguous_size) {
+                    auto const timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()
+                    ).count();
+                    std::ostringstream name_stream;
+                    name_stream << "rapidsmpf_chunked_pack_debug_" << timestamp_ms
+                                << "_bytes_" << bytes_copied << "_expected_"
+                                << total_contiguous_size << ".parquet";
+                    std::filesystem::path const debug_path =
+                        std::filesystem::temp_directory_path() / name_stream.str();
+                    cudf::io::sink_info sink{debug_path.string()};
+                    auto const options =
+                        cudf::io::parquet_writer_options::builder(sink, table_view())
+                            .build();
+                    cudf::io::write_parquet(options, stream());
+                    RAPIDSMPF_FAIL(
+                        "bytes copied (" + std::to_string(bytes_copied)
+                            + ") does not match total contiguous size ("
+                            + std::to_string(total_contiguous_size)
+                            + "); table written to " + debug_path.string()
+                            + " for verification (e.g. scripts/verify_chunked_pack_parquet.py)",
+                        std::logic_error
+                    );
+                }
 
                 return TableChunk(std::make_unique<PackedData>(
                     chunked_packer.build_metadata(), std::move(dest_buffer)
