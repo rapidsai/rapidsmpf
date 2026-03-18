@@ -70,12 +70,12 @@ PinnedMemoryResource::PinnedMemoryResource(
     std::size_t initial_npools
 )
     : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))} {
-    fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-        numa_id, host_mr_, capacity, capacity, block_size, pool_size, initial_npools
-    );
     // fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-    //     numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+    //     numa_id, host_mr_, capacity, capacity, block_size, pool_size, initial_npools
     // );
+    fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
+        numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+    );
 }
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
@@ -117,20 +117,22 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
             )
         };
 
-        if (pinned_memory) {
+        if (pinned_memory_fixed_size) {
+            auto const fixed_size_block_size = options.get<size_t>(
+                "pinned_memory_fixed_size_block_size",
+                [](auto const& s) {
+                    return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
+                }
+            );
+
+            return PinnedMemoryResource::make_fixed_sized_if_available(
+                get_current_numa_node(), std::move(pool_properties), fixed_size_block_size
+            );
+        } else {
             return PinnedMemoryResource::make_if_available(
                 get_current_numa_node(), std::move(pool_properties)
             );
         }
-
-        auto const fixed_size_block_size =
-            options.get<size_t>("pinned_memory_fixed_size_block_size", [](auto const& s) {
-                return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
-            });
-
-        return PinnedMemoryResource::make_fixed_sized_if_available(
-            get_current_numa_node(), std::move(pool_properties), fixed_size_block_size
-        );
     }
 
     return PinnedMemoryResource::Disabled;
