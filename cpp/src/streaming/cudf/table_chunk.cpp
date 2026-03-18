@@ -202,12 +202,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     br->allocate(total_contiguous_size, stream(), reservation);
 
                 size_t bytes_copied = 0;
-                size_t count = 0;
-                size_t next_call_count = 0;
                 dest_buffer->write_access_blocks([&](std::span<std::byte> block,
-                                                     rmm::cuda_stream_view stream) {
-                    count++;
-                    stream.synchronize();
+                                                     rmm::cuda_stream_view /* stream */) {
                     if (!chunked_packer.has_next()) {
                         return;
                     }
@@ -215,43 +211,16 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         reinterpret_cast<std::uint8_t*>(block.data()), block.size()
                     );
                     bytes_copied += chunked_packer.next(device_span);
-                    next_call_count++;
                 });
 
                 RAPIDSMPF_EXPECTS(
-                    count == cuda::ceil_div(total_contiguous_size, block_size),
-                    "count does not match total contiguous size"
+                    bytes_copied == total_contiguous_size && !chunked_packer.has_next(),
+                    "bytes copied(" + std::to_string(bytes_copied)
+                        + ") does not match total contiguous size("
+                        + std::to_string(total_contiguous_size)
+                        + ") or data remaining in chunked_packer ("
+                        + std::to_string(chunked_packer.has_next()) + ")"
                 );
-
-                if (bytes_copied != total_contiguous_size) {
-                    auto const timestamp_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()
-                        )
-                            .count();
-                    std::ostringstream name_stream;
-                    name_stream << "rapidsmpf_chunked_pack_debug_" << timestamp_ms
-                                << "_bytes_" << bytes_copied << "_expected_"
-                                << total_contiguous_size << ".parquet";
-                    std::filesystem::path const debug_path =
-                        std::filesystem::temp_directory_path() / name_stream.str();
-                    cudf::io::sink_info sink{debug_path.string()};
-                    auto const options =
-                        cudf::io::parquet_writer_options::builder(sink, table_view())
-                            .build();
-                    cudf::io::write_parquet(options, stream());
-                    RAPIDSMPF_FAIL(
-                        "bytes copied (" + std::to_string(bytes_copied)
-                            + ") does not match total contiguous size ("
-                            + std::to_string(total_contiguous_size)
-                            + "); block callbacks=" + std::to_string(count)
-                            + " next() calls=" + std::to_string(next_call_count)
-                            + " (has_next() became false before all blocks used); table written to "
-                            + debug_path.string()
-                            + " for verification (e.g. scripts/verify_chunked_pack_parquet.py)",
-                        std::logic_error
-                    );
-                }
 
                 return TableChunk(std::make_unique<PackedData>(
                     chunked_packer.build_metadata(), std::move(dest_buffer)
