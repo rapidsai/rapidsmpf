@@ -190,9 +190,10 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 auto chunked_packer = cudf::chunked_pack(
                     table_view(), block_size, stream(), br->device_mr()
                 );
-                auto dest_buffer = br->allocate(
-                    chunked_packer.get_total_contiguous_size(), stream(), reservation
-                );
+                size_t const total_contiguous_size =
+                    chunked_packer.get_total_contiguous_size();
+                auto dest_buffer =
+                    br->allocate(total_contiguous_size, stream(), reservation);
 
                 size_t bytes_copied = 0;
                 dest_buffer->write_access_blocks([&](std::span<std::byte> block,
@@ -207,15 +208,13 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 });
 
                 RAPIDSMPF_EXPECTS(
-                    bytes_copied == dest_buffer->size,
+                    bytes_copied == total_contiguous_size,
                     "bytes copied does not match total contiguous size"
                 );
 
-                return TableChunk(
-                    std::make_unique<PackedData>(
-                        chunked_packer.build_metadata(), std::move(dest_buffer)
-                    )
-                );
+                return TableChunk(std::make_unique<PackedData>(
+                    chunked_packer.build_metadata(), std::move(dest_buffer)
+                ));
             }
             break;
         case MemoryType::HOST:
