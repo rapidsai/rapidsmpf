@@ -370,6 +370,20 @@ class Buffer {
         std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
     ) const;
 
+
+    /**
+     * @brief Set the logical size in bytes (FixedSizedHostBuffer only).
+     *
+     * For buffers backed by FixedSizedHostBuffer, sets the logical size to @p size.
+     * The new size must not exceed the buffer's capacity (see constructor).
+     *
+     * @param size New logical size in bytes.
+     * @throws std::logic_error If the buffer is locked.
+     * @throws std::logic_error If the buffer is not backed by FixedSizedHostBuffer.
+     * @throws std::invalid_argument If @p size exceeds the buffer's capacity.
+     */
+    void set_size(std::size_t size);
+
     /**
      * @brief Record that a write has been enqueued on the given stream.
      *
@@ -546,7 +560,7 @@ class Buffer {
     [[nodiscard]] FixedSizedHostBufferT release_fixed_sized_host_buffer();
 
   public:
-    std::size_t const size;  ///< The size of the buffer in bytes.
+    mutable std::size_t size;  ///< The size of the buffer in bytes.
 
   private:
     MemoryType const mem_type_;

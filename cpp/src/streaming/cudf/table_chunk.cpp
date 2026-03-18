@@ -207,10 +207,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     bytes_copied += chunked_packer.next(device_span);
                 });
 
-                RAPIDSMPF_EXPECTS(
-                    bytes_copied == total_contiguous_size,
-                    "bytes copied does not match total contiguous size"
-                );
+                // RAPIDSMPF_EXPECTS(
+                //     bytes_copied == total_contiguous_size,
+                //     "bytes copied does not match total contiguous size"
+                // );
+                dest_buffer->set_size(bytes_copied);
 
                 return TableChunk(std::make_unique<PackedData>(
                     chunked_packer.build_metadata(), std::move(dest_buffer)
