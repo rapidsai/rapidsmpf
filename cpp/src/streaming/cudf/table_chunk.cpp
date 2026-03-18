@@ -203,9 +203,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
 
                 size_t bytes_copied = 0;
                 size_t count = 0;
+                size_t next_call_count = 0;
                 dest_buffer->write_access_blocks([&](std::span<std::byte> block,
-                                                     rmm::cuda_stream_view /* stream */) {
+                                                     rmm::cuda_stream_view stream) {
                     count++;
+                    stream.synchronize();
                     if (!chunked_packer.has_next()) {
                         return;
                     }
@@ -213,6 +215,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         reinterpret_cast<std::uint8_t*>(block.data()), block.size()
                     );
                     bytes_copied += chunked_packer.next(device_span);
+                    next_call_count++;
                 });
 
                 RAPIDSMPF_EXPECTS(
@@ -241,7 +244,10 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         "bytes copied (" + std::to_string(bytes_copied)
                             + ") does not match total contiguous size ("
                             + std::to_string(total_contiguous_size)
-                            + "); table written to " + debug_path.string()
+                            + "); block callbacks=" + std::to_string(count)
+                            + " next() calls=" + std::to_string(next_call_count)
+                            + " (has_next() became false before all blocks used); table written to "
+                            + debug_path.string()
                             + " for verification (e.g. scripts/verify_chunked_pack_parquet.py)",
                         std::logic_error
                     );
