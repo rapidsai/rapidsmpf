@@ -192,26 +192,71 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
         case MemoryType::PINNED_HOST:
             if (packed_data_ == nullptr) {  // data is in device memory as a table
                 size_t const block_size = br->access_pinned_mr().block_size();
+                auto stream = this->stream();
 
-                auto chunked_packer = cudf::chunked_pack(
-                    table_view(), block_size, stream(), br->device_mr()
-                );
+                auto chunked_packer =
+                    cudf::chunked_pack(table_view(), block_size, stream, br->device_mr());
                 size_t const total_contiguous_size =
                     chunked_packer.get_total_contiguous_size();
                 auto dest_buffer =
-                    br->allocate(total_contiguous_size, stream(), reservation);
+                    br->allocate(total_contiguous_size, stream, reservation);
 
                 size_t bytes_copied = 0;
-                dest_buffer->write_access_blocks([&](std::span<std::byte> block,
-                                                     rmm::cuda_stream_view /* stream */) {
-                    if (!chunked_packer.has_next()) {
-                        return;
+                auto blocks = dest_buffer->exclusive_data_access_blocks();
+                size_t b_idx = 0;
+                size_t b_offset = 0;
+                rmm::device_buffer bounce_buffer(block_size, stream, br->device_mr());
+                while (chunked_packer.has_next()) {
+                    if (b_offset > 0) {
+                        // block is partially used. So, we need to use the bounce buffer
+                        // to copy the data.
+                        size_t to_copy =
+                            chunked_packer.next(cudf::device_span<std::uint8_t>(
+                                reinterpret_cast<std::uint8_t*>(bounce_buffer.data()),
+                                block_size
+                            ));
+                        // copy data from the bounce buffer to the remainder of the block
+                        size_t copy_size = std::min(block_size - b_offset, to_copy);
+                        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                            blocks[b_idx] + b_offset,
+                            bounce_buffer.data(),
+                            copy_size,
+                            cudaMemcpyDefault,
+                            stream
+                        ));
+                        to_copy -= copy_size;
+                        bytes_copied += copy_size;
+                        b_offset += copy_size;
+                        if (to_copy > 0) { // copy the remaining data to the next block
+                            b_idx++;
+                            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                                blocks[b_idx],
+                                reinterpret_cast<std::uint8_t*>(bounce_buffer.data()) + copy_size,
+                                to_copy,
+                                cudaMemcpyDefault,
+                                stream
+                            ));
+                            bytes_copied += to_copy;
+                            b_offset = to_copy;
+                        } else if (b_offset == block_size) {
+                            // exactly filled the current block
+                            b_idx++;
+                            b_offset = 0;
+                        }
+                        // else block still has room; keep b_idx and b_offset for next iteration
+                    } else {
+                        // block can be used fully. So, we can copy the data directly to the block.
+                        size_t packed_size = chunked_packer.next(cudf::device_span<std::uint8_t>(
+                            reinterpret_cast<std::uint8_t*>(blocks[b_idx]), block_size));
+                        bytes_copied += packed_size;
+                        b_offset += packed_size;
+                        if(packed_size == block_size) {
+                            b_idx++;
+                            b_offset = 0;
+                        }
                     }
-                    cudf::device_span<std::uint8_t> device_span(
-                        reinterpret_cast<std::uint8_t*>(block.data()), block.size()
-                    );
-                    bytes_copied += chunked_packer.next(device_span);
-                });
+                }
+
 
                 RAPIDSMPF_EXPECTS(
                     bytes_copied == total_contiguous_size && !chunked_packer.has_next(),
