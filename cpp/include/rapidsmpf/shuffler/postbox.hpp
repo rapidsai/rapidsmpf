@@ -15,7 +15,7 @@
 namespace rapidsmpf::shuffler::detail {
 
 /**
- * @brief A thread-safe container for managing outgoing chunks.
+ * @brief A thread-safe container for managing outgoing (to send) chunks.
  */
 class ChunksToSend {
   public:
@@ -67,24 +67,23 @@ inline std::ostream& operator<<(std::ostream& os, ChunksToSend const& obj) {
 }
 
 /**
- * @brief A thread-safe container for managing and retrieving data chunks by partition and
- * chunk ID.
+ * @brief A thread-safe container for managing received chunks stratified by partition ID.
  */
-class PostBox {
+class ReceivedChunks {
   public:
     /**
-     * @brief Construct a new PostBox.
+     * @brief Construct a new container.
      *
      * @param num_keys_hint The number of keys to reserve space for.
      */
-    PostBox(std::size_t num_keys_hint = 0) {
+    ReceivedChunks(std::size_t num_keys_hint = 0) {
         if (num_keys_hint > 0) {
             pigeonhole_.reserve(num_keys_hint);
         }
     }
 
     /**
-     * @brief Inserts a chunk into the PostBox.
+     * @brief Insert a chunk.
      *
      * @param chunk The chunk to insert.
      */
@@ -102,74 +101,58 @@ class PostBox {
     [[nodiscard]] bool is_empty(PartID pid) const;
 
     /**
-     * @brief Extracts a specific chunk from the PostBox.
-     *
-     * @param pid The ID of the partition containing the chunk.
-     * @param cid The ID of the chunk to be accessed.
-     * @return The extracted chunk.
-     *
-     * @throws std::out_of_range If the chunk is not found.
-     */
-    [[nodiscard]] Chunk extract(PartID pid, ChunkID cid);
-
-    /**
      * @brief Extracts all chunks associated with a specific partition.
      *
      * @param pid The ID of the partition.
-     * @return A map of chunk IDs to chunks for the specified partition.
+     * @return A vector of chunks.
      *
      * @throws std::out_of_range If the partition is not found.
      */
-    [[nodiscard]] std::unordered_map<ChunkID, Chunk> extract(PartID pid);
+    [[nodiscard]] std::vector<Chunk> extract(PartID pid);
 
     /**
-     * @brief Extracts all ready chunks from the PostBox.
+     * @brief Checks if the container is empty.
      *
-     * @return A vector of all ready chunks in the PostBox.
-     */
-    [[nodiscard]] std::vector<Chunk> extract_all_ready();
-
-    /**
-     * @brief Checks if the PostBox is empty.
+     * @return `true` if the container is empty, `false` otherwise.
      *
-     * @return `true` if the PostBox is empty, `false` otherwise.
+     * @note The result reflects a snapshot at the time of the call and may change
+     * immediately afterward.
      */
     [[nodiscard]] bool empty() const;
 
     /**
-     * @brief Searches for chunks of the specified memory type.
+     * @brief Search for chunks of the specified memory type.
      *
      * @param mem_type The type of memory to search within.
-     * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
-     * size of the chunk.
+     * @return A vector of references to chunks in the container.
+     *
+     * @note You can modify the returned chunks in place, but must do so while ensuring no
+     * concurrent access to the container.
      */
-    [[nodiscard]] std::vector<std::tuple<PartID, ChunkID, std::size_t>> search(
-        MemoryType mem_type
-    ) const;
+    [[nodiscard]] std::vector<std::reference_wrapper<Chunk>> search(MemoryType mem_type);
 
     /**
-     * @brief Returns a description of this instance.
-     * @return The description.
+     * @brief @return A description of this container.
      */
     [[nodiscard]] std::string str() const;
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
-    std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
-        pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
+    std::unordered_map<PartID, std::vector<Chunk>>
+        pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
 };
 
 /**
- * @brief Overloads the stream insertion operator for the PostBox class.
+ * @brief Overloads the stream insertion operator for the ReceivedChunks class.
  *
- * This function allows a description of a PostBox to be written to an output stream.
+ * This function allows a description of ReceivedChunks be written to an output stream.
  *
  * @param os The output stream to write to.
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, PostBox const& obj) {
+inline std::ostream& operator<<(std::ostream& os, ReceivedChunks const& obj) {
     os << obj.str();
     return os;
 }

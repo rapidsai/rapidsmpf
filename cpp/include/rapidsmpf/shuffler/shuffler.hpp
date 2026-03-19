@@ -266,11 +266,11 @@ class Shuffler {
     void insert(detail::Chunk&& chunk);
 
     /**
-     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
+     * @brief Insert a chunk into the received box (the chunk is ready for the user).
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_ready_postbox(detail::Chunk&& chunk);
+    void insert_into_received(detail::Chunk&& chunk);
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -292,9 +292,9 @@ class Shuffler {
   private:
     BufferResource* br_;
     std::atomic<bool> active_{true};
-    detail::ChunksToSend to_send_;  ///< Storage for outgoing chunks to other ranks.
-    detail::PostBox ready_postbox_;  ///< Postbox for received chunks, that are
-                                     ///< ready to be extracted by the user.
+    detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
+    detail::ReceivedChunks received_;  ///< Storage for received chunks that are
+                                       ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     ProgressThread::FunctionID progress_thread_function_id_;
@@ -308,9 +308,9 @@ class Shuffler {
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     mutable std::mutex outbound_chunk_counter_mutex_;
 
-    // We protect ready_postbox extraction to avoid returning a chunk that is in the
+    // We protect received_ extraction to avoid returning a chunk that is in the
     // process of being spilled by `Shuffler::spill`.
-    mutable std::mutex ready_postbox_spilling_mutex_;
+    mutable std::mutex received_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
