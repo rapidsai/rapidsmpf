@@ -208,13 +208,30 @@ void detail::cuda_memcpy_batch_async(
     std::span<void const*> const src_ptrs,
     std::span<void const*> const dst_ptrs,
     std::span<std::size_t> const sizes,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    bool prefer_sequential
 ) {
     RAPIDSMPF_EXPECTS(
         src_ptrs.size() == dst_ptrs.size() && src_ptrs.size() == sizes.size(),
         "the number of source and destination pointers must be the same",
         std::invalid_argument
     );
+
+#if !RAPIDSMPF_CUDA_VERSION_AT_LEAST(12800)
+    prefer_sequential = true;
+#endif
+    if (prefer_sequential) {
+        for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                const_cast<void*>(dst_ptrs[i]),
+                src_ptrs[i],
+                sizes[i],
+                cudaMemcpyDefault,
+                stream.value()
+            ));
+        }
+        return;
+    }
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(12800)
     cudaMemcpyAttributes attrs{};
@@ -245,18 +262,9 @@ void detail::cuda_memcpy_batch_async(
         &failIdx,
         stream.value()
     ));
-#endif
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
 #else
-    for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            const_cast<void*>(dst_ptrs[i]),
-            src_ptrs[i],
-            sizes[i],
-            cudaMemcpyDefault,
-            stream.value()
-        ));
-    }
-#endif
+#endif  // RAPIDSMPF_CUDA_VERSION_AT_LEAST(12800)
 }
 
 void Buffer::record_write(rmm::cuda_stream_view stream) {
