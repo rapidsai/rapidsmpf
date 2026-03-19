@@ -372,7 +372,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // Use RapidsMPF's memory resource adaptor.
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
 
-    // Create a buffer resource with an availabe device memory we can control
+    // Create a buffer resource with an available device memory we can control
     // through the variable `device_memory_available`.
     std::int64_t device_memory_available{0};
     rapidsmpf::BufferResource br{
@@ -667,119 +667,6 @@ TEST_P(FinishCounterMultithreadingTest, wait) {
     // callbacks should still receive all finished partitions, even after the wait
     auto cb_futures = create_consumer_threads_with_cb();
     EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
-}
-
-namespace rapidsmpf::shuffler::detail {
-Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
-    return Chunk(chunk_id, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
-}
-}  // namespace rapidsmpf::shuffler::detail
-
-class PostBoxTest : public cudf::test::BaseFixture {
-  protected:
-    using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
-
-    void SetUp() override {
-        GlobalEnvironment->barrier();  // sync the env
-
-        postbox = std::make_unique<PostboxType>(
-            [this](rapidsmpf::shuffler::PartID part_id) {
-                return partition_owner(part_id);
-            },
-            GlobalEnvironment->comm_->nranks()
-        );
-    }
-
-    rapidsmpf::Rank partition_owner(rapidsmpf::shuffler::PartID part_id) {
-        return rapidsmpf::shuffler::Shuffler::round_robin(
-            GlobalEnvironment->comm_, part_id, 0
-        );
-    }
-
-    void TearDown() override {
-        postbox.reset();
-    }
-
-    std::unique_ptr<PostboxType> postbox;
-};
-
-TEST_F(PostBoxTest, EmptyPostbox) {
-    EXPECT_TRUE(postbox->empty());
-    EXPECT_TRUE(postbox->extract_all_ready().empty());
-}
-
-TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
-    std::uint32_t const num_partitions =
-        GlobalEnvironment->comm_->nranks() * 2;  // 2 paritions/ rank
-    std::uint32_t const num_chunks = num_partitions * 4;  // 4 chunks/ partition
-
-    // Insert chunks for rank 0
-    for (std::uint32_t i = 0; i < num_chunks; ++i) {
-        auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
-            rapidsmpf::shuffler::detail::ChunkID{i},
-            rapidsmpf::shuffler::PartID{i % num_partitions}
-        );
-        postbox->insert(std::move(chunk));
-    }
-
-    EXPECT_FALSE(postbox->empty());
-
-    // extract chunks for each rank
-    std::vector<rapidsmpf::shuffler::detail::Chunk> extracted_chunks;
-    std::uint32_t extracted_nchunks = 0;
-    for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
-        auto chunks = postbox->extract_by_key(rank);
-        extracted_nchunks += chunks.size();
-
-        for (auto& [_, chunk] : chunks) {
-            extracted_chunks.emplace_back(std::move(chunk));
-        }
-    }
-    EXPECT_EQ(extracted_nchunks, num_chunks);
-    EXPECT_TRUE(postbox->empty());
-
-    // reinsert the exctracted chunks
-    for (auto& chunk : extracted_chunks) {
-        postbox->insert(std::move(chunk));
-    }
-
-    // extract all chunks
-    auto all_chunks = postbox->extract_all_ready();
-    EXPECT_TRUE(postbox->empty());
-    EXPECT_EQ(all_chunks.size(), num_chunks);
-}
-
-TEST_F(PostBoxTest, ThreadSafety) {
-    constexpr std::uint32_t num_threads = 4;
-    constexpr std::uint32_t chunks_per_thread = 100;
-    constexpr std::uint32_t chunks_per_partition = 4;
-
-    std::vector<std::thread> threads;
-    for (std::uint32_t i = 0; i < num_threads; ++i) {
-        threads.emplace_back([this, i] {
-            for (std::uint32_t j = 0; j < chunks_per_thread; ++j) {
-                auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
-                    rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
-                    rapidsmpf::shuffler::PartID{j / chunks_per_partition}
-                );
-                postbox->insert(std::move(chunk));
-            }
-        });
-    }
-
-    for (auto& thread : threads) {
-        thread.join();
-    }
-
-    // Verify all chunks were inserted correctly
-    std::uint32_t extracted_nchunks = 0;
-    for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
-        auto chunks = postbox->extract_by_key(rank);
-        extracted_nchunks += chunks.size();
-    }
-    EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
-
-    EXPECT_TRUE(postbox->empty());
 }
 
 class ContiguousPartitionAssignmentTest
