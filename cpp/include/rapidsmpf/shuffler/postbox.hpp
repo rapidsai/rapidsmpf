@@ -99,7 +99,7 @@ class PostBox {
      * @note The result reflects a snapshot at the time of the call and may change
      * immediately afterward.
      */
-    bool is_empty(PartID pid) const;
+    [[nodiscard]] bool is_empty(PartID pid) const;
 
     /**
      * @brief Extracts a specific chunk from the PostBox.
@@ -120,24 +120,14 @@ class PostBox {
      *
      * @throws std::out_of_range If the partition is not found.
      */
-    std::unordered_map<ChunkID, Chunk> extract(PartID pid);
-
-    /**
-     * @brief Extracts all chunks associated with a specific key.
-     *
-     * @param key The key.
-     * @return A map of chunk IDs to chunks for the specified key.
-     *
-     * @throws std::out_of_range If the key is not found.
-     */
-    std::unordered_map<ChunkID, Chunk> extract_by_key(PartID key);
+    [[nodiscard]] std::unordered_map<ChunkID, Chunk> extract(PartID pid);
 
     /**
      * @brief Extracts all ready chunks from the PostBox.
      *
      * @return A vector of all ready chunks in the PostBox.
      */
-    std::vector<Chunk> extract_all_ready();
+    [[nodiscard]] std::vector<Chunk> extract_all_ready();
 
     /**
      * @brief Checks if the PostBox is empty.

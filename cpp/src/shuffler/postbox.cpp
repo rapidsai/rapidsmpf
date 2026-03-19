@@ -74,11 +74,6 @@ std::unordered_map<ChunkID, Chunk> PostBox::extract(PartID pid) {
     return extract_value(pigeonhole_, pid);
 }
 
-std::unordered_map<ChunkID, Chunk> PostBox::extract_by_key(PartID key) {
-    std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, key);
-}
-
 std::vector<Chunk> PostBox::extract_all_ready() {
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;

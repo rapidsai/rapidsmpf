@@ -249,36 +249,12 @@ class Shuffler {
     static constexpr int chunk_id_counter_bits = 38;
 
     /**
-     * @brief The mask for the counter in a chunk ID.
-     */
-    static constexpr std::uint64_t counter_mask =
-        (std::uint64_t{1} << chunk_id_counter_bits) - 1;
-
-    /**
-     * @brief Extract the counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return The counter.
-     */
-    static constexpr std::uint64_t extract_counter(detail::ChunkID cid) {
-        return cid & counter_mask;
-    }
-
-    /**
      * @brief Extract the rank from a chunk ID.
      * @param cid The chunk ID.
      * @return The rank.
      */
     static constexpr Rank extract_rank(detail::ChunkID cid) {
         return safe_cast<Rank>(cid >> chunk_id_counter_bits);
-    }
-
-    /**
-     * @brief Extract the rank and counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return A pair of the rank and counter.
-     */
-    static constexpr std::pair<Rank, std::uint64_t> extract_info(detail::ChunkID cid) {
-        return std::make_pair(extract_rank(cid), extract_counter(cid));
     }
 
   private:
