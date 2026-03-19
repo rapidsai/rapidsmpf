@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <span>
 #include <variant>
 
 #include <cuda_runtime.h>
@@ -84,8 +85,7 @@ class Buffer {
      *
      * A buffer may use `FixedSizedHostBufferT` only if its memory type is listed here.
      */
-    static constexpr std::array<MemoryType, 1> pinned_buffer_types{
-        MemoryType::PINNED_HOST
+    static constexpr std::array<MemoryType, 1> pinned_buffer_types{MemoryType::PINNED_HOST
     };
 
     /**
@@ -316,6 +316,7 @@ class Buffer {
     [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
         return latest_write_event_;
     }
+
     [[nodiscard]] CudaEvent& latest_write_event() noexcept {
         return latest_write_event_;
     }
@@ -580,5 +581,30 @@ void buffer_copy(
     std::ptrdiff_t dst_offset = 0,
     std::ptrdiff_t src_offset = 0
 );
+
+namespace detail {
+
+/**
+ * @brief Enqueue a batch of device memcpy operations on the given stream.
+ *
+ * Copies `sizes[i]` bytes from `src_ptrs[i]` to `dst_ptrs[i]` for each index.
+ * Uses `cudaMemcpyBatchAsync` when CUDA 12.8+ is available, otherwise falls
+ * back to a loop of `cudaMemcpyAsync`.
+ *
+ * @param src_ptrs Source pointers (must match size of @p dst_ptrs and @p sizes).
+ * @param dst_ptrs Destination pointers (must match size of @p src_ptrs and @p sizes).
+ * @param sizes Number of bytes to copy for each pair (must match size of @p src_ptrs).
+ * @param stream CUDA stream on which the copies are enqueued.
+ *
+ * @throws std::invalid_argument If the three spans have different sizes.
+ */
+void cuda_memcpy_batch_async(
+    std::span<void const*> src_ptrs,
+    std::span<void const*> dst_ptrs,
+    std::span<std::size_t> sizes,
+    rmm::cuda_stream_view stream
+);
+
+}  // namespace detail
 
 }  // namespace rapidsmpf

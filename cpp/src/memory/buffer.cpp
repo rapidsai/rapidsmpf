@@ -204,9 +204,7 @@ void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
     std::visit([&](auto& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
-namespace {
-
-void cuda_memcpy_batch_async(
+void detail::cuda_memcpy_batch_async(
     std::span<void const*> const src_ptrs,
     std::span<void const*> const dst_ptrs,
     std::span<std::size_t> const sizes,
@@ -260,8 +258,6 @@ void cuda_memcpy_batch_async(
     }
 #endif
 }
-
-}  // namespace
 
 void Buffer::record_write(rmm::cuda_stream_view stream) {
     latest_write_event_.record(stream);
@@ -388,7 +384,7 @@ void Buffer::copy_to(
         }
     }
 
-    cuda_memcpy_batch_async(
+    detail::cuda_memcpy_batch_async(
         std::span<void const*>(src_ptrs),
         std::span<void const*>(dst_ptrs),
         std::span<std::size_t>(sizes),

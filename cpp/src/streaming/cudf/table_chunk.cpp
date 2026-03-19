@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <sstream>
 
 #include <cuda/cmath>
@@ -216,44 +218,59 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                                 block_size
                             ));
                         // copy data from the bounce buffer to the remainder of the block
-                        size_t copy_size = std::min(block_size - b_offset, to_copy);
-                        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                            blocks[b_idx] + b_offset,
-                            bounce_buffer.data(),
-                            copy_size,
-                            cudaMemcpyDefault,
-                            stream
-                        ));
-                        to_copy -= copy_size;
-                        bytes_copied += copy_size;
-                        b_offset += copy_size;
-                        if (to_copy > 0) { // copy the remaining data to the next block
+                        // (and optionally spill to next block)
+                        size_t const curr_copy_size =
+                            std::min(block_size - b_offset, to_copy);
+                        size_t const next_copy_size = to_copy - curr_copy_size;
+                        if (next_copy_size > 0) {
+                            RAPIDSMPF_EXPECTS(
+                                b_idx + 1 < blocks.size(),
+                                "chunked_pack spill requires a next block; buffer has "
+                                "too few blocks",
+                                std::logic_error
+                            );
+                            std::array<void const*, 2> src_ptrs{
+                                bounce_buffer.data(),
+                                reinterpret_cast<std::uint8_t*>(bounce_buffer.data())
+                                    + curr_copy_size
+                            };
+                            std::array<void const*, 2> dst_ptrs{
+                                blocks[b_idx] + b_offset, blocks[b_idx + 1]
+                            };
+                            std::array<std::size_t, 2> sizes{
+                                curr_copy_size, next_copy_size
+                            };
+                            detail::cuda_memcpy_batch_async(
+                                src_ptrs, dst_ptrs, sizes, stream
+                            );
+                            bytes_copied += to_copy;
                             b_idx++;
+                            b_offset = next_copy_size;
+                        } else {
                             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                                blocks[b_idx],
-                                reinterpret_cast<std::uint8_t*>(bounce_buffer.data()) + copy_size,
-                                to_copy,
+                                blocks[b_idx] + b_offset,
+                                bounce_buffer.data(),
+                                curr_copy_size,
                                 cudaMemcpyDefault,
                                 stream
                             ));
-                            bytes_copied += to_copy;
-                            b_offset = to_copy;
-                        } else if (b_offset == block_size) {
-                            // exactly filled the current block
-                            b_idx++;
-                            b_offset = 0;
+                            bytes_copied += curr_copy_size;
+                            b_offset += curr_copy_size;
+                            if (curr_copy_size == block_size) {
+                                b_idx++;
+                                b_offset = 0;
+                            }
                         }
-                        // else block still has room; keep b_idx and b_offset for next iteration
                     } else {
-                        // block can be used fully. So, we can copy the data directly to the block.
-                        size_t packed_size = chunked_packer.next(cudf::device_span<std::uint8_t>(
-                            reinterpret_cast<std::uint8_t*>(blocks[b_idx]), block_size));
+                        // block can be used fully. So, we can copy the data directly to
+                        // the block.
+                        size_t packed_size =
+                            chunked_packer.next(cudf::device_span<std::uint8_t>(
+                                reinterpret_cast<std::uint8_t*>(blocks[b_idx]), block_size
+                            ));
                         bytes_copied += packed_size;
-                        b_offset += packed_size;
-                        if(packed_size == block_size) {
-                            b_idx++;
-                            b_offset = 0;
-                        }
+                        b_offset = (b_offset + packed_size) % block_size;
+                        b_idx += (b_offset == 0);
                     }
                 }
 
