@@ -9,6 +9,7 @@ from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
@@ -88,6 +89,17 @@ cdef extern from * nogil:
             br->reserve_device_memory_and_spill(size, ab)
         );
     }
+
+    std::unique_ptr<rapidsmpf::MemoryReservation>
+    cpp_br_reserve_or_fail(
+        std::shared_ptr<rapidsmpf::BufferResource> br,
+        size_t size,
+        std::vector<rapidsmpf::MemoryType> mem_types
+    ) {
+        return std::make_unique<rapidsmpf::MemoryReservation>(
+            br->reserve_or_fail(size, mem_types)
+        );
+    }
     }  // namespace
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
@@ -100,6 +112,11 @@ cdef extern from * nogil:
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
+    ) except +ex_handler
+    unique_ptr[cpp_MemoryReservation] cpp_br_reserve_or_fail(
+        shared_ptr[cpp_BufferResource],
+        size_t,
+        vector[MemoryType],
     ) except +ex_handler
 
 cdef class BufferResource:
@@ -394,6 +411,41 @@ cdef class BufferResource:
             ret = cpp_br_reserve_device_memory_and_spill(
                 self._handle, size, allow_overbooking
             )
+        return MemoryReservation.from_handle(move(ret), self)
+
+    def reserve_or_fail(self, size_t size, list mem_types):
+        """
+        Make a memory reservation or fail based on the given order of memory types.
+
+        Attempts to reserve memory by iterating over ``mem_types`` in the given order
+        of preference. For each memory type, a reservation without overbooking is
+        requested. If no memory type can satisfy the request, a ``RuntimeError`` is
+        raised.
+
+        Parameters
+        ----------
+        size
+            The number of bytes to reserve.
+        mem_types
+            List of :class:`~.MemoryType` values specifying the order of preference
+            in which memory types are tried.
+
+        Returns
+        -------
+        A :class:`~.MemoryReservation` for the first memory type that could satisfy
+        the request.
+
+        Raises
+        ------
+        RuntimeError
+            If no memory type in ``mem_types`` could satisfy the reservation.
+        """
+        cdef vector[MemoryType] cpp_mem_types
+        for mt in mem_types:
+            cpp_mem_types.push_back(<MemoryType?>mt)
+        cdef unique_ptr[cpp_MemoryReservation] ret
+        with nogil:
+            ret = cpp_br_reserve_or_fail(self._handle, size, cpp_mem_types)
         return MemoryReservation.from_handle(move(ret), self)
 
     def release(self, MemoryReservation reservation not None, size_t size):

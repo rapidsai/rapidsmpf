@@ -248,3 +248,25 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     with opaque_memory_usage(res):
         assert res.size == 0
     assert res.size == 0
+
+
+def test_reserve_or_fail() -> None:
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(
+        mr,
+        memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=KiB(100))},
+    )
+
+    # Succeeds on the first available memory type.
+    res = br.reserve_or_fail(KiB(50), [MemoryType.DEVICE, MemoryType.HOST])
+    assert res.size == KiB(50)
+    assert res.mem_type == MemoryType.DEVICE
+
+    # When device is exhausted, falls back to HOST.
+    res2 = br.reserve_or_fail(KiB(100), [MemoryType.DEVICE, MemoryType.HOST])
+    assert res2.size == KiB(100)
+    assert res2.mem_type == MemoryType.HOST
+
+    # When no memory type can satisfy the request, raises RuntimeError.
+    with pytest.raises(RuntimeError, match="failed to reserve memory"):
+        br.reserve_or_fail(KiB(200), [MemoryType.DEVICE])
