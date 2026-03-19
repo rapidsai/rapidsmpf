@@ -24,53 +24,6 @@ namespace rapidsmpf::shuffler {
 
 using namespace detail;
 
-namespace {
-
-/**
- * @brief Spills memory buffers within the received chunk postbox, e.g., from device to
- * host memory.
- *
- * This function moves a specified amount of memory from device to host storage
- * or another lower-priority memory space, helping manage limited GPU memory
- * by offloading excess data.
- *
- * The spilling is stream-ordered on the individual CUDA stream of each spilled buffer.
- *
- * @note Spilling modifies chunks in the postbox in place, so this function must be called
- * with `received_spilling_mutex_` held.
- *
- * @param br Buffer resource for GPU data allocations.
- * @param amount The maximum amount of data (in bytes) to be spilled.
- *
- * @return The actual amount of data successfully spilled from the postbox.
- */
-std::size_t spill_received_chunks(
-    BufferResource* br, ReceivedChunks& received, std::size_t amount
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE(amount);
-    auto chunks = received.search(MemoryType::DEVICE);
-    std::size_t total_spilled{0};
-    for (auto chunk_ref : chunks) {
-        auto& chunk = chunk_ref.get();
-        auto const size = chunk.data_size();
-        if (size == 0) {  // skip empty data buffers
-            continue;
-        }
-
-        // TODO: Use a clever strategy to decide which chunks to spill. For now, we
-        // just spill the chunks in an arbitrary order.
-        auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
-        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
-        if ((total_spilled += size) >= amount) {
-            break;
-        }
-    }
-    RAPIDSMPF_NVTX_MARKER("spill_received_chunks::total_spilled", total_spilled);
-    return total_spilled;
-}
-
-}  // namespace
-
 class Shuffler::Progress {
   public:
     /**
@@ -451,7 +404,6 @@ void Shuffler::insert_finished() {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    std::unique_lock<std::mutex> lock(received_spilling_mutex_);
 
     // Quick return if the partition is empty.
     if (received_.is_empty(pid)) {
@@ -459,7 +411,6 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     }
 
     auto chunks = received_.extract(pid);
-    lock.unlock();
 
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
@@ -495,8 +446,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        std::lock_guard<std::mutex> lock(received_spilling_mutex_);
-        spilled = spill_received_chunks(br_, received_, spill_need);
+        spilled = received_.spill(br_, spill_need);
     }
     return spilled;
 }

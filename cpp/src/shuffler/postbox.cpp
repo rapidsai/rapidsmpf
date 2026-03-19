@@ -6,6 +6,8 @@
 #include <sstream>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -71,17 +73,26 @@ bool ReceivedChunks::empty() const {
     return pigeonhole_.empty();
 }
 
-std::vector<std::reference_wrapper<Chunk>> ReceivedChunks::search(MemoryType mem_type) {
-    std::lock_guard const lock(mutex_);
-    std::vector<std::reference_wrapper<Chunk>> ret;
-    for (auto& [key, chunks] : pigeonhole_) {
+std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
+    RAPIDSMPF_NVTX_FUNC_RANGE(amount);
+    std::lock_guard lock(mutex_);
+    // TODO: use a clever strategy to decided which chunks to spill.
+    std::size_t total_spilled{0};
+    for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            if (!chunk.is_control_message() && chunk.data_memory_type() == mem_type) {
-                ret.emplace_back(chunk);
+            auto const size = chunk.data_size();
+            if (chunk.data_memory_type() != MemoryType::DEVICE || size == 0) {
+                continue;
+            }
+            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
+            if ((total_spilled += size) >= amount) {
+                break;
             }
         }
     }
-    return ret;
+    RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);
+    return total_spilled;
 }
 
 std::string ReceivedChunks::str() const {

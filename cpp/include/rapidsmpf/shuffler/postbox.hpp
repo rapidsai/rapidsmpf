@@ -121,20 +121,20 @@ class ReceivedChunks {
     [[nodiscard]] bool empty() const;
 
     /**
-     * @brief Search for chunks of the specified memory type.
-     *
-     * @param mem_type The type of memory to search within.
-     * @return A vector of references to chunks in the container.
-     *
-     * @note You can modify the returned chunks in place, but must do so while ensuring no
-     * concurrent access to the container.
-     */
-    [[nodiscard]] std::vector<std::reference_wrapper<Chunk>> search(MemoryType mem_type);
-
-    /**
      * @brief @return A description of this container.
      */
     [[nodiscard]] std::string str() const;
+
+    /**
+     * @brief Spill device data.
+     *
+     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     *
+     * @param br The buffer resource for host and device allocations.
+     * @param amount Requested amount of data to spill in bytes.
+     * @return Actual amount of data spilled in bytes.
+     */
+    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
