@@ -223,12 +223,6 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                             std::min(block_size - b_offset, to_copy);
                         size_t const next_copy_size = to_copy - curr_copy_size;
                         if (next_copy_size > 0) {
-                            RAPIDSMPF_EXPECTS(
-                                b_idx + 1 < blocks.size(),
-                                "chunked_pack spill requires a next block; buffer has "
-                                "too few blocks",
-                                std::logic_error
-                            );
                             std::array<void const*, 2> src_ptrs{
                                 bounce_buffer.data(),
                                 reinterpret_cast<std::uint8_t*>(bounce_buffer.data())
