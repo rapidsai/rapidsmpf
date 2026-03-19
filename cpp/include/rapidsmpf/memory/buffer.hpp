@@ -602,8 +602,7 @@ void cuda_memcpy_batch_async(
     std::span<void const*> src_ptrs,
     std::span<void const*> dst_ptrs,
     std::span<std::size_t> sizes,
-    rmm::cuda_stream_view stream,
-    bool prefer_sequential = false
+    rmm::cuda_stream_view stream
 );
 
 }  // namespace detail

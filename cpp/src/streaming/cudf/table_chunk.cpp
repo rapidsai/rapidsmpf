@@ -235,7 +235,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                                 curr_copy_size, next_copy_size
                             };
                             detail::cuda_memcpy_batch_async(
-                                src_ptrs, dst_ptrs, sizes, stream, true
+                                src_ptrs, dst_ptrs, sizes, stream
                             );
                             bytes_copied += to_copy;
                             b_idx++;
