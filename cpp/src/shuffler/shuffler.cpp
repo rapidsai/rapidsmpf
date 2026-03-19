@@ -110,7 +110,7 @@ class Shuffler::Progress {
 
         {
             auto const t0_send = Clock::now();
-            auto ready_chunks = shuffler_.outgoing_postbox_.extract_all_ready();
+            auto ready_chunks = shuffler_.to_send_.extract_ready();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("shuffle_send", ready_chunks.size());
             for (auto&& chunk : ready_chunks) {
                 auto dst = shuffler_.partition_owner(
@@ -262,7 +262,7 @@ class Shuffler::Progress {
                         incoming_chunks_, [](auto const& kv) { return kv.second.empty(); }
                     )
                     && in_transit_chunks_.empty() && in_transit_futures_.empty()
-                    && shuffler_.outgoing_postbox_.empty()
+                    && shuffler_.to_send_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
@@ -309,12 +309,7 @@ Shuffler::Shuffler(
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
-      outgoing_postbox_{
-          [this](PartID pid) -> Rank {
-              return this->partition_owner(this->comm_, pid, this->total_num_partitions);
-          },  // extract Rank from pid
-          safe_cast<std::size_t>(comm->nranks())
-      },
+      to_send_{},
       ready_postbox_{
           [](PartID pid) -> PartID { return pid; },  // identity mapping
           safe_cast<std::size_t>(total_num_partitions),
@@ -403,7 +398,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         insert_into_ready_postbox(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to insert it into the outgoing postbox
-        outgoing_postbox_.insert(std::move(chunk));
+        to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }
 
@@ -528,8 +523,8 @@ detail::ChunkID Shuffler::get_new_cid() {
 
 std::string Shuffler::str() const {
     std::stringstream ss;
-    ss << "Shuffler(outgoing=" << outgoing_postbox_ << ", received=" << ready_postbox_
-       << ", " << finish_counter_;
+    ss << "Shuffler(outgoing=" << to_send_ << ", received=" << ready_postbox_ << ", "
+       << finish_counter_;
     return ss.str();
 }
 

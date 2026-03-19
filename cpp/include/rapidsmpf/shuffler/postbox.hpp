@@ -16,6 +16,58 @@
 namespace rapidsmpf::shuffler::detail {
 
 /**
+ * @brief A thread-safe container for managing outgoing chunks.
+ */
+class ChunksToSend {
+  public:
+    ChunksToSend() = default;
+
+    /**
+     * @brief Insert a chunk into the container.
+     *
+     * @param c The chunk to insert.
+     */
+    void insert(std::unique_ptr<Chunk> c);
+
+    /**
+     * @brief Extract ready chunks.
+     *
+     * @note Ready means no stream-ordered work queued on the chunk's data.
+     *
+     * @return Vector of chunks ready to send.
+     */
+    [[nodiscard]] std::vector<Chunk> extract_ready();
+
+    /**
+     * @brief @return Whether the container is empty.
+     */
+    [[nodiscard]] bool empty() const;
+
+    /**
+     * @brief @return Returns a description of this instance.
+     */
+    [[nodiscard]] std::string str() const;
+
+  private:
+    mutable std::mutex mutex_{};
+    std::vector<std::unique_ptr<Chunk>> chunks_{};
+};
+
+/**
+ * @brief Overloads the stream insertion operator for the ChunksToSend class.
+ *
+ * This function allows a description of ChunksToSend to be written to an output stream.
+ *
+ * @param os The output stream to write to.
+ * @param obj The object to write.
+ * @return A reference to the modified output stream.
+ */
+inline std::ostream& operator<<(std::ostream& os, ChunksToSend const& obj) {
+    os << obj.str();
+    return os;
+}
+
+/**
  * @brief A thread-safe container for managing and retrieving data chunks by partition and
  * chunk ID.
  *

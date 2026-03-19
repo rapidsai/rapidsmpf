@@ -12,6 +12,44 @@
 
 namespace rapidsmpf::shuffler::detail {
 
+void ChunksToSend::insert(std::unique_ptr<Chunk> c) {
+    std::lock_guard lock(mutex_);
+    chunks_.push_back(std::move(c));
+}
+
+std::vector<Chunk> ChunksToSend::extract_ready() {
+    std::lock_guard lock(mutex_);
+    std::vector<Chunk> result;
+    for (auto&& chunk : chunks_) {
+        if (!chunk->is_ready()) {
+            break;
+        }
+        auto c = std::move(chunk);
+        result.emplace_back(std::move(*c));
+    }
+    std::erase(chunks_, nullptr);
+    return result;
+}
+
+bool ChunksToSend::empty() const {
+    std::lock_guard lock(mutex_);
+    return chunks_.empty();
+}
+
+std::string ChunksToSend::str() const {
+    if (empty()) {
+        return "ChunksToSend()";
+    }
+    std::lock_guard const lock(mutex_);
+    std::stringstream ss;
+    ss << "ChunksToSend(";
+    for (auto const& chunk : chunks_) {
+        ss << chunk << ", ";
+    }
+    ss << ")";
+    return ss.str();
+}
+
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
     KeyType key = key_map_fn_(chunk.part_id());
