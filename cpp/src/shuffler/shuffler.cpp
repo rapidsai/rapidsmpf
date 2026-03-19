@@ -48,10 +48,7 @@ namespace {
  * true even though the postbox is not actually empty. As a result, in the current
  * implementation `postbox_spilling()` must not be used to spill `outgoing_postbox_`.
  */
-template <typename KeyType>
-std::size_t postbox_spilling(
-    BufferResource* br, PostBox<KeyType>& postbox, std::size_t amount
-) {
+std::size_t postbox_spilling(BufferResource* br, PostBox& postbox, std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
@@ -310,10 +307,7 @@ Shuffler::Shuffler(
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
       to_send_{},
-      ready_postbox_{
-          [](PartID pid) -> PartID { return pid; },  // identity mapping
-          safe_cast<std::size_t>(total_num_partitions),
-      },
+      ready_postbox_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
       op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},

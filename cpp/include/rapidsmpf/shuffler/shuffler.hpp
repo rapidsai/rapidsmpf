@@ -317,8 +317,8 @@ class Shuffler {
     BufferResource* br_;
     std::atomic<bool> active_{true};
     detail::ChunksToSend to_send_;  ///< Storage for outgoing chunks to other ranks.
-    detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
-                                             ///< ready to be extracted by the user.
+    detail::PostBox ready_postbox_;  ///< Postbox for received chunks, that are
+                                     ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     ProgressThread::FunctionID progress_thread_function_id_;

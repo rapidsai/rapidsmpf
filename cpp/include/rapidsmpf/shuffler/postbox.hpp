@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -70,27 +69,15 @@ inline std::ostream& operator<<(std::ostream& os, ChunksToSend const& obj) {
 /**
  * @brief A thread-safe container for managing and retrieving data chunks by partition and
  * chunk ID.
- *
- * @tparam KeyType The type of the key used to map chunks.
  */
-template <typename KeyType>
 class PostBox {
   public:
-    using key_type = KeyType;  ///< The type of the key used to map chunks.
-
     /**
      * @brief Construct a new PostBox.
      *
-     * @tparam Fn The type of the function that maps a partition ID to a key.
-     * @param key_map_fn A function that maps a partition ID to a key.
      * @param num_keys_hint The number of keys to reserve space for.
-     *
-     * @note The `key_map_fn` must be convertible to a function that takes a `PartID` and
-     * returns a `KeyType`.
      */
-    template <typename Fn>
-    PostBox(Fn&& key_map_fn, std::size_t num_keys_hint = 0)
-        : key_map_fn_(std::move(key_map_fn)) {
+    PostBox(std::size_t num_keys_hint = 0) {
         if (num_keys_hint > 0) {
             pigeonhole_.reserve(num_keys_hint);
         }
@@ -143,7 +130,7 @@ class PostBox {
      *
      * @throws std::out_of_range If the key is not found.
      */
-    std::unordered_map<ChunkID, Chunk> extract_by_key(KeyType key);
+    std::unordered_map<ChunkID, Chunk> extract_by_key(PartID key);
 
     /**
      * @brief Extracts all ready chunks from the PostBox.
@@ -166,7 +153,7 @@ class PostBox {
      * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
      * size of the chunk.
      */
-    [[nodiscard]] std::vector<std::tuple<key_type, ChunkID, std::size_t>> search(
+    [[nodiscard]] std::vector<std::tuple<PartID, ChunkID, std::size_t>> search(
         MemoryType mem_type
     ) const;
 
@@ -179,9 +166,7 @@ class PostBox {
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
-    std::function<key_type(PartID)>
-        key_map_fn_;  ///< Function to map partition IDs to keys.
-    std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
+    std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
         pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
 };
 
@@ -194,8 +179,7 @@ class PostBox {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-template <typename KeyType>
-inline std::ostream& operator<<(std::ostream& os, PostBox<KeyType> const& obj) {
+inline std::ostream& operator<<(std::ostream& os, PostBox const& obj) {
     os << obj.str();
     return os;
 }

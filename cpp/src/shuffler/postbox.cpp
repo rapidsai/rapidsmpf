@@ -50,9 +50,8 @@ std::string ChunksToSend::str() const {
     return ss.str();
 }
 
-template <typename KeyType>
-void PostBox<KeyType>::insert(Chunk&& chunk) {
-    KeyType key = key_map_fn_(chunk.part_id());
+void PostBox::insert(Chunk&& chunk) {
+    auto key = chunk.part_id();
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
@@ -60,32 +59,27 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
     );
 }
 
-template <typename KeyType>
-bool PostBox<KeyType>::is_empty(PartID pid) const {
+bool PostBox::is_empty(PartID pid) const {
     std::lock_guard const lock(mutex_);
-    return !pigeonhole_.contains(key_map_fn_(pid));
+    return !pigeonhole_.contains(pid);
 }
 
-template <typename KeyType>
-Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
+Chunk PostBox::extract(PartID pid, ChunkID cid) {
     std::lock_guard const lock(mutex_);
-    return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
+    return extract_item(pigeonhole_[pid], cid).second;
 }
 
-template <typename KeyType>
-std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract(PartID pid) {
+std::unordered_map<ChunkID, Chunk> PostBox::extract(PartID pid) {
     std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, key_map_fn_(pid));
+    return extract_value(pigeonhole_, pid);
 }
 
-template <typename KeyType>
-std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
+std::unordered_map<ChunkID, Chunk> PostBox::extract_by_key(PartID key) {
     std::lock_guard const lock(mutex_);
     return extract_value(pigeonhole_, key);
 }
 
-template <typename KeyType>
-std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
+std::vector<Chunk> PostBox::extract_all_ready() {
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
 
@@ -115,18 +109,16 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
     return ret;
 }
 
-template <typename KeyType>
-bool PostBox<KeyType>::empty() const {
+bool PostBox::empty() const {
     std::lock_guard const lock(mutex_);
     return pigeonhole_.empty();
 }
 
-template <typename KeyType>
-std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
+std::vector<std::tuple<PartID, ChunkID, std::size_t>> PostBox::search(
     MemoryType mem_type
 ) const {
     std::lock_guard const lock(mutex_);
-    std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
+    std::vector<std::tuple<PartID, ChunkID, std::size_t>> ret;
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {
             if (!chunk.is_control_message() && chunk.data_memory_type() == mem_type) {
@@ -137,8 +129,7 @@ std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     return ret;
 }
 
-template <typename KeyType>
-std::string PostBox<KeyType>::str() const {
+std::string PostBox::str() const {
     if (empty()) {
         return "PostBox()";
     }
@@ -160,9 +151,5 @@ std::string PostBox<KeyType>::str() const {
     ss << "\b\b)";
     return ss.str();
 }
-
-// Explicit instantiation for PartID and Rank
-template class PostBox<PartID>;
-template class PostBox<Rank>;
 
 }  // namespace rapidsmpf::shuffler::detail
