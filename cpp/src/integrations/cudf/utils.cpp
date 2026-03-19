@@ -6,14 +6,13 @@
 #include <numeric>
 #include <type_traits>
 
+#include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/dictionary.hpp>
-
-#include <cudf/contiguous_split.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>

@@ -69,14 +69,10 @@ PinnedMemoryResource::PinnedMemoryResource(
     std::size_t capacity,
     std::size_t initial_npools
 )
-    : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))} {
-    // fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-    //     numa_id, host_mr_, capacity, capacity, block_size, pool_size, initial_npools
-    // );
-    fixed_size_host_mr_ = std::make_shared<FixedSizedHostMemoryResource>(
-        numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
-    );
-}
+    : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))},
+      fixed_size_host_mr_{std::make_shared<FixedSizedHostMemoryResource>(
+          numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+      )} {}
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
@@ -106,8 +102,7 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size",
-                [](auto const& s) -> std::optional<size_t> {
+                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
                     auto parsed = parse_optional(s);
                     if (parsed.has_value() && !parsed->empty()) {
                         return parse_nbytes_unsigned(*parsed);
@@ -119,8 +114,7 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
 
         if (pinned_memory_fixed_size) {
             auto const fixed_size_block_size = options.get<size_t>(
-                "pinned_memory_fixed_size_block_size",
-                [](auto const& s) {
+                "pinned_memory_fixed_size_block_size", [](auto const& s) {
                     return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
                 }
             );

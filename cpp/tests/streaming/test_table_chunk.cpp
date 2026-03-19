@@ -17,10 +17,10 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/integrations/cudf/utils.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
@@ -33,7 +33,8 @@ class StreamingTableChunk : public BaseStreamingFixture,
                             public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
   protected:
     void SetUp() override {
-        rapidsmpf::config::Options options(rapidsmpf::config::get_environment_variables()
+        rapidsmpf::config::Options options(
+            rapidsmpf::config::get_environment_variables()
         );
 
         std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>

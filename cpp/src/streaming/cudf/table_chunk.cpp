@@ -212,11 +212,12 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     if (b_offset > 0) {
                         // block is partially used. So, we need to use the bounce buffer
                         // to copy the data.
-                        size_t to_copy =
-                            chunked_packer.next(cudf::device_span<std::uint8_t>(
+                        size_t to_copy = chunked_packer.next(
+                            cudf::device_span<std::uint8_t>(
                                 reinterpret_cast<std::uint8_t*>(bounce_buffer.data()),
                                 block_size
-                            ));
+                            )
+                        );
                         // copy data from the bounce buffer to the remainder of the block
                         // (and optionally spill to next block)
                         size_t const curr_copy_size =
@@ -258,10 +259,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                     } else {
                         // block can be used fully. So, we can copy the data directly to
                         // the block.
-                        size_t packed_size =
-                            chunked_packer.next(cudf::device_span<std::uint8_t>(
+                        size_t packed_size = chunked_packer.next(
+                            cudf::device_span<std::uint8_t>(
                                 reinterpret_cast<std::uint8_t*>(blocks[b_idx]), block_size
-                            ));
+                            )
+                        );
                         bytes_copied += packed_size;
                         b_offset = (b_offset + packed_size) % block_size;
                         b_idx += (b_offset == 0);
@@ -278,9 +280,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         + std::to_string(chunked_packer.has_next()) + ")"
                 );
 
-                return TableChunk(std::make_unique<PackedData>(
-                    chunked_packer.build_metadata(), std::move(dest_buffer)
-                ));
+                return TableChunk(
+                    std::make_unique<PackedData>(
+                        chunked_packer.build_metadata(), std::move(dest_buffer)
+                    )
+                );
             }
             break;
         case MemoryType::HOST:

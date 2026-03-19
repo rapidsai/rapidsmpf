@@ -463,11 +463,13 @@ TEST_P(BufferCopyToTest, CopiesDataCorrectly) {
             *dst_buf, p.copy_size, static_cast<std::size_t>(p.dst_offset)
         );
         SCOPED_TRACE("dst: " + to_string(dst_result, 0, dst_result.size()));
-        EXPECT_TRUE(std::equal(
-            monotonic.begin() + p.src_offset,
-            monotonic.begin() + p.src_offset + p.copy_size,
-            dst_result.begin()
-        ));
+        EXPECT_TRUE(
+            std::equal(
+                monotonic.begin() + p.src_offset,
+                monotonic.begin() + p.src_offset + p.copy_size,
+                dst_result.begin()
+            )
+        );
     }
 }
 
