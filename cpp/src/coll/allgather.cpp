@@ -577,8 +577,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             can_extract_ = true;
         }
         cv_.notify_one();
-        std::function<void()> callback = std::move(finished_callback_);
-        if (callback) {
+        if (auto callback = std::move(finished_callback_)) {
             callback();
         }
     }
