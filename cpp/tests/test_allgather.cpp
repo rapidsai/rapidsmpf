@@ -320,14 +320,6 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 
     allgather->insert_finished();
     auto results1 = allgather->wait_and_extract();
-    ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results1.size());
-    for (auto&& result : results1) {
-        int offset = *reinterpret_cast<int*>(result.metadata->data());
-        EXPECT_NO_FATAL_FAILURE(
-            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
-        );
-    }
-
     // OK, it should be safe to reuse the opid now.
     allgather = std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, br.get());
 
@@ -342,6 +334,14 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     }
     allgather->insert_finished();
     auto results2 = allgather->wait_and_extract();
+    ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results1.size());
+    for (auto&& result : results1) {
+        int offset = *reinterpret_cast<int*>(result.metadata->data());
+        EXPECT_NO_FATAL_FAILURE(
+            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
+        );
+    }
+
     ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results2.size());
 
     // Every result must carry data from the second allgather.
