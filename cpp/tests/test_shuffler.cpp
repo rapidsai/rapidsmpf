@@ -464,6 +464,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+    shuffler.insert_finished();
 }
 
 TEST(FinishCounterTests, zero_local_partitions_fires_callback) {
@@ -733,7 +734,7 @@ TEST(Shuffler, ShutdownWhilePaused) {
     progress_thread->pause();
 
     EXPECT_FALSE(progress_thread->is_running());
-
+    shuffler.insert_finished();
     // shutdown shuffler while progress thread is paused
     shuffler.shutdown();
     progress_thread->resume();

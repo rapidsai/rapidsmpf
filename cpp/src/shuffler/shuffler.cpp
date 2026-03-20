@@ -255,10 +255,10 @@ Shuffler::Shuffler(
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
+      op_id_{op_id},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
-      op_id_{op_id},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{
           comm_->nranks(),
@@ -299,6 +299,10 @@ Shuffler::~Shuffler() {
 }
 
 void Shuffler::shutdown() {
+    RAPIDSMPF_EXPECTS_FATAL(
+        locally_finished_.load(std::memory_order_acquire),
+        "Destroying suffler without `insert_finished()`"
+    );
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
@@ -343,7 +347,10 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 
 void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-
+    RAPIDSMPF_EXPECTS(
+        !locally_finished_.load(std::memory_order_acquire),
+        "Can't insert after locally indicating finished"
+    );
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
         if (packed_data.empty()) {  // skip empty packed data
@@ -369,6 +376,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 }
 
 void Shuffler::insert_finished() {
+    locally_finished_.store(true, std::memory_order_release);
     std::vector<detail::ChunkID> counts;
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);

@@ -292,13 +292,14 @@ class Shuffler {
   private:
     BufferResource* br_;
     std::atomic<bool> active_{true};
+    std::atomic<bool> locally_finished_{false};
+    OpID const op_id_;
     detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
     detail::ReceivedChunks received_;  ///< Storage for received chunks that are
                                        ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     ProgressThread::FunctionID progress_thread_function_id_;
-    OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
 
