@@ -5,9 +5,11 @@
 
 #include <memory>
 
+#include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/error.hpp>
 
 #include "../environment.hpp"
 
@@ -20,6 +22,8 @@ TestEnvironmentType Environment::type() const {
 }
 
 void Environment::SetUp() {
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));  // Initialize the CUDA context
+
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(
         options_, std::make_shared<rapidsmpf::ProgressThread>()

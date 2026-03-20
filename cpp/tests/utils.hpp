@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -12,6 +13,7 @@
 #include <random>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -86,9 +88,21 @@ constexpr std::size_t operator"" _GiB(unsigned long long val) {
 }
 
 template <typename T>
-[[nodiscard]] std::vector<T> iota_vector(std::size_t nelem, T start = 0) {
+[[nodiscard]] std::vector<T> iota_vector(std::size_t nelem, T start = static_cast<T>(0)) {
     std::vector<T> ret(nelem);
     std::iota(ret.begin(), ret.end(), start);
+    return ret;
+}
+
+template <>
+[[nodiscard]] inline std::vector<std::byte> iota_vector<std::byte>(
+    std::size_t nelem, std::byte start
+) {
+    std::vector<std::byte> ret(nelem);
+    uint8_t v = static_cast<uint8_t>(start);
+    for (std::size_t i = 0; i < nelem; ++i) {
+        ret[i] = static_cast<std::byte>(v++);
+    }
     return ret;
 }
 

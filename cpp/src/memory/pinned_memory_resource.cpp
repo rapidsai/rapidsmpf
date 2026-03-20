@@ -8,6 +8,7 @@
 
 #include <cuda/memory_resource>
 
+#include <rmm/mr/pinned_host_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -60,6 +61,19 @@ PinnedMemoryResource::PinnedMemoryResource(
 )
     : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))} {}
 
+PinnedMemoryResource::PinnedMemoryResource(
+    int numa_id,
+    PinnedPoolProperties pool_properties,
+    std::size_t block_size,
+    std::size_t pool_size,
+    std::size_t capacity,
+    std::size_t initial_npools
+)
+    : pool_{make_pinned_memory_pool(numa_id, std::move(pool_properties))},
+      fixed_size_host_mr_{std::make_shared<FixedSizedHostMemoryResource>(
+          numa_id, pool_, capacity, capacity, block_size, pool_size, initial_npools
+      )} {}
+
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
 ) {
@@ -77,7 +91,11 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-    if (pinned_memory) {
+    bool const pinned_memory_fixed_size =
+        options.get<bool>("pinned_memory_fixed_size", [](auto const& s) {
+            return parse_string<bool>(s.empty() ? "False" : s);
+        });
+    if (pinned_memory || pinned_memory_fixed_size) {
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
@@ -93,10 +111,24 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 }
             )
         };
-        return PinnedMemoryResource::make_if_available(
-            get_current_numa_node(), std::move(pool_properties)
-        );
+
+        if (pinned_memory_fixed_size) {
+            auto const fixed_size_block_size = options.get<size_t>(
+                "pinned_memory_fixed_size_block_size", [](auto const& s) {
+                    return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
+                }
+            );
+
+            return PinnedMemoryResource::make_fixed_sized_if_available(
+                get_current_numa_node(), std::move(pool_properties), fixed_size_block_size
+            );
+        } else {
+            return PinnedMemoryResource::make_if_available(
+                get_current_numa_node(), std::move(pool_properties)
+            );
+        }
     }
+
     return PinnedMemoryResource::Disabled;
 }
 
@@ -105,18 +137,81 @@ PinnedMemoryResource::~PinnedMemoryResource() = default;
 void* PinnedMemoryResource::allocate(
     rmm::cuda_stream_view stream, std::size_t bytes, std::size_t alignment
 ) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr, "allocate called with fixed size mr available"
+    );
     return pool_->allocate(stream, bytes, alignment);
 }
 
 void PinnedMemoryResource::deallocate(
     rmm::cuda_stream_view stream, void* ptr, std::size_t bytes, std::size_t alignment
 ) noexcept {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr, "deallocate called with fixed size mr available"
+    );
     pool_->deallocate(stream, ptr, bytes, alignment);
+}
+
+void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr,
+        "allocate_sync called with fixed size mr available"
+    );
+    return pool_->allocate_sync(bytes, alignment);
+}
+
+void PinnedMemoryResource::deallocate_sync(
+    void* ptr, std::size_t bytes, std::size_t alignment
+) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ == nullptr,
+        "deallocate_sync called with fixed size mr available"
+    );
+    pool_->deallocate_sync(ptr, bytes, alignment);
+}
+
+std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_fixed_sized_if_available(
+    int numa_id,
+    PinnedPoolProperties pool_properties,
+    std::size_t block_size,
+    std::size_t pool_size
+) {
+    if (!is_pinned_memory_resources_supported()) {
+        return PinnedMemoryResource::Disabled;
+    }
+    size_t const capacity =
+        pool_properties.max_pool_size.value_or(get_numa_node_host_memory(numa_id));
+
+    size_t const initial_npools = std::max(
+        cucascade::memory::fixed_size_host_memory_resource::default_initial_number_pools,
+        pool_properties.initial_pool_size / (block_size * pool_size)
+    );
+
+    return std::shared_ptr<PinnedMemoryResource>(new PinnedMemoryResource(
+        numa_id,
+        std::move(pool_properties),
+        block_size,
+        pool_size,
+        capacity,
+        initial_npools
+    ));
+}
+
+PinnedMemoryResource::FixedSizedBlocksAllocation
+PinnedMemoryResource::allocate_fixed_sized(std::size_t size) {
+    RAPIDSMPF_EXPECTS(
+        fixed_size_host_mr_ != nullptr,
+        "fixed-size host memory resource not initialized; "
+        "use make_fixed_sized_if_available to create this resource",
+        std::invalid_argument
+    );
+    return fixed_size_host_mr_->allocate_multiple_blocks(size);
 }
 
 bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
     auto const* o = dynamic_cast<PinnedMemoryResource const*>(&other);
-    return o != nullptr && pool_ == o->pool_;
+    return o != nullptr && pool_ == o->pool_
+           && fixed_size_host_mr_ == o->fixed_size_host_mr_;
 }
 
 }  // namespace rapidsmpf

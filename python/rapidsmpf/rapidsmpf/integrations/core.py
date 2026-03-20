@@ -688,6 +688,7 @@ def rmpf_worker_local_setup(
     WorkerContext
         New local worker context
     """
+    print("rapidsmpf local setup options: ", options.get_strings())
     # Insert RMM resource adaptor on top of the current RMM resource stack.
     mr = RmmResourceAdaptor(
         upstream_mr=rmm.mr.get_current_device_resource(),
@@ -719,7 +720,7 @@ def rmpf_worker_local_setup(
         )
     }
     pinned_mr = (
-        PinnedMemoryResource.make_if_available()
+        PinnedMemoryResource.from_options(options)
         if options.get_or_default(
             f"{option_prefix}spill_to_pinned_memory", default_value=False
         )

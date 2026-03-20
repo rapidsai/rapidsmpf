@@ -29,6 +29,7 @@ function(find_and_configure_cucascade)
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
+    BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
     GIT_TAG main
@@ -40,18 +41,6 @@ function(find_and_configure_cucascade)
             "CUCASCADE_WARNINGS_AS_ERRORS OFF"
     EXCLUDE_FROM_ALL
   )
-
-  # Create an interface library that wraps cuCascade to avoid export conflicts This target won't be
-  # exported but can be used internally. Link kvikio explicitly to satisfy cuDF's dependency.
-  if(TARGET cuCascade::cucascade AND NOT TARGET rapidsmpf_cucascade_internal)
-    add_library(rapidsmpf_cucascade_internal INTERFACE)
-    target_link_libraries(rapidsmpf_cucascade_internal INTERFACE cuCascade::cucascade)
-    # Link kvikio to ensure cuDF's transitive dependency is satisfied
-    if(TARGET kvikio::kvikio)
-      target_link_libraries(rapidsmpf_cucascade_internal INTERFACE kvikio::kvikio)
-    endif()
-    set_target_properties(rapidsmpf_cucascade_internal PROPERTIES EXPORT_NAME "")
-  endif()
 endfunction()
 
 find_and_configure_cucascade()
