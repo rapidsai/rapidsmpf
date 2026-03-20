@@ -301,7 +301,7 @@ Shuffler::~Shuffler() {
 void Shuffler::shutdown() {
     RAPIDSMPF_EXPECTS_FATAL(
         locally_finished_.load(std::memory_order_acquire),
-        "Destroying suffler without `insert_finished()`"
+        "Destroying shuffler without `insert_finished()`"
     );
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {

@@ -39,14 +39,11 @@ bool ChunksToSend::empty() const {
 }
 
 std::string ChunksToSend::str() const {
-    if (empty()) {
-        return "ChunksToSend()";
-    }
     std::lock_guard const lock(mutex_);
     std::stringstream ss;
     ss << "ChunksToSend(";
     for (auto const& chunk : chunks_) {
-        ss << chunk << ", ";
+        ss << *chunk << ", ";
     }
     ss << ")";
     return ss.str();
