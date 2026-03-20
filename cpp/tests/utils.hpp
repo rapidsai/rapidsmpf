@@ -142,6 +142,9 @@ template <std::integral T = std::int64_t>
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& /* column_indices */ = {0}
 ) {
+    if (table.num_columns() == 0) {
+        return cudf::table(table);
+    }
     return cudf::gather(table, cudf::sorted_order(table.select({0}))->view())->release();
 }
 

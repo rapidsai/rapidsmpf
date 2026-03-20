@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -16,36 +15,75 @@
 namespace rapidsmpf::shuffler::detail {
 
 /**
- * @brief A thread-safe container for managing and retrieving data chunks by partition and
- * chunk ID.
- *
- * @tparam KeyType The type of the key used to map chunks.
+ * @brief A thread-safe container for managing outgoing (to send) chunks.
  */
-template <typename KeyType>
-class PostBox {
+class ChunksToSend {
   public:
-    using key_type = KeyType;  ///< The type of the key used to map chunks.
+    ChunksToSend() = default;
 
     /**
-     * @brief Construct a new PostBox.
+     * @brief Insert a chunk into the container.
      *
-     * @tparam Fn The type of the function that maps a partition ID to a key.
-     * @param key_map_fn A function that maps a partition ID to a key.
-     * @param num_keys_hint The number of keys to reserve space for.
-     *
-     * @note The `key_map_fn` must be convertible to a function that takes a `PartID` and
-     * returns a `KeyType`.
+     * @param c The chunk to insert.
      */
-    template <typename Fn>
-    PostBox(Fn&& key_map_fn, std::size_t num_keys_hint = 0)
-        : key_map_fn_(std::move(key_map_fn)) {
+    void insert(std::unique_ptr<Chunk> c);
+
+    /**
+     * @brief Extract ready chunks.
+     *
+     * @note Ready means no stream-ordered work queued on the chunk's data.
+     *
+     * @return Vector of chunks ready to send.
+     */
+    [[nodiscard]] std::vector<Chunk> extract_ready();
+
+    /**
+     * @brief @return Whether the container is empty.
+     */
+    [[nodiscard]] bool empty() const;
+
+    /**
+     * @brief @return Returns a description of this instance.
+     */
+    [[nodiscard]] std::string str() const;
+
+  private:
+    mutable std::mutex mutex_{};
+    std::vector<std::unique_ptr<Chunk>> chunks_{};
+};
+
+/**
+ * @brief Overloads the stream insertion operator for the ChunksToSend class.
+ *
+ * This function allows a description of ChunksToSend to be written to an output stream.
+ *
+ * @param os The output stream to write to.
+ * @param obj The object to write.
+ * @return A reference to the modified output stream.
+ */
+inline std::ostream& operator<<(std::ostream& os, ChunksToSend const& obj) {
+    os << obj.str();
+    return os;
+}
+
+/**
+ * @brief A thread-safe container for managing received chunks stratified by partition ID.
+ */
+class ReceivedChunks {
+  public:
+    /**
+     * @brief Construct a new container.
+     *
+     * @param num_keys_hint The number of keys to reserve space for.
+     */
+    ReceivedChunks(std::size_t num_keys_hint = 0) {
         if (num_keys_hint > 0) {
             pigeonhole_.reserve(num_keys_hint);
         }
     }
 
     /**
-     * @brief Inserts a chunk into the PostBox.
+     * @brief Insert a chunk.
      *
      * @param chunk The chunk to insert.
      */
@@ -60,90 +98,61 @@ class PostBox {
      * @note The result reflects a snapshot at the time of the call and may change
      * immediately afterward.
      */
-    bool is_empty(PartID pid) const;
-
-    /**
-     * @brief Extracts a specific chunk from the PostBox.
-     *
-     * @param pid The ID of the partition containing the chunk.
-     * @param cid The ID of the chunk to be accessed.
-     * @return The extracted chunk.
-     *
-     * @throws std::out_of_range If the chunk is not found.
-     */
-    [[nodiscard]] Chunk extract(PartID pid, ChunkID cid);
+    [[nodiscard]] bool is_empty(PartID pid) const;
 
     /**
      * @brief Extracts all chunks associated with a specific partition.
      *
      * @param pid The ID of the partition.
-     * @return A map of chunk IDs to chunks for the specified partition.
+     * @return A vector of chunks.
      *
      * @throws std::out_of_range If the partition is not found.
      */
-    std::unordered_map<ChunkID, Chunk> extract(PartID pid);
+    [[nodiscard]] std::vector<Chunk> extract(PartID pid);
 
     /**
-     * @brief Extracts all chunks associated with a specific key.
+     * @brief Checks if the container is empty.
      *
-     * @param key The key.
-     * @return A map of chunk IDs to chunks for the specified key.
+     * @return `true` if the container is empty, `false` otherwise.
      *
-     * @throws std::out_of_range If the key is not found.
-     */
-    std::unordered_map<ChunkID, Chunk> extract_by_key(KeyType key);
-
-    /**
-     * @brief Extracts all ready chunks from the PostBox.
-     *
-     * @return A vector of all ready chunks in the PostBox.
-     */
-    std::vector<Chunk> extract_all_ready();
-
-    /**
-     * @brief Checks if the PostBox is empty.
-     *
-     * @return `true` if the PostBox is empty, `false` otherwise.
+     * @note The result reflects a snapshot at the time of the call and may change
+     * immediately afterward.
      */
     [[nodiscard]] bool empty() const;
 
     /**
-     * @brief Searches for chunks of the specified memory type.
-     *
-     * @param mem_type The type of memory to search within.
-     * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
-     * size of the chunk.
-     */
-    [[nodiscard]] std::vector<std::tuple<key_type, ChunkID, std::size_t>> search(
-        MemoryType mem_type
-    ) const;
-
-    /**
-     * @brief Returns a description of this instance.
-     * @return The description.
+     * @brief @return A description of this container.
      */
     [[nodiscard]] std::string str() const;
+
+    /**
+     * @brief Spill device data.
+     *
+     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     *
+     * @param br The buffer resource for host and device allocations.
+     * @param amount Requested amount of data to spill in bytes.
+     * @return Actual amount of data spilled in bytes.
+     */
+    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
-    std::function<key_type(PartID)>
-        key_map_fn_;  ///< Function to map partition IDs to keys.
-    std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
-        pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
+    std::unordered_map<PartID, std::vector<Chunk>>
+        pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
 };
 
 /**
- * @brief Overloads the stream insertion operator for the PostBox class.
+ * @brief Overloads the stream insertion operator for the ReceivedChunks class.
  *
- * This function allows a description of a PostBox to be written to an output stream.
+ * This function allows a description of ReceivedChunks be written to an output stream.
  *
  * @param os The output stream to write to.
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-template <typename KeyType>
-inline std::ostream& operator<<(std::ostream& os, PostBox<KeyType> const& obj) {
+inline std::ostream& operator<<(std::ostream& os, ReceivedChunks const& obj) {
     os << obj.str();
     return os;
 }

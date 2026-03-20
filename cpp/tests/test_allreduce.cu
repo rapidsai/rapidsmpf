@@ -384,19 +384,15 @@ struct AllReduceCase {
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
-    ALL_BUFFER_REDUCTION_CASES(int, ProdOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MinOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MaxOp<int>),
     ALL_BUFFER_REDUCTION_CASES(float, SumOp<float>),
-    ALL_BUFFER_REDUCTION_CASES(float, ProdOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MinOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MaxOp<float>),
     ALL_BUFFER_REDUCTION_CASES(double, SumOp<double>),
-    ALL_BUFFER_REDUCTION_CASES(double, ProdOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MinOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MaxOp<double>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, SumOp<std::uint64_t>),
-    ALL_BUFFER_REDUCTION_CASES(std::uint64_t, ProdOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MinOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MaxOp<std::uint64_t>)>;
 

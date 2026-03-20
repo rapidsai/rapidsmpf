@@ -249,36 +249,12 @@ class Shuffler {
     static constexpr int chunk_id_counter_bits = 38;
 
     /**
-     * @brief The mask for the counter in a chunk ID.
-     */
-    static constexpr std::uint64_t counter_mask =
-        (std::uint64_t{1} << chunk_id_counter_bits) - 1;
-
-    /**
-     * @brief Extract the counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return The counter.
-     */
-    static constexpr std::uint64_t extract_counter(detail::ChunkID cid) {
-        return cid & counter_mask;
-    }
-
-    /**
      * @brief Extract the rank from a chunk ID.
      * @param cid The chunk ID.
      * @return The rank.
      */
     static constexpr Rank extract_rank(detail::ChunkID cid) {
         return safe_cast<Rank>(cid >> chunk_id_counter_bits);
-    }
-
-    /**
-     * @brief Extract the rank and counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return A pair of the rank and counter.
-     */
-    static constexpr std::pair<Rank, std::uint64_t> extract_info(detail::ChunkID cid) {
-        return std::make_pair(extract_rank(cid), extract_counter(cid));
     }
 
   private:
@@ -290,11 +266,11 @@ class Shuffler {
     void insert(detail::Chunk&& chunk);
 
     /**
-     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
+     * @brief Insert a chunk into the received box (the chunk is ready for the user).
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_ready_postbox(detail::Chunk&& chunk);
+    void insert_into_received(detail::Chunk&& chunk);
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -316,14 +292,14 @@ class Shuffler {
   private:
     BufferResource* br_;
     std::atomic<bool> active_{true};
-    detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
-                                              ///< ready to be sent to other ranks.
-    detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
-                                             ///< ready to be extracted by the user.
+    std::atomic<bool> locally_finished_{false};
+    OpID const op_id_;
+    detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
+    detail::ReceivedChunks received_;  ///< Storage for received chunks that are
+                                       ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     ProgressThread::FunctionID progress_thread_function_id_;
-    OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
 
@@ -332,10 +308,6 @@ class Shuffler {
     detail::FinishCounter finish_counter_;
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     mutable std::mutex outbound_chunk_counter_mutex_;
-
-    // We protect ready_postbox extraction to avoid returning a chunk that is in the
-    // process of being spilled by `Shuffler::spill`.
-    mutable std::mutex ready_postbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
