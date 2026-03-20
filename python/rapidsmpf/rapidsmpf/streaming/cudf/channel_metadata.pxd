@@ -3,11 +3,14 @@
 
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.vector cimport vector
+from pylibcudf.libcudf.types cimport null_order as cpp_null_order
+from pylibcudf.libcudf.types cimport order as cpp_order
 
 from rapidsmpf.streaming.core.message cimport cpp_Message
+from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
@@ -20,14 +23,24 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         cpp_HashScheme(vector[int32_t], int) except +
         bool_t operator==(const cpp_HashScheme&)
 
+    cdef cppclass cpp_OrderScheme "rapidsmpf::streaming::OrderScheme":
+        vector[int32_t] column_indices
+        vector[cpp_order] orders
+        vector[cpp_null_order] null_orders
+        shared_ptr[cpp_TableChunk] boundaries
+        cpp_OrderScheme() except +
+        bool_t operator==(const cpp_OrderScheme&)
+
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":
             NONE "rapidsmpf::streaming::PartitioningSpec::Type::NONE"
             INHERIT "rapidsmpf::streaming::PartitioningSpec::Type::INHERIT"
             HASH "rapidsmpf::streaming::PartitioningSpec::Type::HASH"
+            ORDER "rapidsmpf::streaming::PartitioningSpec::Type::ORDER"
 
         cpp_Type type
         optional[cpp_HashScheme] hash
+        optional[cpp_OrderScheme] order
 
         @staticmethod
         cpp_PartitioningSpec none()
@@ -37,6 +50,9 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
         @staticmethod
         cpp_PartitioningSpec from_hash(cpp_HashScheme)
+
+        @staticmethod
+        cpp_PartitioningSpec from_order(cpp_OrderScheme)
 
         bool_t operator==(const cpp_PartitioningSpec&)
 
@@ -66,6 +82,13 @@ cdef class HashScheme:
 
     @staticmethod
     cdef HashScheme from_cpp(cpp_HashScheme scheme)
+
+
+cdef class OrderScheme:
+    cdef cpp_OrderScheme _scheme
+
+    @staticmethod
+    cdef OrderScheme from_cpp(cpp_OrderScheme scheme)
 
 
 cdef class Partitioning:
