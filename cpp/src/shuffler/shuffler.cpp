@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <ranges>
@@ -31,7 +32,10 @@ class Shuffler::Progress {
      *
      * @param shuffler Reference to the shuffler instance that this will progress.
      */
-    Progress(Shuffler& shuffler) : shuffler_(shuffler) {}
+    Progress(Shuffler& shuffler)
+        : shuffler_(shuffler),
+          peer_received_(safe_cast<std::size_t>(shuffler.comm_->nranks()), 0),
+          peer_expected_(safe_cast<std::size_t>(shuffler.comm_->nranks()), 0) {}
 
     /**
      * @brief Executes a single iteration of the shuffler's event loop.
@@ -82,37 +86,59 @@ class Shuffler::Progress {
             stats.add_duration_stat("event-loop-send", Clock::now() - t0_send);
         }
 
-        // Receive any incoming metadata of remote chunks and place them in
-        // `incoming_chunks_`.
+        // Receive incoming metadata of remote chunks and place them in
+        // `incoming_chunks_`, using per-peer recv_from to avoid consuming
+        // messages belonging to a future collective on the same tag.
         {
             auto const t0_metadata_recv = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_recv");
-            [[maybe_unused]] int recv_any_iters =
+            [[maybe_unused]] int recv_from_iters =
                 0;  // this will be stripped off if RAPIDSMPF_VERBOSE_INFO is not set
-            while (true) {
-                auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
-                if (msg) {
-                    auto chunk =
-                        Chunk::deserialize(*msg, shuffler_.br_, /*validate=*/false);
-                    log.trace("recv_any from ", src, ": ", chunk);
-                    RAPIDSMPF_EXPECTS(
-                        shuffler_.partition_owner(
-                            shuffler_.comm_,
-                            chunk.part_id(),
-                            shuffler_.total_num_partitions
-                        ) == shuffler_.comm_->rank(),
-                        "receiving chunk not owned by us"
-                    );
-                    incoming_chunks_[src].push_back(std::move(chunk));
-                } else {
-                    break;
+            if (!shuffler_.local_partitions_.empty()) {
+                for (Rank peer = 0; peer < shuffler_.comm_->nranks(); ++peer) {
+                    if (peer == shuffler_.comm_->rank()) {
+                        continue;
+                    }
+                    auto const p = safe_cast<std::size_t>(peer);
+                    if (peer_expected_[p] != 0 && peer_received_[p] == peer_expected_[p])
+                    {
+                        continue;  // this peer is already done
+                    }
+                    while (true) {
+                        if (peer_expected_[p] != 0
+                            && peer_received_[p] == peer_expected_[p])
+                        {
+                            break;
+                        }
+                        auto msg = shuffler_.comm_->recv_from(peer, metadata_tag);
+                        if (!msg) {
+                            break;
+                        }
+                        auto chunk =
+                            Chunk::deserialize(*msg, shuffler_.br_, /*validate=*/false);
+                        log.trace("recv_from ", peer, ": ", chunk);
+                        peer_received_[p]++;
+                        if (chunk.is_control_message()) {
+                            peer_expected_[p] = chunk.expected_num_chunks();
+                        } else {
+                            RAPIDSMPF_EXPECTS(
+                                shuffler_.partition_owner(
+                                    shuffler_.comm_,
+                                    chunk.part_id(),
+                                    shuffler_.total_num_partitions
+                                ) == shuffler_.comm_->rank(),
+                                "receiving chunk not owned by us"
+                            );
+                        }
+                        incoming_chunks_[peer].push_back(std::move(chunk));
+                        recv_from_iters++;
+                    }
                 }
-                recv_any_iters++;
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
-            RAPIDSMPF_NVTX_MARKER_VERBOSE("meta_recv_iters", recv_any_iters);
+            RAPIDSMPF_NVTX_MARKER_VERBOSE("meta_recv_iters", recv_from_iters);
         }
 
         // Post receives for incoming chunks. Note that we start the allocation of chunks
@@ -199,23 +225,46 @@ class Shuffler::Progress {
 
         stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
+        bool const containers_empty =
+            fire_and_forget_.empty()
+            && std::ranges::all_of(
+                incoming_chunks_, [](auto const& kv) { return kv.second.empty(); }
+            )
+            && in_transit_chunks_.empty() && in_transit_futures_.empty()
+            && shuffler_.to_send_.empty();
+
+        // Signal can_extract_ when all chunks have been received and all
+        // internal containers are drained (sends posted, futures resolved).
+        // If we own no partitions we "can-extract" immediately, but we only wake a waiter
+        // once we've drained internal containers so that we can reuse the op_id for a
+        // subsequent shuffle.
+        // We also require locally_finished_ so that we don't signal before
+        // insert_finished() has queued the outbound control messages.
+        if (!shuffler_.can_extract_
+            && shuffler_.locally_finished_.load(std::memory_order_acquire)
+            && shuffler_.finish_counter_.all_finished() && containers_empty)
+        {
+            {
+                std::lock_guard lock(shuffler_.mutex_);
+                shuffler_.can_extract_ = true;
+            }
+            shuffler_.cv_.notify_all();
+            if (auto callback = std::move(shuffler_.finished_callback_)) {
+                callback();
+            }
+        }
+
         // Return Done only if the shuffler is inactive (shutdown was called) _and_
         // all containers are empty (all work is done).
-        return (shuffler_.active_.load(std::memory_order_acquire)
-                || !(
-                    fire_and_forget_.empty()
-                    && std::ranges::all_of(
-                        incoming_chunks_, [](auto const& kv) { return kv.second.empty(); }
-                    )
-                    && in_transit_chunks_.empty() && in_transit_futures_.empty()
-                    && shuffler_.to_send_.empty()
-                ))
-                   ? ProgressThread::ProgressState::InProgress
-                   : ProgressThread::ProgressState::Done;
+        return (!shuffler_.active_.load(std::memory_order_acquire) && containers_empty)
+                   ? ProgressThread::ProgressState::Done
+                   : ProgressThread::ProgressState::InProgress;
     }
 
   private:
     Shuffler& shuffler_;
+    std::vector<std::size_t> peer_received_;  ///< Messages received per rank.
+    std::vector<std::size_t> peer_expected_;  ///< Total expected from rank (0 = unknown).
     std::vector<std::unique_ptr<Communicator::Future>>
         fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
     std::unordered_map<Rank, std::vector<detail::Chunk>>
@@ -260,13 +309,10 @@ Shuffler::Shuffler(
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
-      finish_counter_{
-          comm_->nranks(),
-          safe_cast<PartID>(local_partitions_.size()),
-          std::move(finished_callback)
-      },
+      finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
-      statistics_{br_->statistics()} {
+      statistics_{br_->statistics()},
+      finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
     );
@@ -333,8 +379,8 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
     if (!chunk.is_control_message()) {
-        std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        ++outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)];
+        std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
+            .fetch_add(1, std::memory_order_relaxed);
     }
     if (dst_rank == comm_->rank()) {
         // this is a local chunk, so we can move it straight to received.
@@ -376,19 +422,13 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 }
 
 void Shuffler::insert_finished() {
-    locally_finished_.store(true, std::memory_order_release);
-    std::vector<detail::ChunkID> counts;
-    {
-        std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        counts = outbound_chunk_counter_;
-    }
+    // All insert() calls happen-before this point (API contract), so the
+    // relaxed atomic_ref increments are visible and we can read directly.
+    auto const& counts = outbound_chunk_counter_;
 
     // Pick an arbitrary representative partition for each rank so we can route one
     // control message per rank. Ranks that own no partitions do not need to be sent a
     // control message because they will never receive any messages.
-    // TODO: I suspect this logic will need to change once we try and avoid cross-talk
-    // between shuffles, ranks that own no partitions will still need to participate in
-    // the completion process.
     std::vector<PartID> representative_pid(
         safe_cast<std::size_t>(comm_->nranks()), total_num_partitions
     );
@@ -397,17 +437,14 @@ void Shuffler::insert_finished() {
         representative_pid[r] = p;
     }
 
-    for (Rank r = 0; r < safe_cast<Rank>(counts.size()); ++r) {
-        auto pid = representative_pid[safe_cast<std::size_t>(r)];
+    for (std::size_t r = 0; r < counts.size(); ++r) {
+        auto pid = representative_pid[r];
         if (pid == total_num_partitions) {
             continue;  // rank owns no partitions
         }
-        insert(
-            detail::Chunk::from_finished_partition(
-                get_new_cid(), pid, counts[safe_cast<std::size_t>(r)] + 1
-            )
-        );
+        insert(detail::Chunk::from_finished_partition(get_new_cid(), pid, counts[r] + 1));
     }
+    locally_finished_.store(true, std::memory_order_release);
 }
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
@@ -438,7 +475,16 @@ bool Shuffler::finished() const {
 
 void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait(std::move(timeout));
+    std::unique_lock lock(mutex_);
+    if (timeout.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            cv_.wait_for(lock, *timeout, [&] { return can_extract_; }),
+            "wait timeout reached",
+            std::runtime_error
+        );
+    } else {
+        cv_.wait(lock, [&] { return can_extract_; });
+    }
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

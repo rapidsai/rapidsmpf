@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -99,8 +100,14 @@ class Shuffler {
         PartitionOwner partition_owner
     );
 
-    /// @copydoc detail::FinishCounter::FinishedCallback
-    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+    /**
+     * @brief Callback function type called when all partitions are finished and data
+     * can be extracted.
+     *
+     * @warning A callback must be fast and non-blocking. Ideally it should be used
+     * to signal a separate thread to do the actual processing.
+     */
+    using FinishedCallback = std::function<void()>;
 
     /**
      * @brief Construct a new shuffler for a single shuffle.
@@ -173,6 +180,9 @@ class Shuffler {
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
+     * @note Concurrent insertion by multiple threads is supported, the caller must ensure
+     * that `insert_finished()` is called _after_ all `insert()` calls have completed.
+     *
      * @param chunks A map of partition IDs and their packed chunks.
      */
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
@@ -182,6 +192,10 @@ class Shuffler {
      *
      * This informs the shuffler that this rank has finished inserting data. Must be
      * called exactly once.
+     *
+     * @note If multiple threads are `insert()`ing, you must establish a happens-before
+     * relationship between the completion of all `insert()`s and the final call to
+     * `insert_finished()`.
      */
     void insert_finished();
 
@@ -292,7 +306,11 @@ class Shuffler {
   private:
     BufferResource* br_;
     std::atomic<bool> active_{true};
+    // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};
+    // Flipped to true exactly once when partitions are ready for extraction and we've
+    // posted all sends we're going to
+    bool can_extract_{false};
     OpID const op_id_;
     detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
     detail::ReceivedChunks received_;  ///< Storage for received chunks that are
@@ -307,11 +325,14 @@ class Shuffler {
 
     detail::FinishCounter finish_counter_;
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
-    mutable std::mutex outbound_chunk_counter_mutex_;
-
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
     std::shared_ptr<Statistics> statistics_;
+
+    // For notifications.
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    FinishedCallback finished_callback_;  ///< Called once when data can be extracted.
 
     class Progress;
 };

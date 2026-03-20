@@ -339,7 +339,6 @@ class ConcurrentShuffleTest
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
 
-// Test with insert_finished called individually per partition
 TEST_P(ConcurrentShuffleTest, round_trip) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
@@ -467,39 +466,32 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     shuffler.insert_finished();
 }
 
-TEST(FinishCounterTests, zero_local_partitions_fires_callback) {
-    bool callback_fired = false;
+TEST(FinishCounterTests, zero_local_partitions_immediately_finished) {
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
-        /*nranks=*/2, /*n_local_partitions=*/0, [&]() { callback_fired = true; }
+        /*nranks=*/2, /*n_local_partitions=*/0
     );
 
-    EXPECT_TRUE(callback_fired);
     EXPECT_TRUE(finish_counter.all_finished());
-    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
 }
 
-TEST(FinishCounterTests, nonzero_local_partitions_fires_callback) {
-    bool callback_fired = false;
+TEST(FinishCounterTests, nonzero_local_partitions_finishes_after_all_chunks) {
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
-        /*nranks=*/1, /*n_local_partitions=*/2, [&]() { callback_fired = true; }
+        /*nranks=*/1, /*n_local_partitions=*/2
     );
 
-    EXPECT_FALSE(callback_fired);
     EXPECT_FALSE(finish_counter.all_finished());
 
     // One rank sends 3 chunks total.
     finish_counter.move_goalpost(0, 3);
     finish_counter.add_finished_chunk();
     finish_counter.add_finished_chunk();
-    EXPECT_FALSE(callback_fired);
+    EXPECT_FALSE(finish_counter.all_finished());
 
     finish_counter.add_finished_chunk();
-    EXPECT_TRUE(callback_fired);
     EXPECT_TRUE(finish_counter.all_finished());
-    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
 }
 
-TEST(FinishCounterTests, wait_with_timeout) {
+TEST(FinishCounterTests, multi_rank_completion) {
     auto comm = GlobalEnvironment->comm_;
 
     if (comm->rank() != 0) {
@@ -518,8 +510,8 @@ TEST(FinishCounterTests, wait_with_timeout) {
         comm->nranks(), local_partitions.size()
     );
 
-    // none of the partitions are finished now. So, wait should timeout
-    EXPECT_THROW(finish_counter.wait(std::chrono::milliseconds(10)), std::runtime_error);
+    // Not finished yet.
+    EXPECT_FALSE(finish_counter.all_finished());
 
     // For nranks ranks, each rank sends 1 data chunk + 1 control, so
     // move_goalpost(rank, 2) per rank.
@@ -533,8 +525,6 @@ TEST(FinishCounterTests, wait_with_timeout) {
         finish_counter.add_finished_chunk();  // control chunk
     }
 
-    // After completion, wait should return immediately
-    EXPECT_NO_THROW(finish_counter.wait(std::chrono::milliseconds(10)));
     EXPECT_TRUE(finish_counter.all_finished());
 }
 
@@ -542,75 +532,18 @@ class FinishCounterMultithreadingTest
     : public ::testing::TestWithParam<
           std::tuple<rapidsmpf::shuffler::PartID, std::uint32_t>> {
   protected:
-    std::chrono::milliseconds const timeout{500};
     rapidsmpf::Rank const nranks{1};  // simulate a single rank
 
     std::unique_ptr<rapidsmpf::shuffler::detail::FinishCounter> finish_counter;
-    std::vector<rapidsmpf::shuffler::PartID> local_partitions;
     rapidsmpf::shuffler::PartID npartitions;
     std::uint32_t nthreads;
 
-    std::mutex mtx;
-    std::condition_variable cv;
-    std::vector<rapidsmpf::shuffler::PartID> finished_pids;
-    rapidsmpf::shuffler::PartID n_finished_pids;
-
     void SetUp() override {
         std::tie(npartitions, nthreads) = GetParam();
-        local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
-
-        n_finished_pids = 0;
 
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks, npartitions, [&]() {
-                {
-                    std::lock_guard lock(mtx);
-                    for (auto pid : local_partitions) {
-                        finished_pids.push_back(pid);
-                    }
-                }
-                cv.notify_all();
-            }
+            nranks, npartitions
         );
-    }
-
-    auto create_consumer_threads_with_cb() {
-        std::vector<std::future<void>> futures;
-        futures.reserve(nthreads);
-        for (std::uint32_t tid = 0; tid < nthreads; tid++) {
-            futures.emplace_back(std::async(std::launch::async, [&] {
-                while (true) {
-                    std::unique_lock lock(mtx);
-                    // wait until a new pid is added to the deque or all partitions are
-                    // finished
-                    EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
-                        return !finished_pids.empty() || n_finished_pids == npartitions;
-                    }));
-
-                    // consume the finished partition
-                    if (n_finished_pids == npartitions) {
-                        break;
-                    } else {
-                        EXPECT_FALSE(finished_pids.empty());
-                        finished_pids.pop_back();
-                        n_finished_pids++;
-                    }
-                }
-            }));
-        }
-        return futures;
-    }
-
-    auto create_consumer_threads_with_wait(auto&& wait_fn) {
-        std::vector<std::future<void>> futures;
-        for (std::uint32_t tid = 0; tid < nthreads; tid++) {
-            futures.emplace_back(std::async(std::launch::async, [&, tid] {
-                for (std::uint32_t i = tid; i < npartitions; i += nthreads) {
-                    wait_fn(static_cast<rapidsmpf::shuffler::PartID>(i));
-                }
-            }));
-        }
-        return futures;
     }
 
     void produce_data() {
@@ -634,40 +567,24 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
-    auto futures = create_consumer_threads_with_cb();
+TEST_P(FinishCounterMultithreadingTest, concurrent_all_finished_check) {
     produce_data();
+
+    std::atomic<std::uint32_t> n_checks{0};
+    std::vector<std::future<void>> futures;
+    for (std::uint32_t tid = 0; tid < nthreads; tid++) {
+        futures.emplace_back(std::async(std::launch::async, [&, tid] {
+            for (std::uint32_t i = tid; i < npartitions; i += nthreads) {
+                EXPECT_TRUE(finish_counter->all_finished());
+                n_checks.fetch_add(1, std::memory_order_relaxed);
+            }
+        }));
+    }
 
     EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
 
+    EXPECT_EQ(npartitions, n_checks);
     EXPECT_TRUE(finish_counter->all_finished());
-}
-
-TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
-    produce_data();
-    auto futures = create_consumer_threads_with_cb();
-    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
-
-    EXPECT_TRUE(finish_counter->all_finished());
-}
-
-TEST_P(FinishCounterMultithreadingTest, wait) {
-    produce_data();
-
-    std::atomic<std::uint32_t> n_wait_calls{0};
-    auto futures = create_consumer_threads_with_wait([&](auto /* pid */) {
-        finish_counter->wait(timeout);
-        n_wait_calls.fetch_add(1, std::memory_order_relaxed);
-    });
-
-    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
-
-    EXPECT_EQ(npartitions, n_wait_calls);
-    EXPECT_TRUE(finish_counter->all_finished());
-
-    // callbacks should still receive all finished partitions, even after the wait
-    auto cb_futures = create_consumer_threads_with_cb();
-    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
 
 class ContiguousPartitionAssignmentTest
