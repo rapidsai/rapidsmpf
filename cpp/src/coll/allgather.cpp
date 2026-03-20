@@ -382,6 +382,10 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
 }
 
 AllGather::~AllGather() noexcept {
+    RAPIDSMPF_EXPECTS_FATAL(
+        locally_finished_.load(std::memory_order_acquire),
+        "Destroying allgather without `insert_finished()`"
+    );
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
         comm_->progress_thread()->remove_function(function_id_);
@@ -562,8 +566,10 @@ ProgressThread::ProgressState AllGather::event_loop() {
          && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
          && inserted_.empty());
     bool const is_finished = finished();
+    // Finish progress only if we're inactive and all containers are empty (i.e. all work
+    // is done).
     bool const is_done =
-        !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
+        !active_.load(std::memory_order_acquire) && (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
         {
