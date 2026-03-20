@@ -27,4 +27,8 @@ rapids-pip-retry install \
     "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
+# Verify the rrun entry point was installed and works.
+which rrun
+rrun --help
+
 python -m pytest ./python/rapidsmpf/rapidsmpf/tests
