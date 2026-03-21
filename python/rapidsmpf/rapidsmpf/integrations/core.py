@@ -14,22 +14,21 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.config import (
-    Optional,
     OptionalBytes,
     Options,
 )
-from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
+from rapidsmpf.memory.buffer_resource import (
+    BufferResource,
+)
 from rapidsmpf.memory.spill_collection import SpillCollection
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.statistics import Statistics
 
 
 DataFrameT = TypeVar("DataFrameT")
@@ -702,38 +701,9 @@ def rmpf_worker_local_setup(
     )
     rmm.mr.set_current_device_resource(mr)
 
-    # Print statistics at worker shutdown.
-    if options.get_or_default(f"{option_prefix}statistics", default_value=False):
-        statistics = Statistics(enable=True, mr=mr)
-    else:
-        statistics = Statistics(enable=False)
-
-    # Create a buffer resource with a limiting availability function.
-    total_memory = rmm.mr.available_device_memory()[1]
-    spill_device = options.get_or_default(
-        f"{option_prefix}spill_device", default_value=0.5
-    )
-    memory_available = {
-        MemoryType.DEVICE: LimitAvailableMemory(
-            mr, limit=int(total_memory * spill_device)
-        )
-    }
-    pinned_mr = (
-        PinnedMemoryResource.make_if_available()
-        if options.get_or_default(
-            f"{option_prefix}spill_to_pinned_memory", default_value=False
-        )
-        else None
-    )
-    br = BufferResource(
-        mr,
-        pinned_mr=pinned_mr,
-        memory_available=memory_available,
-        periodic_spill_check=options.get_or_default(
-            f"{option_prefix}periodic_spill_check", default_value=Optional(1e-3)
-        ).value,
-        statistics=statistics,
-    )
+    # use options to create the buffer resource
+    br = BufferResource.from_options(mr, options)
+    statistics = br.statistics
 
     # If enabled, create a staging device buffer for the spilling to reduce
     # device memory pressure.
