@@ -31,8 +31,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         stream = cudf::get_default_stream();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
@@ -41,7 +39,6 @@ class BaseAllGatherTest : public ::testing::Test {
     void TearDown() override {
         br = nullptr;
         mr = nullptr;
-        GlobalEnvironment->barrier();
     }
 
     rmm::cuda_stream_view stream;

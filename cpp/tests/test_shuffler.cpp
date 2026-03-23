@@ -206,13 +206,10 @@ class MemoryAvailable_NumPartition
             total_num_partitions,
             br.get()
         );
-
-        GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
         shuffler.reset();
-        GlobalEnvironment->barrier();
     }
 
   protected:
@@ -273,13 +270,9 @@ class ConcurrentShuffleTest
         // these resources will be used by multiple threads to instantiate shufflers
         br = std::make_unique<rapidsmpf::BufferResource>(mr());
         stream = cudf::get_default_stream();
-
-        GlobalEnvironment->barrier();
     }
 
-    void TearDown() override {
-        GlobalEnvironment->barrier();
-    }
+    void TearDown() override {}
 
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
@@ -683,13 +676,10 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
             GlobalEnvironment->comm_, 0, nparts, br.get()
         );
-
-        GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
         shuffler.reset();
-        GlobalEnvironment->barrier();
     }
 
     void insert_chunks(
@@ -779,7 +769,6 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
 }
 
 TEST(ShufflerTest, multiple_shutdowns) {
-    GlobalEnvironment->barrier();
     auto& comm = GlobalEnvironment->comm_;
     rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
     auto shuffler =
@@ -799,8 +788,6 @@ TEST(ShufflerTest, multiple_shutdowns) {
         }));
     }
     std::ranges::for_each(futures, [](auto& future) { future.get(); });
-    shuffler.reset();
-    GlobalEnvironment->barrier();
 }
 
 // Test that multiple threads can call wait() concurrently.
