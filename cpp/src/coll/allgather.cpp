@@ -295,12 +295,12 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
 }
 
 void AllGather::insert_finished() {
-    locally_finished_.store(true, std::memory_order_release);
     inserted_.insert(
         detail::Chunk::from_empty(
             nlocal_insertions_.load(std::memory_order_acquire), comm_->rank()
         )
     );
+    locally_finished_.store(true, std::memory_order_release);
 }
 
 void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
