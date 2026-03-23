@@ -36,11 +36,11 @@
 namespace rapidsmpf::shuffler {
 
 /**
- * @brief Shuffle service for cuDF tables.
+ * @brief Shuffle service for all-to-all style communication of partitioned data.
  *
- * The `Shuffler` class provides an interface for performing a shuffle operation on cuDF
- * tables, using a partitioning scheme to distribute and collect data chunks across
- * different ranks.
+ * The `Shuffler` class provides an interface for performing a shuffle operation on
+ * distributed data, using a partitioning scheme to distribute and collect data chunks
+ * across different ranks.
  */
 class Shuffler {
   public:
