@@ -803,6 +803,92 @@ TEST(ShufflerTest, multiple_shutdowns) {
     GlobalEnvironment->barrier();
 }
 
+// Test that multiple threads can call wait() concurrently.
+TEST(Shuffler, concurrent_wait) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto stream = cudf::get_default_stream();
+    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+
+    // Use more partitions than ranks so each rank owns multiple partitions, ensuring
+    // multiple threads call wait() concurrently on the same shuffler.
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks()) * 8;
+    constexpr std::size_t total_num_rows = 1000;
+    constexpr cudf::hash_id hash_fn = cudf::hash_id::HASH_MURMUR3;
+    constexpr std::int64_t seed = 42;
+    constexpr auto wait_timeout = std::chrono::seconds{30};
+
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, &br);
+
+    cudf::table full_input = random_table_with_index(seed, total_num_rows, 0, 10);
+    auto [expected, owner] = rapidsmpf::partition_and_split(
+        full_input,
+        {1},
+        static_cast<std::int32_t>(total_num_partitions),
+        hash_fn,
+        seed,
+        stream,
+        &br,
+        rapidsmpf::AllowOverbooking::YES
+    );
+
+    {
+        std::vector<std::future<void>> insert_futures;
+        cudf::size_type row_offset = 0;
+        cudf::size_type part_size =
+            full_input.num_rows() / static_cast<cudf::size_type>(total_num_partitions);
+        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+            if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i, total_num_partitions)
+                == comm->rank())
+            {
+                cudf::size_type row_end = row_offset + part_size;
+                if (i == total_num_partitions - 1) {
+                    row_end = full_input.num_rows();
+                }
+                auto slice = cudf::slice(full_input, {row_offset, row_end}).at(0);
+                insert_futures.push_back(std::async(std::launch::async, [&, slice] {
+                    shuffler.insert(
+                        rapidsmpf::partition_and_pack(
+                            slice,
+                            {1},
+                            static_cast<std::int32_t>(total_num_partitions),
+                            hash_fn,
+                            seed,
+                            br.stream_pool().get_stream(),
+                            &br,
+                            rapidsmpf::AllowOverbooking::YES
+                        )
+                    );
+                }));
+            }
+            row_offset += part_size;
+        }
+        std::ranges::for_each(insert_futures, [](auto& f) { f.get(); });
+        shuffler.insert_finished();
+    }
+
+    auto local_pids = shuffler.local_partitions();
+    std::vector<std::future<void>> futures;
+    for (auto pid : local_pids) {
+        futures.push_back(std::async(std::launch::async, [&, pid] {
+            EXPECT_NO_THROW(shuffler.wait(wait_timeout));
+            auto chunks = shuffler.extract(pid);
+            auto result = rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(chunks), &br, rapidsmpf::AllowOverbooking::YES
+                ),
+                stream,
+                &br,
+                rapidsmpf::AllowOverbooking::YES
+            );
+            CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+                sort_table(result), sort_table(expected[pid])
+            );
+        }));
+    }
+    std::ranges::for_each(futures, [](auto& f) { f.get(); });
+}
+
 // Test that reusing an OpID after a completed shuffle doesn't cause cross-matching of
 // messages between the old and new shuffle.
 //
