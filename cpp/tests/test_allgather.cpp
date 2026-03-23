@@ -58,7 +58,11 @@ TEST_F(BaseAllGatherTest, timeout) {
         std::runtime_error
     );
     allgather.insert_finished();
-    auto result = allgather.wait_and_extract();
+    std::vector<rapidsmpf::PackedData> result;
+    EXPECT_NO_THROW(
+        result =
+            allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30})
+    );
     EXPECT_EQ(result.size(), 0);
 }
 
@@ -111,7 +115,9 @@ TEST_P(AllGatherTest, basic_allgather) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    results = allgather.wait_and_extract(ordered);
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
     EXPECT_TRUE(allgather.finished());
     if (n_inserts > 0) {
         EXPECT_EQ(n_inserts * comm->nranks(), results.size());
@@ -191,7 +197,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
 
     std::vector<rapidsmpf::PackedData> results;
     if (ordered == AllGather::Ordered::YES) {
-        results = allgather.wait_and_extract(ordered);
+        EXPECT_NO_THROW(
+            results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+        );
     } else {
         do {
             std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
@@ -246,7 +254,9 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    results = allgather.wait_and_extract(ordered);
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
 
     // results should be a triangular number of elements
     EXPECT_EQ((n_ranks - 1) * n_ranks / 2, results.size());
@@ -319,7 +329,11 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     }
 
     allgather->insert_finished();
-    auto results1 = allgather->wait_and_extract();
+    std::vector<rapidsmpf::PackedData> results1;
+    EXPECT_NO_THROW(
+        results1 =
+            allgather->wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30})
+    );
     // OK, it should be safe to reuse the opid now.
     allgather = std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, br.get());
 
@@ -333,7 +347,11 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
         );
     }
     allgather->insert_finished();
-    auto results2 = allgather->wait_and_extract();
+    std::vector<rapidsmpf::PackedData> results2;
+    EXPECT_NO_THROW(
+        results2 =
+            allgather->wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30})
+    );
     ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results1.size());
     for (auto&& result : results1) {
         int offset = *reinterpret_cast<int*>(result.metadata->data());
