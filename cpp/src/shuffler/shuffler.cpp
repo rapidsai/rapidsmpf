@@ -100,16 +100,9 @@ class Shuffler::Progress {
                         continue;
                     }
                     auto const p = safe_cast<std::size_t>(peer);
-                    if (peer_expected_[p] != 0 && peer_received_[p] == peer_expected_[p])
+                    while (peer_expected_[p] == 0
+                           || peer_received_[p] < peer_expected_[p])
                     {
-                        continue;  // this peer is already done
-                    }
-                    while (true) {
-                        if (peer_expected_[p] != 0
-                            && peer_received_[p] == peer_expected_[p])
-                        {
-                            break;
-                        }
                         auto msg = shuffler_.comm_->recv_from(peer, metadata_tag);
                         if (!msg) {
                             break;
@@ -225,6 +218,7 @@ class Shuffler::Progress {
 
         stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
+        // There are no messages to be posted, or waiting to be completed.
         bool const containers_empty =
             fire_and_forget_.empty()
             && std::ranges::all_of(
@@ -232,18 +226,18 @@ class Shuffler::Progress {
             )
             && in_transit_chunks_.empty() && in_transit_futures_.empty()
             && shuffler_.to_send_.empty();
-
-        // Signal can_extract_ when all chunks have been received and all
-        // internal containers are drained (sends posted, futures resolved).
-        // If we own no partitions we "can-extract" immediately, but we only wake a waiter
-        // once we've drained internal containers so that we can reuse the op_id for a
-        // subsequent shuffle.
-        // We also require locally_finished_ so that we don't signal before
-        // insert_finished() has queued the outbound control messages.
-        if (!shuffler_.can_extract_
-            && shuffler_.locally_finished_.load(std::memory_order_acquire)
-            && shuffler_.finish_counter_.all_finished() && containers_empty)
-        {
+        // We've inserted a finish message and we've received everything we expect.
+        bool const is_finished =
+            shuffler_.locally_finished_.load(std::memory_order_acquire)
+            && shuffler_.finish_counter_.all_finished();
+        // Finished and shuffler is no longer active.
+        bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
+                             && is_finished && containers_empty;
+        // Signal can_extract_ when all chunks have been received and all internal
+        // containers are drained. If we own no partitions we "can-extract" immediately,
+        // but we only wake a waiter once we've drained internal containers so that we can
+        // reuse the op_id for a subsequent shuffle.
+        if (!shuffler_.can_extract_ && is_finished && containers_empty) {
             {
                 std::lock_guard lock(shuffler_.mutex_);
                 shuffler_.can_extract_ = true;
@@ -253,12 +247,8 @@ class Shuffler::Progress {
                 callback();
             }
         }
-
-        // Return Done only if the shuffler is inactive (shutdown was called) _and_
-        // all containers are empty (all work is done).
-        return (!shuffler_.active_.load(std::memory_order_acquire) && containers_empty)
-                   ? ProgressThread::ProgressState::Done
-                   : ProgressThread::ProgressState::InProgress;
+        return is_done ? ProgressThread::ProgressState::Done
+                       : ProgressThread::ProgressState::InProgress;
     }
 
   private:

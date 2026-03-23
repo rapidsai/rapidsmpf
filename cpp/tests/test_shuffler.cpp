@@ -648,18 +648,17 @@ TEST(Shuffler, ShutdownWhilePaused) {
     auto shuffler =
         rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, br.get());
 
-    // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
-
     EXPECT_FALSE(progress_thread->is_running());
     shuffler.insert_finished();
-    // shutdown shuffler while progress thread is paused
-    shuffler.shutdown();
+    // Progress thread must be running before shuffle shutdown, otherwise we have some
+    // orphan messages in the shuffle that are never sent/received.
     progress_thread->resume();
     EXPECT_TRUE(progress_thread->is_running());
+    EXPECT_NO_THROW(shuffler.shutdown());
 }
 
-// check cudf pack conditionsfor empty table
+// check cudf pack conditions for empty table
 TEST(EmptyPartitions, cudf_pack) {
     auto stream = cudf::get_default_stream();
     cudf::table tbl = random_table_with_index(0, 0, 0, 0);
