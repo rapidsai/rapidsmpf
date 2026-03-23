@@ -14,6 +14,8 @@ CPP_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" ra
 # generate constraints (possibly pinning to oldest support versions of dependencies)
 rapids-generate-pip-constraints test_python "${PIP_CONSTRAINT}"
 
+TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
+
 # notes:
 #
 #   * echo to expand wildcard before adding `[test]` requires for pip
@@ -27,4 +29,4 @@ rapids-pip-retry install \
     "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
-python -m pytest ./python/rapidsmpf/rapidsmpf/tests
+python "${TIMEOUT_TOOL_PATH}" --enable-python 600 python -m pytest -v ./python/rapidsmpf/rapidsmpf/tests
