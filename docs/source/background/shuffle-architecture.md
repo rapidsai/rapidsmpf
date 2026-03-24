@@ -74,8 +74,8 @@ This diagram shows a {term}`Network` with three {term}`Rank`s in the middle of a
 
 As your program inserts chunks of data (see below), each chunk is assigned to
 a particular {term}`Rank`. In the diagram above, this is shown by color: each
-process (recall a process is uniquely identified by a `({term}`Rank`,
-{term}`Communicator`)` pair) has a particular color (the color of its circle) and each chunk with that color will
+process (recall a process is uniquely identified by a ({term}`Rank`,
+{term}`Communicator`) pair) has a particular color (the color of its circle) and each chunk with that color will
 be sent to its matching {term}`Rank`. So, for example, all of the green chunks will be
 extracted from the green process in the top-left. Note that the number of different
 chunk types (colors in this diagram) is typically larger than the number of {term}`Rank`s,
