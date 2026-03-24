@@ -33,6 +33,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """
+    Tear down a lingering single-worker context so the C++ periodic spill thread
+    cannot call into Python after pytest has begun interpreter shutdown.
+    """
+    try:
+        from rapidsmpf.integrations.single import destroy_worker
+
+        destroy_worker()
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="session")
 def _mpi_disabled(pytestconfig: pytest.Config) -> bool:
     """Check if MPI tests are disabled via command line argument."""

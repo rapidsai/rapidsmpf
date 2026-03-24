@@ -113,26 +113,25 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
-    #: ID from :meth:`SpillManager.add_spill_function` for :func:`spill_func` (see :meth:`__del__`).
+    #: ID from :meth:`SpillManager.add_spill_function` for :func:`spill_func`;
+    #: cleared by :meth:`unregister_python_spill_callback`.
     python_object_spill_function_id: int | None = field(default=None, init=False)
 
-    def __del__(self) -> None:
+    def unregister_python_spill_callback(self) -> None:
         """
-        Unregister the Python-object spill callback from the buffer resource.
+        Remove the Python-object spill callback from the buffer resource.
 
-        Notes
-        -----
-        The registered ``partial`` holds a strong reference to this context, so
-        destruction order may delay finalization until the spill manager drops
-        that callable (e.g. after :meth:`~SpillManager.remove_spill_function` or
-        when the :class:`~rapidsmpf.memory.buffer_resource.BufferResource` is freed).
+        Safe to call more than once. Call this from integration teardown
+        (e.g. :func:`rapidsmpf.integrations.single.destroy_worker`) so the C++
+        periodic spill thread cannot invoke :func:`spill_func` during interpreter
+        shutdown, when attribute access on this object may be unreliable.
         """
         fid = self.python_object_spill_function_id
         if fid is None:
             return
         with suppress(Exception):
             self.br.spill_manager.remove_spill_function(fid)
-            self.python_object_spill_function_id = None
+        self.python_object_spill_function_id = None
 
     def get_statistics(self) -> dict[str, dict[str, int | float]]:
         """
@@ -670,9 +669,12 @@ def spill_func(
     -------
     The actual amount of data spilled, in bytes.
     """
+    spill_collection = getattr(ctx, "spill_collection", None)
+    if spill_collection is None:
+        return 0
     if staging_buffer is not None and lock.acquire(blocking=False):
         try:
-            return ctx.spill_collection.spill(
+            return spill_collection.spill(
                 amount,
                 stream=DEFAULT_STREAM,
                 device_mr=mr,
@@ -680,7 +682,7 @@ def spill_func(
             )
         finally:
             lock.release()
-    return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
+    return spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
 def rmpf_worker_local_setup(
