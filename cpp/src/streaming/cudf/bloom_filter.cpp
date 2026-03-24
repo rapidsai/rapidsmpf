@@ -10,8 +10,9 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
-#include <rapidsmpf/streaming/coll/allgather.hpp>
+#include <rapidsmpf/streaming/coll/allreduce.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -24,11 +25,14 @@ Actor BloomFilter::build(
     co_await ctx_->executor()->schedule();
     co_await ch_in->shutdown_metadata();
     co_await ch_out->shutdown_metadata();
-    auto mr = ctx_->br()->device_mr();
-    auto stream = ctx_->br()->stream_pool().get_stream();
+    auto const& br = ctx_->br();
+    auto mr = br->device_mr();
+    auto stream = br->stream_pool().get_stream();
     CudaEvent event;
+    auto storage = rapidsmpf::BloomFilter::storage(num_filter_blocks_, stream, mr);
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage->data(), 0, storage->size(), stream));
     auto filter =
-        std::make_unique<rapidsmpf::BloomFilter>(num_filter_blocks_, seed_, stream, mr);
+        rapidsmpf::BloomFilter(num_filter_blocks_, seed_, storage->data(), stream);
     CudaEvent build_event;
     build_event.record(stream);
     while (!ch_out->is_shutdown()) {
@@ -40,42 +44,39 @@ Actor BloomFilter::build(
         chunk = co_await chunk.make_available(
             ctx_, -safe_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
         );
-        // Filter is allocated one `stream`, but we run the additions on the chunk's
+        // Filter is allocated on `stream`, but we run the additions on the chunk's
         // stream. The addition modifies global memory but we can safely launch two
         // kernels doing that concurrently because the updates are atomic.
         build_event.stream_wait(chunk.stream());
-        filter->add(chunk.table_view(), chunk.stream(), mr);
+        filter.add(chunk.table_view(), chunk.stream(), mr);
         cuda_stream_join(stream, chunk.stream(), &event);
     }
     if (comm_->nranks() > 1) {
-        auto metadata = std::make_unique<std::vector<std::uint8_t>>(1);
-        auto [res, _] = ctx_->br()->reserve(
-            MemoryType::DEVICE, filter->size(), AllowOverbooking::YES
+        auto reducer = streaming::AllReduce(
+            ctx_,
+            comm_,
+            br->move(std::move(storage), stream),
+            br->move(
+                rapidsmpf::BloomFilter::storage(num_filter_blocks_, stream, mr), stream
+            ),
+            tag,
+            [num_blocks = num_filter_blocks_,
+             seed = seed_,
+             stream](Buffer const* left, Buffer* right) {
+                auto const& in =
+                    rapidsmpf::BloomFilter::view(num_blocks, seed, left->data(), stream);
+                right->write_access([&](std::byte* out_bytes,
+                                        rmm::cuda_stream_view stream) {
+                    rapidsmpf::BloomFilter(num_blocks, seed, out_bytes, stream)
+                        .merge(in, stream);
+                });
+            }
         );
-        auto buf = ctx_->br()->allocate(stream, std::move(res));
-        // TODO: Add ability to take ownership of AlignedBuffer in Buffer.
-        buf->write_access([&](std::byte* data, rmm::cuda_stream_view stream) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                data, filter->data(), filter->size(), cudaMemcpyDefault, stream.value()
-            ));
-        });
-        // TODO: Use AllReduce once available. Needs ability to provide output buffer so
-        // the alignment is respected.
-        auto allgather = streaming::AllGather(ctx_, comm_, tag);
-        allgather.insert(0, {std::move(metadata), std::move(buf)});
-        allgather.insert_finished();
-        auto per_rank = co_await allgather.extract_all(streaming::AllGather::Ordered::NO);
-        auto other = rapidsmpf::BloomFilter(num_filter_blocks_, seed_, stream, mr);
-        for (auto&& data : per_rank) {
-            cuda_stream_join(data.data->stream(), stream, &event);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                other.data(), data.data->data(), other.size(), cudaMemcpyDefault, stream
-            ));
-            cuda_stream_join(stream, data.data->stream(), &event);
-            filter->merge(other, stream);
-        }
+        auto result = co_await reducer.extract();
+        auto [res, _] = br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
+        storage = br->move_to_device_buffer(std::move(result.second), res);
     }
-    co_await ch_out->send(Message{0, std::move(filter), {}, {}});
+    co_await ch_out->send(Message{0, std::move(storage), {}, {}});
     co_await ch_out->drain(ctx_->executor());
 }
 
@@ -87,13 +88,15 @@ Actor BloomFilter::apply(
 ) {
     streaming::ShutdownAtExit c{bloom_filter, ch_in, ch_out};
     co_await ctx_->executor()->schedule();
-    auto filter = (co_await bloom_filter->receive()).release<rapidsmpf::BloomFilter>();
+    auto storage = (co_await bloom_filter->receive()).release<rmm::device_buffer>();
     RAPIDSMPF_EXPECTS(
         (co_await bloom_filter->receive()).empty(),
         "Bloom filter channel contained more than one message"
     );
-    auto stream = filter.stream();
+    auto stream = storage.stream();
     CudaEvent event;
+    auto filter =
+        rapidsmpf::BloomFilter(num_filter_blocks_, seed_, storage.data(), stream);
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
