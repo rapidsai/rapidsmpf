@@ -206,8 +206,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
@@ -216,7 +214,6 @@ class BaseAllReduceTest : public ::testing::Test {
     void TearDown() override {
         br.reset();
         mr.reset();
-        GlobalEnvironment->barrier();
     }
 
     rapidsmpf::Communicator* comm;

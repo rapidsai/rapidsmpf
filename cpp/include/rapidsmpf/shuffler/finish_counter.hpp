@@ -4,11 +4,7 @@
  */
 #pragma once
 
-#include <chrono>
-#include <condition_variable>
-#include <functional>
 #include <mutex>
-#include <optional>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -42,27 +38,12 @@ namespace detail {
 class FinishCounter {
   public:
     /**
-     * @brief Callback function type called when all partitions are finished.
-     *
-     * @warning A callback must be fast and non-blocking and should not call any of the
-     * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
-     * to signal a separate thread to do the actual processing.
-     */
-    using FinishedCallback = std::function<void()>;
-
-    /**
      * @brief Construct a finish counter.
      *
      * @param nranks The total number of ranks participating in the shuffle.
      * @param n_local_partitions The number of local partitions owned by this rank.
-     * @param finished_callback The callback to notify when all partitions are finished
-     * (optional).
      */
-    FinishCounter(
-        Rank nranks,
-        PartID n_local_partitions,
-        FinishedCallback&& finished_callback = nullptr
-    );
+    FinishCounter(Rank nranks, PartID n_local_partitions);
 
     ~FinishCounter() = default;
 
@@ -99,48 +80,22 @@ class FinishCounter {
     [[nodiscard]] bool all_finished() const;
 
     /**
-     * @brief Wait for all partitions to be finished (blocking). Optionally a timeout
-     * (in ms) can be provided.
-     *
-     * This function blocks until all partitions are finished and ready to be processed.
-     * If the timeout is set and the partitions are not finished within the specified
-     * timeout, a std::runtime_error will be thrown.
-     *
-     * @note We previously supported per-partition completion mechanisms but since the
-     * usual usecase for a shuffle is a dense all to all this did not actually provide any
-     * additional concurrency. See also https://github.com/rapidsai/rapidsmpf/pull/914
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @throws std::runtime_error If timeout was set and the partitions are not all ready
-     * by the expiration time.
-     */
-    void wait(std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
     [[nodiscard]] std::string str() const;
 
   private:
+    /// Number of ranks we expect to hear from. Set to 0 when this rank owns no
+    /// partitions (nobody sends to it, so it is immediately finished).
     Rank const nranks_;
-    PartID n_unfinished_partitions_;  ///< aux counter to track the number of unfinished
-                                      ///< partitions; set to zero when all chunks arrive
 
     Rank n_ranks_with_goalpost_{0};  ///< how many ranks have called move_goalpost
     ChunkID total_chunk_goal_{0};  ///< sum of all rank chunk goals
     ChunkID total_finished_chunks_{0};  ///< global finished chunk counter
     std::vector<bool> rank_reported_;  ///< indexed by rank, prevents double-reporting
-    /// Set to true exactly once when all chunks have arrived. Ensures callback only fires
-    /// once.
-    bool all_done_{false};
 
-    mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
-    mutable std::condition_variable wait_cv_;
-
-    FinishedCallback finished_callback_ =
-        nullptr;  ///< callback to notify when a partition is finished
+    mutable std::mutex mutex_;
 };
 
 }  // namespace detail

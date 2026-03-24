@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -12,15 +13,20 @@
 #include <random>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <cuda/memory_resource>
+
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -236,3 +242,78 @@ inline void validate_packed_data(
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
 }
+
+/**
+ * @brief Device memory resource that can inject stream-ordered delays.
+ *
+ * When enabled, each allocation enqueues a host callback on the allocation
+ * stream that sleeps for a configurable duration. This blocks the CUDA stream
+ * (making `cudaEventQuery` return not-ready) without blocking the host thread,
+ * so the progress thread's event loop continues to run while data buffers
+ * appear unready.
+ */
+class DelayedMemoryResource {
+  public:
+    DelayedMemoryResource(
+        rmm::device_async_resource_ref upstream, std::chrono::milliseconds delay
+    )
+        : upstream_{upstream}, delay_{delay} {}
+
+    void* allocate_sync(std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL("synchronous allocation not supported", std::invalid_argument);
+    }
+
+    void deallocate_sync(void*, std::size_t, std::size_t) noexcept {
+        RAPIDSMPF_FATAL("synchronous deallocation not supported");
+    }
+
+    void* allocate(
+        rmm::cuda_stream_view stream,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        void* ptr = upstream_.allocate(stream, size, alignment);
+        if (size > 0) {
+            RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
+                stream.value(), sleep_on_stream, new std::chrono::milliseconds(delay_)
+            ));
+        }
+        return ptr;
+    }
+
+    void deallocate(
+        rmm::cuda_stream_view stream,
+        void* ptr,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        upstream_.deallocate(stream, ptr, size, alignment);
+    }
+
+    bool operator==(DelayedMemoryResource const& other) const noexcept {
+        return this == &other;
+    }
+
+    bool operator!=(DelayedMemoryResource const& other) const noexcept {
+        return !(this == &other);
+    }
+
+    friend void get_property(
+        DelayedMemoryResource const&, cuda::mr::device_accessible
+    ) noexcept {}
+
+  private:
+    static void CUDART_CB sleep_on_stream(void* user_data) {
+        auto* delay = static_cast<std::chrono::milliseconds*>(user_data);
+        std::this_thread::sleep_for(*delay);
+        delete delay;
+    }
+
+    cuda::mr::any_resource<cuda::mr::device_accessible> upstream_;
+    std::chrono::milliseconds delay_;
+};
+
+static_assert(cuda::mr::resource<DelayedMemoryResource>);
+static_assert(
+    cuda::mr::resource_with<DelayedMemoryResource, cuda::mr::device_accessible>
+);
