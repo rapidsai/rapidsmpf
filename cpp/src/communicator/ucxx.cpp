@@ -396,6 +396,20 @@ class SharedResources {
             {
                 progress_worker();
             }
+            requests.clear();
+            // Everyone has reported, release other ranks.
+            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+                if (rank == 0) {
+                    continue;
+                }
+                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+            }
+            while (std::ranges::any_of(requests, [](auto const& req) {
+                return !req->isCompleted();
+            }))
+            {
+                progress_worker();
+            }
         } else {  // non-root ranks respond to root's broadcast
             auto endpoint = get_endpoint(Rank(0));
 
@@ -405,6 +419,11 @@ class SharedResources {
             }
 
             req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
+            while (!req->isCompleted()) {
+                progress_worker();
+            }
+            // And wait for notification that everyone has reported.
+            req = endpoint->amRecv();
             while (!req->isCompleted()) {
                 progress_worker();
             }

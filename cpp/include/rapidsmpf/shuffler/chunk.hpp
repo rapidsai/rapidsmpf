@@ -56,9 +56,6 @@ using ChunkID = std::uint64_t;
  * - metadata: vector<std::uint8_t>, Metadata buffer
  */
 class Chunk {
-    // friend a method that creates a dummy chunk for testing
-    friend Chunk make_dummy_chunk(ChunkID, PartID);
-
   public:
     /**
      * @brief move constructor

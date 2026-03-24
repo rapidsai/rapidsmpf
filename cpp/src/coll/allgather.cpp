@@ -295,12 +295,12 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
 }
 
 void AllGather::insert_finished() {
-    locally_finished_.store(true, std::memory_order_release);
     inserted_.insert(
         detail::Chunk::from_empty(
             nlocal_insertions_.load(std::memory_order_acquire), comm_->rank()
         )
     );
+    locally_finished_.store(true, std::memory_order_release);
 }
 
 void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
@@ -382,6 +382,10 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
 }
 
 AllGather::~AllGather() noexcept {
+    RAPIDSMPF_EXPECTS_FATAL(
+        locally_finished_.load(std::memory_order_acquire),
+        "Destroying allgather without `insert_finished()`"
+    );
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
         comm_->progress_thread()->remove_function(function_id_);
@@ -562,8 +566,10 @@ ProgressThread::ProgressState AllGather::event_loop() {
          && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
          && inserted_.empty());
     bool const is_finished = finished();
+    // Finish progress only if we're inactive and all containers are empty (i.e. all work
+    // is done).
     bool const is_done =
-        !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
+        !active_.load(std::memory_order_acquire) && (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
         {
@@ -571,8 +577,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             can_extract_ = true;
         }
         cv_.notify_one();
-        std::function<void()> callback = std::move(finished_callback_);
-        if (callback) {
+        if (auto callback = std::move(finished_callback_)) {
             callback();
         }
     }

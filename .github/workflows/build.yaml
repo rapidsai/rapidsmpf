@@ -73,7 +73,9 @@ jobs:
       arch: "amd64"
       branch: ${{ inputs.branch }}
       build_type: ${{ inputs.build_type || 'branch' }}
-      container_image: "rapidsai/ci-conda:26.06-latest"
+      # TODO: switch to {rapids-version}-latest when there are 'ray' packages for Python 3.14
+      #  ref: https://github.com/rapidsai/rapidsmpf/issues/897
+      container_image: "rapidsai/ci-conda:26.06-cuda13.0.2-ubuntu22.04-py3.13"
       date: ${{ inputs.date }}
       node_type: "cpu8"
       script: "ci/build_docs.sh"

@@ -65,11 +65,9 @@ class StreamingShuffler : public BaseStreamingShuffle,
 
     void SetUp() override {
         BaseStreamingShuffle::SetUpWithThreads(GetParam());
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
     void TearDown() override {
-        GlobalEnvironment->barrier();
         BaseStreamingShuffle::TearDown();
     }
 
@@ -193,11 +191,9 @@ class ShufflerAsyncTest
         std::tie(n_inserts, n_partitions) = GetParam();
 
         BaseStreamingShuffle::SetUpWithThreads(4);
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
     void TearDown() override {
-        GlobalEnvironment->barrier();
         BaseStreamingShuffle::TearDown();
     }
 };

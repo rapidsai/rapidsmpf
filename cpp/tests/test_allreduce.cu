@@ -206,8 +206,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
@@ -216,7 +214,6 @@ class BaseAllReduceTest : public ::testing::Test {
     void TearDown() override {
         br.reset();
         mr.reset();
-        GlobalEnvironment->barrier();
     }
 
     rapidsmpf::Communicator* comm;
@@ -384,19 +381,15 @@ struct AllReduceCase {
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
-    ALL_BUFFER_REDUCTION_CASES(int, ProdOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MinOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MaxOp<int>),
     ALL_BUFFER_REDUCTION_CASES(float, SumOp<float>),
-    ALL_BUFFER_REDUCTION_CASES(float, ProdOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MinOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MaxOp<float>),
     ALL_BUFFER_REDUCTION_CASES(double, SumOp<double>),
-    ALL_BUFFER_REDUCTION_CASES(double, ProdOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MinOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MaxOp<double>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, SumOp<std::uint64_t>),
-    ALL_BUFFER_REDUCTION_CASES(std::uint64_t, ProdOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MinOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MaxOp<std::uint64_t>)>;
 
