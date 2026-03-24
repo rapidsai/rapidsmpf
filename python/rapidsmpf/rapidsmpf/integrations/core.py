@@ -701,6 +701,20 @@ def rmpf_worker_local_setup(
     )
     rmm.mr.set_current_device_resource(mr)
 
+    options_map = options.get_strings()
+    # Map prefixed integration keys to internal RapidsMPF option names.
+    for suffix, rmpf_key in (
+        ("spill_device", "spill_device_limit"),
+        ("spill_to_pinned_memory", "pinned_memory"),
+        ("periodic_spill_check", "periodic_spill_check"),
+    ):
+        custom_key = f"{option_prefix}{suffix}"
+        if custom_key in options_map:
+            options_map[rmpf_key] = options_map.pop(custom_key)
+
+    # overwrite the options with the new options map
+    options = Options(options_map)
+
     # use options to create the buffer resource
     br = BufferResource.from_options(mr, options)
     statistics = br.statistics
