@@ -104,6 +104,9 @@ class WorkerContext:
         A mapping from shuffler IDs to active shuffler instances.
     options
         Configuration options.
+    python_object_spill_function_id
+        ID from ``SpillManager.add_spill_function`` for ``spill_func``; cleared by
+        ``unregister_python_spill_callback``.
     """
 
     lock: ClassVar[threading.RLock] = threading.RLock()
@@ -113,8 +116,6 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
-    #: ID from :meth:`SpillManager.add_spill_function` for :func:`spill_func`;
-    #: cleared by :meth:`unregister_python_spill_callback`.
     python_object_spill_function_id: int | None = field(default=None, init=False)
 
     def unregister_python_spill_callback(self) -> None:
@@ -122,8 +123,8 @@ class WorkerContext:
         Remove the Python-object spill callback from the buffer resource.
 
         Safe to call more than once. Call this from integration teardown
-        (e.g. :func:`rapidsmpf.integrations.single.destroy_worker`) so the C++
-        periodic spill thread cannot invoke :func:`spill_func` during interpreter
+        (e.g. ``rapidsmpf.integrations.single.destroy_worker``) so the C++
+        periodic spill thread cannot invoke ``spill_func`` during interpreter
         shutdown, when attribute access on this object may be unreliable.
         """
         fid = self.python_object_spill_function_id
