@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 import weakref
+from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar
@@ -112,6 +113,26 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
+    #: ID from :meth:`SpillManager.add_spill_function` for :func:`spill_func` (see :meth:`__del__`).
+    python_object_spill_function_id: int | None = field(default=None, init=False)
+
+    def __del__(self) -> None:
+        """
+        Unregister the Python-object spill callback from the buffer resource.
+
+        Notes
+        -----
+        The registered ``partial`` holds a strong reference to this context, so
+        destruction order may delay finalization until the spill manager drops
+        that callable (e.g. after :meth:`~SpillManager.remove_spill_function` or
+        when the :class:`~rapidsmpf.memory.buffer_resource.BufferResource` is freed).
+        """
+        fid = self.python_object_spill_function_id
+        if fid is None:
+            return
+        with suppress(Exception):
+            self.br.spill_manager.remove_spill_function(fid)
+            self.python_object_spill_function_id = None
 
     def get_statistics(self) -> dict[str, dict[str, int | float]]:
         """
@@ -639,7 +660,7 @@ def spill_func(
     staging_buffer
         Optional buffer to stage data through.
     lock
-        Lock to protect access.
+        Lock to protect access to the staging buffer.
     mr
         Memory resource for device allocations.
     ctx
@@ -758,7 +779,7 @@ def rmpf_worker_local_setup(
     # Add the spill function using a negative priority (-10) such that spilling
     # of internal shuffle buffers (non-python objects) have higher priority than
     # spilling of the Python objects in the collection.
-    br.spill_manager.add_spill_function(
+    ctx.python_object_spill_function_id = br.spill_manager.add_spill_function(
         func=partial(
             spill_func,
             staging_buffer=spill_staging_buffer,
