@@ -85,8 +85,7 @@ class Buffer {
      *
      * A buffer may use `FixedSizedHostBufferT` only if its memory type is listed here.
      */
-    static constexpr std::array<MemoryType, 1> pinned_buffer_types{
-        MemoryType::PINNED_HOST
+    static constexpr std::array<MemoryType, 1> pinned_buffer_types{MemoryType::PINNED_HOST
     };
 
     /**
@@ -595,7 +594,8 @@ namespace detail {
  * @param src_ptrs Source pointers (must match size of @p dst_ptrs and @p sizes).
  * @param dst_ptrs Destination pointers (must match size of @p src_ptrs and @p sizes).
  * @param sizes Number of bytes to copy for each pair (must match size of @p src_ptrs).
- * @param stream CUDA stream on which the copies are enqueued.
+ * @param stream CUDA stream on which the copies are enqueued. If the stream is the
+ * default stream, the function will skip `cudaMemcpyBatchAsync`.
  *
  * @throws std::invalid_argument If the three spans have different sizes.
  */

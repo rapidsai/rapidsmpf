@@ -217,36 +217,39 @@ void detail::cuda_memcpy_batch_async(
     );
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(12800)
-    cudaMemcpyAttributes attrs{};
-    attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
-    std::array<size_t, 1> attrsIdxs{0};
+    if (!stream.is_default()) {  // skip if the stream is the default stream
+        cudaMemcpyAttributes attrs{};
+        attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
+        std::array<size_t, 1> attrsIdxs{0};
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(13000)
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
-        dst_ptrs.data(),
-        src_ptrs.data(),
-        sizes.data(),
-        src_ptrs.size(),
-        &attrs,
-        attrsIdxs.data(),
-        attrsIdxs.size(),
-        stream.value()
-    ));
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
+            dst_ptrs.data(),
+            src_ptrs.data(),
+            sizes.data(),
+            src_ptrs.size(),
+            &attrs,
+            attrsIdxs.data(),
+            attrsIdxs.size(),
+            stream.value()
+        ));
 #else
-    size_t failIdx{};
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
-        const_cast<void**>(dst_ptrs.data()),
-        const_cast<void**>(src_ptrs.data()),
-        sizes.data(),
-        src_ptrs.size(),
-        &attrs,
-        attrsIdxs.data(),
-        attrsIdxs.size(),
-        &failIdx,
-        stream.value()
-    ));
+        size_t failIdx{};
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyBatchAsync(
+            const_cast<void**>(dst_ptrs.data()),
+            const_cast<void**>(src_ptrs.data()),
+            sizes.data(),
+            src_ptrs.size(),
+            &attrs,
+            attrsIdxs.data(),
+            attrsIdxs.size(),
+            &failIdx,
+            stream.value()
+        ));
 #endif
-#else
+        return;
+    }
+#endif
     for (std::size_t i = 0; i < src_ptrs.size(); ++i) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             const_cast<void*>(dst_ptrs[i]),
@@ -256,7 +259,6 @@ void detail::cuda_memcpy_batch_async(
             stream.value()
         ));
     }
-#endif
 }
 
 void Buffer::record_write(rmm::cuda_stream_view stream) {
@@ -297,7 +299,8 @@ void Buffer::copy_to(
                 [&](FixedSizedHostBufferT const& buf) -> std::span<std::byte const> {
                     auto const block_idx = offset / buf->block_size();
                     auto const block_offset = offset % buf->block_size();
-                    // buf->block_data(block_idx) returns the size fixed to valid memory.
+                    // buf->block_data(block_idx) returns the size fixed to valid
+                    // memory.
                     return buf->block_data(block_idx).subspan(block_offset);
                 },
                 [&](auto& buf) -> std::span<std::byte const> {
@@ -425,11 +428,12 @@ void buffer_copy(
     }
     RAPIDSMPF_EXPECTS(statistics != nullptr, "the statistics pointer cannot be NULL");
 
-    // // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
+    // // We have to sync both before *and* after the memcpy. Otherwise,
+    // `src.stream()`
     // // might deallocate `src` before the memcpy enqueued on `dst.stream()` has
-    // completed. src.latest_write_event().stream_wait(dst.stream()); StreamOrderedTiming
-    // timing{dst.stream(), statistics}; dst.write_access([&](std::byte* dst_data,
-    // rmm::cuda_stream_view stream) {
+    // completed. src.latest_write_event().stream_wait(dst.stream());
+    // StreamOrderedTiming timing{dst.stream(), statistics};
+    // dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
     //     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
     //         dst_data + dst_offset,
     //         src.data() + src_offset,
@@ -438,12 +442,13 @@ void buffer_copy(
     //         stream
     //     ));
     // });
-    // // after the dst.write_access(), its last_write_event is recorded on dst.stream().
-    // So,
+    // // after the dst.write_access(), its last_write_event is recorded on
+    // dst.stream(). So,
     // // we need the src.stream() to wait for that event.
     // dst.latest_write_event().stream_wait(src.stream());
-    // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
-    // statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
+    // statistics->record_copy(src.mem_type(), dst.mem_type(), size,
+    // std::move(timing)); statistics->record_copy(src.mem_type(), dst.mem_type(),
+    // size, std::move(timing));
 
     src.copy_to(dst, size, dst_offset, src_offset, std::move(statistics));
 }
