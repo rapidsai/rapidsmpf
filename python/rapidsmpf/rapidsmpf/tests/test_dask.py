@@ -71,7 +71,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
         Client(cluster) as client,
     ):
         assert len(cluster.workers) == get_n_gpus()
-        bootstrap_dask_cluster(client, options=Options({"spill_device_limit": "0.1"}))
+        bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmpf_comm?
@@ -96,7 +96,7 @@ def test_dask_cudf_integration(
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
-                client, options=Options({"spill_device_limit": "0.1"})
+                client, options=Options({"dask_spill_device": "0.1"})
             )
             df = (
                 dask.datasets.timeseries(
@@ -150,7 +150,7 @@ def test_dask_cudf_integration_single(
         sort=sort,
         partition_count=partition_count,
         cluster_kind=cluster_kind,
-        config_options=Options({"spill_device_limit": "0.1"}),
+        config_options=Options({"single_spill_device": "0.1"}),
     )
     assert shuffled.npartitions == (partition_count or partition_count_in)
     got = shuffled.compute()
@@ -174,7 +174,7 @@ def test_dask_cudf_integration_single_raises() -> None:
 
 
 def test_bootstrap_dask_cluster_idempotent() -> None:
-    options = Options({"spill_device_limit": "0.1"})
+    options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, options=options)
         before = client.run(
@@ -188,7 +188,7 @@ def test_bootstrap_dask_cluster_idempotent() -> None:
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        bootstrap_dask_cluster(client, options=Options({"spill_device_limit": "0.1"}))
+        bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
 
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
@@ -254,7 +254,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
-                client, options=Options({"spill_device_limit": "0.1"})
+                client, options=Options({"dask_spill_device": "0.1"})
             )
             # We can run many simultaneous shuffles
             do_shuffle(seed=1, num_shuffles=max_num_shuffles)
@@ -323,7 +323,7 @@ def test_many_shuffles_single() -> None:
         )
 
     rapidsmpf.integrations.single.setup_worker(
-        options=Options({"spill_device_limit": "0.1"})
+        options=Options({"single_spill_device": "0.1"})
     )
     # We can run many concurrent shuffles
     do_shuffle(seed=1, num_shuffles=max_num_shuffles)
@@ -340,7 +340,7 @@ def test_many_shuffles_single() -> None:
 
 def test_gather_shuffle_statistics() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        config_options = Options({"statistics": "true"})
+        config_options = Options({"dask_statistics": "true"})
 
         df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
         shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
@@ -354,7 +354,7 @@ def test_gather_shuffle_statistics() -> None:
 def test_clear_shuffle_statistics() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
         config_options = Options(
-            {"statistics": "true", "dask_print_statistics": "false"}
+            {"dask_statistics": "true", "dask_print_statistics": "false"}
         )
 
         df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
@@ -386,7 +386,7 @@ def test_dask_cudf_join(
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
-                client, options=Options({"spill_device_limit": "0.1"})
+                client, options=Options({"dask_spill_device": "0.1"})
             )
             left0 = (
                 dask.datasets.timeseries(
@@ -495,7 +495,9 @@ def test_option_spill_to_pinned_memory(dask_spill_to_pinned_memory: str) -> None
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(
             client,
-            options=Options({"pinned_memory": dask_spill_to_pinned_memory}),
+            options=Options(
+                {"dask_spill_to_pinned_memory": dask_spill_to_pinned_memory}
+            ),
         )
 
         def check_worker(dask_worker: Worker) -> None:
