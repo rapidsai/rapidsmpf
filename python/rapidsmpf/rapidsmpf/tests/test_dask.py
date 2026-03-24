@@ -197,18 +197,10 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     max_num_shuffles = 10
 
     def clear_shuffles(dask_worker: Worker) -> None:
-        # Avoid leaking Shuffler objects between tests, by clearing
-        # finished shuffles and shutting down (and clearing) staged,
-        # but not finished, suffles. This shouldn't hang because in the
-        # "too many shuffles" case, we just stage shuffles without actually
-        # inserting (or extracting) any data, and so shutdown shouldn't block.
         ctx = get_worker_context(dask_worker)
-        for shuffle_id, shuffler in list(ctx.shufflers.items()):
-            if ctx.shufflers[shuffle_id].finished():
-                del ctx.shufflers[shuffle_id]
-            else:
-                shuffler.shutdown()
-                del ctx.shufflers[shuffle_id]
+        for shuffle_id in list(ctx.shufflers):
+            assert ctx.shufflers[shuffle_id].finished()
+            del ctx.shufflers[shuffle_id]
 
     def do_shuffle(seed: int, num_shuffles: int) -> None:
         """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
@@ -340,16 +332,10 @@ def test_many_shuffles_single() -> None:
     ctx = rapidsmpf.integrations.single.get_worker_context()
     assert len(ctx.shufflers) == 0
 
-    # Cleanup Shufflers to avoid leaking between tests.
-    # This shouldn't hang because we just stage shuffles without,
-    # without inserting or extracting any data, and so shutdown shouldn't block.
     context = rapidsmpf.integrations.single.get_worker_context()
-    for shuffle_id, shuffler in list(context.shufflers.items()):
-        if context.shufflers[shuffle_id].finished():
-            del context.shufflers[shuffle_id]
-        else:
-            shuffler.shutdown()
-            del context.shufflers[shuffle_id]
+    for shuffle_id in list(context.shufflers):
+        assert context.shufflers[shuffle_id].finished()
+        del context.shufflers[shuffle_id]
 
 
 def test_gather_shuffle_statistics() -> None:
