@@ -669,7 +669,7 @@ def spill_func(
     -------
     The actual amount of data spilled, in bytes.
     """
-    spill_collection = getattr(ctx, "spill_collection", None)
+    spill_collection: SpillCollection | None = getattr(ctx, "spill_collection", None)
     if spill_collection is None:
         return 0
     if staging_buffer is not None and lock.acquire(blocking=False):
