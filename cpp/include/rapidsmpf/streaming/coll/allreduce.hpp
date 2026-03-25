@@ -80,7 +80,7 @@ class AllReduce {
     coro::event
         event_{};  ///< Event tracking whether all data has arrived and can be extracted.
     std::shared_ptr<Context> ctx_;  ///< Streaming context.
-    coll::AllReduce reducer_;  ///< Underlying collective allgather.
+    coll::AllReduce reducer_;  ///< Underlying collective allreduce.
 };
 
 }  // namespace rapidsmpf::streaming

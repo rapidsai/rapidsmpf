@@ -27,14 +27,16 @@ Actor BloomFilter::build(
     co_await ch_out->shutdown_metadata();
     auto const& br = ctx_->br();
     auto mr = br->device_mr();
-    auto stream = br->stream_pool().get_stream();
+    auto filter_stream = br->stream_pool().get_stream();
     CudaEvent event;
-    auto storage = rapidsmpf::BloomFilter::storage(num_filter_blocks_, stream, mr);
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(storage->data(), 0, storage->size(), stream));
+    auto storage = rapidsmpf::BloomFilter::storage(num_filter_blocks_, filter_stream, mr);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemsetAsync(storage->data(), 0, storage->size(), filter_stream)
+    );
     auto filter =
-        rapidsmpf::BloomFilter(num_filter_blocks_, seed_, storage->data(), stream);
+        rapidsmpf::BloomFilter(num_filter_blocks_, seed_, storage->data(), filter_stream);
     CudaEvent build_event;
-    build_event.record(stream);
+    build_event.record(filter_stream);
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
@@ -44,29 +46,30 @@ Actor BloomFilter::build(
         chunk = co_await chunk.make_available(
             ctx_, -safe_cast<std::int64_t>(chunk.data_alloc_size(MemoryType::DEVICE))
         );
-        // Filter is allocated on `stream`, but we run the additions on the chunk's
+        // Filter is allocated on `filter_stream`, but we run the additions on the chunk's
         // stream. The addition modifies global memory but we can safely launch two
         // kernels doing that concurrently because the updates are atomic.
         build_event.stream_wait(chunk.stream());
         filter.add(chunk.table_view(), chunk.stream(), mr);
-        cuda_stream_join(stream, chunk.stream(), &event);
+        cuda_stream_join(filter_stream, chunk.stream(), &event);
     }
     if (comm_->nranks() > 1) {
         auto reducer = streaming::AllReduce(
             ctx_,
             comm_,
-            br->move(std::move(storage), stream),
+            br->move(std::move(storage), filter_stream),
             br->move(
-                rapidsmpf::BloomFilter::storage(num_filter_blocks_, stream, mr), stream
+                rapidsmpf::BloomFilter::storage(num_filter_blocks_, filter_stream, mr),
+                filter_stream
             ),
             tag,
             [num_blocks = num_filter_blocks_,
-             seed = seed_,
-             stream](Buffer const* left, Buffer* right) {
-                auto const& in =
-                    rapidsmpf::BloomFilter::view(num_blocks, seed, left->data(), stream);
+             seed = seed_](Buffer const* left, Buffer* right) {
                 right->write_access([&](std::byte* out_bytes,
                                         rmm::cuda_stream_view stream) {
+                    auto const in = rapidsmpf::BloomFilter::view(
+                        num_blocks, seed, left->data(), stream
+                    );
                     rapidsmpf::BloomFilter(num_blocks, seed, out_bytes, stream)
                         .merge(in, stream);
                 });
