@@ -34,9 +34,10 @@
  *   max_fill_MiB       — upper bound of the random fill-request distribution (MiB)
  *   pool_free_factor   — fraction of kMaxPool freed before probing
  *
- * Benchmark arguments: {block_size_MiB, max_fill_MiB}
- *   block_size_MiB ∈ {0, 1, 4, 8}   (0 → variable-size pool)
+ * Benchmark arguments: {block_size_MiB, max_fill_MiB, free_pct}
+ *   block_size_MiB ∈ {0, 1, 4, 8}     (0 → variable-size pool)
  *   max_fill_MiB   ∈ {128, 256, 512, 1024}
+ *   free_pct       ∈ {25, 50}          (percentage of kMaxPool to free before probing)
  */
 
 #include <algorithm>
@@ -68,7 +69,6 @@ constexpr std::uint64_t kRngSeed = 42;
 constexpr std::size_t kInitialPool = 8ULL * 1024 * 1024 * 1024;  // 8 GiB
 constexpr std::size_t kMaxPool = 16ULL * 1024 * 1024 * 1024;  // 16 GiB
 constexpr std::size_t kMinFillBytes = 1ULL << 20;  // 1 MiB
-constexpr double kPoolFreeFactor = 0.50;
 constexpr std::size_t kProbeStep = 1ULL << 20;  // 1 MiB bisection granularity
 
 rapidsmpf::PinnedPoolProperties make_pool_properties() {
@@ -281,12 +281,12 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
 
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
-    auto const block_size = static_cast<std::size_t>(state.range(0)) << 20;
+    auto const block_size     = static_cast<std::size_t>(state.range(0)) << 20;
     auto const max_fill_bytes = static_cast<std::size_t>(state.range(1)) << 20;
+    auto const free_factor    = static_cast<double>(state.range(2)) / 100.0;
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
-    auto const props = make_pool_properties();
-    auto const free_target =
-        static_cast<std::size_t>(kPoolFreeFactor * static_cast<double>(kMaxPool));
+    auto const props       = make_pool_properties();
+    auto const free_target = static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
 
     for (auto _ : state) {
         state.PauseTiming();
@@ -330,18 +330,20 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
             static_cast<double>(max_allocatable) / static_cast<double>(1ULL << 30);
         state.counters["block_size_MiB"] =
             static_cast<double>(block_size) / static_cast<double>(1ULL << 20);
-        state.counters["pool_free_factor"] = static_cast<double>(kPoolFreeFactor);
+        state.counters["pool_free_factor"] = free_factor;
         state.counters["max_fill_MiB"] =
             static_cast<double>(max_fill_bytes) / static_cast<double>(1ULL << 20);
     }
 }
 
 void register_fragmentation_args(benchmark::internal::Benchmark* b) {
-    for (int64_t const max_fill_mib : {128, 256, 512, 1024}) {
-        b->Args({0, max_fill_mib});  // variable-size pool
-        b->Args({1, max_fill_mib});  // fixed 1 MiB blocks
-        b->Args({4, max_fill_mib});  // fixed 4 MiB blocks
-        b->Args({8, max_fill_mib});  // fixed 8 MiB blocks
+    for (int64_t const free_pct : {25, 50}) {
+        for (int64_t const max_fill_mib : {128, 256, 512, 1024}) {
+            b->Args({0, max_fill_mib, free_pct});  // variable-size pool
+            b->Args({1, max_fill_mib, free_pct});  // fixed 1 MiB blocks
+            b->Args({4, max_fill_mib, free_pct});  // fixed 4 MiB blocks
+            b->Args({8, max_fill_mib, free_pct});  // fixed 8 MiB blocks
+        }
     }
 }
 
