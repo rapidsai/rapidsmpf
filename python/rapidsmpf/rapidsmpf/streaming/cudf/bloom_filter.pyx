@@ -1,18 +1,108 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_unique
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
-from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
-from rapidsmpf.streaming.core.channel cimport Channel
-from rapidsmpf.streaming.core.context cimport Context
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
+from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
+from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
+from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+
+import asyncio
+
+
+cdef extern from * nogil:
+    """
+    namespace {
+    void cpp_bloom_filter_build(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        rapidsmpf::streaming::BloomFilter& bloom_filter,
+        std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+        std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+        int32_t tag,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    bloom_filter.build(
+                        std::move(ch_in),
+                        std::move(ch_out),
+                        tag
+                    )
+                )
+            ),
+            "libcoro's spawn_detached() failed to spawn task"
+        );
+    }
+    }  // namespace
+    """
+    void cpp_bloom_filter_build(
+        shared_ptr[cpp_Context] ctx,
+        cpp_BloomFilter& bloom_filter,
+        shared_ptr[cpp_Channel] ch_in,
+        shared_ptr[cpp_Channel] ch_out,
+        int32_t tag,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    ) except +ex_handler
+
+
+cdef extern from * nogil:
+    """
+    namespace {
+    void cpp_bloom_filter_apply(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        rapidsmpf::streaming::BloomFilter& bloom_filter,
+        std::shared_ptr<rapidsmpf::streaming::Channel> bloom_filter_ch,
+        std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+        std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+        std::vector<cudf::size_type> keys,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    bloom_filter.apply(
+                        std::move(bloom_filter_ch),
+                        std::move(ch_in),
+                        std::move(ch_out),
+                        std::move(keys)
+                    )
+                )
+            ),
+            "libcoro's spawn_detached() failed to spawn task"
+        );
+    }
+    }  // namespace
+    """
+    void cpp_bloom_filter_apply(
+        shared_ptr[cpp_Context] ctx,
+        cpp_BloomFilter& bloom_filter,
+        shared_ptr[cpp_Channel] bloom_filter_ch,
+        shared_ptr[cpp_Channel] ch_in,
+        shared_ptr[cpp_Channel] ch_out,
+        vector[size_type] keys,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    ) except +ex_handler
 
 
 cdef class BloomFilter:
@@ -81,8 +171,9 @@ cdef class BloomFilter:
             ret = cpp_fitting_num_blocks(l2size)
         return ret
 
-    def build(
+    async def build(
         self,
+        Context ctx not None,
         Channel ch_in not None,
         Channel ch_out not None,
         int32_t tag,
@@ -92,30 +183,32 @@ cdef class BloomFilter:
 
         Parameters
         ----------
+        ctx
+            The current streaming context.
         ch_in
             Input channel of ``TableChunk`` objects.
         ch_out
             Output channel receiving a single bloom filter message.
         tag
             Disambiguating tag to combine filters across ranks.
-
-        Returns
-        -------
-        A streaming actor representing the asynchronous filter construction.
         """
-        cdef cpp_Actor _ret
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
         with nogil:
-            _ret = deref(self._handle).build(
+            cpp_bloom_filter_build(
+                ctx._handle,
+                deref(self._handle),
                 ch_in._handle,
                 ch_out._handle,
                 tag,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        return CppActor.from_handle(
-            make_unique[cpp_Actor](move(_ret)), owner=None
-        )
+        await ret
 
-    def apply(
+    async def apply(
         self,
+        Context ctx not None,
         Channel bloom_filter not None,
         Channel ch_in not None,
         Channel ch_out not None,
@@ -126,6 +219,8 @@ cdef class BloomFilter:
 
         Parameters
         ----------
+        ctx
+            The current streaming context.
         bloom_filter
             Channel containing the bloom filter (a single message).
         ch_in
@@ -134,20 +229,19 @@ cdef class BloomFilter:
             Output channel receiving filtered ``TableChunk`` objects.
         keys
             Indices selecting the key columns for hash fingerprints.
-
-        Returns
-        -------
-        A streaming actor representing the asynchronous filter application.
         """
         cdef vector[size_type] c_keys = tuple(keys)
-        cdef cpp_Actor c_ret
+        ret = asyncio.get_running_loop().create_future()
+        Py_INCREF(ret)
         with nogil:
-            c_ret = deref(self._handle).apply(
+            cpp_bloom_filter_apply(
+                ctx._handle,
+                deref(self._handle),
                 bloom_filter._handle,
                 ch_in._handle,
                 ch_out._handle,
-                c_keys,
+                move(c_keys),
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        return CppActor.from_handle(
-            make_unique[cpp_Actor](move(c_ret)), owner=None
-        )
+        await ret
