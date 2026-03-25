@@ -137,6 +137,13 @@ class BufferResource {
     [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
+     * @brief Get a reference to the pinned host memory resource.
+     *
+     * @return Reference to the pinned host memory resource.
+     */
+    [[nodiscard]] PinnedMemoryResource const& access_pinned_mr() const;
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
@@ -177,6 +184,9 @@ class BufferResource {
      * @return A pair containing the reservation and the amount of overbooking. On success
      * the size of the reservation always equals `size` and on failure the size always
      * equals zero (a zero-sized reservation never fails).
+     *
+     * @throws std::invalid_argument if the memory type is `MemoryType::PINNED_HOST` and
+     * the pinned memory resource is not available.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking

@@ -122,6 +122,33 @@ install(
   EXCLUDE_FROM_ALL
 )
 
+add_executable(bench_pinned_pool_fragmentation "bench_pinned_pool_fragmentation.cpp")
+set_target_properties(
+  bench_pinned_pool_fragmentation
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  bench_pinned_pool_fragmentation
+  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_pinned_pool_fragmentation
+  PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+)
+install(
+  TARGETS bench_pinned_pool_fragmentation
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
 add_executable(bench_pack "bench_pack.cpp")
 set_target_properties(
   bench_pack
