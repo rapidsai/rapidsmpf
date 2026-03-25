@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 import weakref
+from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, Protocol, TypeVar
@@ -14,22 +15,21 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.config import (
-    Optional,
     OptionalBytes,
     Options,
 )
-from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
+from rapidsmpf.memory.buffer_resource import (
+    BufferResource,
+)
 from rapidsmpf.memory.spill_collection import SpillCollection
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.statistics import Statistics
 
 
 DataFrameT = TypeVar("DataFrameT")
@@ -104,6 +104,9 @@ class WorkerContext:
         A mapping from shuffler IDs to active shuffler instances.
     options
         Configuration options.
+    python_object_spill_function_id
+        ID from ``SpillManager.add_spill_function`` for ``spill_func``; cleared by
+        ``unregister_python_spill_callback``.
     """
 
     lock: ClassVar[threading.RLock] = threading.RLock()
@@ -113,6 +116,23 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
+    python_object_spill_function_id: int | None = field(default=None, init=False)
+
+    def unregister_python_spill_callback(self) -> None:
+        """
+        Remove the Python-object spill callback from the buffer resource.
+
+        Safe to call more than once. Call this from integration teardown
+        (e.g. ``rapidsmpf.integrations.single.destroy_worker``) so the C++
+        periodic spill thread cannot invoke ``spill_func`` during interpreter
+        shutdown, when attribute access on this object may be unreliable.
+        """
+        fid = self.python_object_spill_function_id
+        if fid is None:
+            return
+        with suppress(Exception):
+            self.br.spill_manager.remove_spill_function(fid)
+        self.python_object_spill_function_id = None
 
     def get_statistics(self) -> dict[str, dict[str, int | float]]:
         """
@@ -640,7 +660,7 @@ def spill_func(
     staging_buffer
         Optional buffer to stage data through.
     lock
-        Lock to protect access.
+        Lock to protect access to the staging buffer.
     mr
         Memory resource for device allocations.
     ctx
@@ -650,9 +670,12 @@ def spill_func(
     -------
     The actual amount of data spilled, in bytes.
     """
+    spill_collection: SpillCollection | None = getattr(ctx, "spill_collection", None)
+    if spill_collection is None:
+        return 0
     if staging_buffer is not None and lock.acquire(blocking=False):
         try:
-            return ctx.spill_collection.spill(
+            return spill_collection.spill(
                 amount,
                 stream=DEFAULT_STREAM,
                 device_mr=mr,
@@ -660,7 +683,7 @@ def spill_func(
             )
         finally:
             lock.release()
-    return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
+    return spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
 def rmpf_worker_local_setup(
@@ -702,38 +725,31 @@ def rmpf_worker_local_setup(
     )
     rmm.mr.set_current_device_resource(mr)
 
-    # Print statistics at worker shutdown.
-    if options.get_or_default(f"{option_prefix}statistics", default_value=False):
-        statistics = Statistics(enable=True, mr=mr)
-    else:
-        statistics = Statistics(enable=False)
+    options_map = options.get_strings()
+    # Map prefixed integration keys to internal RapidsMPF option names.
+    for suffix, rmpf_key in (
+        ("statistics", "statistics"),
+        ("spill_to_pinned_memory", "pinned_memory"),
+        ("periodic_spill_check", "periodic_spill_check"),
+    ):
+        custom_key = f"{option_prefix}{suffix}"
+        if custom_key in options_map:
+            options_map[rmpf_key] = options_map.pop(custom_key)
 
-    # Create a buffer resource with a limiting availability function.
-    total_memory = rmm.mr.available_device_memory()[1]
-    spill_device = options.get_or_default(
-        f"{option_prefix}spill_device", default_value=0.5
-    )
-    memory_available = {
-        MemoryType.DEVICE: LimitAvailableMemory(
-            mr, limit=int(total_memory * spill_device)
-        )
-    }
-    pinned_mr = (
-        PinnedMemoryResource.make_if_available()
-        if options.get_or_default(
-            f"{option_prefix}spill_to_pinned_memory", default_value=False
-        )
-        else None
-    )
-    br = BufferResource(
-        mr,
-        pinned_mr=pinned_mr,
-        memory_available=memory_available,
-        periodic_spill_check=options.get_or_default(
-            f"{option_prefix}periodic_spill_check", default_value=Optional(1e-3)
-        ).value,
-        statistics=statistics,
-    )
+    # Convert spill_device (legacy float fraction, e.g. "0.5") to the
+    # spill_device_limit if spill_device is set.
+    spill_device_key = f"{option_prefix}spill_device"
+    if spill_device_key in options_map:
+        val = float(options_map.pop(spill_device_key))
+        total_memory = rmm.mr.available_device_memory()[1]
+        options_map["spill_device_limit"] = f"{int(total_memory * val)}"
+
+    # overwrite the options with the new options map
+    options = Options(options_map)
+
+    # use options to create the buffer resource
+    br = BufferResource.from_options(mr, options)
+    statistics = br.statistics
 
     # If enabled, create a staging device buffer for the spilling to reduce
     # device memory pressure.
@@ -773,7 +789,7 @@ def rmpf_worker_local_setup(
     # Add the spill function using a negative priority (-10) such that spilling
     # of internal shuffle buffers (non-python objects) have higher priority than
     # spilling of the Python objects in the collection.
-    br.spill_manager.add_spill_function(
+    ctx.python_object_spill_function_id = br.spill_manager.add_spill_function(
         func=partial(
             spill_func,
             staging_buffer=spill_staging_buffer,
