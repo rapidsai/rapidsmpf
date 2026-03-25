@@ -737,17 +737,12 @@ def rmpf_worker_local_setup(
             options_map[rmpf_key] = options_map.pop(custom_key)
 
     # Convert spill_device (legacy float fraction, e.g. "0.5") to the
-    # spill_device_limit format expected by BufferResource.from_options
-    # (percent string, e.g. "50%", or byte string, e.g. "1GiB").
+    # spill_device_limit if spill_device is set.
     spill_device_key = f"{option_prefix}spill_device"
     if spill_device_key in options_map:
-        val = options_map.pop(spill_device_key)
-        try:
-            fraction = float(val)
-            val = f"{fraction * 100:.4g}%"
-        except ValueError:
-            pass  # already in bytes/percent format, pass through as-is
-        options_map["spill_device_limit"] = val
+        val = float(options_map.pop(spill_device_key))
+        total_memory = rmm.mr.available_device_memory()[1]
+        options_map["spill_device_limit"] = f"{int(total_memory * val)}"
 
     # overwrite the options with the new options map
     options = Options(options_map)
