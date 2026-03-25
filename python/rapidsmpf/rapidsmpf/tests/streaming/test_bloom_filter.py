@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,7 +12,7 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.actor import run_actor_network
+from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.streaming.core.actor import CppActor, PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
@@ -29,6 +32,27 @@ if TYPE_CHECKING:
 def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
     table = plc.Table([plc.Column.from_array(values, stream=stream)])
     return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+
+
+@define_actor()
+async def bloom_pipeline(
+    ctx: Context,
+    bloom: BloomFilter,
+    ch_build: Channel[TableChunk],
+    ch_probe: Channel[TableChunk],
+    ch_out: Channel[TableChunk],
+) -> None:
+    ch_filter: Channel[BloomFilterChunk] = ctx.create_channel()
+    await asyncio.gather(
+        bloom.build(ctx, ch_in=ch_build, ch_out=ch_filter, tag=0),
+        bloom.apply(
+            ctx,
+            bloom_filter=ch_filter,
+            ch_in=ch_probe,
+            ch_out=ch_out,
+            keys=(0,),
+        ),
+    )
 
 
 def run_bloom_filter_pipeline(
@@ -52,23 +76,16 @@ def run_bloom_filter_pipeline(
 
     ch_build: Channel[TableChunk] = context.create_channel()
     ch_probe: Channel[TableChunk] = context.create_channel()
-    ch_filter: Channel[BloomFilterChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
-    actors = [
+    actors: list[CppActor | PyActor] = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
-        bloom.build(ch_in=ch_build, ch_out=ch_filter, tag=0),
-        bloom.apply(
-            bloom_filter=ch_filter,
-            ch_in=ch_probe,
-            ch_out=ch_out,
-            keys=(0,),
-        ),
+        bloom_pipeline(context, bloom, ch_build, ch_probe, ch_out),
     ]
     pull_actor, deferred = pull_from_channel(context, ch_out)
     actors.append(pull_actor)
-    run_actor_network(actors=actors)
+    run_actor_network(actors=actors, py_executor=ThreadPoolExecutor(max_workers=1))
     return deferred.release()
 
 
