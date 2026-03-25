@@ -93,6 +93,13 @@ PinnedMemoryResource const& BufferResource::access_pinned_mr() const {
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
+    RAPIDSMPF_EXPECTS(
+        mem_type != MemoryType::PINNED_HOST
+            || pinned_mr_ != PinnedMemoryResource::Disabled,
+        "pinned memory resource is not available",
+        std::invalid_argument
+    );
+
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];

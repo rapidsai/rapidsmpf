@@ -89,20 +89,23 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? "False" : s);
+        return parse_string<bool>(s.empty() ? "True" : s);
     });
     bool const pinned_memory_fixed_size =
         options.get<bool>("pinned_memory_fixed_size", [](auto const& s) {
             return parse_string<bool>(s.empty() ? "False" : s);
         });
-    if (pinned_memory || pinned_memory_fixed_size) {
+    if (is_pinned_memory_resources_supported()
+        && (pinned_memory || pinned_memory_fixed_size))
+    {
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
                 [](auto const& s) { return s.empty() ? 0 : parse_nbytes_unsigned(s); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
+                "pinned_max_pool_size",
+                [](auto const& s) -> std::optional<size_t> {
                     auto parsed = parse_optional(s);
                     if (parsed.has_value() && !parsed->empty()) {
                         return parse_nbytes_unsigned(*parsed);
@@ -114,7 +117,8 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
 
         if (pinned_memory_fixed_size) {
             auto const fixed_size_block_size = options.get<size_t>(
-                "pinned_memory_fixed_size_block_size", [](auto const& s) {
+                "pinned_memory_fixed_size_block_size",
+                [](auto const& s) {
                     return parse_nbytes_unsigned(s.empty() ? "1MiB" : s);
                 }
             );
