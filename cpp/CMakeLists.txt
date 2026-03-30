@@ -196,6 +196,7 @@ add_library(
   src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
+  src/memory/fixed_sized_host_buffer.cpp
   src/memory/host_buffer.cpp
   src/memory/host_memory_resource.cpp
   src/memory/memory_reservation.cpp
@@ -311,10 +312,8 @@ endif()
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro>
+         $<TARGET_NAME_IF_EXISTS:libcoro> $<TARGET_NAME_IF_EXISTS:cuCascade::cucascade>
   PRIVATE cuco::cuco
-          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
-          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
