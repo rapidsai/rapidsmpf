@@ -75,9 +75,9 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? "False" : s);
+        return parse_string<bool>(s.empty() ? "True" : s);
     });
-    if (pinned_memory) {
+    if (pinned_memory && is_pinned_memory_resources_supported()) {
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
