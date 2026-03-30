@@ -2,16 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int32_t, uint64_t
+from libc.stdint cimport uint64_t
 from libcpp.memory cimport shared_ptr, unique_ptr
-from libcpp.utility cimport move
-from libcpp.vector cimport vector
-from pylibcudf.libcudf.types cimport size_type
 
-from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
-from rapidsmpf.streaming.core.actor cimport cpp_Actor
-from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
 
 
@@ -24,17 +18,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/bloom_filter.hpp>" nogil:
             size_t num_filter_blocks,
         ) noexcept
         const shared_ptr[cpp_Communicator]& comm() noexcept
-        cpp_Actor build(
-            shared_ptr[cpp_Channel] ch_in,
-            shared_ptr[cpp_Channel] ch_out,
-            int32_t tag,
-        ) except +ex_handler
-        cpp_Actor apply(
-            shared_ptr[cpp_Channel] bloom_filter,
-            shared_ptr[cpp_Channel] ch_in,
-            shared_ptr[cpp_Channel] ch_out,
-            vector[size_type] keys,
-        ) except +ex_handler
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/bloom_filter.hpp>" nogil:
