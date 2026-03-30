@@ -22,12 +22,46 @@ struct BloomFilter {
      *
      * @param num_blocks Number of blocks in the filter.
      * @param seed Seed used for hashing each value.
-     * @param stream CUDA stream for allocations and device operations.
-     * @param mr Memory resource for allocations.
+     * @param storage Storage to view as a bloom filter, must be appropriately
+     * initialized.
+     * @param stream CUDA stream for device operations.
      */
     BloomFilter(
         std::size_t num_blocks,
         std::uint64_t seed,
+        void* storage,
+        rmm::cuda_stream_view stream
+    );
+
+    /**
+     * @brief Create a read-only filter.
+     *
+     * @param num_blocks Number of blocks in the filter.
+     * @param seed Seed used for hashing each value.
+     * @param storage View of storage, must be appropriately initialized.
+     * @param stream CUDA stream for device operations.
+     *
+     * @return A const-qualified bloom filter viewing the underlying storage.
+     */
+    static const BloomFilter view(
+        std::size_t num_blocks,
+        std::uint64_t seed,
+        void const* storage,
+        rmm::cuda_stream_view stream
+    );
+
+    /**
+     * @brief Create uninitialized storage for a filter.
+     *
+     * @param num_blocks Number of blocks in the filter.
+     * @param stream CUDA stream for device operations.
+     * @param mr Memory resource for allocations.
+     *
+     * @return Unique pointer to a device buffer containing storage for the requested
+     * number of filter blocks.
+     */
+    static std::unique_ptr<rmm::device_buffer> storage(
+        std::size_t num_blocks,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr
     );
@@ -53,7 +87,7 @@ struct BloomFilter {
      *
      * @throws std::logic_error If `other` is not compatible with this filter.
      */
-    void merge(BloomFilter& other, rmm::cuda_stream_view stream);
+    void merge(BloomFilter const& other, rmm::cuda_stream_view stream);
 
     /**
      * @brief Return a mask of which rows are contained in the filter.
@@ -68,7 +102,7 @@ struct BloomFilter {
         cudf::table_view const& values,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr
-    );
+    ) const;
 
     /**
      * @brief @return The stream the underlying storage is valid on.
@@ -79,6 +113,11 @@ struct BloomFilter {
      * @brief @return Pointer to the underlying storage.
      */
     [[nodiscard]] void* data() noexcept;
+
+    /**
+     * @brief @return Cnst Pointer to the underlying storage.
+     */
+    [[nodiscard]] void const* data() const noexcept;
 
     /**
      * @brief @return Size in bytes of the underlying storage.
@@ -96,7 +135,8 @@ struct BloomFilter {
   private:
     std::size_t num_blocks_;  ///< Number of blocks used in the filter.
     std::uint64_t seed_;  ///< Seed used when hashing values.
-    rmm::device_buffer storage_;  ///< Backing storage.
+    void* storage_;  ///< Backing storage.
+    rmm::cuda_stream_view stream_;  ///< Stream storage is valid on.
 };
 
 }  // namespace rapidsmpf

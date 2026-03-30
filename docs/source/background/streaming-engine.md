@@ -1,8 +1,8 @@
 # Streaming execution
 
-In addition to communications primitives, rapidsmpf provides building
+In addition to communication primitives, rapidsmpf provides building
 blocks for constructing and executing streaming pipelines for use in
-data processing engines. These communications primitives do not
+data processing engines. These communication primitives do not
 require use of the streaming execution framework, nor does use of the execution
 framework necessarily require using rapidsmpf communication primitives.
 
@@ -67,7 +67,7 @@ library.
 ```
 *A typical rapidsmpf {term}`Network` of {term}`Actor`s*
 
- Once constructed, the {term}`Network` of {term}`Actor`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the network.
+Once constructed, the {term}`Network` of {term}`Actor`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the network.
 
 
 ## Key Concepts

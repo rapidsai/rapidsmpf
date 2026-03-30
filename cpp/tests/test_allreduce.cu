@@ -566,8 +566,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto nranks = comm->nranks();
     constexpr int n_elements = 10;
 
-    std::atomic<bool> callback_called{false};
-    std::atomic<int> callback_count{0};
+    bool callback_called{false};
 
     std::vector<int> data(n_elements);
     for (int j = 0; j < n_elements; j++) {
@@ -577,24 +576,33 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
     auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
+    std::mutex m;
+    std::condition_variable cv;
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
         rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        [&callback_called, &callback_count]() {
-            callback_called.store(true, std::memory_order_release);
-            callback_count.fetch_add(1, std::memory_order_relaxed);
+        [&callback_called, &m, &cv]() {
+            // We use a cv in the test because the callback is called after a waiter at
+            // wait_and_extract is woken
+            {
+                std::lock_guard lck{m};
+                callback_called = true;
+            }
+            cv.notify_one();
         }
     );
 
+    {
+        std::unique_lock lck{m};
+        cv.wait(lck, [&]() { return callback_called; });
+    }
+    // Callback should wake waiter
+    EXPECT_TRUE(callback_called);
+
     auto [in_result, out_result] = allreduce.wait_and_extract();
-
-    // After wait_and_extract completes, callback should have been called exactly once
-    EXPECT_TRUE(callback_called.load(std::memory_order_acquire));
-    EXPECT_EQ(callback_count.load(std::memory_order_acquire), 1);
-
     auto reduced = unpack_to_host<int>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;
