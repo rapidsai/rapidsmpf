@@ -102,6 +102,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
     PRIVATE streaming/test_allgather.cpp
+            streaming/test_allreduce.cpp
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
