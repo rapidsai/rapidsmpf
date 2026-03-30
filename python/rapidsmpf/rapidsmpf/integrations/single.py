@@ -44,6 +44,8 @@ def get_worker_context() -> WorkerContext:
     --------
     setup_worker
         Must be called before this function.
+    destroy_worker
+        Clear the worker context.
     """
     with WorkerContext.lock:
         if _worker_context is None:
@@ -67,6 +69,23 @@ def setup_worker(options: Options = Options()) -> None:
             _worker_context.comm = new_communicator(
                 options, ProgressThread(_worker_context.statistics)
             )
+
+
+def destroy_worker() -> None:
+    """
+    Clear the single-worker context.
+
+    After this call, :func:`get_worker_context` will raise until
+    :func:`setup_worker` is called again.
+
+    See Also
+    --------
+    setup_worker
+        Create the worker context.
+    """
+    global _worker_context  # noqa: PLW0603
+    with WorkerContext.lock:
+        _worker_context = None
 
 
 def _get_occupied_ids() -> list[set[int]]:

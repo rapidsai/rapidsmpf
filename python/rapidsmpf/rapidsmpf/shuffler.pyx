@@ -189,36 +189,15 @@ cdef class Shuffler:
             ret = deref(self._handle).finished()
         return ret
 
-    def wait_any(self):
+    def wait(self):
         """
-        Wait for any partition to finish.
+        Wait for all partitions to finish (blocking).
 
-        This method blocks until at least one partition is marked as finished.
-        It is useful for processing partitions as they are completed.
-
-        Returns
-        -------
-        The partition ID of the next finished partition.
-        """
-        cdef uint32_t ret
-        with nogil:
-            ret = deref(self._handle).wait_any()
-        return ret
-
-    def wait_on(self, uint32_t pid):
-        """
-        Wait for a specific partition to finish.
-
-        This method blocks until the desired partition
-        is ready for processing.
-
-        Parameters
-        ----------
-        pid
-            The desired partition ID.
+        This method blocks until all partitions are finished and ready
+        to be extracted.
         """
         with nogil:
-            deref(self._handle).wait_on(pid)
+            deref(self._handle).wait()
 
     def local_partitions(self):
         """

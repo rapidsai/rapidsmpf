@@ -223,13 +223,14 @@ static __device__ void calculate_charge(double *charge, double discprice, double
 
         // disc_price
         result.push_back(
-            cudf::transform(
-                {extendedprice, discount},
+            cudf::transform_extended(
+                std::vector<cudf::transform_input>{extendedprice, discount},
                 udf_disc_price,
                 cudf::data_type(cudf::type_id::FLOAT64),
-                false,
+                cudf::udf_source_type::CUDA,
                 std::nullopt,
                 cudf::null_aware::NO,
+                std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()
@@ -237,13 +238,14 @@ static __device__ void calculate_charge(double *charge, double discprice, double
         );
         // charge
         result.push_back(
-            cudf::transform(
-                {result.back()->view(), tax},
+            cudf::transform_extended(
+                std::vector<cudf::transform_input>{result.back()->view(), tax},
                 udf_charge,
                 cudf::data_type(cudf::type_id::FLOAT64),
-                false,
+                cudf::udf_source_type::CUDA,
                 std::nullopt,
                 cudf::null_aware::NO,
+                std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()

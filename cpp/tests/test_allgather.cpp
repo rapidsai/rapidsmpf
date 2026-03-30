@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <chrono>
 #include <iterator>
-#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -32,8 +31,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         stream = cudf::get_default_stream();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
@@ -42,7 +39,6 @@ class BaseAllGatherTest : public ::testing::Test {
     void TearDown() override {
         br = nullptr;
         mr = nullptr;
-        GlobalEnvironment->barrier();
     }
 
     rmm::cuda_stream_view stream;
@@ -59,7 +55,11 @@ TEST_F(BaseAllGatherTest, timeout) {
         std::runtime_error
     );
     allgather.insert_finished();
-    auto result = allgather.wait_and_extract();
+    std::vector<rapidsmpf::PackedData> result;
+    EXPECT_NO_THROW(
+        result =
+            allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30})
+    );
     EXPECT_EQ(result.size(), 0);
 }
 
@@ -112,7 +112,9 @@ TEST_P(AllGatherTest, basic_allgather) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    results = allgather.wait_and_extract(ordered);
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
     EXPECT_TRUE(allgather.finished());
     if (n_inserts > 0) {
         EXPECT_EQ(n_inserts * comm->nranks(), results.size());
@@ -192,7 +194,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
 
     std::vector<rapidsmpf::PackedData> results;
     if (ordered == AllGather::Ordered::YES) {
-        results = allgather.wait_and_extract(ordered);
+        EXPECT_NO_THROW(
+            results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+        );
     } else {
         do {
             std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
@@ -247,7 +251,9 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    results = allgather.wait_and_extract(ordered);
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
 
     // results should be a triangular number of elements
     EXPECT_EQ((n_ranks - 1) * n_ranks / 2, results.size());
@@ -276,81 +282,6 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
 
     EXPECT_TRUE(allgather.finished());
 }
-
-/**
- * @brief Device memory resource that can inject stream-ordered delays.
- *
- * When enabled, each allocation enqueues a host callback on the allocation
- * stream that sleeps for a configurable duration. This blocks the CUDA stream
- * (making `cudaEventQuery` return not-ready) without blocking the host thread,
- * so the progress thread's event loop continues to run while data buffers
- * appear unready.
- */
-class DelayedMemoryResource {
-  public:
-    DelayedMemoryResource(
-        rmm::device_async_resource_ref upstream, std::chrono::milliseconds delay
-    )
-        : upstream_{upstream}, delay_{delay} {}
-
-    void* allocate_sync(std::size_t, std::size_t) {
-        RAPIDSMPF_FAIL("synchronous allocation not supported", std::invalid_argument);
-    }
-
-    void deallocate_sync(void*, std::size_t, std::size_t) noexcept {
-        RAPIDSMPF_FATAL("synchronous deallocation not supported");
-    }
-
-    void* allocate(
-        rmm::cuda_stream_view stream,
-        std::size_t size,
-        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) {
-        void* ptr = upstream_.allocate(stream, size, alignment);
-        if (size > 0) {
-            RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
-                stream.value(), sleep_on_stream, new std::chrono::milliseconds(delay_)
-            ));
-        }
-        return ptr;
-    }
-
-    void deallocate(
-        rmm::cuda_stream_view stream,
-        void* ptr,
-        std::size_t size,
-        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept {
-        upstream_.deallocate(stream, ptr, size, alignment);
-    }
-
-    bool operator==(DelayedMemoryResource const& other) const noexcept {
-        return this == &other;
-    }
-
-    bool operator!=(DelayedMemoryResource const& other) const noexcept {
-        return !(this == &other);
-    }
-
-    friend void get_property(
-        DelayedMemoryResource const&, cuda::mr::device_accessible
-    ) noexcept {}
-
-  private:
-    static void CUDART_CB sleep_on_stream(void* user_data) {
-        auto* delay = static_cast<std::chrono::milliseconds*>(user_data);
-        std::this_thread::sleep_for(*delay);
-        delete delay;
-    }
-
-    cuda::mr::any_resource<cuda::mr::device_accessible> upstream_;
-    std::chrono::milliseconds delay_;
-};
-
-static_assert(cuda::mr::resource<DelayedMemoryResource>);
-static_assert(
-    cuda::mr::resource_with<DelayedMemoryResource, cuda::mr::device_accessible>
-);
 
 // Test that reusing an OpID after a completed allgather doesn't cause cross-matching of
 // messages between the old and new collective.
@@ -395,15 +326,11 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     }
 
     allgather->insert_finished();
-    auto results1 = allgather->wait_and_extract();
-    ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results1.size());
-    for (auto&& result : results1) {
-        int offset = *reinterpret_cast<int*>(result.metadata->data());
-        EXPECT_NO_FATAL_FAILURE(
-            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
-        );
-    }
-
+    std::vector<rapidsmpf::PackedData> results1;
+    EXPECT_NO_THROW(
+        results1 =
+            allgather->wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30})
+    );
     // OK, it should be safe to reuse the opid now.
     allgather = std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, br.get());
 
@@ -417,7 +344,19 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
         );
     }
     allgather->insert_finished();
-    auto results2 = allgather->wait_and_extract();
+    std::vector<rapidsmpf::PackedData> results2;
+    EXPECT_NO_THROW(
+        results2 =
+            allgather->wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30})
+    );
+    ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results1.size());
+    for (auto&& result : results1) {
+        int offset = *reinterpret_cast<int*>(result.metadata->data());
+        EXPECT_NO_FATAL_FAILURE(
+            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
+        );
+    }
+
     ASSERT_EQ(static_cast<std::size_t>(n_inserts * comm->nranks()), results2.size());
 
     // Every result must carry data from the second allgather.

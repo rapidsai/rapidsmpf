@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -35,11 +36,11 @@
 namespace rapidsmpf::shuffler {
 
 /**
- * @brief Shuffle service for cuDF tables.
+ * @brief Shuffle service for all-to-all style communication of partitioned data.
  *
- * The `Shuffler` class provides an interface for performing a shuffle operation on cuDF
- * tables, using a partitioning scheme to distribute and collect data chunks across
- * different ranks.
+ * The `Shuffler` class provides an interface for performing a shuffle operation on
+ * distributed data, using a partitioning scheme to distribute and collect data chunks
+ * across different ranks.
  */
 class Shuffler {
   public:
@@ -99,19 +100,27 @@ class Shuffler {
         PartitionOwner partition_owner
     );
 
-    /// @copydoc detail::FinishCounter::FinishedCallback
-    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+    /**
+     * @brief Callback function type called when all partitions are finished and data
+     * can be extracted.
+     *
+     * @warning A callback must be fast and non-blocking. Ideally it should be used
+     * to signal a separate thread to do the actual processing.
+     */
+    using FinishedCallback = std::function<void()>;
 
     /**
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
-     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
+     * @param op_id The operation ID of the shuffle.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when a partition is finished.
+     * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
+     *
+     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
+     * locally.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -173,6 +182,9 @@ class Shuffler {
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
+     * @note Concurrent insertion by multiple threads is supported, the caller must ensure
+     * that `insert_finished()` is called _after_ all `insert()` calls have completed.
+     *
      * @param chunks A map of partition IDs and their packed chunks.
      */
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
@@ -182,6 +194,10 @@ class Shuffler {
      *
      * This informs the shuffler that this rank has finished inserting data. Must be
      * called exactly once.
+     *
+     * @note If multiple threads are `insert()`ing, you must establish a happens-before
+     * relationship between the completion of all `insert()`s and the final call to
+     * `insert_finished()`.
      */
     void insert_finished();
 
@@ -191,7 +207,7 @@ class Shuffler {
      * It is valid to extract a partition that has not yet been fully received.
      * In such cases, only the chunks received so far are returned.
      *
-     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
      * @param pid The ID of the partition to extract.
@@ -207,25 +223,13 @@ class Shuffler {
     [[nodiscard]] bool finished() const;
 
     /**
-     * @brief Wait for any partition to finish.
+     * @brief Wait for all partitions to finish (blocking).
      *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition ID of the next finished partition.
-     *
-     * @throws std::runtime_error if the timeout is reached.
-     */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for a specific partition to finish (blocking).
-     *
-     * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
      * @throws std::runtime_error if the timeout is reached.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
@@ -261,36 +265,12 @@ class Shuffler {
     static constexpr int chunk_id_counter_bits = 38;
 
     /**
-     * @brief The mask for the counter in a chunk ID.
-     */
-    static constexpr std::uint64_t counter_mask =
-        (std::uint64_t{1} << chunk_id_counter_bits) - 1;
-
-    /**
-     * @brief Extract the counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return The counter.
-     */
-    static constexpr std::uint64_t extract_counter(detail::ChunkID cid) {
-        return cid & counter_mask;
-    }
-
-    /**
      * @brief Extract the rank from a chunk ID.
      * @param cid The chunk ID.
      * @return The rank.
      */
     static constexpr Rank extract_rank(detail::ChunkID cid) {
         return safe_cast<Rank>(cid >> chunk_id_counter_bits);
-    }
-
-    /**
-     * @brief Extract the rank and counter from a chunk ID.
-     * @param cid The chunk ID.
-     * @return A pair of the rank and counter.
-     */
-    static constexpr std::pair<Rank, std::uint64_t> extract_info(detail::ChunkID cid) {
-        return std::make_pair(extract_rank(cid), extract_counter(cid));
     }
 
   private:
@@ -302,11 +282,11 @@ class Shuffler {
     void insert(detail::Chunk&& chunk);
 
     /**
-     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
+     * @brief Insert a chunk into the received box (the chunk is ready for the user).
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_ready_postbox(detail::Chunk&& chunk);
+    void insert_into_received(detail::Chunk&& chunk);
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -328,14 +308,18 @@ class Shuffler {
   private:
     BufferResource* br_;
     std::atomic<bool> active_{true};
-    detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
-                                              ///< ready to be sent to other ranks.
-    detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
-                                             ///< ready to be extracted by the user.
+    // Have we called `insert_finished()` on this rank.
+    std::atomic<bool> locally_finished_{false};
+    // Flipped to true exactly once when partitions are ready for extraction and we've
+    // posted all sends we're going to
+    bool can_extract_{false};
+    OpID const op_id_;
+    detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
+    detail::ReceivedChunks received_;  ///< Storage for received chunks that are
+                                       ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     ProgressThread::FunctionID progress_thread_function_id_;
-    OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
 
@@ -343,15 +327,14 @@ class Shuffler {
 
     detail::FinishCounter finish_counter_;
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
-    mutable std::mutex outbound_chunk_counter_mutex_;
-
-    // We protect ready_postbox extraction to avoid returning a chunk that is in the
-    // process of being spilled by `Shuffler::spill`.
-    mutable std::mutex ready_postbox_spilling_mutex_;
-
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
     std::shared_ptr<Statistics> statistics_;
+
+    // For notifications.
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    FinishedCallback finished_callback_;  ///< Called once when data can be extracted.
 
     class Progress;
 };

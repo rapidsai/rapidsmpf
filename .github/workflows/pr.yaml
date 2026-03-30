@@ -235,7 +235,9 @@ jobs:
       build_type: pull-request
       node_type: "cpu8"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.06-latest"
+      # TODO: switch to {rapids-version}-latest when there are 'ray' packages for Python 3.14
+      #  ref: https://github.com/rapidsai/rapidsmpf/issues/897
+      container_image: "rapidsai/ci-conda:26.06-cuda13.0.2-ubuntu22.04-py3.13"
       script: "ci/build_docs.sh"
   devcontainer:
     secrets: inherit

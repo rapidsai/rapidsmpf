@@ -219,7 +219,7 @@ class BulkRayShufflerActor(RapidsMPFActor):
 
     def extract(self) -> Iterator[tuple[int, plc.Table]]:
         """
-        Extract shuffled partitions as they become ready.
+        Extract shuffled partitions.
 
         Returns
         -------
@@ -227,8 +227,8 @@ class BulkRayShufflerActor(RapidsMPFActor):
         """
         from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-        while not self.shuffler.finished():
-            partition_id = self.shuffler.wait_any()
+        self.shuffler.wait()
+        for partition_id in self.shuffler.local_partitions():
             packed_chunks = self.shuffler.extract(partition_id)
             partition = unpack_and_concat(
                 unspill_partitions(
