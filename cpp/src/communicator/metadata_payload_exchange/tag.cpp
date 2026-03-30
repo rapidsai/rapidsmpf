@@ -132,6 +132,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
+    // TODO: To support op_id reuse, switch from recv_any to per-peer recv_from with
+    // expected/received count tracking (see rapidsai/rapidsmpf#927). Currently recv_any
+    // can consume messages belonging to a future collective on the same tag.
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag_);
         if (!msg) {

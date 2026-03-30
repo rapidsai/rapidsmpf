@@ -328,7 +328,6 @@ class Shuffler {
     // Flipped to true exactly once when partitions are ready for extraction and we've
     // posted all sends we're going to
     bool can_extract_{false};
-    OpID const op_id_;
     detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
     detail::ReceivedChunks received_;  ///< Storage for received chunks that are
                                        ///< ready to be extracted by the user.
