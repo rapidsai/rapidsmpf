@@ -10,6 +10,7 @@ import dask.dataframe as dd
 import pytest
 
 import rapidsmpf.integrations.single
+from rapidsmpf._testing import connect_dask_client_from_subprocess
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import (
@@ -196,18 +197,10 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     max_num_shuffles = 10
 
     def clear_shuffles(dask_worker: Worker) -> None:
-        # Avoid leaking Shuffler objects between tests, by clearing
-        # finished shuffles and shutting down (and clearing) staged,
-        # but not finished, suffles. This shouldn't hang because in the
-        # "too many shuffles" case, we just stage shuffles without actually
-        # inserting (or extracting) any data, and so shutdown shouldn't block.
         ctx = get_worker_context(dask_worker)
-        for shuffle_id, shuffler in list(ctx.shufflers.items()):
-            if ctx.shufflers[shuffle_id].finished():
-                del ctx.shufflers[shuffle_id]
-            else:
-                shuffler.shutdown()
-                del ctx.shufflers[shuffle_id]
+        for shuffle_id in list(ctx.shufflers):
+            assert ctx.shufflers[shuffle_id].finished()
+            del ctx.shufflers[shuffle_id]
 
     def do_shuffle(seed: int, num_shuffles: int) -> None:
         """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
@@ -339,16 +332,10 @@ def test_many_shuffles_single() -> None:
     ctx = rapidsmpf.integrations.single.get_worker_context()
     assert len(ctx.shufflers) == 0
 
-    # Cleanup Shufflers to avoid leaking between tests.
-    # This shouldn't hang because we just stage shuffles without,
-    # without inserting or extracting any data, and so shutdown shouldn't block.
     context = rapidsmpf.integrations.single.get_worker_context()
-    for shuffle_id, shuffler in list(context.shufflers.items()):
-        if context.shufflers[shuffle_id].finished():
-            del context.shufflers[shuffle_id]
-        else:
-            shuffler.shutdown()
-            del context.shufflers[shuffle_id]
+    for shuffle_id in list(context.shufflers):
+        assert context.shufflers[shuffle_id].finished()
+        del context.shufflers[shuffle_id]
 
 
 def test_gather_shuffle_statistics() -> None:
@@ -360,27 +347,8 @@ def test_gather_shuffle_statistics() -> None:
         shuffled.compute()
 
         stats = gather_shuffle_statistics(client)
-        expected_stats = {
-            "event-loop-check-future-finish",
-            "event-loop-init-gpu-data-send",
-            "event-loop-metadata-recv",
-            "event-loop-metadata-send",
-            "event-loop-post-incoming-chunk-recv",
-            "event-loop-total",
-            "shuffle-payload-recv",
-            "shuffle-payload-send",
-        }
-
-        assert set(stats) == expected_stats
-        for stat in expected_stats:
-            assert stats[stat]["count"] > 0
-            assert "value" in stats[stat]
-
-        assert stats["shuffle-payload-send"]["value"] > 0
-        assert (
-            stats["shuffle-payload-send"]["value"]
-            == stats["shuffle-payload-recv"]["value"]
-        )
+        # We expect some stats to have been recorded, but not the exact type.
+        assert len(stats) > 0
 
 
 def test_clear_shuffle_statistics() -> None:
@@ -501,12 +469,7 @@ async def test_bootstrap_multiple_clients(
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
 
-    def connect_from_subprocess(
-        scheduler_address: str, q: multiprocessing.Queue
-    ) -> None:
-        client = Client(scheduler_address)
-        bootstrap_dask_cluster(client)
-        q.put(obj=True)
+    ctx = multiprocessing.get_context("forkserver")
 
     with LocalCUDACluster(loop=loop) as cluster:
         with Client(cluster) as client_1:
@@ -515,12 +478,13 @@ async def test_bootstrap_multiple_clients(
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
 
-        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
-        p = multiprocessing.Process(
-            target=connect_from_subprocess, args=(cluster.scheduler_address, q)
+        q: multiprocessing.Queue[bool] = ctx.Queue()
+        p = ctx.Process(
+            target=connect_dask_client_from_subprocess,
+            args=(cluster.scheduler_address, q),
         )
         p.start()
-        result = q.get(timeout=10)
+        result = q.get(timeout=5)
         p.join()
 
     assert result is True

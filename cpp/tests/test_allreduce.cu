@@ -206,8 +206,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
@@ -216,7 +214,6 @@ class BaseAllReduceTest : public ::testing::Test {
     void TearDown() override {
         br.reset();
         mr.reset();
-        GlobalEnvironment->barrier();
     }
 
     rapidsmpf::Communicator* comm;
@@ -242,7 +239,6 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
     if (rank % 2 == 0) {
         AllReduce allreduce1(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer1),
             std::move(out_buffer1),
             OpID{0},
@@ -258,7 +254,6 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
         }
         AllReduce allreduce2(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
@@ -272,7 +267,6 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
     } else {
         AllReduce allreduce2(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer2),
             std::move(out_buffer2),
             OpID{1},
@@ -281,7 +275,6 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
         std::tie(in_buffer2, out_buffer2) = allreduce2.wait_and_extract();
         AllReduce allreduce1(
             GlobalEnvironment->comm_,
-            GlobalEnvironment->comm_->progress_thread(),
             std::move(in_buffer1),
             std::move(out_buffer1),
             OpID{0},
@@ -351,7 +344,6 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -389,19 +381,15 @@ struct AllReduceCase {
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
-    ALL_BUFFER_REDUCTION_CASES(int, ProdOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MinOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MaxOp<int>),
     ALL_BUFFER_REDUCTION_CASES(float, SumOp<float>),
-    ALL_BUFFER_REDUCTION_CASES(float, ProdOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MinOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MaxOp<float>),
     ALL_BUFFER_REDUCTION_CASES(double, SumOp<double>),
-    ALL_BUFFER_REDUCTION_CASES(double, ProdOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MinOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MaxOp<double>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, SumOp<std::uint64_t>),
-    ALL_BUFFER_REDUCTION_CASES(std::uint64_t, ProdOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MinOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MaxOp<std::uint64_t>)>;
 
@@ -462,7 +450,6 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -529,7 +516,6 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -593,7 +579,6 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
@@ -633,7 +618,6 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},

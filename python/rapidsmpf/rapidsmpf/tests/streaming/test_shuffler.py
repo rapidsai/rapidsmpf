@@ -13,7 +13,11 @@ import cudf
 import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
-from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
+from rapidsmpf.shuffler import PartitionAssignment
+from rapidsmpf.streaming.coll.shuffler import (
+    ShufflerAsync,
+    shuffler,
+)
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -30,6 +34,7 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.chunks.partition import (
         PartitionMapChunk,
         PartitionVectorChunk,
@@ -41,9 +46,9 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_single_rank_shuffler(
-    context: Context, stream: Stream, num_partitions: int
+    context: Context, comm: Communicator, stream: Stream, num_partitions: int
 ) -> None:
-    if context.comm().nranks != 1:
+    if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
     num_rows = 1000
@@ -93,6 +98,7 @@ def test_single_rank_shuffler(
     actors.append(
         shuffler(
             context,
+            comm,
             ch_in=ch2,
             ch_out=ch3,
             op_id=op_id,
@@ -106,13 +112,10 @@ def test_single_rank_shuffler(
     pull_actor, out_messages = pull_from_channel(context, ch_in=ch4)
     actors.append(pull_actor)
 
-    # Run all actors. This blocks until every actor has completed.
     run_actor_network(actors=actors)
 
-    # Unwrap the messages into table chunks.
     output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
 
-    # Concatenate all output chunks into a single cuDF DataFrame
     result = cudf.concat(
         [
             pylibcudf_to_cudf_dataframe(chunk.table_view(), column_names=df.columns)
@@ -146,14 +149,17 @@ async def generate_inputs(
 @define_actor()
 async def do_shuffle(
     context: Context,
+    comm: Communicator,
     ch_in: Channel[TableChunk],
     ch_out: Channel[TableChunk],
     op_id: int,
     num_partitions: int,
     *,
-    use_extract_any: bool,
+    partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
 ) -> None:
-    shuffle = ShufflerAsync(context, op_id, num_partitions)
+    shuffle = ShufflerAsync(
+        context, comm, op_id, num_partitions, partition_assignment=partition_assignment
+    )
     while (msg := await ch_in.recv(context)) is not None:
         chunk = TableChunk.from_message(msg)
         num_rows = chunk.table_view().num_rows()
@@ -163,36 +169,67 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    if use_extract_any:
-        while (out := await shuffle.extract_any_async(context)) is not None:
-            pid, data = out
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(data, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
-    else:
-        # TODO: this is only for a single rank
-        for pid in range(num_partitions):
-            pd = await shuffle.extract_async(context, pid)
-            assert pd is not None
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(pd, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
+    for pid in shuffle.local_partitions():
+        data = shuffle.extract(pid)
+        stream = context.get_stream_from_pool()
+        unpacked = TableChunk.from_pylibcudf_table(
+            unpack_and_concat(data, stream, context.br()),
+            stream,
+            exclusive_view=True,
+        )
+        await ch_out.send(context, Message(pid, unpacked))
     await ch_out.drain(context)
 
 
-@pytest.mark.parametrize("use_extract_any", [False, True])
+@pytest.mark.parametrize("num_partitions", [4, 8])
+def test_shuffler_runtime_obeys_contiguous_assignment(
+    context: Context,
+    comm: Communicator,
+    py_executor: ThreadPoolExecutor,
+    num_partitions: int,
+) -> None:
+    actors: list[CppActor | PyActor] = []
+
+    num_rows = 200
+    num_chunks = 3
+    op_id = 0
+    ch_in: Channel[TableChunk] = context.create_channel()
+    actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
+    ch_shuffled: Channel[TableChunk] = context.create_channel()
+    actors.append(
+        do_shuffle(
+            context,
+            comm,
+            ch_in,
+            ch_shuffled,
+            op_id,
+            num_partitions,
+            partition_assignment=PartitionAssignment.CONTIGUOUS,
+        )
+    )
+    actor, deferred = pull_from_channel(context, ch_shuffled)
+    actors.append(actor)
+
+    run_actor_network(actors=actors, py_executor=py_executor)
+    messages = deferred.release()
+    received_pids = [msg.sequence_number for msg in messages]
+
+    nranks = comm.nranks
+    rank = comm.rank
+    expected_local = list(
+        range(
+            rank * num_partitions // nranks,
+            (rank + 1) * num_partitions // nranks,
+        )
+    )
+    assert set(received_pids) == set(expected_local)
+    assert len(received_pids) == len(expected_local)
+
+
 def test_shuffler_object_interface(
     context: Context,
+    comm: Communicator,
     py_executor: ThreadPoolExecutor,
-    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
     actors: list[CppActor | PyActor] = []
 
@@ -206,11 +243,11 @@ def test_shuffler_object_interface(
     actors.append(
         do_shuffle(
             context,
+            comm,
             ch_in,
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=use_extract_any,
         )
     )
     actor, deferred = pull_from_channel(context, ch_shuffled)
@@ -220,10 +257,7 @@ def test_shuffler_object_interface(
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5
-    if use_extract_any:
-        assert {msg.sequence_number for msg in messages} == set(range(num_partitions))
-    else:
-        assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
+    assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
     chunks = [(msg.sequence_number, TableChunk.from_message(msg)) for msg in messages]
 
     full_column = np.arange(num_rows * num_chunks, dtype=np.int32)

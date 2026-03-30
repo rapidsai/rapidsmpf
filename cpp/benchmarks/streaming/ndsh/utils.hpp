@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <mpi.h>
@@ -19,6 +20,7 @@
 #include <cudf/wrappers/timestamps.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
@@ -290,18 +292,17 @@ struct ProgramOptions {
 ProgramOptions parse_arguments(int argc, char** argv);
 
 /**
- * @brief Create a streaming execution context for a query.
+ * @brief Create a streaming execution context and communicator for a query.
  *
  * @param arguments Arguments to configure the context
  * @param mr Pointer to memory resource to use for all allocations
  * @warning The memory resource _must_ be kept alive until the final usage of the returned
  * Context is complete.
  *
- * @return Shared pointer to new streaming context.
+ * @return Pair of shared pointer to new streaming context and communicator.
  */
-std::shared_ptr<streaming::Context> create_context(
-    ProgramOptions& arguments, RmmResourceAdaptor* mr
-);
+std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
+create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr);
 
 /**
  * @brief Finalize MPI when going out of scope.

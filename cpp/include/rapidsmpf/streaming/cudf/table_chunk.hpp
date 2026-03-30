@@ -265,6 +265,13 @@ class TableChunk {
      */
     [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 
+    /**
+     * @brief Return the shape of the table stored by the table chunk.
+     *
+     * @return Pair of number of rows and number of columns.
+     */
+    [[nodiscard]] std::pair<cudf::size_type, cudf::size_type> shape() const noexcept;
+
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a
     ///< table_view.

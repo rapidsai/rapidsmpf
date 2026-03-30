@@ -60,8 +60,8 @@ a high level, a shuffle operation involves these steps:
    followed by a finish marker.
 2. [rapidsmpf] The {term}`Shuffler` on that {term}`Rank` processes that chunk by either sending it to
    another {term}`Rank` or keeping it for itself.
-3. [user code] Each {term}`Rank` *extracts* chunks of data from each once it's
-   ready.
+3. [user code] Each {term}`Rank` *extracts* chunks of data from the {term}`Shuffler` once
+   it's ready.
 
 There are more details around how chunks are assigned to output {term}`Rank`s and how memory is
 managed. But at a high level, your program is responsible for inserting chunks
@@ -74,8 +74,8 @@ This diagram shows a {term}`Network` with three {term}`Rank`s in the middle of a
 
 As your program inserts chunks of data (see below), each chunk is assigned to
 a particular {term}`Rank`. In the diagram above, this is shown by color: each
-process (recall a process is uniquely identified by a `({term}`Rank`,
-{term}`Communicator`)` pair) has a particular color (the color of its circle) and each chunk with that color will
+process (recall a process is uniquely identified by a ({term}`Rank`,
+{term}`Communicator`) pair) has a particular color (the color of its circle) and each chunk with that color will
 be sent to its matching {term}`Rank`. So, for example, all of the green chunks will be
 extracted from the green process in the top-left. Note that the number of different
 chunk types (colors in this diagram) is typically larger than the number of {term}`Rank`s,

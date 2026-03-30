@@ -113,7 +113,7 @@ MPI::MPI(
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);
       }()},
-      logger_{rank_, std::move(options)},
+      logger_{std::make_shared<Logger>(rank_, std::move(options))},
       progress_thread_{std::move(progress_thread)} {
     check_mpi_thread_support();
 }

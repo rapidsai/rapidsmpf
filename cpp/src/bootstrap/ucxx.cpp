@@ -70,13 +70,13 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
 
     std::shared_ptr<ucxx::UCXX> comm;
 
-    auto precomputed_address_encoded = getenv_optional("RAPIDSMPF_ROOT_ADDRESS");
-    auto address_file = getenv_optional("RAPIDSMPF_ROOT_ADDRESS_FILE");
+    auto precomputed_address_encoded = getenv_optional("RRUN_ROOT_ADDRESS");
+    auto address_file = getenv_optional("RRUN_ROOT_ADDRESS_FILE");
 
     // Path 1: Early address mode for root rank in Slurm hybrid mode.
     // Rank 0 is launched first to create its address and write it to a file.
     // Parent will coordinate with other parents via PMIx, then launch worker ranks
-    // with RAPIDSMPF_ROOT_ADDRESS set. No PMIx put/barrier/get bootstrap coordination.
+    // with RRUN_ROOT_ADDRESS set. No PMIx put/barrier/get bootstrap coordination.
     if (ctx.rank == 0 && address_file.has_value()) {
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, std::nullopt, options);
@@ -114,11 +114,11 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         }
 
         // Unset now that bootstrap is complete; the variable is no longer used.
-        unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
+        unsetenv("RRUN_ROOT_ADDRESS_FILE");
     }
     // Path 2: Slurm hybrid mode for non-root ranks.
     // Parent process already coordinated the root address via PMIx and provided it
-    // via RAPIDSMPF_ROOT_ADDRESS environment variable (hex-encoded).
+    // via RRUN_ROOT_ADDRESS environment variable (hex-encoded).
     else if (precomputed_address_encoded.has_value() && ctx.rank != 0)
     {
         std::string precomputed_address = hex_decode(*precomputed_address_encoded);

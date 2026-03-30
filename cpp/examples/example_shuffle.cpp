@@ -64,7 +64,6 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmpf::shuffler::Shuffler shuffler(
         comm,
-        progress_thread,
         0,  // op_id
         total_num_partitions,
         &br,
@@ -93,22 +92,18 @@ int main(int argc, char** argv) {
     // distributed shuffle is being processed underneath.
     shuffler.insert(std::move(packed_inputs));
 
-    // When we are finished inserting to a specific partition, we tell the shuffler.
-    // Again, this is non-blocking and should be done as soon as we known that we don't
-    // have more inputs for a specific partition. In this case, we are finished with all
-    // partitions.
-    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
-    }
+    // When we are finished inserting data, we tell the shuffler. This sends one control
+    // message per target rank, informing each that this rank has finished inserting data.
+    shuffler.insert_finished();
 
     // Vector to hold the local results of the shuffle operation.
     std::vector<std::unique_ptr<cudf::table>> local_outputs;
 
-    // Wait for and process the shuffle results for each partition.
-    while (!shuffler.finished()) {
-        // Block until a partition is ready and retrieve its partition ID.
-        rapidsmpf::shuffler::PartID finished_partition = shuffler.wait_any();
+    // Wait for all partitions to finish.
+    shuffler.wait();
 
+    // Process the shuffle results for each partition.
+    for (auto finished_partition : shuffler.local_partitions()) {
         // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);
 
@@ -126,10 +121,12 @@ int main(int argc, char** argv) {
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
-    log.print("Finished shuffle with ", local_outputs.size(), " local output partitions");
+    log->print(
+        "Finished shuffle with ", local_outputs.size(), " local output partitions"
+    );
 
     // Log the statistics report.
-    log.print(stats->report());
+    log->print(stats->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

@@ -14,7 +14,7 @@ from rapidsmpf.integrations.core import (
     get_new_shuffle_id,
     get_shuffler,
     insert_partition,
-    rmpf_worker_setup,
+    rmpf_worker_local_setup,
 )
 from rapidsmpf.progress_thread import ProgressThread
 
@@ -44,6 +44,8 @@ def get_worker_context() -> WorkerContext:
     --------
     setup_worker
         Must be called before this function.
+    destroy_worker
+        Clear the worker context.
     """
     with WorkerContext.lock:
         if _worker_context is None:
@@ -59,19 +61,31 @@ def setup_worker(options: Options = Options()) -> None:
     ----------
     options
         Configuration options.
-
-    Warnings
-    --------
-    This function creates a new RMM memory pool, and
-    sets it as the current device resource.
     """
     global _worker_context  # noqa: PLW0603
     with WorkerContext.lock:
         if _worker_context is None:
-            comm = new_communicator(options, ProgressThread())
-            _worker_context = rmpf_worker_setup(
-                None, "single_", comm=comm, options=options
+            _worker_context = rmpf_worker_local_setup(None, "single_", options=options)
+            _worker_context.comm = new_communicator(
+                options, ProgressThread(_worker_context.statistics)
             )
+
+
+def destroy_worker() -> None:
+    """
+    Clear the single-worker context.
+
+    After this call, :func:`get_worker_context` will raise until
+    :func:`setup_worker` is called again.
+
+    See Also
+    --------
+    setup_worker
+        Create the worker context.
+    """
+    global _worker_context  # noqa: PLW0603
+    with WorkerContext.lock:
+        _worker_context = None
 
 
 def _get_occupied_ids() -> list[set[int]]:
@@ -101,8 +115,7 @@ def _barrier(
     """
     for shuffle_id in shuffle_ids:
         shuffler = get_shuffler(get_worker_context(), shuffle_id)
-        for pid in range(partition_count):
-            shuffler.insert_finished(pid)
+        shuffler.insert_finished()
 
 
 def _stage_shuffle(shuffle_id: int, partition_count: int) -> None:

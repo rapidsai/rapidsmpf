@@ -67,7 +67,6 @@ TEST(ShufflerManyStreams, Test) {
     // Create the shuffler on `shuffler_stream`.
     rapidsmpf::shuffler::Shuffler shuffler(
         GlobalEnvironment->comm_,
-        GlobalEnvironment->comm_->progress_thread(),
         0,  // op_id
         num_partitions,
         br.get()
@@ -81,13 +80,11 @@ TEST(ShufflerManyStreams, Test) {
         );
     }
 
-    // Insert all partitions.
     shuffler.insert(std::move(partitions));
-    shuffler.insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(num_partitions));
+    shuffler.insert_finished();
 
-    // Extract and validate the partitions as they finishes.
-    while (!shuffler.finished()) {
-        auto pid = shuffler.wait_any(wait_timeout);
+    shuffler.wait(wait_timeout);
+    for (auto pid : shuffler.local_partitions()) {
         std::vector<PackedData> partition_chunks = shuffler.extract(pid);
         for (PackedData& chunk : partition_chunks) {
             auto stream = chunk.data->stream();

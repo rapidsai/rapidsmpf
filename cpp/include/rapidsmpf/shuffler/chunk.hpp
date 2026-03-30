@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 namespace rapidsmpf::shuffler {
@@ -55,9 +56,6 @@ using ChunkID = std::uint64_t;
  * - metadata: vector<std::uint8_t>, Metadata buffer
  */
 class Chunk {
-    // friend a method that creates a dummy chunk for testing
-    friend Chunk make_dummy_chunk(ChunkID, PartID);
-
   public:
     /**
      * @brief move constructor
@@ -125,21 +123,6 @@ class Chunk {
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks() > 0;
     }
-
-    /**
-     * @brief Get the data of the message, as a new chunk.
-     *
-     * @param new_chunk_id The ID of the new chunk.
-     * @param br The buffer resource to use for copying the data.
-     * @return A new chunk containing the data of the message.
-     *
-     * @note This will create a copy of the packed data using a new stream from
-     * `br->stream_pool()`. If the message is a data message, the buffers will be moved
-     * to the new chunk. If the message is a control message, the metadata and data
-     * buffers will be nullptr. For a metadata-only message, the data buffer will be an
-     * empty HOST buffer.
-     */
-    Chunk get_data(ChunkID new_chunk_id, BufferResource* br);
 
     /**
      * @brief Get the size of the metadata of the message.
@@ -245,13 +228,18 @@ class Chunk {
      * @brief Create a chunk by deserializing a metadata message.
      *
      * @param msg The metadata message received from another rank.
+     * @param br Buffer resource for allocating a the data buffer of the deserialized
+     * message.
      * @param validate Whether to validate the metadata buffer.
      * @return The chunk.
      *
-     * @throws std::runtime_error if the metadata buffer does not follow the expected
-     * format and `validate` is true.
+     * @throws std::logic_error if the chunk is not a control message and no buffer
+     * resource is provided. @throws std::runtime_error if the metadata buffer does not
+     * follow the expected format and `validate` is true.
      */
-    static Chunk deserialize(std::vector<std::uint8_t> const& msg, bool validate = true);
+    static Chunk deserialize(
+        std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate = true
+    );
 
     /**
      * @brief Validate if a deserialized buffer follows the Chunk format.
@@ -317,44 +305,6 @@ class Chunk {
 };
 
 /**
- * @brief Represents a message indicating readiness to receive data for a specific chunk.
- */
-class ReadyForDataMessage {
-  public:
-    ChunkID cid;  ///< Chunk ID associated with the message.
-
-    /**
-     * @brief The size of the message in bytes when serialized.
-     *
-     * @return The size of the message in bytes.
-     */
-    static constexpr std::size_t byte_size = sizeof(ChunkID);
-
-    /**
-     * @brief Serializes the message into a byte array.
-     *
-     * @return A serialized byte vector representing the message.
-     */
-    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> pack();
-
-    /**
-     * @brief Deserializes a message from a byte array.
-     *
-     * @param msg A serialized message byte vector.
-     * @return A `ReadyForDataMessage` object.
-     */
-    [[nodiscard]] static ReadyForDataMessage unpack(
-        std::unique_ptr<std::vector<std::uint8_t>> const& msg
-    );
-
-    /**
-     * @brief Returns a description of this instance.
-     * @return The description.
-     */
-    [[nodiscard]] std::string str() const;
-};
-
-/**
  * @brief Overloads the stream insertion operator for the Chunk class.
  *
  * This function allows a description of a Chunk to be written to an output stream.
@@ -364,18 +314,6 @@ class ReadyForDataMessage {
  * @return A reference to the modified output stream.
  */
 std::ostream& operator<<(std::ostream& os, Chunk const& obj);
-
-/**
- * @brief Overloads the stream insertion operator for the ReadyForDataMessage class.
- *
- * This function allows a description of a ReadyForDataMessage to be written to an output
- * stream.
- *
- * @param os The output stream to write to.
- * @param obj The object to write.
- * @return A reference to the modified output stream.
- */
-std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj);
 
 }  // namespace detail
 }  // namespace rapidsmpf::shuffler

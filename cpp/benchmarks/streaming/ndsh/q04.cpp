@@ -78,6 +78,7 @@ std::vector<rapidsmpf::ndsh::groupby_request> final_groupby_requests() {
 
 rapidsmpf::streaming::Actor read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
@@ -95,12 +96,13 @@ rapidsmpf::streaming::Actor read_lineitem(
                        .build();
 
     return rapidsmpf::streaming::actor::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk
+        ctx, comm, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
 
 rapidsmpf::streaming::Actor read_orders(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
@@ -138,7 +140,7 @@ rapidsmpf::streaming::Actor read_orders(
                         );
 
     return rapidsmpf::streaming::actor::read_parquet(
-        ctx, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter)
+        ctx, comm, ch_out, num_producers, options, num_rows_per_chunk, std::move(filter)
     );
 }
 
@@ -188,6 +190,7 @@ rapidsmpf::streaming::Actor filter_lineitem(
 [[maybe_unused]]
 rapidsmpf::streaming::Actor fanout_bounded(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::Communicator> comm,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch1_out,
     std::vector<cudf::size_type> ch1_cols,
@@ -238,7 +241,7 @@ rapidsmpf::streaming::Actor fanout_bounded(
                 std::identity{}
             ))
         {
-            ctx->comm()->logger().print("Breaking after ", msg.sequence_number());
+            comm->logger()->print("Breaking after ", msg.sequence_number());
             break;
         };
     }
@@ -293,7 +296,7 @@ int main(int argc, char** argv) {
     auto mr = rmm::mr::cuda_async_memory_resource{};
     auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
-    auto ctx = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;
     std::vector<double> timings;
 
@@ -335,13 +338,19 @@ int main(int argc, char** argv) {
             auto grouped_chunkwise = ctx->create_channel();
 
             actors.push_back(read_lineitem(
-                ctx, lineitem, 4, arguments.num_rows_per_chunk, arguments.input_directory
+                ctx,
+                comm,
+                lineitem,
+                4,
+                arguments.num_rows_per_chunk,
+                arguments.input_directory
             ));
             actors.push_back(
                 filter_lineitem(ctx, lineitem, filtered_lineitem)
             );  // l_orderkey
             actors.push_back(read_orders(
                 ctx,
+                comm,
                 order,
                 4,
                 arguments.num_rows_per_chunk,
@@ -353,13 +362,13 @@ int main(int argc, char** argv) {
             auto bloom_filter_input = ctx->create_channel();
             auto orders_for_join = ctx->create_channel();
             actors.push_back(
-                fanout_bounded(ctx, order, bloom_filter_input, {0}, orders_for_join)
+                fanout_bounded(ctx, comm, order, bloom_filter_input, {0}, orders_for_join)
             );
 
             // Build bloom filter from filtered orders' o_orderkey
             auto bloom_filter_output = ctx->create_channel();
             auto bloom_filter = rapidsmpf::streaming::BloomFilter(
-                ctx, cudf::DEFAULT_HASH_SEED, num_filter_blocks
+                ctx, comm, cudf::DEFAULT_HASH_SEED, num_filter_blocks
             );
             actors.push_back(bloom_filter.build(
                 bloom_filter_input,
@@ -384,6 +393,7 @@ int main(int argc, char** argv) {
             actors.push_back(
                 rapidsmpf::ndsh::shuffle(
                     ctx,
+                    comm,
                     bloom_filtered_lineitem,
                     filtered_lineitem_shuffled,
                     {0},
@@ -397,6 +407,7 @@ int main(int argc, char** argv) {
                 actors.push_back(
                     rapidsmpf::ndsh::shuffle(
                         ctx,
+                        comm,
                         orders_for_join,
                         filtered_order_shuffled,
                         {0},
@@ -408,6 +419,7 @@ int main(int argc, char** argv) {
                 actors.push_back(
                     rapidsmpf::ndsh::left_semi_join_shuffle(
                         ctx,
+                        comm,
                         filtered_order_shuffled,
                         filtered_lineitem_shuffled,
                         orders_x_lineitem,
@@ -419,6 +431,7 @@ int main(int argc, char** argv) {
                 actors.push_back(
                     rapidsmpf::ndsh::left_semi_join_broadcast_left(
                         ctx,
+                        comm,
                         orders_for_join,
                         filtered_lineitem_shuffled,
                         orders_x_lineitem,
@@ -441,10 +454,11 @@ int main(int argc, char** argv) {
                 )
             );
             auto final_groupby_input = ctx->create_channel();
-            if (ctx->comm()->nranks() > 1) {
+            if (comm->nranks() > 1) {
                 actors.push_back(
                     rapidsmpf::ndsh::broadcast(
                         ctx,
+                        comm,
                         grouped_chunkwise,
                         final_groupby_input,
                         static_cast<rapidsmpf::OpID>(10 * i + op_id++),
@@ -458,7 +472,7 @@ int main(int argc, char** argv) {
                     )
                 );
             }
-            if (ctx->comm()->rank() == 0) {
+            if (comm->rank() == 0) {
                 auto final_groupby_output = ctx->create_channel();
                 actors.push_back(
                     rapidsmpf::ndsh::chunkwise_group_by(
@@ -505,19 +519,19 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        ctx->comm()->logger().print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report());
         ctx->statistics()->clear();
     }
 
-    if (ctx->comm()->rank() == 0) {
+    if (comm->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {
-            ctx->comm()->logger().print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " pipeline construction time [s]: ",
                 timings[rapidsmpf::safe_cast<std::size_t>(2 * i)]
             );
-            ctx->comm()->logger().print(
+            comm->logger()->print(
                 "Iteration ",
                 i,
                 " compute time [s]: ",

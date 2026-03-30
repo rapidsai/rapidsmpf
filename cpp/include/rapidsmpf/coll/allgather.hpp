@@ -447,7 +447,6 @@ class AllGather {
      * @brief Construct a new allgather operation.
      *
      * @param comm The communicator for communication.
-     * @param progress_thread The progress thread for asynchronous operations.
      * @param op_id Unique operation identifier for this allgather.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by
@@ -456,13 +455,15 @@ class AllGather {
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
      *
+     * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
+     * locally.
+     *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
      * ordered with respect to their own stream.
      */
     AllGather(
         std::shared_ptr<Communicator> comm,
-        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
@@ -477,6 +478,15 @@ class AllGather {
     AllGather(AllGather&&) = delete;
     /// @brief Deleted move assignment operator.
     AllGather& operator=(AllGather&&) = delete;
+
+    /**
+     * @brief Gets the communicator associated with this AllGather.
+     *
+     * @return Shared pointer to communicator.
+     */
+    [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
+        return comm_;
+    }
 
     /**
      * @brief Destructor.
@@ -532,8 +542,6 @@ class AllGather {
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
-    std::shared_ptr<ProgressThread>
-        progress_thread_;  ///< Progress thread for async operations
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::function<void(void)> finished_callback_{
@@ -551,6 +559,15 @@ class AllGather {
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread
     SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
+    // We track remote finishes separately from the finish_counter_ above since the path
+    // through the event loop state machine for a local finish marker is slightly
+    // different from a remote finish marker.
+    /// @brief Number of remote finish messages received.
+    Rank remote_finish_counter_;
+    /// @brief Total expected data-carrying messages.
+    std::uint64_t num_expected_messages_{0};
+    /// @brief Total data-carrying messages messages received so far.
+    std::uint64_t num_received_messages_{0};
     /// @brief Chunks being received from left neighbor
     std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
     /// @brief Fire-and-forget communication futures

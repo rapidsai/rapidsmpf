@@ -51,7 +51,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
             Statistics::disabled()  // statistics
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_, br
+            options, GlobalEnvironment->comm_->logger(), br
         );
     }
 
@@ -242,6 +242,36 @@ TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
     auto chunk2 = chunk.copy(res);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
+}
+
+TEST_F(StreamingTableChunk, ShapeOnAvailableAndSpilledChunk) {
+    constexpr unsigned int num_rows = 64;
+    constexpr std::int64_t seed = 2025;
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 5);
+    auto const expected_shape = std::pair<cudf::size_type, cudf::size_type>{
+        expect.num_rows(), expect.num_columns()
+    };
+
+    TableChunk device_chunk{std::make_unique<cudf::table>(expect), stream};
+    EXPECT_TRUE(device_chunk.is_available());
+    EXPECT_EQ(device_chunk.shape(), expected_shape);
+
+    auto [res, _] = br->reserve(
+        MemoryType::HOST,
+        device_chunk.data_alloc_size(MemoryType::DEVICE),
+        AllowOverbooking::YES
+    );
+    auto host_chunk = device_chunk.copy(res);
+
+    EXPECT_FALSE(host_chunk.is_available());
+    EXPECT_EQ(host_chunk.shape(), expected_shape);
+
+    device_chunk = host_chunk.make_available(
+        br->reserve_or_fail(host_chunk.make_available_cost(), MemoryType::DEVICE)
+    );
+    EXPECT_TRUE(device_chunk.is_available());
+    EXPECT_EQ(device_chunk.shape(), expected_shape);
 }
 
 TEST_P(StreamingTableChunk, DeviceToHostRoundTripCopy) {

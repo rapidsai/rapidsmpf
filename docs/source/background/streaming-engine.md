@@ -1,8 +1,8 @@
 # Streaming execution
 
-In addition to communications primitives, rapidsmpf provides building
+In addition to communication primitives, rapidsmpf provides building
 blocks for constructing and executing streaming pipelines for use in
-data processing engines. These communications primitives do not
+data processing engines. These communication primitives do not
 require use of the streaming execution framework, nor does use of the execution
 framework necessarily require using rapidsmpf communication primitives.
 
@@ -67,7 +67,7 @@ library.
 ```
 *A typical rapidsmpf {term}`Network` of {term}`Actor`s*
 
- Once constructed, the {term}`Network` of {term}`Actor`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the network.
+Once constructed, the {term}`Network` of {term}`Actor`s and their connecting {term}`Channel`s remains in place for the duration of the workflow. Each actor continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next actor(s) in the network.
 
 
 ## Key Concepts
@@ -78,5 +78,7 @@ The streaming engine is built around these core concepts (see the {doc}`/glossar
 - {term}`Actor` - Coroutine-based asynchronous operators (read, filter, select, join)
 - {term}`Channel` - Asynchronous messaging queues with backpressure
 - {term}`Message` - Type-erased containers for data payloads
-- {term}`Context` - Provides access to resources ({term}`Communicator`, {term}`BufferResource`, etc.)
+- {term}`Communicator` - The collective group of processes cooperating to
+  produce the result.
+- {term}`Context` - Provides access to resources ({term}`BufferResource`, etc.)
 - {term}`Buffer` - Raw memory allocations with attached CUDA streams

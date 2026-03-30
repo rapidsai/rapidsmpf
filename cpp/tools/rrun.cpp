@@ -957,7 +957,7 @@ int execute_slurm_hybrid_mode(Config& cfg) {
             coordinate_root_address_via_pmix(cfg, std::nullopt, cfg.verbose);
     }
 
-    unsetenv("RAPIDSMPF_ROOT_ADDRESS_FILE");
+    unsetenv("RRUN_ROOT_ADDRESS_FILE");
 
     int rank_offset = cfg.slurm->global_rank * cfg.nranks;
 
@@ -1022,8 +1022,8 @@ int execute_single_node_mode(Config& cfg) {
 
     // Set rrun coordination environment variables so the application knows
     // it's being launched by rrun and should use bootstrap mode
-    setenv("RAPIDSMPF_RANK", std::to_string(cfg.slurm->global_rank).c_str(), 1);
-    setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.slurm->ntasks).c_str(), 1);
+    setenv("RRUN_RANK", std::to_string(cfg.slurm->global_rank).c_str(), 1);
+    setenv("RRUN_NRANKS", std::to_string(cfg.slurm->ntasks).c_str(), 1);
 
     // Determine GPU for this Slurm task
     int gpu_id = -1;
@@ -1068,7 +1068,7 @@ AddressAndProcess launch_rank0_and_get_address(
                   << std::endl;
     }
 
-    setenv("RAPIDSMPF_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
+    setenv("RRUN_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
 
     int fd_out = -1, fd_err = -1;
     pid_t rank0_pid =
@@ -1410,9 +1410,9 @@ int launch_ranks_fork_based(
  * @brief Launch a single rank locally (fork-based).
  *
  * @param cfg Configuration.
- * @param global_rank Global rank number (used for RAPIDSMPF_RANK).
+ * @param global_rank Global rank number (used for RRUN_RANK).
  * @param local_rank Local rank for GPU assignment (defaults to global_rank).
- * @param total_ranks Total number of ranks across all tasks (used for RAPIDSMPF_NRANKS).
+ * @param total_ranks Total number of ranks across all tasks (used for RRUN_NRANKS).
  * @param root_address Optional pre-coordinated root address (for hybrid mode).
  * @param out_fd_stdout Output file descriptor for stdout.
  * @param out_fd_stderr Output file descriptor for stderr.
@@ -1437,19 +1437,19 @@ pid_t launch_rank_local(
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
             }
 
-            setenv("RAPIDSMPF_RANK", std::to_string(global_rank).c_str(), 1);
-            setenv("RAPIDSMPF_NRANKS", std::to_string(total_ranks).c_str(), 1);
+            setenv("RRUN_RANK", std::to_string(global_rank).c_str(), 1);
+            setenv("RRUN_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
             // Always set coord_dir for bootstrap initialization
-            // (needed even if using RAPIDSMPF_ROOT_ADDRESS for coordination)
+            // (needed even if using RRUN_ROOT_ADDRESS for coordination)
             if (!cfg.coord_dir.empty()) {
-                setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
+                setenv("RRUN_COORD_DIR", cfg.coord_dir.c_str(), 1);
             }
 
             // If root address was pre-coordinated by parent, set it (already hex-encoded)
             // This allows children to skip bootstrap coordination entirely
             if (root_address.has_value()) {
-                setenv("RAPIDSMPF_ROOT_ADDRESS", root_address->c_str(), 1);
+                setenv("RRUN_ROOT_ADDRESS", root_address->c_str(), 1);
             }
 
             // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion

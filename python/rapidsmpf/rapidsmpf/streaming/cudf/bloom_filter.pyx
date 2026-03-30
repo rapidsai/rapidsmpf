@@ -9,6 +9,7 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport size_type
 
+from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
@@ -21,8 +22,9 @@ cdef class BloomFilter:
     Parameters
     ----------
     ctx
-        Streaming context; filter construction is collective over the
-        communicator associated with this context.
+        Streaming context.
+    comm
+        The communicator the bloom filter construction is collective over.
     seed
         Seed used for hashing values into the bloom filter.
     num_filter_blocks
@@ -32,12 +34,15 @@ cdef class BloomFilter:
     def __init__(
         self,
         Context ctx not None,
+        Communicator comm not None,
         uint64_t seed,
         size_t num_filter_blocks,
     ):
+        self._comm = comm
         with nogil:
             self._handle = make_unique[cpp_BloomFilter](
                 ctx._handle,
+                comm._handle,
                 seed,
                 num_filter_blocks,
             )
@@ -45,6 +50,17 @@ cdef class BloomFilter:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @property
+    def comm(self):
+        """
+        Get the communicator used by the bloom filter.
+
+        Returns
+        -------
+        The communicator.
+        """
+        return self._comm
 
     @staticmethod
     def fitting_num_blocks(size_t l2size):

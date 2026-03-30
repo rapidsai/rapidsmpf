@@ -4,7 +4,6 @@
  */
 
 #include <functional>
-#include <numeric>
 #include <string>
 #include <vector>
 
@@ -250,7 +249,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
-        comm.logger().print(ss.str());
+        comm.logger()->print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -304,7 +303,6 @@ rapidsmpf::Duration do_run(
         RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
-            comm->progress_thread(),
             0,  // op_id
             total_num_partitions,
             br,
@@ -314,8 +312,8 @@ rapidsmpf::Duration do_run(
         // insert partitions into the shuffler
         shuffle_insert_fn(shuffler);
 
-        while (!shuffler.finished()) {
-            auto finished_partition = shuffler.wait_any();
+        shuffler.wait();
+        for (auto finished_partition : shuffler.local_partitions()) {
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
@@ -409,14 +407,10 @@ std::vector<InputPartitionsT> generate_input_partitions(
  * @param input_partitions This is either a vector<cudf::table> or
  * vector<unordered_map<PartID, PackedData>>. Former will be forwarded to to
  * partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
- * @param total_num_partitions Total number of partitions in the shuffler.
  * @param make_chunk_fn Function to make a chunk from a partition.
  */
 void do_insert(
-    rapidsmpf::shuffler::Shuffler& shuffler,
-    auto&& input_partitions,
-    rapidsmpf::shuffler::PartID const total_num_partitions,
-    auto&& make_chunk_fn
+    rapidsmpf::shuffler::Shuffler& shuffler, auto&& input_partitions, auto&& make_chunk_fn
 ) {
     // Convert a partition into chunks and insert into the shuffler.
     for (auto&& partition : input_partitions) {
@@ -424,9 +418,7 @@ void do_insert(
     }
 
     // Tell the shuffler that we have no more data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler.insert_finished(std::move(finished));
+    shuffler.insert_finished();
 }
 
 /**
@@ -475,12 +467,7 @@ rapidsmpf::Duration run_hash_partition_inline(
 
     return do_run(
         total_num_partitions, comm, args, stream, br, statistics, [&](auto& shuffler) {
-            do_insert(
-                shuffler,
-                std::move(input_partitions),
-                total_num_partitions,
-                std::move(make_chunk_fn)
-            );
+            do_insert(shuffler, std::move(input_partitions), std::move(make_chunk_fn));
         }
     );
 }
@@ -525,12 +512,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
 
     return do_run(
         total_num_partitions, comm, args, stream, br, statistics, [&](auto& shuffler) {
-            do_insert(
-                shuffler,
-                std::move(input_partitions),
-                total_num_partitions,
-                std::identity{}
-            );
+            do_insert(shuffler, std::move(input_partitions), std::identity{});
         }
     );
 }
@@ -592,7 +574,7 @@ int main(int argc, char** argv) {
         if (use_bootstrap) {
             std::cerr
                 << "Error: MPI communicator requires MPI initialization. Don't use with "
-                   "rrun or unset RAPIDSMPF_RANK."
+                   "rrun or unset RRUN_RANK."
                 << std::endl;
             return 1;
         }
@@ -636,7 +618,7 @@ int main(int argc, char** argv) {
         ss << "    Total Memory: "
            << rapidsmpf::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -645,7 +627,7 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log.print("CUPTI memory monitoring enabled");
+        log->print("CUPTI memory monitoring enabled");
     }
 #endif
 
@@ -672,7 +654,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -698,9 +680,9 @@ int main(int argc, char** argv) {
                   )
                << " (avg)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
     }
-    log.print(stats->report("Statistics (of the last run):"));
+    log->print(stats->report("Statistics (of the last run):"));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
@@ -711,7 +693,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log.print(
+            log->print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -720,12 +702,12 @@ int main(int argc, char** argv) {
 
             // Print callback summary for rank 0
             if (comm->rank() == 0) {
-                log.print(
+                log->print(
                     "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
                 );
             }
         } catch (std::exception const& e) {
-            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

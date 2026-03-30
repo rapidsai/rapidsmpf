@@ -17,7 +17,6 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import (
     Shuffler,
 )
@@ -33,20 +32,16 @@ if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
 
 
-@pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     total_num_partitions: int,
-    wait_on: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
-    progress_thread = ProgressThread()
 
     shuffler = Shuffler(
         comm,
-        progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,
@@ -61,19 +56,14 @@ def test_shuffler_single_nonempty_partition(
         stream=DEFAULT_STREAM,
     )
     shuffler.insert_chunks(packed_inputs)
-    shuffler.insert_finished(list(range(total_num_partitions)))
+    shuffler.insert_finished()
 
-    my_partitions = shuffler.local_partitions()
-    expected_partitions = set(my_partitions)
+    expected_partitions = set(shuffler.local_partitions())
 
     local_outputs = []
     extracted_partitions = set()
-    while not shuffler.finished():
-        if wait_on:
-            partition_id = my_partitions.pop()
-            shuffler.wait_on(partition_id)
-        else:
-            partition_id = shuffler.wait_any()
+    shuffler.wait()
+    for partition_id in shuffler.local_partitions():
         extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
@@ -138,11 +128,8 @@ def test_shuffler_uniform(
         ).items()
     }
 
-    progress_thread = ProgressThread()
-
     shuffler = Shuffler(
         comm,
-        progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         br=br,
@@ -164,12 +151,12 @@ def test_shuffler_uniform(
         shuffler.insert_chunks(packed_inputs)
 
     # Tell shuffler we are done adding data
-    shuffler.insert_finished(list(range(total_num_partitions)))
+    shuffler.insert_finished()
 
     expected_partitions = set(shuffler.local_partitions())
     extracted_partitions = set()
-    while not shuffler.finished():
-        partition_id = shuffler.wait_any()
+    shuffler.wait()
+    for partition_id in shuffler.local_partitions():
         extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
