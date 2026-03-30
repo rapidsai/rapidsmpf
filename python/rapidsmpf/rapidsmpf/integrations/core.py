@@ -708,17 +708,6 @@ def rmpf_worker_local_setup(
     else:
         statistics = Statistics(enable=False)
 
-    if (
-        options.get_or_default(f"{option_prefix}print_statistics", default_value=True)
-        and statistics.enabled
-    ):
-        weakref.finalize(
-            worker,
-            lambda name, stats: print(name, stats.report()),
-            name=str(worker),
-            stats=statistics,
-        )
-
     # Create a buffer resource with a limiting availability function.
     total_memory = rmm.mr.available_device_memory()[1]
     spill_device = options.get_or_default(
@@ -760,11 +749,26 @@ def rmpf_worker_local_setup(
             size=spill_staging_buffer_size, stream=DEFAULT_STREAM, mr=mr
         )
     )
+
     ctx = WorkerContext(
         br=br,
         statistics=statistics,
         options=options,
     )
+
+    if (
+        options.get_or_default(f"{option_prefix}print_statistics", default_value=True)
+        and statistics.enabled
+    ):
+        ref, name = (
+            (ctx, "rapidsmpf_worker_ctx") if worker is None else (worker, str(worker))
+        )
+        weakref.finalize(
+            ref,
+            lambda name, stats: print(name, stats.report()),
+            name=name,
+            stats=statistics,
+        )
 
     # Add the spill function using a negative priority (-10) such that spilling
     # of internal shuffle buffers (non-python objects) have higher priority than

@@ -309,8 +309,9 @@ def rapidsmpf_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    :class:`rapidsmpf.shuffler.Shuffler` object on the worker (using `rapidsmpf.shuffler.Shuffler.wait_on`
-    and `rapidsmpf.integrations.cudf.partition.unpack_and_concat`).
+    :class:`rapidsmpf.shuffler.Shuffler` object on the worker (using
+    `rapidsmpf.shuffler.Shuffler.wait` and
+    `rapidsmpf.integrations.cudf.partition.unpack_and_concat`).
 
     The extraction phase will include a single task for each of
     the ``partition_count_out`` partitions in the shuffled output

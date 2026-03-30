@@ -34,11 +34,9 @@ class StreamingAllGather
   public:
     void SetUp() override {
         BaseStreamingFixture::SetUpWithThreads(std::get<0>(GetParam()));
-        GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
-        GlobalEnvironment->barrier();
         BaseStreamingFixture::TearDown();
     }
 };

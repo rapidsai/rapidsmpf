@@ -28,12 +28,9 @@ class BaseCommunicatorTest : public ::testing::Test {
         );
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         stream = rmm::cuda_stream_default;
-        GlobalEnvironment->barrier();
     }
 
-    void TearDown() override {
-        GlobalEnvironment->barrier();
-    }
+    void TearDown() override {}
 
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rmm::mr::device_memory_resource> mr;

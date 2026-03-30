@@ -32,13 +32,11 @@ if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
 
 
-@pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     total_num_partitions: int,
-    wait_on: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -60,17 +58,12 @@ def test_shuffler_single_nonempty_partition(
     shuffler.insert_chunks(packed_inputs)
     shuffler.insert_finished()
 
-    my_partitions = shuffler.local_partitions()
-    expected_partitions = set(my_partitions)
+    expected_partitions = set(shuffler.local_partitions())
 
     local_outputs = []
     extracted_partitions = set()
-    while not shuffler.finished():
-        if wait_on:
-            partition_id = my_partitions.pop()
-            shuffler.wait_on(partition_id)
-        else:
-            partition_id = shuffler.wait_any()
+    shuffler.wait()
+    for partition_id in shuffler.local_partitions():
         extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
@@ -162,8 +155,8 @@ def test_shuffler_uniform(
 
     expected_partitions = set(shuffler.local_partitions())
     extracted_partitions = set()
-    while not shuffler.finished():
-        partition_id = shuffler.wait_any()
+    shuffler.wait()
+    for partition_id in shuffler.local_partitions():
         extracted_partitions.add(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
