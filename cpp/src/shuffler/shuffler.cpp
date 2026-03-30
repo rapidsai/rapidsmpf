@@ -165,6 +165,16 @@ class Shuffler::Progress {
 
         stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
+        // Signal the MPE that no more messages will be sent once all application
+        // messages have been flushed from to_send_ into the MPE.
+        if (!mpe_finish_called_
+            && shuffler_.locally_finished_.load(std::memory_order_acquire)
+            && shuffler_.to_send_.empty())
+        {
+            shuffler_.mpe_->finish();
+            mpe_finish_called_ = true;
+        }
+
         // There are no messages to be posted, or waiting to be completed.
         bool const containers_empty =
             shuffler_.mpe_->is_idle() && shuffler_.to_send_.empty();
@@ -195,6 +205,7 @@ class Shuffler::Progress {
 
   private:
     Shuffler& shuffler_;
+    bool mpe_finish_called_{false};
 
 #if RAPIDSMPF_VERBOSE_INFO
     std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
