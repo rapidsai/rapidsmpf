@@ -85,7 +85,8 @@ class Buffer {
      *
      * A buffer may use `FixedSizedHostBufferT` only if its memory type is listed here.
      */
-    static constexpr std::array<MemoryType, 1> pinned_buffer_types{MemoryType::PINNED_HOST
+    static constexpr std::array<MemoryType, 1> pinned_buffer_types{
+        MemoryType::PINNED_HOST
     };
 
     /**
@@ -317,6 +318,7 @@ class Buffer {
         return latest_write_event_;
     }
 
+    /// @copydoc latest_write_event() const
     [[nodiscard]] CudaEvent& latest_write_event() noexcept {
         return latest_write_event_;
     }

@@ -281,12 +281,13 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
 
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
-    auto const block_size     = static_cast<std::size_t>(state.range(0)) << 20;
+    auto const block_size = static_cast<std::size_t>(state.range(0)) << 20;
     auto const max_fill_bytes = static_cast<std::size_t>(state.range(1)) << 20;
-    auto const free_factor    = static_cast<double>(state.range(2)) / 100.0;
+    auto const free_factor = static_cast<double>(state.range(2)) / 100.0;
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
-    auto const props       = make_pool_properties();
-    auto const free_target = static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
+    auto const props = make_pool_properties();
+    auto const free_target =
+        static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
 
     for (auto _ : state) {
         state.PauseTiming();
