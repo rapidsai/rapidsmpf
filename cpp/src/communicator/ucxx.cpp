@@ -26,19 +26,22 @@ namespace {
 /**
  * @brief Control message types.
  *
- * There are 3 types of control messages:
  * 1. AssignRank: Sent by the root during `listener_callback` to each new
  * client (remote process) that connects to it. This message contains the rank
  * this client should respond to from now on.
- * 2. QueryRank: Sent by non-root ranks during init to register with the root.
- * 3. ReplyListenerAddress: Sent by the root during barrier to distribute all
- * listener addresses to every non-root rank.
+ * 2. QueryRank: Sent by non-root ranks during worker-address init to register
+ * with the root.
+ * 3. RegisterListenerAddress: Sent by a non-root rank during host/port init to
+ * inform the root of its listener address after receiving its assigned rank.
+ * 4. DistributeListenerAddresses: Sent by the root during the first barrier to
+ * broadcast all listener addresses to every non-root rank in a single message.
  *
  */
 enum class ControlMessage {
     AssignRank = 0,  ///< Root assigns a rank to incoming client connection
     QueryRank,  ///< Ask root for a rank
-    ReplyListenerAddress  ///< Root distributes a listener address to non-root ranks
+    RegisterListenerAddress,  ///< Non-root informs root of its listener address
+    DistributeListenerAddresses  ///< Root broadcasts all listener addresses
 };
 
 enum class ListenerAddressType {
@@ -86,6 +89,12 @@ class HostFuture {
         req_;  ///< The UCXX request associated with the operation.
     std::unique_ptr<std::vector<std::uint8_t>> data_buffer_;  ///< The data buffer.
 };
+
+void encode(void* dest, void const* src, std::size_t bytes, std::size_t& offset);
+
+std::unique_ptr<std::vector<std::uint8_t>> listener_address_pack(
+    ListenerAddress const& listener_address
+);
 
 std::unique_ptr<std::vector<std::uint8_t>> control_pack(
     ControlMessage control, ControlData data
@@ -259,12 +268,8 @@ class SharedResources {
     void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         RAPIDSMPF_EXPECTS(
-            rank_to_endpoint_.emplace(rank, endpoint).second,
+            rank_to_endpoint_.emplace(rank, std::move(endpoint)).second,
             "endpoint for given rank already exists"
-        );
-        RAPIDSMPF_EXPECTS(
-            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
-            "endpoint handle already exists"
         );
     }
 
@@ -371,28 +376,50 @@ class SharedResources {
         }
         listener_addresses_distributed_ = true;
 
-        // UCX delivers AMs in endpoint order, so every ReplyListenerAddress AM
-        // is processed by the receiver before the "release" AM that follows
-        // (which completes the barrier on that rank).
+        // Pack all listener addresses (except the destination's own) into a
+        // single DistributeListenerAddresses message per non-root rank.
+        // Format: [ControlMessage][count][addr1_size][addr1]...[addrN_size][addrN]
         std::vector<std::shared_ptr<::ucxx::Request>> reqs;
         std::vector<std::unique_ptr<std::vector<std::uint8_t>>> bufs;
         for (auto& [dst, ep] : rank_to_endpoint_) {
             if (dst == 0) {
                 continue;
             }
+
+            // First pass: pack each address and compute total size.
+            std::vector<std::unique_ptr<std::vector<std::uint8_t>>> packed_addrs;
             for (auto& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
-                auto packed = control_pack(ControlMessage::ReplyListenerAddress, addr);
-                reqs.push_back(ep->amSend(
-                    packed->data(),
-                    packed->size(),
-                    UCS_MEMORY_TYPE_HOST,
-                    control_callback_info_
-                ));
-                bufs.push_back(std::move(packed));
+                packed_addrs.push_back(listener_address_pack(addr));
             }
+
+            auto const control = ControlMessage::DistributeListenerAddresses;
+            auto const count = packed_addrs.size();
+            std::size_t total = sizeof(control) + sizeof(count);
+            for (auto& pa : packed_addrs) {
+                total += sizeof(std::size_t) + pa->size();
+            }
+
+            // Second pass: encode into a single buffer.
+            auto packed = std::make_unique<std::vector<std::uint8_t>>(total);
+            std::size_t off{0};
+            encode(packed->data(), &control, sizeof(control), off);
+            encode(packed->data(), &count, sizeof(count), off);
+            for (auto& pa : packed_addrs) {
+                std::size_t pa_size = pa->size();
+                encode(packed->data(), &pa_size, sizeof(pa_size), off);
+                encode(packed->data(), pa->data(), pa_size, off);
+            }
+
+            reqs.push_back(ep->amSend(
+                packed->data(),
+                packed->size(),
+                UCS_MEMORY_TYPE_HOST,
+                control_callback_info_
+            ));
+            bufs.push_back(std::move(packed));
         }
         while (std::ranges::any_of(reqs, [](auto const& r) { return !r->isCompleted(); }))
         {
@@ -682,7 +709,7 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
         encode_(&rank, sizeof(rank));
         return packed;
     } else if (control == ControlMessage::QueryRank
-               || control == ControlMessage::ReplyListenerAddress)
+               || control == ControlMessage::RegisterListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -715,8 +742,11 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
  * 1. AssignRank: Calls `SharedResources->set_rank()` to set own rank.
  * 2. QueryRank: Root registers the client's listener address, creates an
  * endpoint and replies with an AssignRank message.
- * 3. ReplyListenerAddress: Registers the received listener address so that
- * future `get_endpoint()` calls can create endpoints without querying root.
+ * 3. RegisterListenerAddress: Registers a single listener address sent by a
+ * non-root rank during host/port init.
+ * 4. DistributeListenerAddresses: Unpacks all listener addresses from a bulk
+ * message and registers them so that future `get_endpoint()` calls can create
+ * endpoints without querying root.
  *
  * @param buffer bytes received via UCXX containing the packed message.
  * @param ep the UCX handle from which the message was received.
@@ -787,7 +817,7 @@ void control_unpack(
         };
 
         shared_resources->add_delayed_progress_callback(std::move(callback));
-    } else if (control == ControlMessage::ReplyListenerAddress) {
+    } else if (control == ControlMessage::RegisterListenerAddress) {
         std::size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
         auto packed_listener_address =
@@ -800,6 +830,17 @@ void control_unpack(
         shared_resources->register_listener_address(
             listener_address.rank, std::move(listener_address)
         );
+    } else if (control == ControlMessage::DistributeListenerAddresses) {
+        std::size_t count;
+        decode_(&count, sizeof(count));
+        for (std::size_t i = 0; i < count; ++i) {
+            std::size_t addr_size;
+            decode_(&addr_size, sizeof(addr_size));
+            auto packed_addr = std::make_unique<std::vector<std::uint8_t>>(addr_size);
+            decode_(packed_addr->data(), addr_size);
+            auto addr = listener_address_unpack(std::move(packed_addr));
+            shared_resources->register_listener_address(addr.rank, std::move(addr));
+        }
     }
 };
 
@@ -1028,7 +1069,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                 .rank = shared_resources->rank()
             };
             auto packed_listener_address =
-                control_pack(ControlMessage::ReplyListenerAddress, listener_address);
+                control_pack(ControlMessage::RegisterListenerAddress, listener_address);
             auto req = endpoint->amSend(
                 packed_listener_address->data(),
                 packed_listener_address->size(),
