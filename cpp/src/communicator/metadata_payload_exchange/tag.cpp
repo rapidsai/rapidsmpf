@@ -136,19 +136,28 @@ void TagMetadataPayloadExchange::finish() {
     RAPIDSMPF_EXPECTS(!finished_, "finish() called more than once");
     finished_ = true;
 
-    // Send a termination marker to every peer. The marker tells each peer
-    // exactly how many application messages we sent to it, so the peer can
-    // stop receiving once it has them all.
+    // Send a termination marker only to peers we actually sent application
+    // messages to. Peers we never communicated with don't need a termination
+    // marker: they can infer termination because they will never receive any
+    // application messages from us either (see is_idle()).
+    //
+    // Crucially, this avoids triggering lazy endpoint creation to peers we
+    // never exchanged data with, which would deadlock in UCXX polling mode
+    // when the root rank's worker is no longer being progressed.
     // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
     for (Rank peer = 0; peer < nranks_; ++peer) {
         if (peer == rank_) {
+            continue;
+        }
+        auto const p = safe_cast<std::size_t>(peer);
+        if (messages_sent_to_[p] == 0) {
             continue;
         }
         auto termination = std::make_unique<std::vector<std::uint8_t>>(
             sizeof(std::uint64_t) + sizeof(std::size_t)
         );
         std::memcpy(termination->data(), &termination_sentinel_, sizeof(std::uint64_t));
-        auto count = messages_sent_to_[safe_cast<std::size_t>(peer)];
+        auto count = messages_sent_to_[p];
         std::memcpy(
             termination->data() + sizeof(std::uint64_t), &count, sizeof(std::size_t)
         );
@@ -164,14 +173,32 @@ bool TagMetadataPayloadExchange::is_idle() const {
     if (!finished_) {
         return io_idle;
     }
-    // After finish(), also require all peers to have sent their termination
-    // markers and all expected application messages to have been received.
+    // After finish(), require termination confirmation from every peer that
+    // has actually communicated with us. Peers from which we never received
+    // any application message AND whose termination marker we never received
+    // are assumed to have sent us zero messages -- no termination marker is
+    // needed from them (they also skip sending one, see finish()).
+    //
+    // This is safe because:
+    //  - If a peer sent us application messages, peer_received_[p] > 0,
+    //    so we will wait for their termination marker.
+    //  - UCX tag ordering guarantees a peer's termination marker arrives
+    //    after all of that peer's application messages on the same tag.
+    //  - The Shuffler's finish_counter provides an additional safety net
+    //    for ranks that own partitions, ensuring all control messages
+    //    have arrived before the shuffle is considered complete.
     for (Rank peer = 0; peer < nranks_; ++peer) {
         if (peer == rank_) {
             continue;
         }
         auto const p = safe_cast<std::size_t>(peer);
-        if (!peer_terminated_[p] || peer_received_[p] < peer_expected_[p]) {
+        if (!peer_terminated_[p]) {
+            if (peer_received_[p] > 0) {
+                return false;
+            }
+            continue;
+        }
+        if (peer_received_[p] < peer_expected_[p]) {
             return false;
         }
     }
