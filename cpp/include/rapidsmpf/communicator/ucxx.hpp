@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <utility>
@@ -340,6 +341,14 @@ class UCXX final : public Communicator {
     config::Options options_;
     std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
+
+    /// In polling mode (no UCXX background thread), a dedicated progress function
+    /// is registered with the ProgressThread to keep driving the UCX worker even
+    /// when no Shuffler or other collective is active. This prevents deadlocks
+    /// where peer ranks still need this worker to respond to control messages
+    /// (e.g., endpoint creation queries).
+    ProgressThread::FunctionID ucxx_progress_function_id_;
+    std::atomic<bool> ucxx_progress_active_{false};
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

@@ -1060,6 +1060,25 @@ UCXX::UCXX(
       logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
       progress_thread_{std::move(progress_thread)} {
     shared_resources_->logger = logger_.get();
+
+    // In polling mode the UCX worker has no background progress thread, so we
+    // register a dedicated function with the ProgressThread to keep driving it.
+    // Without this, control-plane operations (e.g., lazy endpoint creation via
+    // QueryListenerAddress) can deadlock when no Shuffler progress function is
+    // active on this rank.
+    if (!shared_resources_->get_worker()->isProgressThreadRunning()) {
+        ucxx_progress_active_.store(true, std::memory_order_relaxed);
+        ucxx_progress_function_id_ = progress_thread_->add_function(
+            [&active = ucxx_progress_active_,
+             sr = shared_resources_]() -> ProgressThread::ProgressState {
+                if (!active.load(std::memory_order_acquire)) {
+                    return ProgressThread::ProgressState::Done;
+                }
+                sr->progress_worker();
+                return ProgressThread::ProgressState::InProgress;
+            }
+        );
+    }
 }
 
 [[nodiscard]] Rank UCXX::rank() const {
@@ -1410,6 +1429,10 @@ std::string UCXX::str() const {
 UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
+    if (ucxx_progress_function_id_.is_valid()) {
+        ucxx_progress_active_.store(false, std::memory_order_release);
+        progress_thread_->remove_function(ucxx_progress_function_id_);
+    }
     shared_resources_->get_worker()->stopProgressThread();
     shared_resources_->logger = nullptr;
 }
