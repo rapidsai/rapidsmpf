@@ -339,10 +339,7 @@ class SharedResources {
      */
     void register_listener_address(Rank const rank, ListenerAddress listener_address) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        RAPIDSMPF_EXPECTS(
-            rank_to_listener_address_.emplace(rank, std::move(listener_address)).second,
-            "listener for given rank already exists"
-        );
+        rank_to_listener_address_.emplace(rank, std::move(listener_address));
     }
 
     /**
@@ -357,77 +354,7 @@ class SharedResources {
         futures_.push_back(std::move(future));
     }
 
-    void barrier() {
-        // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<std::size_t>(nranks()))
-        {
-            progress_worker();
-        }
-
-        if (rank_ == 0) {
-            std::vector<std::shared_ptr<::ucxx::Request>> requests;
-            requests.reserve(safe_cast<std::size_t>(nranks() - 1));
-            // send to all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
-                if (rank == 0) {
-                    continue;
-                }
-                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
-            }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
-                progress_worker();
-            }
-            requests.clear();
-
-            // receive from all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
-                if (rank == 0) {
-                    continue;
-                }
-                requests.push_back(endpoint->amRecv());
-            }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
-                progress_worker();
-            }
-            requests.clear();
-            // Everyone has reported, release other ranks.
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
-                if (rank == 0) {
-                    continue;
-                }
-                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
-            }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
-                progress_worker();
-            }
-        } else {  // non-root ranks respond to root's broadcast
-            auto endpoint = get_endpoint(Rank(0));
-
-            auto req = endpoint->amRecv();
-            while (!req->isCompleted()) {
-                progress_worker();
-            }
-
-            req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted()) {
-                progress_worker();
-            }
-            // And wait for notification that everyone has reported.
-            req = endpoint->amRecv();
-            while (!req->isCompleted()) {
-                progress_worker();
-            }
-        }
-    }
+    void barrier();
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
@@ -848,6 +775,117 @@ void create_cuda_context_callback(void* /* callbackArg */) {
 
 }  // namespace
 
+void SharedResources::barrier() {
+    // The root needs to have endpoints to all other ranks to continue.
+    while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<std::size_t>(nranks())) {
+        progress_worker();
+    }
+
+    if (rank_ == 0) {
+        std::vector<std::shared_ptr<::ucxx::Request>> requests;
+        requests.reserve(safe_cast<std::size_t>(nranks() - 1));
+        // send to all other ranks
+        for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            if (rank == 0) {
+                continue;
+            }
+            requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+        }
+        while (std::ranges::any_of(requests, [](auto const& req) {
+            return !req->isCompleted();
+        }))
+        {
+            progress_worker();
+        }
+        requests.clear();
+
+        // receive from all other ranks
+        for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            if (rank == 0) {
+                continue;
+            }
+            requests.push_back(endpoint->amRecv());
+        }
+        while (std::ranges::any_of(requests, [](auto const& req) {
+            return !req->isCompleted();
+        }))
+        {
+            progress_worker();
+        }
+        requests.clear();
+
+        // Distribute all listener addresses to every non-root rank so that
+        // future get_endpoint() calls can create endpoints directly from cached
+        // addresses without querying the root.  This prevents deadlocks in UCXX
+        // polling mode where the root's worker may no longer be progressed when
+        // a peer attempts lazy endpoint creation.
+        //
+        // UCX delivers AMs in endpoint order, so every ReplyListenerAddress AM
+        // is processed by the receiver before the "release" AM that follows
+        // (which completes the barrier on that rank).
+        {
+            std::vector<std::shared_ptr<::ucxx::Request>> addr_reqs;
+            std::vector<std::unique_ptr<std::vector<std::uint8_t>>> addr_bufs;
+            for (auto& [dst, ep] : rank_to_endpoint_) {
+                if (dst == 0) {
+                    continue;
+                }
+                for (auto& [src, addr] : rank_to_listener_address_) {
+                    if (src == dst) {
+                        continue;
+                    }
+                    auto packed =
+                        control_pack(ControlMessage::ReplyListenerAddress, addr);
+                    addr_reqs.push_back(ep->amSend(
+                        packed->data(),
+                        packed->size(),
+                        UCS_MEMORY_TYPE_HOST,
+                        control_callback_info_
+                    ));
+                    addr_bufs.push_back(std::move(packed));
+                }
+            }
+            while (std::ranges::any_of(addr_reqs, [](auto const& r) {
+                return !r->isCompleted();
+            }))
+            {
+                progress_worker();
+            }
+        }
+
+        // Everyone has reported, release other ranks.
+        for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            if (rank == 0) {
+                continue;
+            }
+            requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+        }
+        while (std::ranges::any_of(requests, [](auto const& req) {
+            return !req->isCompleted();
+        }))
+        {
+            progress_worker();
+        }
+    } else {  // non-root ranks respond to root's broadcast
+        auto endpoint = get_endpoint(Rank(0));
+
+        auto req = endpoint->amRecv();
+        while (!req->isCompleted()) {
+            progress_worker();
+        }
+
+        req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
+        while (!req->isCompleted()) {
+            progress_worker();
+        }
+        // And wait for notification that everyone has reported.
+        req = endpoint->amRecv();
+        while (!req->isCompleted()) {
+            progress_worker();
+        }
+    }
+}
+
 InitializedRank::InitializedRank(
     std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 )
@@ -1103,32 +1141,44 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         log->trace("Endpoint for rank ", rank, " already available, returning to caller");
         return ep;
     } catch (std::out_of_range const&) {
-        log->trace(
-            "Endpoint for rank ", rank, " not available, requesting listener address"
-        );
-        auto packed_listener_address_rank =
-            control_pack(ControlMessage::QueryListenerAddress, rank);
+        log->trace("Endpoint for rank ", rank, " not available, creating endpoint");
 
-        auto root_endpoint = get_endpoint(Rank(0));
-
-        auto listener_address_req = root_endpoint->amSend(
-            packed_listener_address_rank->data(),
-            packed_listener_address_rank->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources_->get_control_callback_info()
-        );
-
-        while (!listener_address_req->isCompleted()) {
-            progress_worker();
+        // If the listener address was pre-distributed during barrier() we can
+        // create the endpoint directly without querying the root.  This avoids
+        // a deadlock in UCXX polling mode where the root's worker may no longer
+        // be progressed when a peer attempts lazy endpoint creation.
+        bool need_root_query = true;
+        try {
+            std::ignore = shared_resources_->get_listener_address(rank);
+            need_root_query = false;
+        } catch (std::out_of_range const&) {
         }
-        while (true) {
-            try {
-                auto listener_address = shared_resources_->get_listener_address(rank);
-                break;
-            } catch (std::out_of_range const&) {
-            }
 
-            progress_worker();
+        if (need_root_query) {
+            log->trace("Listener address for rank ", rank, " not cached, querying root");
+            auto packed_listener_address_rank =
+                control_pack(ControlMessage::QueryListenerAddress, rank);
+
+            auto root_endpoint = get_endpoint(Rank(0));
+
+            auto listener_address_req = root_endpoint->amSend(
+                packed_listener_address_rank->data(),
+                packed_listener_address_rank->size(),
+                UCS_MEMORY_TYPE_HOST,
+                shared_resources_->get_control_callback_info()
+            );
+
+            while (!listener_address_req->isCompleted()) {
+                progress_worker();
+            }
+            while (true) {
+                try {
+                    std::ignore = shared_resources_->get_listener_address(rank);
+                    break;
+                } catch (std::out_of_range const&) {
+                }
+                progress_worker();
+            }
         }
 
         auto listener_address = shared_resources_->get_listener_address(rank);
@@ -1152,11 +1202,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         );
         shared_resources_->register_endpoint(rank, endpoint);
 
-        log->trace(
-            "Endpoint for rank ",
-            rank,
-            " established successfully, requesting listener address"
-        );
+        log->trace("Endpoint for rank ", rank, " established successfully");
 
         return endpoint;
     }
