@@ -273,7 +273,7 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     // Second 1 KiB reservation succeeds only when the pool is unbounded.
     auto [r2, ob2] = br.reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
     EXPECT_EQ(r2.size(), expect_second_succeeds() ? 1_KiB : 0);
-    EXPECT_EQ(ob2, 0);
+    EXPECT_EQ(ob2, expect_second_succeeds() ? 0 : 1_KiB);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -374,15 +374,15 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
 
 // Static assertions to verify that various container types can be used with
 // reserve_or_fail
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<decltype(MEMORY_TYPES)>,
-              MemoryType>);
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<std::vector<MemoryType>>,
-              MemoryType>);
-static_assert(std::convertible_to<
-              std::ranges::range_value_t<std::span<MemoryType>>,
-              MemoryType>);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<decltype(MEMORY_TYPES)>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::vector<MemoryType>>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::span<MemoryType>>, MemoryType>
+);
 static_assert(std::convertible_to<
               std::ranges::range_value_t<std::initializer_list<MemoryType>>,
               MemoryType>);
