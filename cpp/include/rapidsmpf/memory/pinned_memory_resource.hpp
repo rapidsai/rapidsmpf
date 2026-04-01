@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 
 #include <cuda.h>
@@ -20,6 +21,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -177,6 +179,33 @@ class PinnedMemoryResource final : public HostMemoryResource {
     [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept override;
 
     /**
+     * @brief Returns the total number of currently allocated bytes.
+     *
+     * @return The total number of currently allocated bytes.
+     */
+    [[nodiscard]] std::size_t current_allocated() const noexcept {
+        return static_cast<std::size_t>(pool_tracker_->current_allocated());
+    }
+
+    /**
+     * @brief Returns the properties used to configure the pool.
+     *
+     * @return The properties used to configure the pool.
+     */
+    [[nodiscard]] constexpr PinnedPoolProperties const& properties() const noexcept {
+        return pool_properties_;
+    }
+
+    /**
+     * @brief Returns a memory-availability callback for the pinned pool, if the pool has
+     * a configured maximum size.
+     *
+     * @return A callable `std::int64_t()`. If no maximum pool size is configured, returns
+     * `std::numeric_limits<std::int64_t>::%max` (unbounded).
+     */
+    [[nodiscard]] std::function<std::int64_t()> get_memory_available_cb() const;
+
+    /**
      * @brief Enables the `cuda::mr::host_accessible` property.
      *
      * This property declares that a `HostMemoryResource` provides host accessible memory.
@@ -186,13 +215,16 @@ class PinnedMemoryResource final : public HostMemoryResource {
     ) noexcept {}
 
   private:
-    // We cannot assign cuda::pinned_memory_pool directly to device_async_resource_ref /
-    // host_async_resource_ref: the ref only stores a pointer, but its constructor
-    // requires the referenced type to be copyable and movable (CCCL __basic_any_ref
-    // constraint). pinned_memory_pool is not copyable, so we wrap it in
-    // PinnedMemoryResource, which holds the pool in a shared_resource and is copyable and
-    // movable. Copies share the same pool (is_equal compares pool_ pointers).
+    PinnedPoolProperties pool_properties_;  ///< properties used to configure the pool
+
+    // cuda::pinned_memory_pool and RmmResourceAdaptor are non-copyable, so both are
+    // wrapped in shared_resource to give PinnedMemoryResource value semantics: copies
+    // share the same underlying pool and the same adaptor state (memory statistics,
+    // fallback allocations). Copies are equal iff they share the same pool (is_equal
+    // compares pool_).
     cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
+    cuda::mr::shared_resource<RmmResourceAdaptor>
+        pool_tracker_;  ///< track the memory usage of the pool
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);
