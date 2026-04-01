@@ -183,8 +183,8 @@ class PinnedMemoryResource final : public HostMemoryResource {
      *
      * @return The total number of currently allocated bytes.
      */
-    [[nodiscard]] std::size_t current_allocated() const noexcept {
-        return static_cast<std::size_t>(pool_tracker_->current_allocated());
+    [[nodiscard]] std::int64_t current_allocated() const noexcept {
+        return pool_tracker_->current_allocated();
     }
 
     /**
