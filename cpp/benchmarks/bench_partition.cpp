@@ -62,10 +62,7 @@ static void BM_PartitionAndPack(benchmark::State& state) {
     auto pool_size = static_cast<std::size_t>(total_memory * 0.5);
 
     // Create a pool memory resource with 50% of GPU memory
-    auto pool_mr =
-        std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
-            cuda_mr.get(), pool_size
-        );
+    auto pool_mr = std::make_unique<rmm::mr::pool_memory_resource>(*cuda_mr, pool_size);
     rapidsmpf::BufferResource br{*pool_mr};
 
     // Create input table
@@ -119,10 +116,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
     auto pool_size = static_cast<std::size_t>(total_memory * 0.5);
 
     // Create a pool memory resource with 50% of GPU memory
-    auto pool_mr =
-        std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
-            cuda_mr.get(), pool_size
-        );
+    auto pool_mr = std::make_unique<rmm::mr::pool_memory_resource>(*cuda_mr, pool_size);
     rapidsmpf::BufferResource br{*pool_mr};
 
     // Create input table

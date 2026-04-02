@@ -557,7 +557,7 @@ int main(int argc, char** argv) {
     // We're only going to measure the last run, so disable initially.
     stats->disable();
     rapidsmpf::BufferResource br{
-        stat_enabled_mr.get(),
+        *stat_enabled_mr,
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),

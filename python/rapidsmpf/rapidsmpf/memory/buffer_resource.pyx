@@ -227,7 +227,7 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
-                device_mr.get_mr(),
+                device_mr.c_ref.value(),
                 cpp_pinned_mr,
                 move(_mem_available),
                 period,

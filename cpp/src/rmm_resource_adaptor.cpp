@@ -4,29 +4,72 @@
  */
 
 #include <numeric>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 namespace rapidsmpf {
 
-ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
+// ---------------------------------------------------------------------------
+// detail::RmmResourceAdaptorImpl
+// ---------------------------------------------------------------------------
+namespace detail {
+
+RmmResourceAdaptorImpl::RmmResourceAdaptorImpl(
+    rmm::device_async_resource_ref primary_mr,
+    std::optional<rmm::device_async_resource_ref> fallback_mr
+)
+    : primary_mr_{std::move(primary_mr)}, fallback_mr_{std::move(fallback_mr)} {}
+
+bool RmmResourceAdaptorImpl::operator==(
+    RmmResourceAdaptorImpl const& other
+) const noexcept {
+    if (this == &other) {
+        return true;
+    }
+    // Manual comparison of optionals to avoid recursive constraint satisfaction in
+    // CCCL 3.2. std::optional::operator== triggers infinite concept checking when the
+    // wrapped type (rmm::device_async_resource_ref) inherits from CCCL's concept-based
+    // resource_ref.
+    // TODO: Revert this after the RMM resource ref types are replaced with
+    // plain cuda::mr ref types. This depends on
+    // https://github.com/rapidsai/rmm/issues/2011.
+    auto this_fallback = get_fallback_resource();
+    auto other_fallback = other.get_fallback_resource();
+    bool fallbacks_equal =
+        (this_fallback.has_value() == other_fallback.has_value())
+        && (!this_fallback.has_value() || (*this_fallback == *other_fallback));
+    return get_upstream_resource() == other.get_upstream_resource() && fallbacks_equal;
+}
+
+rmm::device_async_resource_ref
+RmmResourceAdaptorImpl::get_upstream_resource() const noexcept {
+    return primary_mr_;
+}
+
+std::optional<rmm::device_async_resource_ref>
+RmmResourceAdaptorImpl::get_fallback_resource() const noexcept {
+    return fallback_mr_;
+}
+
+ScopedMemoryRecord RmmResourceAdaptorImpl::get_main_record() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return main_record_;
 }
 
-std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
+std::int64_t RmmResourceAdaptorImpl::current_allocated() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return main_record_.current();
 }
 
-void RmmResourceAdaptor::begin_scoped_memory_record() {
+void RmmResourceAdaptorImpl::begin_scoped_memory_record() {
     std::lock_guard<std::mutex> lock(mutex_);
     // Push an empty scope on the stack.
     record_stacks_[std::this_thread::get_id()].emplace();
 }
 
-ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
+ScopedMemoryRecord RmmResourceAdaptorImpl::end_scoped_memory_record() {
     std::lock_guard lock(mutex_);
     auto& stack = record_stacks_.at(std::this_thread::get_id());
     RAPIDSMPF_EXPECTS(
@@ -43,7 +86,9 @@ ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     return ret;
 }
 
-void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
+void* RmmResourceAdaptorImpl::allocate(
+    cuda::stream_ref stream, std::size_t nbytes, std::size_t /*alignment*/
+) {
     constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
     constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
 
@@ -82,8 +127,8 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     return ret;
 }
 
-void RmmResourceAdaptor::do_deallocate(
-    void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
+void RmmResourceAdaptorImpl::deallocate(
+    cuda::stream_ref stream, void* ptr, std::size_t nbytes, std::size_t /*alignment*/
 ) noexcept {
     constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
     constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
@@ -116,29 +161,58 @@ void RmmResourceAdaptor::do_deallocate(
     }
 }
 
-bool RmmResourceAdaptor::do_is_equal(
-    rmm::mr::device_memory_resource const& other
-) const noexcept {
-    if (this == &other) {
-        return true;
-    }
-    auto cast = dynamic_cast<RmmResourceAdaptor const*>(&other);
-    if (cast == nullptr) {
-        return false;
-    }
-    // Manual comparison of optionals to avoid recursive constraint satisfaction in
-    // CCCL 3.2. std::optional::operator== triggers infinite concept checking when the
-    // wrapped type (rmm::device_async_resource_ref) inherits from CCCL's concept-based
-    // resource_ref.
-    // TODO: Revert this after the RMM resource ref types are replaced with
-    // plain cuda::mr ref types. This depends on
-    // https://github.com/rapidsai/rmm/issues/2011.
-    auto this_fallback = get_fallback_resource();
-    auto other_fallback = cast->get_fallback_resource();
-    bool fallbacks_equal =
-        (this_fallback.has_value() == other_fallback.has_value())
-        && (!this_fallback.has_value() || (*this_fallback == *other_fallback));
-    return get_upstream_resource() == cast->get_upstream_resource() && fallbacks_equal;
+void* RmmResourceAdaptorImpl::allocate_sync(std::size_t bytes, std::size_t alignment) {
+    auto* ptr = allocate(cuda::stream_ref{cudaStream_t{nullptr}}, bytes, alignment);
+    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(cudaStream_t{nullptr}));
+    return ptr;
+}
+
+void RmmResourceAdaptorImpl::deallocate_sync(
+    void* ptr, std::size_t bytes, std::size_t alignment
+) noexcept {
+    deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, ptr, bytes, alignment);
+}
+
+}  // namespace detail
+
+// ---------------------------------------------------------------------------
+// RmmResourceAdaptor (thin shell delegating to shared_resource<Impl>)
+// ---------------------------------------------------------------------------
+
+RmmResourceAdaptor::RmmResourceAdaptor(
+    rmm::device_async_resource_ref primary_mr,
+    std::optional<rmm::device_async_resource_ref> fallback_mr
+)
+    : shared_base(
+          cuda::mr::make_shared_resource<detail::RmmResourceAdaptorImpl>(
+              primary_mr, fallback_mr
+          )
+      ) {}
+
+rmm::device_async_resource_ref
+RmmResourceAdaptor::get_upstream_resource() const noexcept {
+    return get().get_upstream_resource();
+}
+
+std::optional<rmm::device_async_resource_ref>
+RmmResourceAdaptor::get_fallback_resource() const noexcept {
+    return get().get_fallback_resource();
+}
+
+ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
+    return get().get_main_record();
+}
+
+std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
+    return get().current_allocated();
+}
+
+void RmmResourceAdaptor::begin_scoped_memory_record() {
+    get().begin_scoped_memory_record();
+}
+
+ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
+    return get().end_scoped_memory_record();
 }
 
 }  // namespace rapidsmpf

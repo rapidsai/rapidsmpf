@@ -12,6 +12,7 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/table_utilities.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -33,7 +34,7 @@ class BaseAllGatherTest : public ::testing::Test {
     void SetUp() override {
         stream = cudf::get_default_stream();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
     }
 
     void TearDown() override {
@@ -43,7 +44,7 @@ class BaseAllGatherTest : public ::testing::Test {
 
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
 };
 
 TEST_F(BaseAllGatherTest, timeout) {
@@ -308,9 +309,8 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     std::unique_ptr<AllGather> allgather;
     constexpr rapidsmpf::OpID op_id = 0;
     if (this_rank == 0) {
-        delayed_mr = std::make_unique<DelayedMemoryResource>(
-            mr.get(), std::chrono::milliseconds(500)
-        );
+        delayed_mr =
+            std::make_unique<DelayedMemoryResource>(*mr, std::chrono::milliseconds(500));
         // Recreate the buffer resource and allgather with the delayed MR.
         delay_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
         allgather =

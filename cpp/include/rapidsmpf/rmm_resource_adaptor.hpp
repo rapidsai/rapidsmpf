@@ -1,23 +1,19 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cstddef>
-#include <mutex>
+#include <cstdint>
 #include <optional>
-#include <stack>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
 
-#include <rmm/error.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
+#include <cuda/memory_resource>
+
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
@@ -28,9 +24,20 @@ namespace rapidsmpf {
  * This adaptor implements:
  * - Memory usage tracking.
  * - Fallback memory resource support upon out-of-memory in the primary resource.
+ *
+ * This class is copyable and shares ownership of its internal state via
+ * `cuda::mr::shared_resource`.
  */
-class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
+class RmmResourceAdaptor
+    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl> {
+    using shared_base = cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl>;
+
   public:
+    /// @brief Tag this resource as device-accessible for the CCCL concept.
+    friend void get_property(
+        RmmResourceAdaptor const&, cuda::mr::device_accessible
+    ) noexcept {}
+
     /**
      * @brief Construct with specified primary and optional fallback memory resource.
      *
@@ -40,20 +47,16 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     RmmResourceAdaptor(
         rmm::device_async_resource_ref primary_mr,
         std::optional<rmm::device_async_resource_ref> fallback_mr = std::nullopt
-    )
-        : primary_mr_{std::move(primary_mr)}, fallback_mr_{std::move(fallback_mr)} {}
+    );
 
-    RmmResourceAdaptor() = delete;
-    ~RmmResourceAdaptor() override = default;
+    ~RmmResourceAdaptor() = default;
 
     /**
      * @brief Get a reference to the primary upstream resource.
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept {
-        return primary_mr_;
-    }
+    [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept;
 
     /**
      * @brief Get a reference to the fallback upstream resource.
@@ -63,9 +66,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Optional reference to the fallback RMM memory resource.
      */
     [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_resource() const noexcept {
-        return fallback_mr_;
-    }
+    get_fallback_resource() const noexcept;
 
     /**
      * @brief Returns a copy of the main memory record.
@@ -82,7 +83,6 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Total number of currently allocated bytes.
      */
     [[nodiscard]] std::int64_t current_allocated() const noexcept;
-
 
     /**
      * @brief Begin recording a new scoped memory usage record for the current thread.
@@ -119,58 +119,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @see begin_scoped_memory_record()
      */
     ScopedMemoryRecord end_scoped_memory_record();
-
-  private:
-    /**
-     * @brief Allocates memory of size at least `bytes` using the upstream resource.
-     *
-     * Attempts to allocate using the primary resource. If it fails with
-     * `rmm::out_of_memory` and a fallback is provided, retries allocation using the
-     * fallback.
-     *
-     * @param bytes Number of bytes to allocate.
-     * @param stream CUDA stream to associate with this allocation.
-     * @return Pointer to the allocated memory.
-     *
-     * @throws rmm::out_of_memory or other exceptions from the upstream resources.
-     */
-    void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override;
-
-    /**
-     * @brief Deallocates memory previously allocated via this resource.
-     *
-     * @param ptr Pointer to the memory to deallocate.
-     * @param bytes Size of the allocation in bytes.
-     * @param stream CUDA stream to associate with this deallocation.
-     */
-    void do_deallocate(
-        void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
-    ) noexcept override;
-
-    /**
-     * @brief Check if this memory resource is equal to another.
-     *
-     * Equality is defined by comparing the primary and fallback resources.
-     *
-     * @param other Another memory resource to compare against.
-     * @return true if both resources are equivalent, false otherwise.
-     */
-    [[nodiscard]] bool do_is_equal(
-        rmm::mr::device_memory_resource const& other
-    ) const noexcept override;
-
-    mutable std::mutex mutex_;
-    rmm::device_async_resource_ref primary_mr_;
-    std::optional<rmm::device_async_resource_ref> fallback_mr_;
-    std::unordered_set<void*> fallback_allocations_;
-
-    /// Tracks memory statistics for the lifetime of the resource.
-    ScopedMemoryRecord main_record_;
-    /// Per-thread stack of scoped records, used with begin/end scoped memory tracking.
-    std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
-    /// Maps allocated memory pointers to the thread IDs that allocated them.
-    std::unordered_map<void*, std::thread::id> allocating_threads_;
 };
 
+static_assert(cuda::mr::resource_with<RmmResourceAdaptor, cuda::mr::device_accessible>);
 
 }  // namespace rapidsmpf

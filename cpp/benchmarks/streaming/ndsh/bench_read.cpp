@@ -365,7 +365,7 @@ int main(int argc, char** argv) {
     // work around https://github.com/rapidsai/cudf/issues/20849
     cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
-    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
+    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(mr);
     auto arguments = parse_arguments(argc, argv);
     rapidsmpf::ndsh::ProgramOptions ctx_arguments{
         .num_streaming_threads = arguments.num_streaming_threads,

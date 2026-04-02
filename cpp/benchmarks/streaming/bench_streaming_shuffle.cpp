@@ -367,7 +367,7 @@ int main(int argc, char** argv) {
                      ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
                      : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stat_enabled_mr.get(),
+        *stat_enabled_mr,
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),

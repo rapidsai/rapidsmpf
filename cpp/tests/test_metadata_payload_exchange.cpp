@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,6 @@
 #include <gtest/gtest.h>
 
 #include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
@@ -26,10 +25,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
   protected:
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
-        mr = std::unique_ptr<rmm::mr::device_memory_resource>(
-            new rmm::mr::cuda_memory_resource{}
-        );
-        br = std::make_unique<BufferResource>(mr.get());
+        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+        br = std::make_unique<BufferResource>(*mr);
         stream = rmm::cuda_stream_default;
         statistics = std::make_shared<Statistics>();
 
@@ -104,7 +101,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     }
 
     Communicator* comm;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     rmm::cuda_stream_view stream;
     std::unique_ptr<BufferResource> br;
     std::shared_ptr<Statistics> statistics;

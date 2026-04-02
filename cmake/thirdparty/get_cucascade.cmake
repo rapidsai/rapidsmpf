@@ -29,10 +29,7 @@ function(find_and_configure_cucascade)
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
-    CPM_ARGS
-    GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
-    GIT_TAG main
-    GIT_SHALLOW TRUE
+    CPM_ARGS SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../cuCascade"
     OPTIONS "CUCASCADE_BUILD_TESTS OFF"
             "CUCASCADE_BUILD_BENCHMARKS OFF"
             "CUCASCADE_BUILD_SHARED_LIBS OFF"

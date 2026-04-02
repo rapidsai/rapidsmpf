@@ -3,9 +3,6 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
-from rmm.librmm.memory_resource cimport device_memory_resource
-from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
-                                           UpstreamResourceAdaptor)
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 

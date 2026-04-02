@@ -14,7 +14,6 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/mr/limiting_resource_adaptor.hpp>
-#include <rmm/mr/owning_wrapper.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -606,12 +605,12 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         // Setup br1 with statistics for its device memory
         mr_cuda1 = std::make_unique<rmm::mr::cuda_memory_resource>();
         mr1 = std::make_unique<RmmResourceAdaptor>(*mr_cuda1);
-        br1 = std::make_unique<BufferResource>(mr1.get());
+        br1 = std::make_unique<BufferResource>(*mr1);
 
         // Setup br2 with statistics for its device memory
         mr_cuda2 = std::make_unique<rmm::mr::cuda_memory_resource>();
         mr2 = std::make_unique<RmmResourceAdaptor>(*mr_cuda2);
-        br2 = std::make_unique<BufferResource>(mr2.get());
+        br2 = std::make_unique<BufferResource>(*mr2);
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {

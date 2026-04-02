@@ -377,7 +377,7 @@ int main(int argc, char** argv) {
     // work around https://github.com/rapidsai/cudf/issues/20849
     cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
-    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(&mr);
+    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
     auto [ctx, comm] = rapidsmpf::ndsh::create_context(arguments, &stats_wrapper);
     std::string output_path = arguments.output_file;

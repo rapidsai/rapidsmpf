@@ -57,7 +57,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     RmmResourceAdaptor* mr, config::Options options
 ) {
     return std::make_shared<BufferResource>(
-        mr,
+        *mr,
         PinnedMemoryResource::from_options(options),
         memory_available_from_options(mr, options),
         periodic_spill_check_from_options(options),

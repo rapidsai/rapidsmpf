@@ -12,6 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
@@ -24,40 +26,63 @@
 using namespace rapidsmpf;
 
 template <typename ExceptionType>
-struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
+struct throw_at_limit_resource final {
     throw_at_limit_resource(std::size_t limit) : limit{limit} {}
 
-    void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override {
+    void* allocate(
+        cuda::stream_ref stream,
+        std::size_t bytes,
+        std::size_t /*alignment*/ = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
         if (bytes > limit) {
             throw ExceptionType{"foo"};
         }
         void* ptr{nullptr};
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream));
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream.get()));
         allocs.insert(ptr);
         return ptr;
     }
 
-    void do_deallocate(
-        void* ptr, std::size_t, rmm::cuda_stream_view stream
-    ) noexcept override {
-        RAPIDSMPF_CUDA_TRY_FATAL(cudaFreeAsync(ptr, stream.value()));
+    void deallocate(
+        cuda::stream_ref stream,
+        void* ptr,
+        std::size_t /*bytes*/,
+        std::size_t /*alignment*/ = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaFreeAsync(ptr, stream.get()));
         allocs.erase(ptr);
     }
 
-    [[nodiscard]] bool do_is_equal(
-        rmm::mr::device_memory_resource const& other
-    ) const noexcept override {
+    [[nodiscard]] bool operator==(throw_at_limit_resource const& other) const noexcept {
         return this == &other;
     }
 
-    const std::size_t limit;
+    void* allocate_sync(
+        std::size_t bytes, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        return allocate(cuda::stream_ref{cudaStream_t{nullptr}}, bytes, alignment);
+    }
+
+    void deallocate_sync(
+        void* ptr,
+        std::size_t bytes,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, ptr, bytes, alignment);
+    }
+
+    friend void get_property(
+        throw_at_limit_resource const&, cuda::mr::device_accessible
+    ) noexcept {}
+
+    std::size_t limit;
     std::unordered_set<void*> allocs{};
 };
 
 TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    RmmResourceAdaptor mr(primary_mr, fallback_mr);
 
     EXPECT_EQ(mr.current_allocated(), 0);
 
@@ -83,7 +108,7 @@ TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
 TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    RmmResourceAdaptor mr(primary_mr, fallback_mr);
 
     void* ptr = mr.allocate_sync(1_MiB);
     EXPECT_EQ(primary_mr.allocs.count(ptr), 1);
@@ -94,24 +119,24 @@ TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
 
 TEST(RmmResourceAdaptor, NoFallbackProvidedThrowsOnOOM) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
-    RmmResourceAdaptor mr{primary_mr};
+    RmmResourceAdaptor mr(primary_mr);
 
-    EXPECT_THROW(mr.allocate_sync(8_MiB), rmm::out_of_memory);
+    EXPECT_THROW((void)mr.allocate_sync(8_MiB), rmm::out_of_memory);
 }
 
 TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
     throw_at_limit_resource<std::logic_error> primary_mr{1_MiB};
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    RmmResourceAdaptor mr(primary_mr, fallback_mr);
 
-    EXPECT_THROW(mr.allocate_sync(2_MiB), std::logic_error);
+    EXPECT_THROW((void)mr.allocate_sync(2_MiB), std::logic_error);
     EXPECT_TRUE(fallback_mr.allocs.empty());
 }
 
 TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    RmmResourceAdaptor mr(primary_mr, fallback_mr);
 
     auto main_record_before = mr.get_main_record();
     EXPECT_EQ(main_record_before.num_total_allocs(), 0);
@@ -263,7 +288,7 @@ TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
 }
 
 TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
 
     mr.begin_scoped_memory_record();
     auto scope = mr.end_scoped_memory_record();
@@ -274,7 +299,7 @@ TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
 
     mr.begin_scoped_memory_record();
     void* p = mr.allocate_sync(1_MiB);
@@ -289,7 +314,7 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -315,7 +340,7 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -342,7 +367,7 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
 
     // Allocate in outer scope
     mr.begin_scoped_memory_record();  // Outer
@@ -370,7 +395,7 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
     constexpr int num_allocs_per_thread = 8;
     constexpr std::size_t alloc_size = 1_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
     std::vector<std::thread> threads;
     std::vector<std::vector<void*>> allocations(num_threads);
     std::vector<rapidsmpf::ScopedMemoryRecord> records(num_threads);
@@ -425,7 +450,7 @@ TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
     constexpr std::size_t outer_alloc_size = 1_MiB;
     constexpr std::size_t inner_alloc_size = 2_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr(cudf::get_current_device_resource_ref());
     void* outer_alloc = nullptr;
     void* inner_alloc = nullptr;
     rapidsmpf::ScopedMemoryRecord inner_record;

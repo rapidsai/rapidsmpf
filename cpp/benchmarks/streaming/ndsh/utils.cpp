@@ -130,8 +130,7 @@ streaming::Actor consume_channel(
 
 std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
 create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr) {
-    rmm::mr::set_current_device_resource(mr);
-    rmm::mr::set_current_device_resource_ref(mr);
+    rmm::mr::set_current_device_resource_ref(*mr);
     std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available{};
     if (arguments.spill_device_limit.has_value()) {
         auto limit_size = rmm::align_down(
@@ -157,7 +156,7 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr) {
     );
 
     auto br = std::make_shared<BufferResource>(
-        mr,
+        *mr,
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
                                         : std::make_shared<PinnedMemoryResource>(),
         std::move(memory_available),

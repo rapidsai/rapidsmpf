@@ -1,16 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
-from libcpp.cast cimport dynamic_cast
+from libcpp.optional cimport optional
+from rmm.librmm.memory_resource cimport device_async_resource_ref
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            UpstreamResourceAdaptor)
 
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 
-# Pointer alias used by `dynamic_cast`, which doesn't accept pointer types.
-ctypedef cpp_RmmResourceAdaptor* cpp_RmmResourceAdaptor_ptr
 
 cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
     """A RMM memory resource adaptor tailored to RapidsMPF."""
@@ -41,27 +40,26 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         if fallback_mr is None:
             self.c_obj.reset(
                 new cpp_RmmResourceAdaptor(
-                    upstream_mr.get_mr()
+                    upstream_mr.c_ref.value()
                 )
             )
         else:
             self.c_obj.reset(
                 new cpp_RmmResourceAdaptor(
-                    upstream_mr.get_mr(),
-                    fallback_mr.get_mr(),
+                    upstream_mr.c_ref.value(),
+                    optional[device_async_resource_ref](
+                        fallback_mr.c_ref.value()
+                    ),
                 )
             )
+        self.c_ref = make_rapidsmpf_resource_ref(deref(self.c_obj))
 
     def __dealloc__(self):
         with nogil:
             self.c_obj.reset()
 
     cdef cpp_RmmResourceAdaptor* get_handle(self):
-        cdef cpp_RmmResourceAdaptor* ret = dynamic_cast[cpp_RmmResourceAdaptor_ptr](
-            self.c_obj.get()
-        )
-        assert ret  # The dynamic cast should always succeed.
-        return ret
+        return self.c_obj.get()
 
     def get_main_record(self):
         """Returns a copy of the main memory record.
