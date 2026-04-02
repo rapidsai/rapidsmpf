@@ -15,45 +15,31 @@
 
 using rapidsmpf::detail::extract_func_name;
 
-TEST(ExtractFuncNameTest, FreeFunctionWithNamespace) {
+TEST(ExtractFuncNameTest, various_cases) {
     // return type + namespace + function name + params
     EXPECT_EQ(extract_func_name("void rapidsmpf::baz(int)"), "rapidsmpf::baz");
-}
 
-TEST(ExtractFuncNameTest, MemberFunctionWithNamespace) {
     // typical GCC/Clang source_location::function_name() for a class method
     EXPECT_EQ(extract_func_name("void rapidsmpf::Foo::bar(int)"), "rapidsmpf::Foo::bar");
-}
 
-TEST(ExtractFuncNameTest, ConstructorNoReturnType) {
     // constructors have no return type so there is no leading space
     EXPECT_EQ(extract_func_name("rapidsmpf::Foo::Foo(int)"), "rapidsmpf::Foo::Foo");
-}
 
-TEST(ExtractFuncNameTest, ConstMemberFunction) {
     // const qualifier appears after ')' and must not affect the extracted name
     EXPECT_EQ(
         extract_func_name("int rapidsmpf::Foo::get() const"), "rapidsmpf::Foo::get"
     );
-}
 
-TEST(ExtractFuncNameTest, NoNamespace) {
     // plain free function without any namespace prefix
     EXPECT_EQ(extract_func_name("void bar(float, double)"), "bar");
-}
 
-TEST(ExtractFuncNameTest, NoParams) {
     // empty parameter list
     EXPECT_EQ(extract_func_name("void Foo::bar()"), "Foo::bar");
-}
 
-TEST(ExtractFuncNameTest, TemplateInstantiation) {
     // GCC appends "[with T = int]" after the closing ')'; the first '(' is still
     // the one opening the parameter list, so the result must stay clean
     EXPECT_EQ(extract_func_name("void Foo::bar(T) [with T = int]"), "Foo::bar");
-}
 
-TEST(ExtractFuncNameTest, LambdaInsideMemberFunction) {
     // source_location::function_name() for a lambda shows the outer function's
     // name followed by "::<lambda(...)>".  extract_func_name should return the
     // outer function portion (up to the first '('), which is more useful than
