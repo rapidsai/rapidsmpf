@@ -92,8 +92,10 @@ class HostFuture {
 
 void encode(void* dest, void const* src, std::size_t bytes, std::size_t& offset);
 
-std::unique_ptr<std::vector<std::uint8_t>> listener_address_pack(
-    ListenerAddress const& listener_address
+std::size_t listener_address_packed_size(ListenerAddress const& listener_address);
+
+void listener_address_pack_into(
+    ListenerAddress const& listener_address, void* dest, std::size_t& offset
 );
 
 std::unique_ptr<std::vector<std::uint8_t>> control_pack(
@@ -386,31 +388,28 @@ class SharedResources {
                 continue;
             }
 
-            // First pass: pack each address and compute total size.
-            std::vector<std::unique_ptr<std::vector<std::uint8_t>>> packed_addrs;
+            auto const control = ControlMessage::DistributeListenerAddresses;
+            std::size_t count{0};
+            std::size_t total = sizeof(control) + sizeof(count);
             for (auto& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
-                packed_addrs.push_back(listener_address_pack(addr));
+                total += sizeof(std::size_t) + listener_address_packed_size(addr);
+                ++count;
             }
 
-            auto const control = ControlMessage::DistributeListenerAddresses;
-            auto const count = packed_addrs.size();
-            std::size_t total = sizeof(control) + sizeof(count);
-            for (auto& pa : packed_addrs) {
-                total += sizeof(std::size_t) + pa->size();
-            }
-
-            // Second pass: encode into a single buffer.
             auto packed = std::make_unique<std::vector<std::uint8_t>>(total);
             std::size_t off{0};
             encode(packed->data(), &control, sizeof(control), off);
             encode(packed->data(), &count, sizeof(count), off);
-            for (auto& pa : packed_addrs) {
-                std::size_t pa_size = pa->size();
-                encode(packed->data(), &pa_size, sizeof(pa_size), off);
-                encode(packed->data(), pa->data(), pa_size, off);
+            for (auto& [src, addr] : rank_to_listener_address_) {
+                if (src == dst) {
+                    continue;
+                }
+                std::size_t addr_size = listener_address_packed_size(addr);
+                encode(packed->data(), &addr_size, sizeof(addr_size), off);
+                listener_address_pack_into(addr, packed->data(), off);
             }
 
             reqs.push_back(ep->amSend(
@@ -574,57 +573,67 @@ void decode(void* dest, void const* src, std::size_t bytes, std::size_t& offset)
 }
 
 /**
- * @brief Pack listener address.
+ * @brief Compute serialized size of a listener address.
  *
- * Pack (i.e., serialize) `ListenerAddress` so that it may be sent over the wire.
+ * @param listener_address the listener address to measure.
  *
- * @param listener_address the listener address to pack.
- *
- * @return vector of bytes to be sent over the wire.
+ * @return number of bytes required by `listener_address_pack_into`.
  */
-std::unique_ptr<std::vector<std::uint8_t>> listener_address_pack(
-    ListenerAddress const& listener_address
-) {
+std::size_t listener_address_packed_size(ListenerAddress const& listener_address) {
     return std::visit(
         overloaded{
-            [&listener_address](HostPortPair const& remote_address) {
-                std::size_t offset{0};
+            [&listener_address](HostPortPair const& remote_address) -> std::size_t {
+                return sizeof(ListenerAddressType) + sizeof(std::size_t)
+                       + remote_address.first.size() + sizeof(remote_address.second)
+                       + sizeof(listener_address.rank);
+            },
+            [&listener_address](std::shared_ptr<::ucxx::Address> const& remote_address)
+                -> std::size_t {
+                return sizeof(ListenerAddressType) + sizeof(std::size_t)
+                       + remote_address->getLength() + sizeof(listener_address.rank);
+            }
+        },
+        listener_address.address
+    );
+}
+
+/**
+ * @brief Pack a listener address directly into a pre-allocated buffer.
+ *
+ * Serializes the listener address starting at `dest + offset` and advances
+ * `offset` by `listener_address_packed_size(listener_address)` bytes.
+ *
+ * @param listener_address the listener address to pack.
+ * @param dest destination buffer (must have sufficient space).
+ * @param offset byte offset into `dest`; updated on return.
+ */
+void listener_address_pack_into(
+    ListenerAddress const& listener_address, void* dest, std::size_t& offset
+) {
+    std::visit(
+        overloaded{
+            [&](HostPortPair const& remote_address) {
                 auto type = ListenerAddressType::HostPort;
                 auto host_size = remote_address.first.size();
-                std::size_t const total_size = sizeof(type) + sizeof(host_size)
-                                               + host_size + sizeof(remote_address.second)
-                                               + sizeof(listener_address.rank);
-                auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
-
-                auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
-                    encode(packed->data(), data, bytes, offset);
-                };
-
-                encode_(&type, sizeof(type));
-                encode_(&host_size, sizeof(host_size));
-                encode_(remote_address.first.data(), host_size);
-                encode_(&remote_address.second, sizeof(remote_address.second));
-                encode_(&listener_address.rank, sizeof(listener_address.rank));
-                return packed;
+                encode(dest, &type, sizeof(type), offset);
+                encode(dest, &host_size, sizeof(host_size), offset);
+                encode(dest, remote_address.first.data(), host_size, offset);
+                encode(
+                    dest, &remote_address.second, sizeof(remote_address.second), offset
+                );
+                encode(
+                    dest, &listener_address.rank, sizeof(listener_address.rank), offset
+                );
             },
-            [&listener_address](std::shared_ptr<::ucxx::Address> const& remote_address) {
-                std::size_t offset{0};
+            [&](std::shared_ptr<::ucxx::Address> const& remote_address) {
                 auto type = ListenerAddressType::WorkerAddress;
                 auto address_size = remote_address->getLength();
-                std::size_t const total_size = sizeof(type) + sizeof(address_size)
-                                               + address_size
-                                               + sizeof(listener_address.rank);
-                auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
-
-                auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
-                    encode(packed->data(), data, bytes, offset);
-                };
-
-                encode_(&type, sizeof(type));
-                encode_(&address_size, sizeof(address_size));
-                encode_(remote_address->getString().data(), address_size);
-                encode_(&listener_address.rank, sizeof(listener_address.rank));
-                return packed;
+                encode(dest, &type, sizeof(type), offset);
+                encode(dest, &address_size, sizeof(address_size), offset);
+                encode(dest, remote_address->getString().data(), address_size, offset);
+                encode(
+                    dest, &listener_address.rank, sizeof(listener_address.rank), offset
+                );
             }
         },
         listener_address.address
@@ -711,22 +720,23 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
     } else if (control == ControlMessage::QueryRank
                || control == ControlMessage::RegisterListenerAddress)
     {
-        auto listener_address = std::get<ListenerAddress>(data);
-        auto packed_listener_address = listener_address_pack(listener_address);
-        std::size_t packed_listener_address_size = packed_listener_address->size();
+        auto const& listener_address = std::get<ListenerAddress>(data);
+        std::size_t const packed_listener_address_size =
+            listener_address_packed_size(listener_address);
 
         std::size_t const total_size = sizeof(control)
                                        + sizeof(packed_listener_address_size)
                                        + packed_listener_address_size;
         auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
-        auto encode_ = [&offset, &packed](void const* data, std::size_t bytes) {
-            encode(packed->data(), data, bytes, offset);
-        };
-
-        encode_(&control, sizeof(control));
-        encode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
-        encode_(packed_listener_address->data(), packed_listener_address_size);
+        encode(packed->data(), &control, sizeof(control), offset);
+        encode(
+            packed->data(),
+            &packed_listener_address_size,
+            sizeof(packed_listener_address_size),
+            offset
+        );
+        listener_address_pack_into(listener_address, packed->data(), offset);
 
         return packed;
     }
