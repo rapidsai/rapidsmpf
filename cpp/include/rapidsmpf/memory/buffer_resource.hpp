@@ -444,7 +444,7 @@ class LimitAvailableMemory {
      * @return The remaining memory in bytes.
      */
     std::int64_t operator()() const {
-        return limit - static_cast<std::int64_t>(mr_->current_allocated());
+        return limit - mr_->current_allocated();
     }
 
   public:
