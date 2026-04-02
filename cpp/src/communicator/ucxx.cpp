@@ -582,15 +582,14 @@ void decode(void* dest, void const* src, std::size_t bytes, std::size_t& offset)
 std::size_t listener_address_packed_size(ListenerAddress const& listener_address) {
     return std::visit(
         overloaded{
-            [&listener_address](HostPortPair const& remote_address) -> std::size_t {
+            [](HostPortPair const& remote_address) -> std::size_t {
                 return sizeof(ListenerAddressType) + sizeof(std::size_t)
                        + remote_address.first.size() + sizeof(remote_address.second)
-                       + sizeof(listener_address.rank);
+                       + sizeof(Rank);
             },
-            [&listener_address](std::shared_ptr<::ucxx::Address> const& remote_address)
-                -> std::size_t {
+            [](std::shared_ptr<::ucxx::Address> const& remote_address) -> std::size_t {
                 return sizeof(ListenerAddressType) + sizeof(std::size_t)
-                       + remote_address->getLength() + sizeof(listener_address.rank);
+                       + remote_address->getLength() + sizeof(Rank);
             }
         },
         listener_address.address
