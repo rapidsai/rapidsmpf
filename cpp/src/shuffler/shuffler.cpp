@@ -137,12 +137,9 @@ class Shuffler::Progress {
             auto completed_messages = shuffler_.mpe_->recv();
 
             for (auto&& message : completed_messages) {
-                auto chunk =
-                    detail::Chunk::deserialize(message->metadata(), shuffler_.br_, false);
-                if (message->data() != nullptr) {
-                    std::ignore = chunk.release_data_buffer();
-                    chunk.set_data_buffer(message->release_data());
-                }
+                auto chunk = detail::Chunk::deserialize(
+                    message->metadata(), shuffler_.br_, false, message->release_data()
+                );
 
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(

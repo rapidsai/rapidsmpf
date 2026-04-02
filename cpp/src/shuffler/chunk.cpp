@@ -55,7 +55,10 @@ Chunk Chunk::from_finished_partition(
 }
 
 Chunk Chunk::deserialize(
-    std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate
+    std::vector<std::uint8_t> const& msg,
+    BufferResource* br,
+    bool validate,
+    std::unique_ptr<Buffer> data
 ) {
     if (validate) {
         RAPIDSMPF_EXPECTS(
@@ -88,8 +91,7 @@ Chunk Chunk::deserialize(
         msg.begin() + safe_cast<std::int64_t>(offset), msg.end()
     );
 
-    std::unique_ptr<Buffer> data;
-    if (expected_num_chunks == 0) {
+    if (!data && expected_num_chunks == 0) {
         RAPIDSMPF_EXPECTS(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
