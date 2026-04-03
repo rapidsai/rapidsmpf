@@ -56,10 +56,17 @@ BufferResource::BufferResource(
 std::shared_ptr<BufferResource> BufferResource::from_options(
     RmmResourceAdaptor* mr, config::Options options
 ) {
+    auto pinned_mr = PinnedMemoryResource::from_options(options);
+    auto mem_available = memory_available_from_options(mr, options);
+
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
+    }
+
     return std::make_shared<BufferResource>(
         mr,
-        PinnedMemoryResource::from_options(options),
-        memory_available_from_options(mr, options),
+        std::move(pinned_mr),
+        std::move(mem_available),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         Statistics::from_options(mr, options)
@@ -84,6 +91,13 @@ rmm::host_async_resource_ref BufferResource::pinned_mr() {
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
+    RAPIDSMPF_EXPECTS(
+        mem_type != MemoryType::PINNED_HOST
+            || pinned_mr_ != PinnedMemoryResource::Disabled,
+        "pinned memory resource is not available",
+        std::invalid_argument
+    );
+
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
