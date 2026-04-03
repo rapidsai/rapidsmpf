@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -26,20 +25,22 @@ namespace {
 /**
  * @brief Control message types.
  *
- * There are 4 types of control messages:
  * 1. AssignRank: Sent by the root during `listener_callback` to each new
  * client (remote process) that connects to it. This message contains the rank
  * this client should respond to from now on.
- * 2. QueryListenerAddress: Asks the root rank for the listener address of
- * another rank, with the purpose of establishing an endpoint to that rank for
- * direct message transfers.
+ * 2. QueryRank: Sent by non-root ranks during worker-address init to register
+ * with the root.
+ * 3. RegisterListenerAddress: Sent by a non-root rank during host/port init to
+ * inform the root of its listener address after receiving its assigned rank.
+ * 4. DistributeListenerAddresses: Sent by the root during the first barrier to
+ * broadcast all listener addresses to every non-root rank in a single message.
  *
  */
 enum class ControlMessage {
     AssignRank = 0,  ///< Root assigns a rank to incoming client connection
     QueryRank,  ///< Ask root for a rank
-    QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
-    ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
+    RegisterListenerAddress,  ///< Non-root informs root of its listener address
+    DistributeListenerAddresses  ///< Root broadcasts all listener addresses
 };
 
 enum class ListenerAddressType {
@@ -88,6 +89,16 @@ class HostFuture {
     std::unique_ptr<std::vector<std::uint8_t>> data_buffer_;  ///< The data buffer.
 };
 
+void encode(void* dest, void const* src, std::size_t bytes, std::size_t& offset);
+
+std::unique_ptr<std::vector<std::uint8_t>> listener_address_pack(
+    ListenerAddress const& listener_address
+);
+
+std::unique_ptr<std::vector<std::uint8_t>> control_pack(
+    ControlMessage control, ControlData data
+);
+
 }  // namespace
 
 class SharedResources {
@@ -125,6 +136,9 @@ class SharedResources {
     std::atomic<std::uint64_t> progress_count{
         0
     };  ///< Counts how many times `maybe_progress_worker` has been called
+    bool listener_addresses_distributed_{
+        false
+    };  ///< Whether the root has already broadcast all listener addresses
 
   public:
     UCXX::Logger* logger{nullptr};  ///< UCXX logger
@@ -253,12 +267,8 @@ class SharedResources {
     void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         RAPIDSMPF_EXPECTS(
-            rank_to_endpoint_.emplace(rank, endpoint).second,
+            rank_to_endpoint_.emplace(rank, std::move(endpoint)).second,
             "endpoint for given rank already exists"
-        );
-        RAPIDSMPF_EXPECTS(
-            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
-            "endpoint handle already exists"
         );
     }
 
@@ -297,13 +307,6 @@ class SharedResources {
      * @param ep_handle The handle of the endpoint to retrieve.
      * @return The endpoint associated with the specified handle.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(
-        ucp_ep_h const ep_handle
-    ) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        return endpoints_.at(ep_handle);
-    }
-
     /**
      * @brief Gets an endpoint for a specific rank.
      *
@@ -340,10 +343,7 @@ class SharedResources {
      */
     void register_listener_address(Rank const rank, ListenerAddress listener_address) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        RAPIDSMPF_EXPECTS(
-            rank_to_listener_address_.emplace(rank, std::move(listener_address)).second,
-            "listener for given rank already exists"
-        );
+        rank_to_listener_address_.emplace(rank, std::move(listener_address));
     }
 
     /**
@@ -356,6 +356,74 @@ class SharedResources {
     void add_future(std::unique_ptr<HostFuture> future) {
         std::lock_guard<std::mutex> lock(futures_mutex_);
         futures_.push_back(std::move(future));
+    }
+
+    /**
+     * @brief Distribute all listener addresses from root to every non-root rank.
+     *
+     * Called once during the first barrier so that future get_endpoint() calls
+     * can create endpoints directly from cached addresses without querying the
+     * root.  This prevents deadlocks in UCXX polling mode where the root's
+     * worker may no longer be progressed when a peer attempts lazy endpoint
+     * creation.
+     *
+     * Must only be called on the root rank, after all ranks have connected.
+     */
+    void distribute_listener_addresses() {
+        if (listener_addresses_distributed_) {
+            return;
+        }
+        listener_addresses_distributed_ = true;
+
+        // Pack all listener addresses (except the destination's own) into a
+        // single DistributeListenerAddresses message per non-root rank.
+        // Format: [ControlMessage][count][addr1_size][addr1]...[addrN_size][addrN]
+        std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+        std::vector<std::unique_ptr<std::vector<std::uint8_t>>> bufs;
+        for (auto& [dst, ep] : rank_to_endpoint_) {
+            if (dst == 0) {
+                continue;
+            }
+
+            // First pass: pack each address and compute total size.
+            std::vector<std::unique_ptr<std::vector<std::uint8_t>>> packed_addrs;
+            for (auto& [src, addr] : rank_to_listener_address_) {
+                if (src == dst) {
+                    continue;
+                }
+                packed_addrs.push_back(listener_address_pack(addr));
+            }
+
+            auto const control = ControlMessage::DistributeListenerAddresses;
+            auto const count = packed_addrs.size();
+            std::size_t total = sizeof(control) + sizeof(count);
+            for (auto& pa : packed_addrs) {
+                total += sizeof(std::size_t) + pa->size();
+            }
+
+            // Second pass: encode into a single buffer.
+            auto packed = std::make_unique<std::vector<std::uint8_t>>(total);
+            std::size_t off{0};
+            encode(packed->data(), &control, sizeof(control), off);
+            encode(packed->data(), &count, sizeof(count), off);
+            for (auto& pa : packed_addrs) {
+                std::size_t pa_size = pa->size();
+                encode(packed->data(), &pa_size, sizeof(pa_size), off);
+                encode(packed->data(), pa->data(), pa_size, off);
+            }
+
+            reqs.push_back(ep->amSend(
+                packed->data(),
+                packed->size(),
+                UCS_MEMORY_TYPE_HOST,
+                control_callback_info_
+            ));
+            bufs.push_back(std::move(packed));
+        }
+        while (std::ranges::any_of(reqs, [](auto const& r) { return !r->isCompleted(); }))
+        {
+            progress_worker();
+        }
     }
 
     void barrier() {
@@ -397,6 +465,9 @@ class SharedResources {
                 progress_worker();
             }
             requests.clear();
+
+            distribute_listener_addresses();
+
             // Everyone has reported, release other ranks.
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
@@ -623,9 +694,7 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
 ) {
     std::size_t offset{0};
 
-    if (control == ControlMessage::AssignRank
-        || control == ControlMessage::QueryListenerAddress)
-    {
+    if (control == ControlMessage::AssignRank) {
         std::size_t const total_size = sizeof(control) + get_size(data);
         auto packed = std::make_unique<std::vector<std::uint8_t>>(total_size);
 
@@ -639,7 +708,7 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
         encode_(&rank, sizeof(rank));
         return packed;
     } else if (control == ControlMessage::QueryRank
-               || control == ControlMessage::ReplyListenerAddress)
+               || control == ControlMessage::RegisterListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -670,12 +739,13 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
  * the wire, and appropriately handle contained data.
  *
  * 1. AssignRank: Calls `SharedResources->set_rank()` to set own rank.
- * 2. QueryListenerAddress: Get the previously-registered listener address for
- * the rank being requested and reply the requester with the listener address.
- * A future with the reply is stored via `SharedResources->add_future()`.
- * This is only executed by the root.
- * 3. ReplyListenerAddress: Handle reply from root rank, associating the
- * received listener address with the requested rank.
+ * 2. QueryRank: Root registers the client's listener address, creates an
+ * endpoint and replies with an AssignRank message.
+ * 3. RegisterListenerAddress: Registers a single listener address sent by a
+ * non-root rank during host/port init.
+ * 4. DistributeListenerAddresses: Unpacks all listener addresses from a bulk
+ * message and registers them so that future `get_endpoint()` calls can create
+ * endpoints without querying root.
  *
  * @param buffer bytes received via UCXX containing the packed message.
  * @param ep the UCX handle from which the message was received.
@@ -684,7 +754,7 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
  */
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
-    ucp_ep_h ep,
+    [[maybe_unused]] ucp_ep_h ep,
     std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 ) {
     std::size_t offset{0};
@@ -746,7 +816,7 @@ void control_unpack(
         };
 
         shared_resources->add_delayed_progress_callback(std::move(callback));
-    } else if (control == ControlMessage::ReplyListenerAddress) {
+    } else if (control == ControlMessage::RegisterListenerAddress) {
         std::size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
         auto packed_listener_address =
@@ -759,22 +829,17 @@ void control_unpack(
         shared_resources->register_listener_address(
             listener_address.rank, std::move(listener_address)
         );
-    } else if (control == ControlMessage::QueryListenerAddress) {
-        Rank rank;
-        decode_(&rank, sizeof(rank));
-        auto listener_address = shared_resources->get_listener_address(rank);
-        auto endpoint = shared_resources->get_endpoint(ep);
-        auto packed_listener_address =
-            control_pack(ControlMessage::ReplyListenerAddress, listener_address);
-        auto req = endpoint->amSend(
-            packed_listener_address->data(),
-            packed_listener_address->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources->get_control_callback_info()
-        );
-        shared_resources->add_future(
-            std::make_unique<HostFuture>(req, std::move(packed_listener_address))
-        );
+    } else if (control == ControlMessage::DistributeListenerAddresses) {
+        std::size_t count;
+        decode_(&count, sizeof(count));
+        for (std::size_t i = 0; i < count; ++i) {
+            std::size_t addr_size;
+            decode_(&addr_size, sizeof(addr_size));
+            auto packed_addr = std::make_unique<std::vector<std::uint8_t>>(addr_size);
+            decode_(packed_addr->data(), addr_size);
+            auto addr = listener_address_unpack(std::move(packed_addr));
+            shared_resources->register_listener_address(addr.rank, std::move(addr));
+        }
     }
 };
 
@@ -1003,7 +1068,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                 .rank = shared_resources->rank()
             };
             auto packed_listener_address =
-                control_pack(ControlMessage::ReplyListenerAddress, listener_address);
+                control_pack(ControlMessage::RegisterListenerAddress, listener_address);
             auto req = endpoint->amSend(
                 packed_listener_address->data(),
                 packed_listener_address->size(),
@@ -1104,34 +1169,10 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         log->trace("Endpoint for rank ", rank, " already available, returning to caller");
         return ep;
     } catch (std::out_of_range const&) {
-        log->trace(
-            "Endpoint for rank ", rank, " not available, requesting listener address"
-        );
-        auto packed_listener_address_rank =
-            control_pack(ControlMessage::QueryListenerAddress, rank);
+        log->trace("Endpoint for rank ", rank, " not available, creating endpoint");
 
-        auto root_endpoint = get_endpoint(Rank(0));
-
-        auto listener_address_req = root_endpoint->amSend(
-            packed_listener_address_rank->data(),
-            packed_listener_address_rank->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources_->get_control_callback_info()
-        );
-
-        while (!listener_address_req->isCompleted()) {
-            progress_worker();
-        }
-        while (true) {
-            try {
-                auto listener_address = shared_resources_->get_listener_address(rank);
-                break;
-            } catch (std::out_of_range const&) {
-            }
-
-            progress_worker();
-        }
-
+        // All listener addresses are pre-distributed by the root during the
+        // first barrier() call, so the address must already be cached here.
         auto listener_address = shared_resources_->get_listener_address(rank);
         auto endpoint = std::visit(
             overloaded{
@@ -1153,11 +1194,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         );
         shared_resources_->register_endpoint(rank, endpoint);
 
-        log->trace(
-            "Endpoint for rank ",
-            rank,
-            " established successfully, requesting listener address"
-        );
+        log->trace("Endpoint for rank ", rank, " established successfully");
 
         return endpoint;
     }

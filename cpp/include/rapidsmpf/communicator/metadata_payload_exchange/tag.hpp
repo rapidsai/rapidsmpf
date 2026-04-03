@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -75,6 +75,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     std::vector<std::unique_ptr<Message>> recv() override;
 
     /**
+     * @copydoc MetadataPayloadExchange::finish
+     */
+    void finish() override;
+
+    /**
      * @copydoc MetadataPayloadExchange::is_idle
      */
     bool is_idle() const override;
@@ -100,9 +105,28 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
+    Rank const nranks_;
+    Rank const rank_;
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn_;
+
+    // Per-peer tracking for op_id reuse (see rapidsai/rapidsmpf#927).
+    // After finish() is called, termination markers are exchanged so each peer
+    // knows exactly how many application messages to expect. recv_from is used
+    // instead of recv_any to avoid consuming messages from a future collective.
+    bool finished_{false};
+    std::vector<std::size_t>
+        messages_sent_to_;  ///< Application messages sent per peer, indexed by Rank.
+    std::vector<std::size_t>
+        peer_received_;  ///< Application messages received per peer, indexed by Rank.
+    std::vector<std::size_t>
+        peer_expected_;  ///< Expected application messages per peer (0 = unknown).
+    std::vector<bool>
+        peer_terminated_;  ///< Whether we received the termination marker from each peer.
+
+    /// Sentinel message_id value used to identify protocol-level termination markers.
+    static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
 
     // Communication state containers
     std::vector<std::unique_ptr<Communicator::Future>>

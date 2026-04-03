@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -183,13 +183,27 @@ class MetadataPayloadExchange {
     [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> recv() = 0;
 
     /**
+     * @brief Signal that no more messages will be sent.
+     *
+     * After calling this method, no further calls to send() are permitted.
+     * The implementation sends protocol-level termination markers to all peers so
+     * that each receiver knows the exact number of application messages to expect.
+     * This enables safe reuse of operation IDs: once all termination markers have
+     * been received and all expected messages processed, the communication layer
+     * considers itself idle and the tag/op_id can be reused.
+     *
+     * @throws std::logic_error If called more than once.
+     */
+    virtual void finish() = 0;
+
+    /**
      * @brief Check if the communication layer is currently idle.
      *
      * Indicates whether there are any active or pending communication operations.
-     * A return value of `true` means the exchange is idling, i.e. no operations
-     * are currently in progress. However, new send/receive requests may still be
-     * submitted in the future; this does not imply that all communication has been
-     * fully finalized or globally synchronized.
+     * Before finish() is called, a return value of `true` means no I/O operations
+     * are in progress. After finish() is called, `true` additionally requires that
+     * all peers have sent their termination markers and all expected messages have
+     * been received, meaning the op_id can safely be reused.
      *
      * @return `true` if the communication layer is idle; `false` if activity is ongoing.
      */
