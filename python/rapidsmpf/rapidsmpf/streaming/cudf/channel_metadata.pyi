@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from typing import Literal
 
+import pylibcudf as plc
+
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class HashScheme:
     def __init__(self, column_indices: tuple[int, ...], modulus: int) -> None: ...
@@ -17,7 +20,27 @@ class HashScheme:
     def __eq__(self, other: object) -> bool: ...
     def __repr__(self) -> str: ...
 
-PartitioningSpecValue = HashScheme | None | Literal["inherit"]
+class OrderScheme:
+    def __init__(
+        self,
+        column_indices: tuple[int, ...],
+        orders: tuple[Literal["ascending", "descending"], ...],
+        null_orders: tuple[Literal["first", "last"], ...],
+        boundaries: TableChunk | None = None,
+    ) -> None: ...
+    @property
+    def column_indices(self) -> tuple[int, ...]: ...
+    @property
+    def orders(self) -> tuple[Literal["ascending", "descending"], ...]: ...
+    @property
+    def null_orders(self) -> tuple[Literal["first", "last"], ...]: ...
+    @property
+    def has_boundaries(self) -> bool: ...
+    def get_boundaries_table(self) -> plc.Table | None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+
+PartitioningSpecValue = HashScheme | OrderScheme | None | Literal["inherit"]
 
 class Partitioning:
     def __init__(
