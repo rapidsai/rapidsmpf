@@ -99,7 +99,7 @@ Options::Options(std::unordered_map<std::string, OptionValue> options)
         auto new_key = to_lower(trim(key));
         RAPIDSMPF_EXPECTS(
             opts.emplace(std::move(new_key), std::move(value)).second,
-            "option already available: " + key,
+            "option already set: " + key,
             std::invalid_argument
         );
     }
