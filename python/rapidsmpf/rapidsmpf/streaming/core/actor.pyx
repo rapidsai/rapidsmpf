@@ -99,7 +99,6 @@ class PyActor(Awaitable[None]):
         self._channels_to_shutdown = (
             *collect_channels(args, kwargs), *extra_channels
         )
-        self._coro = None
 
     @staticmethod
     async def run(Context ctx not None, channels_to_shutdown, coro):
@@ -113,15 +112,11 @@ class PyActor(Awaitable[None]):
                 await ch.shutdown(ctx)
 
     def __await__(self):
-        if self._coro is None:
-            ctx = self._args[0]
-            # Defer creation until we know we're being awaited.
-            self._coro = self.run(
-                ctx,
-                self._channels_to_shutdown,
-                self._func(*self._args, **self._kwargs)
-            )
-        return self._coro.__await__()
+        return self.run(
+            self._args[0],
+            self._channels_to_shutdown,
+            self._func(*self._args, **self._kwargs)
+        ).__await__()
 
 
 def collect_channels(*objs):
