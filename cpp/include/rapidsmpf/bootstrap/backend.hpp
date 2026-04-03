@@ -20,7 +20,7 @@ enum class BackendType {
      * @brief Automatically detect the best backend based on environment.
      *
      * Detection order:
-     * 1. File-based (if RRUN_COORD_DIR set by rrun)
+     * 1. File-based (if RRUN_COORD_DIR or RRUN_ROOT_ADDRESS set by rrun)
      * 2. Slurm/PMIx (if SLURM environment detected)
      * 3. File-based (default fallback)
      */
