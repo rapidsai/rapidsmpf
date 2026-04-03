@@ -133,7 +133,14 @@ cdef decorate_actor(extra_channels, func):
 
 async def run_py_actors(py_actors):
     """Await all ``py_actors`` concurrently."""
-    return await asyncio.gather(*py_actors)
+    async with asyncio.TaskGroup() as tg:
+        for actor in py_actors:
+            tg.create_task(_await_actor(actor))
+
+
+async def _await_actor(actor):
+    """Thin wrapper to turn an awaitable PyActor into a coroutine for TaskGroup."""
+    return await actor
 
 
 def define_actor(*, extra_channels=()):
