@@ -43,7 +43,7 @@ def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> N
         pull_task,
     ]
 
-    with pytest.raises(RuntimeError, match="Throwing in task"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="Throwing in task")):
         run_actor_network(actors=actors, py_executor=py_executor)
 
     messages = deferred.release()

@@ -179,7 +179,7 @@ def test_producer_raises_after_metadata(
         throwing_producer(context, ch),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    with pytest.raises(RuntimeError, match="producer failed"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="producer failed")):
         run_actor_network(actors=actors, py_executor=py_executor)
 
 
@@ -198,5 +198,5 @@ def test_consumer_raises_with_metadata(
         send_metadata_then_data(context, ch, [1], 0, 1),
         throwing_consumer(context, ch),
     ]
-    with pytest.raises(RuntimeError, match="consumer failed"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="consumer failed")):
         run_actor_network(actors=actors, py_executor=py_executor)
