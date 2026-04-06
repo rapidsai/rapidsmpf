@@ -163,5 +163,6 @@ def test_unawaited_actor_closed_coroutines_no_warning(context: Context) -> None:
         await ch_out.send(ctx, Message(0, ArbitraryChunk(42)))
         await ch_out.drain(ctx)
 
+    # Never awaited, just verifying no RuntimeWarning is emitted
     actor = my_actor(context, ch_out=ch)
     del actor
