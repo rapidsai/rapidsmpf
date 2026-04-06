@@ -232,7 +232,7 @@ static void BM_ChunkedPack_pinned(benchmark::State& state) {
 }
 
 // Custom argument generator for the benchmark
-void PackArguments(benchmark::internal::Benchmark* b) {
+void PackArguments(benchmark::Benchmark* b) {
     // Test different table sizes in MB (minimum 1MB as requested)
     for (auto size_mb : {1, 10, 100, 500, 1000, 2000, 4000}) {
         b->Args({size_mb});
@@ -309,7 +309,7 @@ static void BM_ChunkedPack_fixed_table_pinned(benchmark::State& state) {
 }
 
 // Custom argument generator for the benchmark
-void ChunkedPackArguments(benchmark::internal::Benchmark* b) {
+void ChunkedPackArguments(benchmark::Benchmark* b) {
     // Test different table sizes in MB (minimum 1MB as requested)
     for (auto bounce_buf_sz_mb : {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}) {
         b->Args({bounce_buf_sz_mb});

@@ -155,7 +155,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
 }
 
 // Custom argument generator for the benchmark
-void CustomArguments(benchmark::internal::Benchmark* b) {
+void CustomArguments(benchmark::Benchmark* b) {
     // Test different combinations of table sizes and partitions
     for (auto nranks : {4}) {
         for (int size_mb : {4000}) {
