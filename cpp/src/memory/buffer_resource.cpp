@@ -61,15 +61,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     auto mem_available = memory_available_from_options(mr, options);
 
-    // if max pool size is set, add a limit available memory function for pinned host
-    // reservations
-    if (pinned_mr != PinnedMemoryResource::Disabled
-        && pinned_mr->max_pool_size().has_value())
-    {
-        mem_available[MemoryType::PINNED_HOST] = LimitAvailableMemory{
-            pinned_mr->pool_tracker(),
-            safe_cast<std::int64_t>(*pinned_mr->max_pool_size())
-        };
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
 
     return std::make_shared<BufferResource>(

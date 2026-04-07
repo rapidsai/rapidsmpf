@@ -241,6 +241,51 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
+class PinnedMaxPoolSizeReservationLimitTest
+    : public ::testing::TestWithParam<std::optional<std::size_t>> {};
+
+TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    auto const max_pool_size = GetParam();
+    // if max_pool_size is not set or 0, the pool is unbounded.
+    auto const expect_second_succeeds = [&] { return max_pool_size.value_or(0) == 0; };
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor mr{cuda_mr};
+
+    auto pinned_mr = PinnedMemoryResource::make_if_available(
+        get_current_numa_node(), PinnedPoolProperties{.max_pool_size = max_pool_size}
+    );
+    ASSERT_NE(pinned_mr, PinnedMemoryResource::Disabled);
+
+    BufferResource br{
+        mr, pinned_mr, {{MemoryType::PINNED_HOST, pinned_mr->get_memory_available_cb()}}
+    };
+
+    // First 1 KiB reservation always succeeds.
+    auto [r1, ob1] = br.reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(r1.size(), 1_KiB);
+    EXPECT_EQ(ob1, 0);
+
+    // Second 1 KiB reservation succeeds only when the pool is unbounded.
+    auto [r2, ob2] = br.reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(r2.size(), expect_second_succeeds() ? 1_KiB : 0);
+    EXPECT_EQ(ob2, expect_second_succeeds() ? 0 : 1_KiB);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PinnedMaxPoolSize,
+    PinnedMaxPoolSizeReservationLimitTest,
+    ::testing::Values(
+        std::optional<std::size_t>{std::nullopt},
+        std::optional<std::size_t>{0},
+        std::optional<std::size_t>{1_KiB}
+    )
+);
+
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     RmmResourceAdaptor mr{mr_cuda};

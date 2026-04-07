@@ -12,6 +12,7 @@ from functools import partial, wraps
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
+
 from rapidsmpf.streaming.core.context cimport Context
 
 
@@ -92,9 +93,12 @@ class PyActor(Awaitable[None]):
                 "expect a Context as the first positional argument "
                 "(not as a keyword argument)"
             )
-        ctx = args[0]
-        channels_to_shutdown = (*collect_channels(args, kwargs), *extra_channels)
-        self._coro = self.run(ctx, channels_to_shutdown, func(*args, **kwargs))
+        self._func = func
+        self._args = args
+        self._kwargs = kwargs
+        self._channels_to_shutdown = (
+            *collect_channels(args, kwargs), *extra_channels
+        )
 
     @staticmethod
     async def run(Context ctx not None, channels_to_shutdown, coro):
@@ -108,7 +112,11 @@ class PyActor(Awaitable[None]):
                 await ch.shutdown(ctx)
 
     def __await__(self):
-        return self._coro.__await__()
+        return self.run(
+            self._args[0],
+            self._channels_to_shutdown,
+            self._func(*self._args, **self._kwargs)
+        ).__await__()
 
 
 def collect_channels(*objs):

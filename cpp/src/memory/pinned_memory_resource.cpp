@@ -12,6 +12,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -161,7 +162,7 @@ void PinnedMemoryResource::deallocate(
     RAPIDSMPF_EXPECTS(
         fixed_size_host_mr_ == nullptr, "deallocate called with fixed size mr available"
     );
-    pool_tracker_->deallocate(stream, ptr, bytes, alignment);
+    pool_tracker_tracker_->deallocate(stream, ptr, bytes, alignment);
 }
 
 void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
@@ -218,6 +219,16 @@ PinnedMemoryResource::allocate_fixed_sized(std::size_t size) {
         std::invalid_argument
     );
     return fixed_size_host_mr_->allocate_multiple_blocks(size);
+}
+
+std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() const {
+    auto const max_pool_size = pool_properties_.max_pool_size.value_or(0);
+    if (max_pool_size > 0) {
+        return LimitAvailableMemory{
+            &pool_tracker_.get(), safe_cast<std::int64_t>(max_pool_size)
+        };
+    }
+    return std::numeric_limits<std::int64_t>::max;
 }
 
 bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
