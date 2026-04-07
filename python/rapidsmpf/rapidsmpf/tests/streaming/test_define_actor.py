@@ -9,6 +9,7 @@ import pytest
 
 import cudf
 
+from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -151,3 +152,17 @@ def test_recv_table_chunks(
         assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
         assert_eq(tbl.table_view(), expect)
+
+
+@pytest.mark.filterwarnings("error")
+def test_unawaited_actor_closed_coroutines_no_warning(context: Context) -> None:
+    ch: Channel[ArbitraryChunk[int]] = context.create_channel()
+
+    @define_actor()
+    async def my_actor(ctx: Context, ch_out: Channel[ArbitraryChunk[int]]) -> None:
+        await ch_out.send(ctx, Message(0, ArbitraryChunk(42)))
+        await ch_out.drain(ctx)
+
+    # Never awaited, just verifying no RuntimeWarning is emitted
+    actor = my_actor(context, ch_out=ch)
+    del actor
