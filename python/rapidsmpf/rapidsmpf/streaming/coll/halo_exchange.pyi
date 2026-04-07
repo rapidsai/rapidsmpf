@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
@@ -8,6 +8,6 @@ class HaloExchange:
     def __init__(self, ctx: Context, comm: Communicator, op_id: int) -> None: ...
     async def exchange(
         self,
-        send_right: PackedData | None,
         send_left: PackedData | None,
+        send_right: PackedData | None,
     ) -> tuple[PackedData | None, PackedData | None]: ...

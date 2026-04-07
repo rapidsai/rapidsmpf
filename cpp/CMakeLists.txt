@@ -223,6 +223,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
     PRIVATE src/streaming/chunks/partition.cpp
             src/streaming/coll/allgather.cpp
             src/streaming/coll/allreduce.cpp
+            src/streaming/coll/halo_exchange.cpp
             src/streaming/coll/shuffler.cpp
             src/streaming/core/actor.cpp
             src/streaming/core/channel.cpp

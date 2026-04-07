@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -8,8 +8,8 @@ Because the streaming conftest always uses single_process_comm (nranks=1),
 these tests exercise the code path but with trivial results: boundary
 conditions eliminate both neighbors, so exchange() always returns (None, None).
 
-Multi-rank tests live in ../test_halo_exchange.py, which uses the MPI comm
-fixture and is run via ``mpirun -np N``.
+Multi-rank coverage lives in the C++ test suite
+(cpp/tests/streaming/test_halo_exchange.cpp), run via ctest with mpirun.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ import numpy as np
 
 import pylibcudf as plc
 
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.coll.halo_exchange import HaloExchange
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
@@ -34,7 +33,9 @@ if TYPE_CHECKING:
 
 def _make_packed_data(ctx: Context, values: list[int]) -> PackedData:
     stream = ctx.get_stream_from_pool()
-    table = plc.Table([plc.Column.from_array(np.array(values, dtype=np.int32), stream=stream)])
+    table = plc.Table(
+        [plc.Column.from_array(np.array(values, dtype=np.int32), stream=stream)]
+    )
     return PackedData.from_cudf_packed_columns(
         plc.contiguous_split.pack(table, stream=stream),
         stream,
@@ -47,11 +48,11 @@ async def _exchange_actor(
     context: Context,
     comm: Communicator,
     op_id: int,
-    send_right: PackedData | None,
     send_left: PackedData | None,
+    send_right: PackedData | None,
 ) -> None:
     he = HaloExchange(context, comm, op_id)
-    from_left, from_right = await he.exchange(send_right, send_left)
+    from_left, from_right = await he.exchange(send_left, send_right)
     # nranks==1: no neighbors, so both directions are always None
     assert from_left is None
     assert from_right is None
@@ -61,7 +62,7 @@ def test_single_rank_no_data(
     context: Context, comm: Communicator, py_executor: ThreadPoolExecutor
 ) -> None:
     """exchange(None, None) with nranks=1 returns (None, None)."""
-    actor = _exchange_actor(context, comm, op_id=0, send_right=None, send_left=None)
+    actor = _exchange_actor(context, comm, op_id=0, send_left=None, send_right=None)
     run_actor_network(actors=[actor], py_executor=py_executor)
 
 
@@ -70,7 +71,7 @@ def test_single_rank_with_data(
 ) -> None:
     """exchange(data, None) with nranks=1 still returns (None, None) — no neighbors."""
     data = _make_packed_data(context, [1, 2, 3])
-    actor = _exchange_actor(context, comm, op_id=0, send_right=data, send_left=None)
+    actor = _exchange_actor(context, comm, op_id=0, send_left=None, send_right=data)
     run_actor_network(actors=[actor], py_executor=py_executor)
 
 
