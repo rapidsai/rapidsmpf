@@ -92,8 +92,7 @@ TEST_F(StatisticsTest, ExistReportEntryName) {
 
     // Returns true after registration.
     stats.register_formatter(
-        "foo",
-        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
             os << s[0].value();
         }
     );
@@ -105,8 +104,7 @@ TEST_F(StatisticsTest, ExistReportEntryName) {
     // Disabled statistics always returns false (no formatters are ever registered).
     rapidsmpf::Statistics disabled(false);
     disabled.register_formatter(
-        "foo",
-        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
             os << s[0].value();
         }
     );

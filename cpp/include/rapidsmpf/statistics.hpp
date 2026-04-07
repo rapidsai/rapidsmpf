@@ -512,7 +512,8 @@ class Statistics {
     std::map<std::string, FormatterEntry> formatters_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     RmmResourceAdaptor* mr_;
-    std::shared_ptr<PinnedMemoryResource> pinned_mr_;  ///< optional; not used by MemoryRecorder
+    std::shared_ptr<PinnedMemoryResource>
+        pinned_mr_;  ///< optional; not used by MemoryRecorder
 };
 
 /**
@@ -552,7 +553,8 @@ class Statistics {
     auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                      \
     auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                 \
         ((rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__))   \
-          && rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) \
+          && rapidsmpf::detail::to_pointer(                                              \
+                 RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                           \
           ) -> is_memory_profiling_enabled())                                            \
              ? rapidsmpf::detail::to_pointer(                                            \
                    RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \

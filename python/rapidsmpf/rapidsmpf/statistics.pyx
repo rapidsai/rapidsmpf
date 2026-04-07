@@ -12,10 +12,8 @@ from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
-from rapidsmpf.memory.pinned_memory_resource cimport (
-    PinnedMemoryResource,
-    cpp_PinnedMemoryResource,
-)
+from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
+                                                      cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)

@@ -298,7 +298,7 @@ std::string Statistics::report(std::string const& header) const {
             }
         );
     }
-    
+
     // Sort based on peak memory.
     std::ranges::sort(sorted_records, [](auto const& a, auto const& b) {
         return a.second.scoped.peak() > b.second.scoped.peak();
