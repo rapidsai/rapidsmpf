@@ -9,6 +9,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -17,6 +18,7 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -76,10 +78,15 @@ class Statistics {
      *
      * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
      * for the lifetime of the returned object.
+     * @param pinned_mr Optional pinned host memory resource; shares ownership via
+     * `std::shared_ptr` (may be null or `PinnedMemoryResource::Disabled`).
      *
      * @throws std::invalid_argument If `mr` is the nullptr.
      */
-    Statistics(RmmResourceAdaptor* mr);
+    Statistics(
+        RmmResourceAdaptor* mr,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
+    );
 
     /**
      * @brief Construct from configuration options.
@@ -87,11 +94,15 @@ class Statistics {
      * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
      * for the lifetime of the returned object.
      * @param options Configuration options.
+     * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
+     * `PinnedMemoryResource::Disabled`.
      *
      * @return A shared pointer to the constructed Statistics instance.
      */
     static std::shared_ptr<Statistics> from_options(
-        RmmResourceAdaptor* mr, config::Options options
+        RmmResourceAdaptor* mr,
+        config::Options options,
+        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
     );
 
     ~Statistics() noexcept;
@@ -467,7 +478,6 @@ class Statistics {
         Statistics* stats_{nullptr};
         RmmResourceAdaptor* mr_{nullptr};
         std::string name_;
-        ScopedMemoryRecord main_record_;
     };
 
     /**
@@ -502,6 +512,7 @@ class Statistics {
     std::map<std::string, FormatterEntry> formatters_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     RmmResourceAdaptor* mr_;
+    std::shared_ptr<PinnedMemoryResource> pinned_mr_;  ///< optional; not used by MemoryRecorder
 };
 
 /**
@@ -541,8 +552,7 @@ class Statistics {
     auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                      \
     auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                 \
         ((rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__))   \
-          && rapidsmpf::detail::to_pointer(                                              \
-                 RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                           \
+          && rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) \
           ) -> is_memory_profiling_enabled())                                            \
              ? rapidsmpf::detail::to_pointer(                                            \
                    RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \

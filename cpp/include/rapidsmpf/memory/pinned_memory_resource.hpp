@@ -188,6 +188,15 @@ class PinnedMemoryResource final : public HostMemoryResource {
     }
 
     /**
+     * @brief Returns the main memory record for the pinned pool.
+     *
+     * @return The main memory record for the pinned pool.
+     */
+    [[nodiscard]] ScopedMemoryRecord get_main_memory_record() const {
+        return pool_tracker_->get_main_record();
+    }
+
+    /**
      * @brief Returns the properties used to configure the pool.
      *
      * @return The properties used to configure the pool.

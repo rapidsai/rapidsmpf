@@ -12,6 +12,10 @@ from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.memory.pinned_memory_resource cimport (
+    PinnedMemoryResource,
+    cpp_PinnedMemoryResource,
+)
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -22,7 +26,9 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor* mr, cpp_Options options
+            cpp_RmmResourceAdaptor* mr,
+            cpp_Options options,
+            shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
@@ -97,7 +103,13 @@ cdef class Statistics:
                 self._handle = make_shared[cpp_Statistics](enable)
 
     @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+    def from_options(
+        cls,
+        RmmResourceAdaptor mr not None,
+        Options options not None,
+        *,
+        PinnedMemoryResource pinned_mr=None,
+    ):
         """
         Construct from configuration options.
 
@@ -107,6 +119,8 @@ cdef class Statistics:
             Pointer to a memory resource used for memory profiling.
         options
             Configuration options.
+        pinned_mr
+            When given, the pinned memory resource held for profiling (shared with C++).
 
         Returns
         -------
@@ -114,8 +128,13 @@ cdef class Statistics:
         """
         cdef Statistics ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned
+        if pinned_mr is not None:
+            cpp_pinned = pinned_mr._handle
+        else:
+            cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
-            ret._handle = cpp_from_options(mr_handle, options._handle)
+            ret._handle = cpp_from_options(mr_handle, options._handle, cpp_pinned)
         ret._mr = mr
         return ret
 

@@ -43,7 +43,10 @@ Statistics::~Statistics() noexcept {
 // Setting `mr_ = nullptr` disables memory profiling.
 Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
 
-Statistics::Statistics(RmmResourceAdaptor* mr) : enabled_{true}, mr_{mr} {
+Statistics::Statistics(
+    RmmResourceAdaptor* mr, std::shared_ptr<PinnedMemoryResource> pinned_mr
+)
+    : enabled_{true}, mr_{mr}, pinned_mr_{std::move(pinned_mr)} {
     RAPIDSMPF_EXPECTS(
         mr != nullptr,
         "when enabling memory profiling, `mr` cannot be nullptr",
@@ -52,12 +55,15 @@ Statistics::Statistics(RmmResourceAdaptor* mr) : enabled_{true}, mr_{mr} {
 }
 
 std::shared_ptr<Statistics> Statistics::from_options(
-    RmmResourceAdaptor* mr, config::Options options
+    RmmResourceAdaptor* mr,
+    config::Options options,
+    std::shared_ptr<PinnedMemoryResource> pinned_mr
 ) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-    return statistics ? std::make_shared<Statistics>(mr) : Statistics::disabled();
+    return statistics ? std::make_shared<Statistics>(mr, std::move(pinned_mr))
+                      : Statistics::disabled();
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
@@ -153,7 +159,6 @@ Statistics::MemoryRecorder::MemoryRecorder(
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     RAPIDSMPF_EXPECTS(mr != nullptr, "the memory resource cannot be null");
     mr_->begin_scoped_memory_record();
-    main_record_ = mr_->get_main_record();
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
@@ -282,6 +287,18 @@ std::string Statistics::report(std::string const& header) const {
         }
     );
 
+    if (pinned_mr_ != PinnedMemoryResource::Disabled) {
+        auto const pinned_record = pinned_mr_->get_main_memory_record();
+        sorted_records.emplace_back(
+            "main (all allocations using PinnedMemoryResource)",
+            MemoryRecord{
+                .scoped = pinned_record,
+                .global_peak = pinned_record.peak(),
+                .num_calls = 1
+            }
+        );
+    }
+    
     // Sort based on peak memory.
     std::ranges::sort(sorted_records, [](auto const& a, auto const& b) {
         return a.second.scoped.peak() > b.second.scoped.peak();

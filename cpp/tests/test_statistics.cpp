@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <sstream>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -91,7 +92,8 @@ TEST_F(StatisticsTest, ExistReportEntryName) {
 
     // Returns true after registration.
     stats.register_formatter(
-        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+        "foo",
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
             os << s[0].value();
         }
     );
@@ -103,7 +105,8 @@ TEST_F(StatisticsTest, ExistReportEntryName) {
     // Disabled statistics always returns false (no formatters are ever registered).
     rapidsmpf::Statistics disabled(false);
     disabled.register_formatter(
-        "foo", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+        "foo",
+        [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
             os << s[0].value();
         }
     );
@@ -207,7 +210,9 @@ TEST_F(StatisticsTest, ReportSorting) {
 
 TEST_F(StatisticsTest, MemoryProfiler) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(&mr);
+    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+    rapidsmpf::Statistics stats(&mr, pinned_mr);
+    auto stream = cudf::get_default_stream();
 
     // Outer scope
     {
@@ -223,6 +228,17 @@ TEST_F(StatisticsTest, MemoryProfiler) {
             void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
             mr.deallocate_sync(ptr3, 1_MiB);
         }
+
+        // pinned host memory
+        if (pinned_mr != PinnedMemoryResource::Disabled) {
+            void* ptr3 = pinned_mr->allocate(stream, 1_MiB);  // +1 MiB
+            void* ptr4 = pinned_mr->allocate(stream, 2_MiB);  // +2 MiB
+            pinned_mr->deallocate(stream, ptr3, 1_MiB);  // -1 MiB
+            ptr3 = pinned_mr->allocate(stream, 1_MiB);  // +1 MiB
+            pinned_mr->deallocate(stream, ptr4, 2_MiB);  // -2 MiB
+            pinned_mr->deallocate(stream, ptr3, 1_MiB);  // -1 MiB
+        }
+        stream.synchronize();
     }
     auto const& records = stats.get_memory_records();
 
@@ -247,6 +263,44 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     EXPECT_EQ(records.at("outer").global_peak, 2_MiB);
     EXPECT_EQ(records.at("outer").scoped.peak(), 2_MiB);
     EXPECT_EQ(records.at("outer").scoped.total(), 4_MiB);
+
+    auto const report = stats.report();
+
+    // Split the report on newlines and find the "main" record line.
+    std::string main_line, pinned_line;
+    {
+        std::istringstream ss(report);
+        std::string line;
+        while (std::getline(ss, line) && (main_line.empty() || pinned_line.empty())) {
+            if (line.find("main (all allocations using RmmResourceAdaptor)")
+                != std::string::npos)
+            {
+                main_line = line;
+            }
+            if (line.find("main (all allocations using PinnedMemoryResource)")
+                != std::string::npos)
+            {
+                pinned_line = line;
+            }
+        }
+    }
+    ASSERT_FALSE(main_line.empty()) << "main record line not found in report";
+    ASSERT_FALSE(pinned_mr && pinned_line.empty())
+        << "pinned record line found in report";
+
+    // The report format is (statistics.cpp, lines 319-322):
+    //   setw(8):num_calls  setw(12):peak  setw(12):g-peak  setw(12):accum  "  " name
+    // For the main record: num_calls=1, peak=2 MiB, g-peak=2 MiB, accum=4 MiB.
+    static constexpr std::string_view kExpectedMainLine =
+        "       1       2 MiB       2 MiB       4 MiB"
+        "  main (all allocations using RmmResourceAdaptor)";
+    EXPECT_EQ(main_line, kExpectedMainLine);
+    static constexpr std::string_view kExpectedPinnedLine =
+        PinnedMemoryResource::Disabled
+            ? ""
+            : "       1       3 MiB       3 MiB       4 MiB"
+              "  main (all allocations using PinnedMemoryResource)";
+    EXPECT_EQ(pinned_line, kExpectedPinnedLine);
 }
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
