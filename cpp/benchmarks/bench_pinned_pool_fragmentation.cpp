@@ -30,17 +30,22 @@
  * Reported counters:
  *   max_alloc_GiB      — largest single allocation that succeeded in the fragmented pool
  *   free_target_GiB    — bytes freed before probing (kPoolFreeFactor × kMaxPool)
- *   block_size_MiB     — fixed block size in MiB (0 = variable-size pool)
+ *   block_size_MiB     — fixed block size in MiB (0 = variable-size pool modes)
+ *   block_tag          — raw first benchmark argument (INT_MAX / INT_MAX-1 / 1 / 4 / 8)
  *   max_fill_MiB       — upper bound of the random fill-request distribution (MiB)
  *   pool_free_factor   — fraction of kMaxPool freed before probing
  *
- * Benchmark arguments: {block_size_MiB, max_fill_MiB, free_pct}
- *   block_size_MiB ∈ {0, 1, 4, 8}     (0 → variable-size pool)
- *   max_fill_MiB   ∈ {128, 256, 512, 1024}
+ * Benchmark arguments: {block_tag, max_fill_MiB, free_pct}
+ *   block_tag ∈ {INT_MAX, INT_MAX-1, 1, 4, 8}
+ *     INT_MAX     → variable-size rapidsmpf::PinnedMemoryResource (cuda pinned pool)
+ *     INT_MAX - 1 → variable-size rmm::pool_memory_resource over pinned_host_memory_resource
+ *     1, 4, 8     → fixed-block rapidsmpf pool (block size in MiB)
+ *   max_fill_MiB ∈ {128, 256, 512, 1024}
  *   free_pct       ∈ {25, 50}          (percentage of kMaxPool to free before probing)
  */
 
 #include <algorithm>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -58,12 +63,20 @@
 
 #include <rmm/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/pinned_host_memory_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
 
 namespace {
+
+/// First benchmark range dimension: variable rapidsmpf pinned pool (distinct from fixed MiB sizes).
+constexpr std::int64_t kBlockTagRapidsmpfVariablePool = static_cast<std::int64_t>(INT_MAX);
+/// First benchmark range dimension: RMM coalescing pool over pinned host upstream.
+constexpr std::int64_t kBlockTagRmmPinnedPool = static_cast<std::int64_t>(INT_MAX) - 1;
 
 constexpr std::uint64_t kRngSeed = 42;
 constexpr std::size_t kInitialPool = 8ULL * 1024 * 1024 * 1024;  // 8 GiB
@@ -111,7 +124,7 @@ template <typename CanAllocFn>
     return lo;
 }
 
-// ─── Variable-size pool ───────────────────────────────────────────────────────
+// ─── Variable-size pool (rmm::device_async_resource_ref) ────────────────────
 
 struct VarAlloc {
     void* ptr;
@@ -120,7 +133,7 @@ struct VarAlloc {
 
 /// Phase 1 (variable): fill pool with random-sized allocations until OOM.
 [[nodiscard]] std::vector<VarAlloc> var_fill(
-    rapidsmpf::PinnedMemoryResource& mr,
+    rmm::device_async_resource_ref mr,
     rmm::cuda_stream_view stream,
     std::mt19937_64& rng,
     std::size_t max_fill_bytes
@@ -149,7 +162,7 @@ struct VarAlloc {
 /// Phase 2 (variable): randomly free live allocations until freed >= free_target.
 /// Picks random indices; skips already-freed slots (ptr == nullptr).
 void var_fragment(
-    rapidsmpf::PinnedMemoryResource& mr,
+    rmm::device_async_resource_ref mr,
     rmm::cuda_stream_view stream,
     std::vector<VarAlloc>& live,
     std::mt19937_64& rng,
@@ -174,7 +187,7 @@ void var_fragment(
 
 /// Phase 3 (variable): probe for the largest single allocation in the fragmented pool.
 [[nodiscard]] std::size_t var_probe_max(
-    rapidsmpf::PinnedMemoryResource& mr,
+    rmm::device_async_resource_ref mr,
     rmm::cuda_stream_view stream,
     std::size_t upper_bound
 ) {
@@ -271,8 +284,8 @@ void fixed_fragment(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// @p block_size == 0  → variable-size pool
-/// @p block_size  > 0  → fixed-block pool with that block size
+/// @p block_tag is kBlockTagRapidsmpfVariablePool or kBlockTagRmmPinnedPool → variable-size pool;
+/// otherwise MiB count for fixed-block rapidsmpf pool (1, 4, 8).
 void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         state.SkipWithMessage("pinned memory not supported on system");
@@ -281,7 +294,14 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
 
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
-    auto const block_size = static_cast<std::size_t>(state.range(0)) << 20;
+    std::int64_t const block_tag = state.range(0);
+    bool const use_rapidsmpf_variable = (block_tag == kBlockTagRapidsmpfVariablePool);
+    bool const use_rmm_variable = (block_tag == kBlockTagRmmPinnedPool);
+    bool const use_variable_pool = use_rapidsmpf_variable || use_rmm_variable;
+
+    std::size_t const block_size_bytes =
+        use_variable_pool ? 0U : (static_cast<std::size_t>(block_tag) << 20);
+
     auto const max_fill_bytes = static_cast<std::size_t>(state.range(1)) << 20;
     auto const free_factor = static_cast<double>(state.range(2)) / 100.0;
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
@@ -295,21 +315,37 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
         std::mt19937_64 rng{kRngSeed};
         std::size_t max_allocatable = 0;
 
-        if (block_size == 0) {
+        if (use_rapidsmpf_variable) {
             rapidsmpf::PinnedMemoryResource mr{rapidsmpf::get_current_numa_node(), props};
+            rmm::device_async_resource_ref mr_ref{mr};
 
-            auto live = var_fill(mr, stream.view(), rng, max_fill_bytes);
-            var_fragment(mr, stream.view(), live, rng, free_target);
+            auto live = var_fill(mr_ref, stream.view(), rng, max_fill_bytes);
+            var_fragment(mr_ref, stream.view(), live, rng, free_target);
 
-            max_allocatable = var_probe_max(mr, stream.view(), free_target);
+            max_allocatable = var_probe_max(mr_ref, stream.view(), free_target);
 
             std::ranges::for_each(live, [&](auto const& a) {
                 mr.deallocate(stream.view(), a.ptr, a.size);
             });
             stream.view().synchronize();
+        } else if (use_rmm_variable) {
+            rmm::mr::pinned_host_memory_resource pinned_upstream{};
+            rmm::mr::pool_memory_resource<rmm::mr::pinned_host_memory_resource> pool_mr{
+                pinned_upstream, kInitialPool, std::optional<std::size_t>{kMaxPool}};
+            rmm::device_async_resource_ref pool_ref{pool_mr};
+
+            auto live = var_fill(pool_ref, stream.view(), rng, max_fill_bytes);
+            var_fragment(pool_ref, stream.view(), live, rng, free_target);
+
+            max_allocatable = var_probe_max(pool_ref, stream.view(), free_target);
+
+            std::ranges::for_each(live, [&](auto const& a) {
+                pool_mr.deallocate(stream.view(), a.ptr, a.size);
+            });
+            stream.view().synchronize();
         } else {
             auto mr = rapidsmpf::PinnedMemoryResource::make_fixed_sized_if_available(
-                rapidsmpf::get_current_numa_node(), props, block_size
+                rapidsmpf::get_current_numa_node(), props, block_size_bytes
             );
             if (!mr) {
                 state.SkipWithMessage("fixed-size pinned resource unavailable");
@@ -330,7 +366,8 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
         state.counters["max_alloc_GiB"] =
             static_cast<double>(max_allocatable) / static_cast<double>(1ULL << 30);
         state.counters["block_size_MiB"] =
-            static_cast<double>(block_size) / static_cast<double>(1ULL << 20);
+            static_cast<double>(block_size_bytes) / static_cast<double>(1ULL << 20);
+        state.counters["block_tag"] = static_cast<double>(block_tag);
         state.counters["pool_free_factor"] = free_factor;
         state.counters["max_fill_MiB"] =
             static_cast<double>(max_fill_bytes) / static_cast<double>(1ULL << 20);
@@ -340,7 +377,8 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
 void register_fragmentation_args(benchmark::internal::Benchmark* b) {
     for (int64_t const free_pct : {25, 50}) {
         for (int64_t const max_fill_mib : {128, 256, 512, 1024}) {
-            b->Args({0, max_fill_mib, free_pct});  // variable-size pool
+            b->Args({kBlockTagRapidsmpfVariablePool, max_fill_mib, free_pct});
+            b->Args({kBlockTagRmmPinnedPool, max_fill_mib, free_pct});
             b->Args({1, max_fill_mib, free_pct});  // fixed 1 MiB blocks
             b->Args({4, max_fill_mib, free_pct});  // fixed 4 MiB blocks
             b->Args({8, max_fill_mib, free_pct});  // fixed 8 MiB blocks
