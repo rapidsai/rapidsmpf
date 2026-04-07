@@ -290,13 +290,13 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     //   setw(8):num_calls  setw(12):peak  setw(12):g-peak  setw(12):accum  "  " name
     // For the main record: num_calls=1, peak=2 MiB, g-peak=2 MiB, accum=4 MiB.
     static constexpr std::string_view kExpectedMainLine =
-        "       1       2 MiB       2 MiB       4 MiB"
+        "       1       2 MiB       2 MiB       4 MiB       1 MiB"
         "  main (all allocations using RmmResourceAdaptor)";
     EXPECT_EQ(main_line, kExpectedMainLine);
-    static constexpr std::string_view kExpectedPinnedLine =
-        PinnedMemoryResource::Disabled
+    static const std::string_view kExpectedPinnedLine =
+        pinned_mr == PinnedMemoryResource::Disabled
             ? ""
-            : "       1       3 MiB       3 MiB       4 MiB"
+            : "       1       3 MiB       3 MiB       4 MiB       2 MiB"
               "  main (all allocations using PinnedMemoryResource)";
     EXPECT_EQ(pinned_line, kExpectedPinnedLine);
 }

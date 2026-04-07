@@ -1,8 +1,9 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <numeric>
 
 #include <rapidsmpf/error.hpp>
@@ -53,6 +54,13 @@ std::int64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
     return peak_[static_cast<std::size_t>(alloc_type)];
 }
 
+std::int64_t ScopedMemoryRecord::max(AllocType alloc_type) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return std::ranges::max(max_);
+    }
+    return max_[static_cast<std::size_t>(alloc_type)];
+}
+
 void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
@@ -64,6 +72,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nb
     current_[at] += nbytes;
     total_[at] += nbytes;
     peak_[at] = std::max(peak_[at], current_[at]);
+    max_[at] = std::max(max_[at], nbytes);
     highest_peak_ = std::max(highest_peak_, current());
 }
 
@@ -82,6 +91,7 @@ ScopedMemoryRecord& ScopedMemoryRecord::add_subscope(ScopedMemoryRecord const& s
     for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
         auto i = static_cast<std::size_t>(type);
         peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
+        max_[i] = std::max(max_[i], subscope.max_[i]);
         num_total_allocs_[i] += subscope.num_total_allocs_[i];
         num_current_allocs_[i] += subscope.num_current_allocs_[i];
         current_[i] += subscope.current_[i];
@@ -95,6 +105,7 @@ ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scop
     for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
         auto i = static_cast<std::size_t>(type);
         peak_[i] = std::max(peak_[i], scope.peak_[i]);
+        max_[i] = std::max(max_[i], scope.max_[i]);
         current_[i] += scope.current_[i];
         total_[i] += scope.total_[i];
         num_total_allocs_[i] += scope.num_total_allocs_[i];

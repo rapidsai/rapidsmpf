@@ -307,11 +307,12 @@ std::string Statistics::report(std::string const& header) const {
        << "  ncalls - number of times the scope was executed.\n"
        << "  peak   - peak memory usage by the scope.\n"
        << "  g-peak - global peak memory usage during the scope's execution.\n"
-       << "  accum  - total accumulated memory allocations by the scope.\n";
+       << "  accum  - total accumulated memory allocations by the scope.\n"
+       << "  max    - largest single allocation by the scope.\n";
     ss << "\nOrdered by: peak (descending)\n\n";
 
     ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
-       << std::setw(12) << "g-peak" << std::setw(12) << "accum"
+       << std::setw(12) << "g-peak" << std::setw(12) << "accum" << std::setw(12) << "max"
        << "  filename:lineno(name)\n";
 
     // Print the sorted records.
@@ -319,7 +320,8 @@ std::string Statistics::report(std::string const& header) const {
         ss << std::right << std::setw(8) << record.num_calls << std::setw(12)
            << rapidsmpf::format_nbytes(record.scoped.peak()) << std::setw(12)
            << rapidsmpf::format_nbytes(record.global_peak) << std::setw(12)
-           << rapidsmpf::format_nbytes(record.scoped.total()) << "  " << name << "\n";
+           << rapidsmpf::format_nbytes(record.scoped.total()) << std::setw(12)
+           << rapidsmpf::format_nbytes(record.scoped.max()) << "  " << name << "\n";
     }
     ss << "\nLimitation:\n"
        << "  - A scope only tracks allocations made by the thread that entered it.\n";
