@@ -20,10 +20,12 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
@@ -78,7 +80,7 @@ def run_bloom_filter_pipeline(
     ch_probe: Channel[TableChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
-    actors: list[CppActor | PyActor] = [
+    actors: list[CppActor | Awaitable[None]] = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
         bloom_pipeline(context, bloom, ch_build, ch_probe, ch_out),
