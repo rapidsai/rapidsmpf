@@ -24,7 +24,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -33,16 +32,11 @@
 #include <thread>
 #include <vector>
 
-#include <sched.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-#if RAPIDSMPF_HAVE_NUMA
-#include <numa.h>
-#endif
-
-#include <cucascade/memory/topology_discovery.hpp>
+#include <rrun/rrun.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <pmix.h>
@@ -104,10 +98,6 @@ struct Config {
     BindToState bind_state{
         BindToState::NotSpecified
     };  // State of --bind-to specification
-    std::optional<cucascade::memory::system_topology_info>
-        topology;  // Discovered topology information
-    std::map<int, cucascade::memory::gpu_topology_info const*>
-        gpu_topology_map;  // Map GPU ID to topology info
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
     int slurm_local_id{-1};  // Local rank within node (SLURM_LOCALID)
     int slurm_global_rank{-1};  // Global rank (SLURM_PROCID)
@@ -217,117 +207,6 @@ void print_usage(std::string_view prog_name) {
 }
 
 /**
- * @brief Parse CPU list string into CPU mask for sched_setaffinity.
- *
- * Accepts formats like "0-31,128-159" or comma-separated single cores.
- * Returns a cpu_set_t mask that can be used with sched_setaffinity.
- *
- * @param cpulist CPU list string (e.g., "0-31,128-159").
- * @param cpuset Output CPU set to populate.
- * @return true on success, false on failure.
- */
-bool parse_cpu_list_to_mask(std::string const& cpulist, cpu_set_t* cpuset) {
-    CPU_ZERO(cpuset);
-    if (cpulist.empty()) {
-        return false;
-    }
-
-    std::istringstream iss(cpulist);
-    std::string token;
-    while (std::getline(iss, token, ',')) {
-        std::size_t dash_pos = token.find('-');
-        if (dash_pos != std::string::npos) {
-            // Range, e.g., "0-31"
-            try {
-                int start = std::stoi(token.substr(0, dash_pos));
-                int end = std::stoi(token.substr(dash_pos + 1));
-                for (int i = start; i <= end; ++i) {
-                    if (i >= 0 && i < static_cast<int>(CPU_SETSIZE)) {
-                        CPU_SET(static_cast<unsigned>(i), cpuset);
-                    }
-                }
-            } catch (...) {
-                return false;
-            }
-        } else {
-            // Single core, e.g., "5"
-            try {
-                int core = std::stoi(token);
-                if (core >= 0 && core < static_cast<int>(CPU_SETSIZE)) {
-                    CPU_SET(static_cast<unsigned>(core), cpuset);
-                }
-            } catch (...) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-/**
- * @brief Set CPU affinity for the current process.
- *
- * @param cpu_affinity_list CPU affinity list string (e.g., "0-31,128-159"), as in the
- * format of `cucascade::memory::gpu_topology_info::cpu_affinity_list`.
- * @return true on success, false on failure.
- */
-bool set_cpu_affinity(std::string const& cpu_affinity_list) {
-    if (cpu_affinity_list.empty()) {
-        return false;
-    }
-
-    cpu_set_t cpuset;
-    if (!parse_cpu_list_to_mask(cpu_affinity_list, &cpuset)) {
-        return false;
-    }
-
-    pid_t pid = getpid();
-    if (sched_setaffinity(pid, sizeof(cpu_set_t), &cpuset) != 0) {
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * @brief Set NUMA memory binding for the current process.
- *
- * @param memory_binding Vector of NUMA node IDs to bind memory to.
- * @return true on success, false on failure or if NUMA is not available.
- */
-bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
-#if RAPIDSMPF_HAVE_NUMA
-    if (memory_binding.empty()) {
-        return false;
-    }
-
-    if (numa_available() == -1) {
-        return false;
-    }
-
-    struct bitmask* nodemask = numa_allocate_nodemask();
-    if (!nodemask) {
-        return false;
-    }
-
-    numa_bitmask_clearall(nodemask);
-    for (int node : memory_binding) {
-        if (node >= 0) {
-            numa_bitmask_setbit(nodemask, static_cast<unsigned int>(node));
-        }
-    }
-
-    numa_set_membind(nodemask);
-    numa_free_nodemask(nodemask);
-
-    return true;
-#else
-    std::ignore = memory_binding;  // Suppress unused parameter warning
-    return false;
-#endif
-}
-
-/**
  * @brief Check if running under Slurm and populate Slurm-related config fields.
  *
  * @param cfg Configuration to populate with Slurm information.
@@ -365,64 +244,6 @@ bool detect_slurm_environment(Config& cfg) {
         return true;
     } catch (...) {
         return false;
-    }
-}
-
-/**
- * @brief Apply topology-based bindings for a specific GPU.
- *
- * This function sets CPU affinity, NUMA memory binding, and network device
- * environment variables based on the topology information for the given GPU.
- *
- * @param cfg Configuration containing topology information.
- * @param gpu_id GPU ID to apply bindings for.
- * @param verbose Print warnings on failure.
- */
-void apply_topology_bindings(Config const& cfg, int gpu_id, bool verbose) {
-    if (!cfg.topology.has_value() || gpu_id < 0) {
-        return;
-    }
-
-    auto it = cfg.gpu_topology_map.find(gpu_id);
-    if (it == cfg.gpu_topology_map.end()) {
-        if (verbose) {
-            std::cerr << "[rrun] Warning: No topology information for GPU " << gpu_id
-                      << std::endl;
-        }
-        return;
-    }
-
-    auto const& gpu_info = *it->second;
-
-    if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
-        if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
-            if (verbose) {
-                std::cerr << "[rrun] Warning: Failed to set CPU affinity for GPU "
-                          << gpu_id << std::endl;
-            }
-        }
-    }
-
-    if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
-        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
-#if RAPIDSMPF_HAVE_NUMA
-            if (verbose) {
-                std::cerr << "[rrun] Warning: Failed to set NUMA memory binding for GPU "
-                          << gpu_id << std::endl;
-            }
-#endif
-        }
-    }
-
-    if (cfg.bind_network && !gpu_info.network_devices.empty()) {
-        std::string ucx_net_devices;
-        for (std::size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
-            if (i > 0) {
-                ucx_net_devices += ",";
-            }
-            ucx_net_devices += gpu_info.network_devices[i];
-        }
-        setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1);
     }
 }
 
@@ -649,22 +470,6 @@ Config parse_args(int argc, char* argv[]) {
         cfg.bind_network = true;
     }
 
-    // Discover system topology
-    cucascade::memory::topology_discovery discovery;
-    if (discovery.discover()) {
-        cfg.topology = discovery.get_topology();
-        // Build GPU ID to topology info mapping
-        for (auto const& gpu : cfg.topology->gpus) {
-            cfg.gpu_topology_map[static_cast<int>(gpu.id)] = &gpu;
-        }
-    } else {
-        if (cfg.verbose) {
-            std::cerr << "[rrun] Warning: Failed to discover system topology. "
-                      << "CPU affinity, NUMA binding, and UCX network device "
-                      << "configuration will be skipped." << std::endl;
-        }
-    }
-
     return cfg;
 }
 
@@ -886,7 +691,13 @@ int execute_single_node_mode(Config& cfg) {
         setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
     }
 
-    apply_topology_bindings(cfg, gpu_id, cfg.verbose);
+    rapidsmpf::rrun::bind(
+        gpu_id,
+        {.cpu = cfg.bind_cpu,
+         .memory = cfg.bind_memory,
+         .network = cfg.bind_network,
+         .verbose = cfg.verbose}
+    );
 
     exec_application(cfg);
 }
@@ -1077,7 +888,13 @@ pid_t launch_rank_local(
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
             }
 
-            apply_topology_bindings(cfg, gpu_id, cfg.verbose);
+            rapidsmpf::rrun::bind(
+                gpu_id,
+                {.cpu = cfg.bind_cpu,
+                 .memory = cfg.bind_memory,
+                 .network = cfg.bind_network,
+                 .verbose = cfg.verbose}
+            );
 
             exec_application(cfg);
         }
