@@ -45,7 +45,8 @@ struct bind_options {
  *                is used instead.
  * @param options Controls which resource bindings to apply.
  *
- * @throws std::runtime_error if no GPU ID can be determined.
+ * @throws std::runtime_error if no GPU ID can be determined or the resolved
+ *         GPU is not found in the discovered topology.
  */
 void bind(
     std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
@@ -67,7 +68,8 @@ void bind(
  *                 used instead.
  * @param options  Controls which resource bindings to apply.
  *
- * @throws std::runtime_error if no GPU ID can be determined.
+ * @throws std::runtime_error if no GPU ID can be determined or the resolved
+ *         GPU is not found in @p topology.
  */
 void bind(
     cucascade::memory::system_topology_info const& topology,

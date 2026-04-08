@@ -154,11 +154,12 @@ TEST_F(RrunBindResolution, ThrowsWhenEnvVarIsNegative) {
     EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
 }
 
-TEST_F(RrunBindResolution, GpuNotInTopologyDoesNotThrow) {
+TEST_F(RrunBindResolution, GpuNotInTopologyThrows) {
     auto topo = make_single_gpu_topology(0);
 
-    EXPECT_NO_THROW(
-        rapidsmpf::rrun::bind(topo, 42u, {.cpu = true, .memory = true, .network = true})
+    EXPECT_THROW(
+        rapidsmpf::rrun::bind(topo, 42u, {.cpu = true, .memory = true, .network = true}),
+        std::runtime_error
     );
 }
 

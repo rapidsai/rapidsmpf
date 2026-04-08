@@ -244,10 +244,9 @@ void bind(
         }
     }
 
-    if (options.verbose) {
-        std::cerr << "[rrun] Warning: No topology information for GPU " << id
-                  << std::endl;
-    }
+    throw std::runtime_error(
+        "rapidsmpf::rrun::bind(): GPU " + std::to_string(id) + " not found in topology"
+    );
 }
 
 }  // namespace rapidsmpf::rrun
