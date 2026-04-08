@@ -292,15 +292,6 @@ class PinnedMemoryResource final : public HostMemoryResource {
     }
 
     /**
-     * @brief Returns the initial pool size used to configure this resource.
-     *
-     * @return The initial pool size in bytes.
-     */
-    [[nodiscard]] constexpr std::size_t initial_pool_size() const noexcept {
-        return pool_properties_.initial_pool_size;
-    }
-
-    /**
      * @brief Returns the maximum pool size used to configure this resource.
      *
      * @return The maximum pool size in bytes, or `std::nullopt` if unbounded.
@@ -308,15 +299,6 @@ class PinnedMemoryResource final : public HostMemoryResource {
     [[nodiscard]] constexpr std::optional<std::size_t> const&
     max_pool_size() const noexcept {
         return pool_properties_.max_pool_size;
-    }
-
-    /**
-     * @brief Returns the total number of currently allocated bytes.
-     *
-     * @return The total number of currently allocated bytes.
-     */
-    [[nodiscard]] std::size_t current_allocated() const noexcept {
-        return static_cast<std::size_t>(pool_tracker_->current_allocated());
     }
 
     /**

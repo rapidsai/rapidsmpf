@@ -162,7 +162,7 @@ void PinnedMemoryResource::deallocate(
     RAPIDSMPF_EXPECTS(
         fixed_size_host_mr_ == nullptr, "deallocate called with fixed size mr available"
     );
-    pool_tracker_tracker_->deallocate(stream, ptr, bytes, alignment);
+    pool_tracker_->deallocate(stream, ptr, bytes, alignment);
 }
 
 void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
