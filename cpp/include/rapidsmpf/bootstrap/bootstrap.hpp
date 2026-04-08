@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/types.hpp>
@@ -96,7 +97,7 @@ void sync(Context const& ctx);
  *
  * @throws std::runtime_error if called by non-zero rank.
  */
-void put(Context const& ctx, std::string const& key, std::string const& value);
+void put(Context const& ctx, std::string const& key, std::string_view value);
 
 /**
  * @brief Retrieve a value from the coordination backend.
