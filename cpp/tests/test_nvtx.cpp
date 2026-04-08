@@ -48,6 +48,9 @@ TEST(ExtractFuncNameTest, various_cases) {
         extract_func_name("auto rapidsmpf::Foo::method()::<lambda()>"),
         "rapidsmpf::Foo::method"
     );
+
+    // function name without paranthesis
+    EXPECT_EQ(extract_func_name("void Foo::bar"), "Foo::bar");
 }
 
 // ── RAPIDSMPF_NVTX_FUNC_RANGE smoke tests ───────────────────────────────────
