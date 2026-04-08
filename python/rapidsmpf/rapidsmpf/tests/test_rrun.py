@@ -16,11 +16,11 @@ from rapidsmpf.rrun import bind
 
 
 def _run_in_subprocess(target: Callable[[], None]) -> None:
-    """Execute *target()* in a forked child process.
+    """Execute ``target()`` in a forked child process.
 
     Because each call forks a new child, process-wide side-effects
     (CPU affinity, NUMA policy, environment variables) never leak into the
-    pytest process.  Any exception raised by *target* is propagated back to
+    pytest process. Any exception raised by ``target`` is propagated back to
     the caller.
     """
     ctx = multiprocessing.get_context("fork")
@@ -57,7 +57,7 @@ def _run_in_subprocess(target: Callable[[], None]) -> None:
 
 
 class TestBindResolution:
-    """GPU-ID resolution tests (no real binding side-effects)."""
+    """GPU-ID resolution tests."""
 
     def test_explicit_gpu_id(self) -> None:
         def body() -> None:
@@ -90,7 +90,15 @@ class TestBindResolution:
 
 
 class TestBindEffect:
-    """Verify that bind() actually applies resource bindings."""
+    """Verify that bind() actually applies resource bindings.
+
+    Because ``cucascade::memory::topology_discovery`` is not currently exposed
+    to Python, the expected binding values (CPU cores, NUMA nodes, network
+    devices) cannot be obtained from Python directly.  Tests here therefore
+    perform basic smoke checks -- verifying that the call succeeds and that
+    observable process state changes in the expected direction -- rather than
+    asserting exact topology-derived values.
+    """
 
     def test_cpu_affinity_changes(self) -> None:
         def body() -> None:
@@ -110,6 +118,18 @@ class TestBindEffect:
             bind(gpu_id=0, cpu=False, memory=False, network=False)
             after = os.sched_getaffinity(0)
             assert before == after
+
+        _run_in_subprocess(body)
+
+    def test_memory_binding_succeeds(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=False, memory=True, network=False)
+
+        _run_in_subprocess(body)
+
+    def test_memory_binding_skipped_when_disabled(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=False, memory=False, network=False)
 
         _run_in_subprocess(body)
 

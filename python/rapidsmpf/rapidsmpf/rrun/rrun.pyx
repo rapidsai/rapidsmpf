@@ -68,7 +68,7 @@ def bind(
 
     GPU resolution order:
 
-    1. Use *gpu_id* if provided.
+    1. Use ``gpu_id`` if provided.
     2. Otherwise, parse the first entry of the ``CUDA_VISIBLE_DEVICES``
        environment variable.
     3. If neither is available, raise :class:`RuntimeError`.
