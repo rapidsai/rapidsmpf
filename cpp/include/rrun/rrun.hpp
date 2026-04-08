@@ -34,6 +34,13 @@ struct bind_options {
  * This is the self-contained entry point intended for external libraries that
  * do not launch through the `rrun` CLI.
  *
+ * @warning This function is **not thread-safe**. It temporarily modifies the
+ * `CUDA_VISIBLE_DEVICES` environment variable during topology discovery and
+ * mutates process-wide state (CPU affinity, NUMA memory policy, and the
+ * `UCX_NET_DEVICES` environment variable). It should be called exactly once
+ * per process, ideally early in initialization and before other threads are
+ * spawned.
+ *
  * GPU resolution order:
  *   1. Use @p gpu_id if provided.
  *   2. Otherwise, parse the first entry of the `CUDA_VISIBLE_DEVICES`
@@ -60,6 +67,11 @@ void bind(
  *
  * GPU resolution follows the same order as the other overload (explicit
  * @p gpu_id, then `CUDA_VISIBLE_DEVICES`).
+ *
+ * @warning This function is **not thread-safe**. It mutates process-wide state
+ * (CPU affinity, NUMA memory policy, and the `UCX_NET_DEVICES` environment
+ * variable). It should be called exactly once per process, ideally early in
+ * initialization and before other threads are spawned.
  *
  * @param topology Pre-discovered system topology.
  * @param gpu_id GPU device index to bind for. When `std::nullopt`, the first
