@@ -40,9 +40,8 @@ struct bind_options {
  *      environment variable.
  *   3. If neither is available, throw `std::runtime_error`.
  *
- * @param gpu_id  GPU device index (as reported by `nvidia-smi`) to bind for.
- *                When `std::nullopt`, the first GPU in `CUDA_VISIBLE_DEVICES`
- *                is used instead.
+ * @param gpu_id GPU device index (as reported by `nvidia-smi`) to bind for.
+ * When `std::nullopt`, the first GPU in `CUDA_VISIBLE_DEVICES` is used instead.
  * @param options Controls which resource bindings to apply.
  *
  * @throws std::runtime_error if no GPU ID can be determined or the resolved
@@ -63,10 +62,9 @@ void bind(
  * @p gpu_id, then `CUDA_VISIBLE_DEVICES`).
  *
  * @param topology Pre-discovered system topology.
- * @param gpu_id   GPU device index to bind for.  When `std::nullopt`
- *                 (the default), the first GPU in `CUDA_VISIBLE_DEVICES` is
- *                 used instead.
- * @param options  Controls which resource bindings to apply.
+ * @param gpu_id GPU device index to bind for. When `std::nullopt`, the first
+ * GPU in `CUDA_VISIBLE_DEVICES` is used instead.
+ * @param options Controls which resource bindings to apply.
  *
  * @throws std::runtime_error if no GPU ID can be determined or the resolved
  *         GPU is not found in @p topology.
