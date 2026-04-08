@@ -63,14 +63,13 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
 
-    auto stats = Statistics::from_options(mr, options, pinned_mr);
     return std::make_shared<BufferResource>(
         mr,
-        std::move(pinned_mr),
+        pinned_mr,
         std::move(mem_available),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
-        std::move(stats)
+        Statistics::from_options(mr, options, std::move(pinned_mr))
     );
 }
 
