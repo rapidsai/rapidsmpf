@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <sched.h>
@@ -202,7 +203,7 @@ void bind(
     }
 
     for (auto const& gpu : topology.gpus) {
-        if (static_cast<int>(gpu.id) == gpu_id) {
+        if (std::cmp_equal(gpu.id, gpu_id)) {
             apply_bindings(gpu, gpu_id, options);
             return;
         }
