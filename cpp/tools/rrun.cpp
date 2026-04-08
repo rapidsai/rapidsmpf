@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -534,8 +535,18 @@ pid_t fork_with_piped_stdio(
         setvbuf(stdout, nullptr, _IONBF, 0);
         setvbuf(stderr, nullptr, _IONBF, 0);
 
-        // Execute child body (should not return)
-        child_body();
+        // Execute child body (should not return on success because
+        // exec_application calls execvp).  We must catch any exception here
+        // to guarantee the child always reaches _exit(); letting an exception
+        // propagate would unwind into the parent code-path where inherited
+        // std::thread objects (forwarder threads) trigger std::terminate().
+        try {
+            child_body();
+        } catch (std::exception const& e) {
+            fprintf(stderr, "[rrun] Fatal child error: %s\n", e.what());
+        } catch (...) {
+            fprintf(stderr, "[rrun] Fatal child error (unknown exception)\n");
+        }
         _exit(127);
     }
 

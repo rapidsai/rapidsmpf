@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <sched.h>
 
 #include <cucascade/memory/topology_discovery.hpp>
 
@@ -105,75 +106,93 @@ static cucascade::memory::system_topology_info make_single_gpu_topology(
 
 /**
  * @brief Tests for GPU-ID resolution logic (no real GPU or topology needed).
+ *
+ * All tests disable actual resource binding so that they only exercise the
+ * resolution path without modifying CPU affinity, NUMA policy, or environment
+ * variables of the calling process.
  */
-class RrunBindResolution : public ::testing::Test {};
+class RrunBindResolution : public ::testing::Test {
+  protected:
+    static constexpr rapidsmpf::rrun::bind_options noop_opts{
+        .cpu = false, .memory = false, .network = false
+    };
+};
 
 TEST_F(RrunBindResolution, ExplicitGpuIdUsedOverEnvVar) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "99");
     auto topo = make_single_gpu_topology(7);
 
-    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo, 7u));
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo, 7u, noop_opts));
 }
 
 TEST_F(RrunBindResolution, FallbackToCudaVisibleDevices) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "5");
     auto topo = make_single_gpu_topology(5);
 
-    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo));
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts));
 }
 
 TEST_F(RrunBindResolution, FallbackUsesFirstEntry) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "3,4,5");
     auto topo = make_single_gpu_topology(3);
 
-    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo));
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts));
 }
 
 TEST_F(RrunBindResolution, ThrowsWhenNoGpuIdAndNoEnvVar) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", nullptr);
 
     auto topo = make_single_gpu_topology(0);
-    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+    EXPECT_THROW(
+        rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts), std::runtime_error
+    );
 }
 
 TEST_F(RrunBindResolution, ThrowsWhenEnvVarEmpty) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "");
 
     auto topo = make_single_gpu_topology(0);
-    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+    EXPECT_THROW(
+        rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts), std::runtime_error
+    );
 }
 
 TEST_F(RrunBindResolution, ThrowsWhenEnvVarIsUuid) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "GPU-abcdef12-3456-7890");
 
     auto topo = make_single_gpu_topology(0);
-    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+    EXPECT_THROW(
+        rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts), std::runtime_error
+    );
 }
 
 TEST_F(RrunBindResolution, ThrowsWhenEnvVarIsNegative) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "-1");
 
     auto topo = make_single_gpu_topology(0);
-    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+    EXPECT_THROW(
+        rapidsmpf::rrun::bind(topo, std::nullopt, noop_opts), std::runtime_error
+    );
 }
 
 TEST_F(RrunBindResolution, GpuNotInTopologyThrows) {
     auto topo = make_single_gpu_topology(0);
 
-    EXPECT_THROW(
-        rapidsmpf::rrun::bind(topo, 42u, {.cpu = true, .memory = true, .network = true}),
-        std::runtime_error
-    );
+    EXPECT_THROW(rapidsmpf::rrun::bind(topo, 42u, noop_opts), std::runtime_error);
 }
 
 /**
  * @brief Tests for binding side-effects using synthetic topology.
  *
- * Saves and restores `UCX_NET_DEVICES` around each test.
+ * Saves and restores CPU affinity and `UCX_NET_DEVICES` around each test so
+ * that tests do not permanently alter the process state.
  */
 class RrunBindEffect : public ::testing::Test {
   protected:
     void SetUp() override {
+        CPU_ZERO(&saved_cpuset_);
+        sched_getaffinity(0, sizeof(saved_cpuset_), &saved_cpuset_);
+
         char const* val = std::getenv("UCX_NET_DEVICES");
         if (val != nullptr) {
             had_ucx_net_ = true;
@@ -182,6 +201,8 @@ class RrunBindEffect : public ::testing::Test {
     }
 
     void TearDown() override {
+        sched_setaffinity(0, sizeof(saved_cpuset_), &saved_cpuset_);
+
         if (had_ucx_net_) {
             setenv("UCX_NET_DEVICES", old_ucx_net_.c_str(), 1);
         } else {
@@ -189,6 +210,7 @@ class RrunBindEffect : public ::testing::Test {
         }
     }
 
+    cpu_set_t saved_cpuset_{};
     bool had_ucx_net_{false};
     std::string old_ucx_net_;
 };
@@ -238,6 +260,11 @@ TEST_F(RrunBindEffect, CpuBindingSkippedWhenDisabled) {
  * @brief Live-system tests that exercise bind() against real topology and
  * verify the resulting CPU affinity, NUMA binding and UCX_NET_DEVICES.
  *
+ * When running under rrun the fixture binds to the rank's own GPU (from
+ * `CUDA_VISIBLE_DEVICES`), otherwise it falls back to the first GPU in
+ * the discovered topology.  CPU affinity and `UCX_NET_DEVICES` are saved
+ * and restored around each test.
+ *
  * Skips automatically when topology discovery fails or no GPUs are found.
  */
 class RrunBindLive : public ::testing::Test {
@@ -250,8 +277,24 @@ class RrunBindLive : public ::testing::Test {
         if (topo.gpus.empty()) {
             GTEST_SKIP() << "No GPUs found in topology";
         }
-        gpu_id_ = topo.gpus.front().id;
-        expected_gpu_info_ = topo.gpus.front();
+
+        int env_gpu = rapidsmpf::bootstrap::get_gpu_id();
+        if (env_gpu >= 0) {
+            gpu_id_ = static_cast<unsigned int>(env_gpu);
+        } else {
+            gpu_id_ = topo.gpus.front().id;
+        }
+
+        auto it = std::find_if(topo.gpus.begin(), topo.gpus.end(), [this](auto const& g) {
+            return g.id == gpu_id_;
+        });
+        if (it == topo.gpus.end()) {
+            GTEST_SKIP() << "GPU " << gpu_id_ << " not found in topology";
+        }
+        expected_gpu_info_ = *it;
+
+        CPU_ZERO(&saved_cpuset_);
+        sched_getaffinity(0, sizeof(saved_cpuset_), &saved_cpuset_);
 
         char const* val = std::getenv("UCX_NET_DEVICES");
         if (val != nullptr) {
@@ -261,6 +304,8 @@ class RrunBindLive : public ::testing::Test {
     }
 
     void TearDown() override {
+        sched_setaffinity(0, sizeof(saved_cpuset_), &saved_cpuset_);
+
         if (had_ucx_net_) {
             setenv("UCX_NET_DEVICES", old_ucx_net_.c_str(), 1);
         } else {
@@ -271,6 +316,7 @@ class RrunBindLive : public ::testing::Test {
     cucascade::memory::topology_discovery discovery_;
     unsigned int gpu_id_{0};
     cucascade::memory::gpu_topology_info expected_gpu_info_;
+    cpu_set_t saved_cpuset_{};
     bool had_ucx_net_{false};
     std::string old_ucx_net_;
 };
