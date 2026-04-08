@@ -34,6 +34,14 @@ def bind(
     Discovers the system topology, then applies CPU affinity, NUMA memory
     binding, and/or network device configuration as requested.
 
+    .. warning::
+        This function is **not thread-safe**. It temporarily modifies the
+        ``CUDA_VISIBLE_DEVICES`` environment variable during topology
+        discovery and mutates process-wide state (CPU affinity, NUMA memory
+        policy, and the ``UCX_NET_DEVICES`` environment variable). It should
+        be called exactly once per process, ideally early in initialization
+        and before other threads are spawned.
+
     GPU resolution order:
 
     1. Use *gpu_id* if provided.
