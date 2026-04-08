@@ -75,8 +75,8 @@ template <typename T>
 
     // 2. Look for the last space before that boundary
     auto const space = pretty.rfind(' ', end_pos);
-    
-    // 3. If no space is found, the name starts at 0. 
+
+    // 3. If no space is found, the name starts at 0.
     //    Otherwise, start right after the space.
     auto const start_pos = (space == std::string_view::npos) ? 0 : space + 1;
 
