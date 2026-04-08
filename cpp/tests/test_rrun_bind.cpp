@@ -12,7 +12,8 @@
  * affinity, NUMA memory policy and UCX_NET_DEVICES are applied correctly;
  * these require a working topology_discovery and are skipped otherwise.
  *
- * Run with:  rrun -n 1 gtests/rrun_tests
+ * Run with:  rrun -n 1 gtests/rrun_tests  (single-rank)
+ *            rrun -n 4 gtests/rrun_tests  (multi-rank)
  * or directly:  gtests/rrun_tests
  */
 
@@ -270,15 +271,23 @@ TEST_F(RrunBindEffect, CpuBindingSkippedWhenDisabled) {
 class RrunBindLive : public ::testing::Test {
   protected:
     void SetUp() override {
-        if (!discovery_.discover()) {
-            GTEST_SKIP() << "Topology discovery unavailable";
+        // Read the physical GPU ID from CUDA_VISIBLE_DEVICES before clearing
+        // it; topology discovery must see all GPUs, not just the one rrun
+        // narrowed the env var to.
+        int env_gpu = rapidsmpf::bootstrap::get_gpu_id();
+
+        {
+            ScopedEnvVar wide_view("CUDA_VISIBLE_DEVICES", nullptr);
+            if (!discovery_.discover()) {
+                GTEST_SKIP() << "Topology discovery unavailable";
+            }
         }
+
         auto const& topo = discovery_.get_topology();
         if (topo.gpus.empty()) {
             GTEST_SKIP() << "No GPUs found in topology";
         }
 
-        int env_gpu = rapidsmpf::bootstrap::get_gpu_id();
         if (env_gpu >= 0) {
             gpu_id_ = static_cast<unsigned int>(env_gpu);
         } else {

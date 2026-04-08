@@ -680,6 +680,10 @@ int execute_single_node_mode(Config& cfg) {
         std::cout << "[rrun] Slurm mode: applying bindings and exec'ing" << std::endl;
     }
 
+    // Discover topology BEFORE narrowing CUDA_VISIBLE_DEVICES.
+    cucascade::memory::topology_discovery discovery;
+    bool const have_topology = discovery.discover();
+
     // Set rrun coordination environment variables so the application knows
     // it's being launched by rrun and should use bootstrap mode
     setenv("RRUN_RANK", std::to_string(cfg.slurm_global_rank).c_str(), 1);
@@ -702,14 +706,20 @@ int execute_single_node_mode(Config& cfg) {
         setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
     }
 
-    rapidsmpf::rrun::bind(
-        gpu_id >= 0 ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
-                    : std::nullopt,
-        {.cpu = cfg.bind_cpu,
-         .memory = cfg.bind_memory,
-         .network = cfg.bind_network,
-         .verbose = cfg.verbose}
-    );
+    if (have_topology) {
+        rapidsmpf::rrun::bind(
+            discovery.get_topology(),
+            gpu_id >= 0 ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
+                        : std::nullopt,
+            {.cpu = cfg.bind_cpu,
+             .memory = cfg.bind_memory,
+             .network = cfg.bind_network,
+             .verbose = cfg.verbose}
+        );
+    } else if (cfg.verbose) {
+        std::cerr << "[rrun] Warning: topology discovery failed; "
+                  << "resource binding skipped." << std::endl;
+    }
 
     exec_application(cfg);
 }
@@ -880,6 +890,12 @@ pid_t launch_rank_local(
         out_fd_stderr,
         /*combine_stderr*/ false,
         [&cfg, global_rank, local_rank, total_ranks]() {
+            // Discover topology BEFORE narrowing CUDA_VISIBLE_DEVICES to a
+            // single GPU, otherwise the discovery layer only sees the one
+            // device and GPU-ID lookup by physical ID will fail.
+            cucascade::memory::topology_discovery discovery;
+            bool const have_topology = discovery.discover();
+
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
                 setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
@@ -900,15 +916,25 @@ pid_t launch_rank_local(
                 setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
             }
 
-            rapidsmpf::rrun::bind(
-                gpu_id >= 0
-                    ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
-                    : std::nullopt,
-                {.cpu = cfg.bind_cpu,
-                 .memory = cfg.bind_memory,
-                 .network = cfg.bind_network,
-                 .verbose = cfg.verbose}
-            );
+            if (have_topology) {
+                rapidsmpf::rrun::bind(
+                    discovery.get_topology(),
+                    gpu_id >= 0
+                        ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
+                        : std::nullopt,
+                    {.cpu = cfg.bind_cpu,
+                     .memory = cfg.bind_memory,
+                     .network = cfg.bind_network,
+                     .verbose = cfg.verbose}
+                );
+            } else if (cfg.verbose) {
+                fprintf(
+                    stderr,
+                    "[rrun] Warning: topology discovery failed for rank %d; "
+                    "resource binding skipped.\n",
+                    global_rank
+                );
+            }
 
             exec_application(cfg);
         }
