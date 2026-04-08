@@ -1,0 +1,283 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * @brief GTest for the rapidsmpf::rrun::bind() API.
+ *
+ * GPU-resolution tests exercise the fallback chain (explicit ID ->
+ * CUDA_VISIBLE_DEVICES -> error) using synthetic topology objects so they
+ * can run without a real GPU.  Binding-effect tests verify that CPU
+ * affinity, NUMA memory policy and UCX_NET_DEVICES are applied correctly;
+ * these require a working topology_discovery and are skipped otherwise.
+ *
+ * Run with:  rrun -n 1 gtests/rrun_tests
+ * or directly:  gtests/rrun_tests
+ */
+
+#include <cstdlib>
+#include <optional>
+#include <stdexcept>
+#include <string>
+
+#include <gtest/gtest.h>
+
+#include <cucascade/memory/topology_discovery.hpp>
+
+#include <rrun/rrun.hpp>
+
+#include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
+
+/**
+ * @brief RAII guard that sets or unsets an environment variable and restores
+ * the original state on destruction.
+ *
+ * @param name  Name of the environment variable.
+ * @param value Value to set, or `nullptr` to unset the variable.
+ */
+class ScopedEnvVar {
+  public:
+    ScopedEnvVar(char const* name, char const* value) : name_(name) {
+        char const* old = std::getenv(name);
+        if (old != nullptr) {
+            had_value_ = true;
+            old_value_ = old;
+        }
+        if (value != nullptr) {
+            setenv(name, value, 1);
+        } else {
+            unsetenv(name);
+        }
+    }
+
+    ~ScopedEnvVar() {
+        if (had_value_) {
+            setenv(name_.c_str(), old_value_.c_str(), 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+    }
+
+    ScopedEnvVar(ScopedEnvVar const&) = delete;
+    ScopedEnvVar& operator=(ScopedEnvVar const&) = delete;
+
+  private:
+    std::string name_;
+    std::string old_value_;
+    bool had_value_{false};
+};
+
+/**
+ * @brief Build a minimal synthetic topology containing a single GPU.
+ *
+ * @param gpu_id          GPU device ID to assign.
+ * @param cpu_affinity    CPU affinity list string for the GPU.
+ * @param memory_binding  NUMA node IDs for memory binding.
+ * @param network_devices Network device names (NICs) for the GPU.
+ * @return A `system_topology_info` with one GPU entry.
+ */
+static cucascade::memory::system_topology_info make_single_gpu_topology(
+    unsigned int gpu_id,
+    std::string const& cpu_affinity = "0-3",
+    std::vector<int> const& memory_binding = {0},
+    std::vector<std::string> const& network_devices = {"mlx5_0"}
+) {
+    cucascade::memory::gpu_topology_info gpu;
+    gpu.id = gpu_id;
+    gpu.name = "TestGPU";
+    gpu.cpu_affinity_list = cpu_affinity;
+    gpu.memory_binding = memory_binding;
+    gpu.network_devices = network_devices;
+
+    cucascade::memory::system_topology_info topo;
+    topo.hostname = "test-host";
+    topo.num_gpus = 1;
+    topo.num_numa_nodes = 1;
+    topo.num_network_devices = static_cast<int>(network_devices.size());
+    topo.gpus.push_back(gpu);
+    return topo;
+}
+
+/**
+ * @brief Tests for GPU-ID resolution logic (no real GPU or topology needed).
+ */
+class RrunBindResolution : public ::testing::Test {};
+
+TEST_F(RrunBindResolution, ExplicitGpuIdUsedOverEnvVar) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "99");
+    auto topo = make_single_gpu_topology(7);
+
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo, 7u));
+}
+
+TEST_F(RrunBindResolution, FallbackToCudaVisibleDevices) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "5");
+    auto topo = make_single_gpu_topology(5);
+
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo));
+}
+
+TEST_F(RrunBindResolution, FallbackUsesFirstEntry) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "3,4,5");
+    auto topo = make_single_gpu_topology(3);
+
+    EXPECT_NO_THROW(rapidsmpf::rrun::bind(topo));
+}
+
+TEST_F(RrunBindResolution, ThrowsWhenNoGpuIdAndNoEnvVar) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", nullptr);
+
+    auto topo = make_single_gpu_topology(0);
+    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+}
+
+TEST_F(RrunBindResolution, ThrowsWhenEnvVarEmpty) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "");
+
+    auto topo = make_single_gpu_topology(0);
+    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+}
+
+TEST_F(RrunBindResolution, ThrowsWhenEnvVarIsUuid) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "GPU-abcdef12-3456-7890");
+
+    auto topo = make_single_gpu_topology(0);
+    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+}
+
+TEST_F(RrunBindResolution, ThrowsWhenEnvVarIsNegative) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "-1");
+
+    auto topo = make_single_gpu_topology(0);
+    EXPECT_THROW(rapidsmpf::rrun::bind(topo), std::runtime_error);
+}
+
+TEST_F(RrunBindResolution, GpuNotInTopologyDoesNotThrow) {
+    auto topo = make_single_gpu_topology(0);
+
+    EXPECT_NO_THROW(
+        rapidsmpf::rrun::bind(topo, 42u, {.cpu = true, .memory = true, .network = true})
+    );
+}
+
+/**
+ * @brief Tests for binding side-effects using synthetic topology.
+ *
+ * Saves and restores `UCX_NET_DEVICES` around each test.
+ */
+class RrunBindEffect : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        char const* val = std::getenv("UCX_NET_DEVICES");
+        if (val != nullptr) {
+            had_ucx_net_ = true;
+            old_ucx_net_ = val;
+        }
+    }
+
+    void TearDown() override {
+        if (had_ucx_net_) {
+            setenv("UCX_NET_DEVICES", old_ucx_net_.c_str(), 1);
+        } else {
+            unsetenv("UCX_NET_DEVICES");
+        }
+    }
+
+    bool had_ucx_net_{false};
+    std::string old_ucx_net_;
+};
+
+TEST_F(RrunBindEffect, NetworkBindingSetsEnvVar) {
+    auto topo = make_single_gpu_topology(0, "0-3", {0}, {"mlx5_2", "mlx5_3"});
+
+    rapidsmpf::rrun::bind(topo, 0u, {.cpu = false, .memory = false, .network = true});
+
+    char const* val = std::getenv("UCX_NET_DEVICES");
+    ASSERT_NE(val, nullptr);
+    EXPECT_EQ(std::string(val), "mlx5_2,mlx5_3");
+}
+
+TEST_F(RrunBindEffect, NetworkBindingSkippedWhenDisabled) {
+    unsetenv("UCX_NET_DEVICES");
+
+    auto topo = make_single_gpu_topology(0, "0-3", {0}, {"mlx5_0"});
+
+    rapidsmpf::rrun::bind(topo, 0u, {.cpu = false, .memory = false, .network = false});
+
+    EXPECT_EQ(std::getenv("UCX_NET_DEVICES"), nullptr);
+}
+
+TEST_F(RrunBindEffect, CpuBindingAppliesAffinity) {
+    auto topo = make_single_gpu_topology(0, "0-3", {}, {});
+
+    rapidsmpf::rrun::bind(topo, 0u, {.cpu = true, .memory = false, .network = false});
+
+    std::string affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
+    EXPECT_TRUE(rapidsmpf::bootstrap::compare_cpu_affinity(affinity, "0-3"))
+        << "Expected CPU affinity 0-3, got: " << affinity;
+}
+
+TEST_F(RrunBindEffect, CpuBindingSkippedWhenDisabled) {
+    std::string before = rapidsmpf::bootstrap::get_current_cpu_affinity();
+
+    auto topo = make_single_gpu_topology(0, "0-1", {}, {});
+
+    rapidsmpf::rrun::bind(topo, 0u, {.cpu = false, .memory = false, .network = false});
+
+    std::string after = rapidsmpf::bootstrap::get_current_cpu_affinity();
+    EXPECT_EQ(before, after);
+}
+
+/**
+ * @brief Live-system tests that exercise bind() against real topology.
+ *
+ * Skips automatically when topology discovery fails or no GPUs are found.
+ */
+class RrunBindLive : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        if (!discovery_.discover()) {
+            GTEST_SKIP() << "Topology discovery unavailable";
+        }
+        auto const& topo = discovery_.get_topology();
+        if (topo.gpus.empty()) {
+            GTEST_SKIP() << "No GPUs found in topology";
+        }
+        gpu_id_ = topo.gpus.front().id;
+    }
+
+    cucascade::memory::topology_discovery discovery_;
+    unsigned int gpu_id_{0};
+};
+
+TEST_F(RrunBindLive, BindWithExplicitGpuId) {
+    EXPECT_NO_THROW(
+        rapidsmpf::rrun::bind(
+            discovery_.get_topology(),
+            gpu_id_,
+            {.cpu = true, .memory = true, .network = true, .verbose = true}
+        )
+    );
+}
+
+TEST_F(RrunBindLive, BindWithCudaVisibleDevicesFallback) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id_).c_str());
+
+    EXPECT_NO_THROW(
+        rapidsmpf::rrun::bind(
+            discovery_.get_topology(),
+            std::nullopt,
+            {.cpu = true, .memory = true, .network = true, .verbose = true}
+        )
+    );
+}
+
+TEST_F(RrunBindLive, AutoDiscoveryOverload) {
+    EXPECT_NO_THROW(
+        rapidsmpf::rrun::bind(
+            gpu_id_, {.cpu = true, .memory = true, .network = true, .verbose = true}
+        )
+    );
+}
