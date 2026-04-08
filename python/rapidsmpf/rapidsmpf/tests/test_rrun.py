@@ -2,91 +2,131 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import multiprocessing
 import os
+import traceback
+from typing import TYPE_CHECKING
 
 import pytest
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 from rapidsmpf.rrun import bind
+
+
+def _run_in_subprocess(target: Callable[[], None]) -> None:
+    """Execute *target()* in a forked child process.
+
+    Because each call forks a new child, process-wide side-effects
+    (CPU affinity, NUMA policy, environment variables) never leak into the
+    pytest process.  Any exception raised by *target* is propagated back to
+    the caller.
+    """
+    ctx = multiprocessing.get_context("fork")
+    parent_conn, child_conn = ctx.Pipe()
+
+    def _wrapper() -> None:
+        try:
+            target()
+            child_conn.send(None)
+        except BaseException as exc:
+            try:
+                child_conn.send(exc)
+            except Exception:
+                child_conn.send(
+                    RuntimeError(
+                        f"{type(exc).__name__}: {exc}\n"
+                        f"{''.join(traceback.format_tb(exc.__traceback__))}"
+                    )
+                )
+        finally:
+            child_conn.close()
+
+    proc = ctx.Process(target=_wrapper)
+    proc.start()
+    proc.join(timeout=30)
+
+    if parent_conn.poll():
+        exc = parent_conn.recv()
+        if exc is not None:
+            raise exc
+
+    if proc.exitcode != 0:
+        raise RuntimeError(f"Subprocess exited with code {proc.exitcode}")
 
 
 class TestBindResolution:
     """GPU-ID resolution tests (no real binding side-effects)."""
 
     def test_explicit_gpu_id(self) -> None:
-        bind(gpu_id=0, cpu=False, memory=False, network=False)
+        def body() -> None:
+            bind(gpu_id=0, cpu=False, memory=False, network=False)
+
+        _run_in_subprocess(body)
 
     def test_cuda_visible_devices_fallback(self) -> None:
-        old = os.environ.get("CUDA_VISIBLE_DEVICES")
-        try:
+        def body() -> None:
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
             bind(cpu=False, memory=False, network=False)
-        finally:
-            if old is None:
-                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-            else:
-                os.environ["CUDA_VISIBLE_DEVICES"] = old
+
+        _run_in_subprocess(body)
 
     def test_no_gpu_id_raises(self) -> None:
-        old = os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-        try:
+        def body() -> None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
             with pytest.raises(RuntimeError, match="no GPU ID specified"):
                 bind(cpu=False, memory=False, network=False)
-        finally:
-            if old is not None:
-                os.environ["CUDA_VISIBLE_DEVICES"] = old
+
+        _run_in_subprocess(body)
 
     def test_invalid_cuda_visible_devices_raises(self) -> None:
-        old = os.environ.get("CUDA_VISIBLE_DEVICES")
-        try:
+        def body() -> None:
             os.environ["CUDA_VISIBLE_DEVICES"] = "GPU-abcdef12-3456"
             with pytest.raises(RuntimeError, match="not a valid GPU ID"):
                 bind(cpu=False, memory=False, network=False)
-        finally:
-            if old is None:
-                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-            else:
-                os.environ["CUDA_VISIBLE_DEVICES"] = old
+
+        _run_in_subprocess(body)
 
 
 class TestBindEffect:
     """Verify that bind() actually applies resource bindings."""
 
     def test_cpu_affinity_changes(self) -> None:
-        before = os.sched_getaffinity(0)
-        bind(gpu_id=0, cpu=True, memory=False, network=False)
-        after = os.sched_getaffinity(0)
-        # Binding should restrict the affinity (unless the system has only
-        # one NUMA domain and all cores are already assigned to GPU 0).
-        if len(before) > 1:
-            assert len(after) <= len(before), (
-                f"Expected affinity to narrow; before={before}, after={after}"
-            )
-        os.sched_setaffinity(0, before)
+        def body() -> None:
+            before = os.sched_getaffinity(0)
+            bind(gpu_id=0, cpu=True, memory=False, network=False)
+            after = os.sched_getaffinity(0)
+            if len(before) > 1:
+                assert len(after) <= len(before), (
+                    f"Expected affinity to narrow; before={before}, after={after}"
+                )
+
+        _run_in_subprocess(body)
 
     def test_cpu_binding_skipped_when_disabled(self) -> None:
-        before = os.sched_getaffinity(0)
-        bind(gpu_id=0, cpu=False, memory=False, network=False)
-        after = os.sched_getaffinity(0)
-        assert before == after
+        def body() -> None:
+            before = os.sched_getaffinity(0)
+            bind(gpu_id=0, cpu=False, memory=False, network=False)
+            after = os.sched_getaffinity(0)
+            assert before == after
+
+        _run_in_subprocess(body)
 
     def test_network_binding_sets_ucx_net_devices(self) -> None:
-        old = os.environ.pop("UCX_NET_DEVICES", None)
-        try:
+        def body() -> None:
+            os.environ.pop("UCX_NET_DEVICES", None)
             bind(gpu_id=0, cpu=False, memory=False, network=True)
             val = os.environ.get("UCX_NET_DEVICES")
             assert val is not None
             assert len(val) > 0
-        finally:
-            if old is None:
-                os.environ.pop("UCX_NET_DEVICES", None)
-            else:
-                os.environ["UCX_NET_DEVICES"] = old
+
+        _run_in_subprocess(body)
 
     def test_network_binding_skipped_when_disabled(self) -> None:
-        old = os.environ.pop("UCX_NET_DEVICES", None)
-        try:
+        def body() -> None:
+            os.environ.pop("UCX_NET_DEVICES", None)
             bind(gpu_id=0, cpu=False, memory=False, network=False)
             assert os.environ.get("UCX_NET_DEVICES") is None
-        finally:
-            if old is not None:
-                os.environ["UCX_NET_DEVICES"] = old
+
+        _run_in_subprocess(body)
