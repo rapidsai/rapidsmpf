@@ -118,7 +118,7 @@ cdef class Statistics:
         options
             Configuration options.
         pinned_mr
-            When given, the pinned memory resource held for profiling (shared with C++).
+            When given, the pinned memory resource held for profiling.
 
         Returns
         -------

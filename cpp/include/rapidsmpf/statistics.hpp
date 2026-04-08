@@ -78,8 +78,8 @@ class Statistics {
      *
      * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
      * for the lifetime of the returned object.
-     * @param pinned_mr Optional pinned host memory resource; shares ownership via
-     * `std::shared_ptr` (may be null or `PinnedMemoryResource::Disabled`).
+     * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
+     * `PinnedMemoryResource::Disabled`.
      *
      * @throws std::invalid_argument If `mr` is the nullptr.
      */
