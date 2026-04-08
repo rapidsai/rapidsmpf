@@ -10,6 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <system_error>
 #include <thread>
 
@@ -63,7 +64,7 @@ FileBackend::~FileBackend() {
     cleanup_coordination_directory();
 }
 
-void FileBackend::put(std::string const& key, std::string const& value) {
+void FileBackend::put(std::string const& key, std::string_view value) {
     if (ctx_.rank != 0) {
         throw std::runtime_error(
             "put() can only be called by rank 0, but was called by rank "
@@ -191,7 +192,7 @@ bool FileBackend::wait_for_file(std::string const& path, Duration timeout) {
     }
 }
 
-void FileBackend::write_file(std::string const& path, std::string const& content) {
+void FileBackend::write_file(std::string const& path, std::string_view content) {
     std::string tmp_path = path + ".tmp." + std::to_string(getpid());
 
     // Write to temporary file
@@ -199,7 +200,7 @@ void FileBackend::write_file(std::string const& path, std::string const& content
     if (!ofs) {
         throw std::runtime_error("Failed to open temporary file: " + tmp_path);
     }
-    ofs << content;
+    ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
     ofs.close();
 
     // Atomic rename

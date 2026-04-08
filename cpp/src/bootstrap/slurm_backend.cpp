@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -125,7 +126,7 @@ SlurmBackend::~SlurmBackend() {
     PMIx_Finalize(nullptr, 0);
 }
 
-void SlurmBackend::put(std::string const& key, std::string const& value) {
+void SlurmBackend::put(std::string const& key, std::string_view value) {
     if (ctx_.rank != 0) {
         throw std::runtime_error(
             "put() can only be called by rank 0, but was called by rank "
