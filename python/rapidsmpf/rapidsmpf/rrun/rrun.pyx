@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
+from libc.stdlib cimport getenv as c_getenv
 from libcpp cimport bool as cbool
 from libcpp.optional cimport optional
 
@@ -18,6 +21,27 @@ cdef extern from "<rrun/rrun.hpp>" namespace "rapidsmpf::rrun" nogil:
         optional[unsigned int] gpu_id,
         const cpp_bind_options& options,
     ) except +ex_handler
+
+
+# Environment variables that bind() may modify via C setenv().
+_ENV_VARS_MODIFIED_BY_BIND = ("UCX_NET_DEVICES", "CUDA_VISIBLE_DEVICES")
+
+
+cdef _sync_c_env_to_python():
+    """Propagate C-level environment changes made by bind() into os.environ.
+
+    The C++ bind() implementation uses setenv()/unsetenv() which modify the C
+    environment directly.  Python's os.environ is a cached dict that is only
+    updated when Python code writes to it, so we must manually synchronize the
+    variables that bind() may have touched.
+    """
+    cdef const char* val
+    for name in _ENV_VARS_MODIFIED_BY_BIND:
+        val = c_getenv(name.encode())
+        if val != NULL:
+            os.environ[name] = val.decode()
+        else:
+            os.environ.pop(name, None)
 
 
 def bind(
@@ -81,3 +105,4 @@ def bind(
 
     with nogil:
         cpp_bind(c_gpu_id, opts)
+    _sync_c_env_to_python()
