@@ -15,7 +15,7 @@
 
 using rapidsmpf::detail::extract_func_name;
 
-TEST(ExtractFuncNameTest, various_cases) {
+TEST(ExtractFuncNameTest, VariousCases) {
     // return type + namespace + function name + params
     EXPECT_EQ(extract_func_name("void rapidsmpf::baz(int)"), "rapidsmpf::baz");
 
