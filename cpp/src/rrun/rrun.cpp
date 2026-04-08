@@ -6,9 +6,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 #include <sched.h>
@@ -139,7 +139,7 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
  */
 void apply_bindings(
     cucascade::memory::gpu_topology_info const& gpu_info,
-    int gpu_id,
+    unsigned int gpu_id,
     bind_options const& options
 ) {
     if (options.cpu && !gpu_info.cpu_affinity_list.empty()) {
@@ -174,12 +174,49 @@ void apply_bindings(
     }
 }
 
+/**
+ * @brief Resolve a GPU ID from an explicit value or `CUDA_VISIBLE_DEVICES`.
+ *
+ * @param gpu_id Caller-supplied GPU ID, or `std::nullopt` to fall back.
+ * @return Resolved GPU device index.
+ * @throws std::runtime_error if no GPU ID can be determined.
+ */
+unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
+    if (gpu_id.has_value()) {
+        return *gpu_id;
+    }
+
+    char const* env = std::getenv("CUDA_VISIBLE_DEVICES");
+    if (env != nullptr && env[0] != '\0') {
+        std::string first_entry(env);
+        auto comma = first_entry.find(',');
+        if (comma != std::string::npos) {
+            first_entry.resize(comma);
+        }
+        try {
+            int value = std::stoi(first_entry);
+            if (value < 0) {
+                throw std::out_of_range("negative");
+            }
+            return static_cast<unsigned int>(value);
+        } catch (...) {
+            throw std::runtime_error(
+                "rapidsmpf::rrun::bind(): CUDA_VISIBLE_DEVICES first entry ('"
+                + first_entry + "') is not a valid GPU ID"
+            );
+        }
+    }
+
+    throw std::runtime_error(
+        "rapidsmpf::rrun::bind(): no GPU ID specified and CUDA_VISIBLE_DEVICES "
+        "is not set"
+    );
+}
+
 }  // namespace
 
-void bind(int gpu_id, bind_options const& options) {
-    if (gpu_id < 0) {
-        return;
-    }
+void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
+    unsigned int id = resolve_gpu_id(gpu_id);
 
     cucascade::memory::topology_discovery discovery;
     if (!discovery.discover()) {
@@ -190,27 +227,25 @@ void bind(int gpu_id, bind_options const& options) {
         }
         return;
     }
-    bind(gpu_id, discovery.get_topology(), options);
+    bind(discovery.get_topology(), id, options);
 }
 
 void bind(
-    int gpu_id,
     cucascade::memory::system_topology_info const& topology,
+    std::optional<unsigned int> gpu_id,
     bind_options const& options
 ) {
-    if (gpu_id < 0) {
-        return;
-    }
+    unsigned int id = resolve_gpu_id(gpu_id);
 
     for (auto const& gpu : topology.gpus) {
-        if (std::cmp_equal(gpu.id, gpu_id)) {
-            apply_bindings(gpu, gpu_id, options);
+        if (gpu.id == id) {
+            apply_bindings(gpu, id, options);
             return;
         }
     }
 
     if (options.verbose) {
-        std::cerr << "[rrun] Warning: No topology information for GPU " << gpu_id
+        std::cerr << "[rrun] Warning: No topology information for GPU " << id
                   << std::endl;
     }
 }

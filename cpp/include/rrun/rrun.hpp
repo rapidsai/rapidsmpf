@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <cucascade/memory/topology_discovery.hpp>
 
 namespace rapidsmpf::rrun {
@@ -32,28 +34,44 @@ struct bind_options {
  * This is the self-contained entry point intended for external libraries that
  * do not launch through the `rrun` CLI.
  *
+ * GPU resolution order:
+ *   1. Use @p gpu_id if provided.
+ *   2. Otherwise, parse the first entry of the `CUDA_VISIBLE_DEVICES`
+ *      environment variable.
+ *   3. If neither is available, throw `std::runtime_error`.
+ *
  * @param gpu_id  GPU device index (as reported by `nvidia-smi`) to bind for.
- *                Negative values are silently ignored.
+ *                When `std::nullopt`, the first GPU in `CUDA_VISIBLE_DEVICES`
+ *                is used instead.
  * @param options Controls which resource bindings to apply.
+ *
+ * @throws std::runtime_error if no GPU ID can be determined.
  */
-void bind(int gpu_id, bind_options const& options = {});
+void bind(
+    std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
+);
 
 /**
  * @brief Bind using pre-discovered topology information.
  *
- * Same as the single-argument overload, but skips the topology discovery step
- * by reusing a previously obtained `system_topology_info`.  Useful when the
- * caller has already performed discovery (e.g., in a parent process before
- * forking).
+ * Same as the other overload, but skips the topology discovery step by reusing
+ * a previously obtained `system_topology_info`.  Useful when the caller has
+ * already performed discovery (e.g., in a parent process before forking).
  *
- * @param gpu_id   GPU device index to bind for.  Negative values are silently
- *                 ignored.
+ * GPU resolution follows the same order as the other overload (explicit
+ * @p gpu_id, then `CUDA_VISIBLE_DEVICES`).
+ *
  * @param topology Pre-discovered system topology.
+ * @param gpu_id   GPU device index to bind for.  When `std::nullopt`
+ *                 (the default), the first GPU in `CUDA_VISIBLE_DEVICES` is
+ *                 used instead.
  * @param options  Controls which resource bindings to apply.
+ *
+ * @throws std::runtime_error if no GPU ID can be determined.
  */
 void bind(
-    int gpu_id,
     cucascade::memory::system_topology_info const& topology,
+    std::optional<unsigned int> gpu_id = std::nullopt,
     bind_options const& options = {}
 );
 

@@ -692,7 +692,8 @@ int execute_single_node_mode(Config& cfg) {
     }
 
     rapidsmpf::rrun::bind(
-        gpu_id,
+        gpu_id >= 0 ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
+                    : std::nullopt,
         {.cpu = cfg.bind_cpu,
          .memory = cfg.bind_memory,
          .network = cfg.bind_network,
@@ -889,7 +890,9 @@ pid_t launch_rank_local(
             }
 
             rapidsmpf::rrun::bind(
-                gpu_id,
+                gpu_id >= 0
+                    ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
+                    : std::nullopt,
                 {.cpu = cfg.bind_cpu,
                  .memory = cfg.bind_memory,
                  .network = cfg.bind_network,
