@@ -69,20 +69,18 @@ template <typename T>
 [[nodiscard]] constexpr std::string_view extract_func_name(
     std::string_view pretty
 ) noexcept {
-    // Locate the '(' that opens the parameter list – everything before it is
-    // "return-type qualified-name" (or just "qualified-name" for ctors/dtors).
+    // 1. Find the end boundary (either '(' or the end of the string)
     auto const paren = pretty.find('(');
-    if (paren == std::string_view::npos)
-        return pretty;
+    auto const end_pos = (paren == std::string_view::npos) ? pretty.size() : paren;
 
-    // Walk backwards from '(' to find the last space, which separates the
-    // return-type token from the qualified name.  If there is no space (e.g.
-    // constructors have no return type), the qualified name starts at index 0.
-    auto const space = pretty.rfind(' ', paren);
-    if (space == std::string_view::npos)
-        return pretty.substr(0, paren);
+    // 2. Look for the last space before that boundary
+    auto const space = pretty.rfind(' ', end_pos);
+    
+    // 3. If no space is found, the name starts at 0. 
+    //    Otherwise, start right after the space.
+    auto const start_pos = (space == std::string_view::npos) ? 0 : space + 1;
 
-    return pretty.substr(space + 1, paren - space - 1);
+    return pretty.substr(start_pos, end_pos - start_pos);
 }
 
 }  // namespace rapidsmpf::detail
