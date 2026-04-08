@@ -188,7 +188,7 @@ endif()
 
 # rrun_tests - Tests for rrun launcher, topology discovery and resource binding functionality. These
 # tests must be run with rrun, not via ctest/mpirun. Example: `rrun -n 1 gtests/rrun_tests`
-add_executable(rrun_tests main/rrun.cpp test_rrun.cpp)
+add_executable(rrun_tests main/rrun.cpp test_rrun.cpp test_rrun_bind.cpp)
 set_target_properties(
   rrun_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
