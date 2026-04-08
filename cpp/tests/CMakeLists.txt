@@ -233,6 +233,7 @@ target_link_libraries(
   PRIVATE rapidsmpf::rapidsmpf GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan test_sources
 )
+target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
 
