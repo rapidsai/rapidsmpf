@@ -16,10 +16,13 @@
  * or directly:  gtests/rrun_tests
  */
 
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -232,7 +235,8 @@ TEST_F(RrunBindEffect, CpuBindingSkippedWhenDisabled) {
 }
 
 /**
- * @brief Live-system tests that exercise bind() against real topology.
+ * @brief Live-system tests that exercise bind() against real topology and
+ * verify the resulting CPU affinity, NUMA binding and UCX_NET_DEVICES.
  *
  * Skips automatically when topology discovery fails or no GPUs are found.
  */
@@ -247,38 +251,147 @@ class RrunBindLive : public ::testing::Test {
             GTEST_SKIP() << "No GPUs found in topology";
         }
         gpu_id_ = topo.gpus.front().id;
+        expected_gpu_info_ = topo.gpus.front();
+
+        char const* val = std::getenv("UCX_NET_DEVICES");
+        if (val != nullptr) {
+            had_ucx_net_ = true;
+            old_ucx_net_ = val;
+        }
+    }
+
+    void TearDown() override {
+        if (had_ucx_net_) {
+            setenv("UCX_NET_DEVICES", old_ucx_net_.c_str(), 1);
+        } else {
+            unsetenv("UCX_NET_DEVICES");
+        }
     }
 
     cucascade::memory::topology_discovery discovery_;
     unsigned int gpu_id_{0};
+    cucascade::memory::gpu_topology_info expected_gpu_info_;
+    bool had_ucx_net_{false};
+    std::string old_ucx_net_;
 };
 
-TEST_F(RrunBindLive, BindWithExplicitGpuId) {
-    EXPECT_NO_THROW(
-        rapidsmpf::rrun::bind(
-            discovery_.get_topology(),
-            gpu_id_,
-            {.cpu = true, .memory = true, .network = true, .verbose = true}
-        )
+TEST_F(RrunBindLive, CpuAffinity) {
+    rapidsmpf::rrun::bind(
+        discovery_.get_topology(),
+        gpu_id_,
+        {.cpu = true, .memory = false, .network = false}
     );
+
+    if (expected_gpu_info_.cpu_affinity_list.empty()) {
+        GTEST_SKIP() << "No CPU affinity expected for GPU " << gpu_id_;
+    }
+
+    std::string actual = rapidsmpf::bootstrap::get_current_cpu_affinity();
+    EXPECT_TRUE(
+        rapidsmpf::bootstrap::compare_cpu_affinity(
+            actual, expected_gpu_info_.cpu_affinity_list
+        )
+    ) << "CPU affinity mismatch for GPU "
+      << gpu_id_ << "\n"
+      << "  Expected: " << expected_gpu_info_.cpu_affinity_list << "\n"
+      << "  Actual:   " << actual;
 }
 
-TEST_F(RrunBindLive, BindWithCudaVisibleDevicesFallback) {
+TEST_F(RrunBindLive, NumaBinding) {
+    rapidsmpf::rrun::bind(
+        discovery_.get_topology(),
+        gpu_id_,
+        {.cpu = false, .memory = true, .network = false}
+    );
+
+    if (expected_gpu_info_.memory_binding.empty()) {
+        GTEST_SKIP() << "No NUMA binding expected for GPU " << gpu_id_;
+    }
+
+    std::vector<int> actual_nodes = rapidsmpf::get_current_numa_nodes();
+    ASSERT_FALSE(actual_nodes.empty())
+        << "No NUMA nodes detected after binding for GPU " << gpu_id_;
+
+    bool found = std::any_of(actual_nodes.begin(), actual_nodes.end(), [this](int node) {
+        return std::find(
+                   expected_gpu_info_.memory_binding.begin(),
+                   expected_gpu_info_.memory_binding.end(),
+                   node
+               )
+               != expected_gpu_info_.memory_binding.end();
+    });
+
+    auto format_nodes = [](std::vector<int> const& v) {
+        std::ostringstream oss;
+        oss << "[";
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            if (i > 0)
+                oss << ",";
+            oss << v[i];
+        }
+        oss << "]";
+        return oss.str();
+    };
+
+    EXPECT_TRUE(found) << "NUMA binding mismatch for GPU " << gpu_id_ << "\n"
+                       << "  Expected: "
+                       << format_nodes(expected_gpu_info_.memory_binding) << "\n"
+                       << "  Actual:   " << format_nodes(actual_nodes);
+}
+
+TEST_F(RrunBindLive, UcxNetDevices) {
+    rapidsmpf::rrun::bind(
+        discovery_.get_topology(),
+        gpu_id_,
+        {.cpu = false, .memory = false, .network = true}
+    );
+
+    if (expected_gpu_info_.network_devices.empty()) {
+        GTEST_SKIP() << "No network devices expected for GPU " << gpu_id_;
+    }
+
+    std::string expected;
+    for (std::size_t i = 0; i < expected_gpu_info_.network_devices.size(); ++i) {
+        if (i > 0)
+            expected += ",";
+        expected += expected_gpu_info_.network_devices[i];
+    }
+
+    std::string actual = rapidsmpf::bootstrap::get_ucx_net_devices();
+    EXPECT_TRUE(rapidsmpf::bootstrap::compare_device_lists(actual, expected))
+        << "UCX_NET_DEVICES mismatch for GPU " << gpu_id_ << "\n"
+        << "  Expected: " << expected << "\n"
+        << "  Actual:   " << actual;
+}
+
+TEST_F(RrunBindLive, CudaVisibleDevicesFallback) {
     ScopedEnvVar env("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id_).c_str());
 
-    EXPECT_NO_THROW(
-        rapidsmpf::rrun::bind(
-            discovery_.get_topology(),
-            std::nullopt,
-            {.cpu = true, .memory = true, .network = true, .verbose = true}
-        )
+    rapidsmpf::rrun::bind(
+        discovery_.get_topology(),
+        std::nullopt,
+        {.cpu = true, .memory = true, .network = true}
     );
+
+    if (!expected_gpu_info_.cpu_affinity_list.empty()) {
+        std::string actual = rapidsmpf::bootstrap::get_current_cpu_affinity();
+        EXPECT_TRUE(
+            rapidsmpf::bootstrap::compare_cpu_affinity(
+                actual, expected_gpu_info_.cpu_affinity_list
+            )
+        ) << "CPU affinity mismatch (CUDA_VISIBLE_DEVICES fallback)";
+    }
 }
 
 TEST_F(RrunBindLive, AutoDiscoveryOverload) {
-    EXPECT_NO_THROW(
-        rapidsmpf::rrun::bind(
-            gpu_id_, {.cpu = true, .memory = true, .network = true, .verbose = true}
-        )
-    );
+    rapidsmpf::rrun::bind(gpu_id_, {.cpu = true, .memory = true, .network = true});
+
+    if (!expected_gpu_info_.cpu_affinity_list.empty()) {
+        std::string actual = rapidsmpf::bootstrap::get_current_cpu_affinity();
+        EXPECT_TRUE(
+            rapidsmpf::bootstrap::compare_cpu_affinity(
+                actual, expected_gpu_info_.cpu_affinity_list
+            )
+        ) << "CPU affinity mismatch (auto-discovery overload)";
+    }
 }
