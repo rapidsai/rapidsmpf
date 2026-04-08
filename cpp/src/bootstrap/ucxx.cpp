@@ -44,11 +44,10 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         );
 
         auto listener_address = comm->listener_address();
-        auto root_worker_address_str =
+        put(ctx,
+            "ucxx_root_address",
             std::get<std::shared_ptr<::ucxx::Address>>(listener_address.address)
-                ->getString();
-
-        put(ctx, "ucxx_root_address", root_worker_address_str);
+                ->getString());
         sync(ctx);
     } else {
         // Non-root ranks: Retrieve root address via get() and connect.
