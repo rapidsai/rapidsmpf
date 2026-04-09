@@ -73,11 +73,24 @@
 #include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
 
 namespace {
+
+/// Schedule dummy work on allocated pinned memory to make streams actually busy
+/// Uses cudaMemsetAsync to create GPU work without requiring CUDA kernels
+void schedule_dummy_work(void* ptr, std::size_t size, rmm::cuda_stream_view stream) {
+    if (size == 0)
+        return;
+
+    // Use cudaMemsetAsync to create GPU work on the pinned memory
+    // This creates real GPU work that will be synchronized by events/stream sync
+    auto const pattern = static_cast<int>(reinterpret_cast<uintptr_t>(ptr) & 0xFF);
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, pattern, size, stream.value()));
+}
 
 /// First benchmark range dimension: variable rapidsmpf pinned pool (distinct from fixed
 /// MiB sizes).
@@ -91,6 +104,17 @@ constexpr std::size_t kInitialPool = 8ULL * 1024 * 1024 * 1024;  // 8 GiB
 constexpr std::size_t kMaxPool = 16ULL * 1024 * 1024 * 1024;  // 16 GiB
 constexpr std::size_t kMinFillBytes = 1ULL << 20;  // 1 MiB
 constexpr std::size_t kProbeStep = 1ULL << 20;  // 1 MiB bisection granularity
+
+std::string get_block_tag_name(std::int64_t block_tag) {
+    switch (block_tag) {
+    case kBlockTagRapidsmpfVariablePool:
+        return "driver pool";
+    case kBlockTagRmmPinnedPool:
+        return "rmm pool";
+    default:
+        return "fs pool " + std::to_string(block_tag) + "MB";
+    }
+}
 
 rapidsmpf::PinnedPoolProperties make_pool_properties() {
     return {
@@ -132,11 +156,18 @@ template <typename CanAllocFn>
     return lo;
 }
 
+void sync_streams(rmm::cuda_stream_pool& stream_pool) {
+    for (std::size_t i = 0; i < stream_pool.get_pool_size(); ++i) {
+        stream_pool.get_stream(i).synchronize();
+    }
+}
+
 // ─── Variable-size pool (rmm::device_async_resource_ref) ────────────────────
 
 struct VarAlloc {
     void* ptr;
     std::size_t size;
+    std::shared_ptr<rapidsmpf::CudaEvent> event;
 };
 
 /// Phase 1 (variable): fill pool with random-sized allocations until OOM.
@@ -167,8 +198,9 @@ struct VarAlloc {
             while (!oom.load(std::memory_order_relaxed)) {
                 std::size_t const req = dist(rng);
                 void* p = nullptr;
+                auto alloc_stream = stream_pool.get_stream();
                 try {
-                    p = mr.allocate(stream_pool.get_stream(), req);
+                    p = mr.allocate(alloc_stream, req);
                 } catch (std::bad_alloc const&) {
                     oom.store(true, std::memory_order_relaxed);
                     break;
@@ -179,8 +211,12 @@ struct VarAlloc {
                     oom.store(true, std::memory_order_relaxed);
                     break;
                 }
+                // Schedule some dummy work to make the stream busy
+                schedule_dummy_work(p, req, alloc_stream);
+                // Record event on the allocating stream
+                auto event = rapidsmpf::CudaEvent::make_shared_record(alloc_stream);
                 std::lock_guard lock{mtx};
-                live.push_back({p, req});
+                live.push_back({p, req, std::move(event)});
             }
         }));
     }
@@ -188,9 +224,7 @@ struct VarAlloc {
     for (auto& f : futures) {
         f.get();
     }
-    for (std::size_t i = 0; i < stream_pool.get_pool_size(); ++i) {
-        stream_pool.get_stream(i).synchronize();
-    }
+
     return live;
 }
 
@@ -218,13 +252,14 @@ void var_fragment(
             std::mt19937_64 rng{kRngSeed + 1000 + t};
             std::uniform_int_distribution<std::size_t> idx_dist(0, live.size() - 1);
             while (true) {
+                std::size_t idx;
                 void* ptr = nullptr;
                 std::size_t size = 0;
                 {
                     std::lock_guard lock{mtx};
                     if (freed >= free_target)
                         break;
-                    std::size_t idx = idx_dist(rng);
+                    idx = idx_dist(rng);
                     while (!live[idx].ptr) {
                         idx = idx_dist(rng);
                     }
@@ -233,16 +268,16 @@ void var_fragment(
                     live[idx].ptr = nullptr;
                     freed += size;
                 }
-                mr.deallocate(stream_pool.get_stream(), ptr, size);
+                auto dealloc_stream = stream_pool.get_stream();
+                // Wait for allocation to complete before deallocating
+                live[idx].event->stream_wait(dealloc_stream);
+                mr.deallocate(dealloc_stream, ptr, size);
             }
         }));
     }
 
     for (auto& f : futures) {
         f.get();
-    }
-    for (std::size_t i = 0; i < stream_pool.get_pool_size(); ++i) {
-        stream_pool.get_stream(i).synchronize();
     }
 
     auto [first, last] =
@@ -263,7 +298,6 @@ void var_fragment(
                 if (p) {
                     mr.deallocate(stream, p, size);
                 }
-                stream.synchronize();
                 return true;
             } catch (std::bad_alloc const&) {
                 return false;
@@ -393,9 +427,11 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
             max_allocatable = var_probe_max(mr_ref, probe_stream, free_target);
 
             std::ranges::for_each(live, [&](auto const& a) {
+                a.event->stream_wait(probe_stream);
                 mr.deallocate(probe_stream, a.ptr, a.size);
             });
-            probe_stream.synchronize();
+
+            sync_streams(stream_pool);
         } else if (use_rmm_variable) {
             rmm::mr::pinned_host_memory_resource pinned_upstream{};
             rmm::mr::pool_memory_resource<rmm::mr::pinned_host_memory_resource> pool_mr{
@@ -411,9 +447,11 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
             max_allocatable = var_probe_max(pool_ref, probe_stream, free_target);
 
             std::ranges::for_each(live, [&](auto const& a) {
+                a.event->stream_wait(probe_stream);
                 pool_mr.deallocate(probe_stream, a.ptr, a.size);
             });
-            probe_stream.synchronize();
+
+            sync_streams(stream_pool);
         } else {
             auto mr = rapidsmpf::PinnedMemoryResource::make_fixed_sized_if_available(
                 rapidsmpf::get_current_numa_node(), props, block_size_bytes
@@ -439,19 +477,19 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
             static_cast<double>(max_allocatable) / static_cast<double>(1ULL << 30);
         state.counters["block_size_MiB"] =
             static_cast<double>(block_size_bytes) / static_cast<double>(1ULL << 20);
-        state.counters["block_tag"] = static_cast<double>(block_tag);
         state.counters["pool_free_factor"] = free_factor;
         state.counters["max_fill_MiB"] =
             static_cast<double>(max_fill_bytes) / static_cast<double>(1ULL << 20);
         state.counters["num_streams"] = static_cast<double>(num_streams);
         state.counters["num_producer_threads"] =
             static_cast<double>(num_producer_threads);
+        state.SetLabel(get_block_tag_name(block_tag));
     }
 }
 
 void register_fragmentation_args(benchmark::Benchmark* b) {
-    for (int64_t const free_pct : {25, 50}) {
-        for (int64_t const max_fill_mib : {64, 128, 256, 512, 1024}) {
+    for (int64_t const free_pct : {25 /* , 50 */}) {
+        for (int64_t const max_fill_mib : {64, 128, 256, 512 /* , 1024 */}) {
             // Variable pools: sweep stream pool size and producer thread count.
             for (int64_t const num_streams : {1, 4, 8}) {
                 for (int64_t const num_threads : {1, 2, 4}) {
@@ -473,8 +511,8 @@ void register_fragmentation_args(benchmark::Benchmark* b) {
             }
             // Fixed-block pools are stream-agnostic and single-threaded.
             b->Args({1, max_fill_mib, free_pct, 1, 1});  // fixed 1 MiB blocks
-            b->Args({4, max_fill_mib, free_pct, 1, 1});  // fixed 4 MiB blocks
-            b->Args({8, max_fill_mib, free_pct, 1, 1});  // fixed 8 MiB blocks
+            // b->Args({4, max_fill_mib, free_pct, 1, 1});  // fixed 4 MiB blocks
+            // b->Args({8, max_fill_mib, free_pct, 1, 1});  // fixed 8 MiB blocks
         }
     }
 }
