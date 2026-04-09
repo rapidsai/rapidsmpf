@@ -63,7 +63,7 @@ def main() -> int:
         Message(
             seq,
             TableChunk.from_pylibcudf_table(
-                expect, DEFAULT_STREAM, exclusive_view=False
+                expect, DEFAULT_STREAM, exclusive_view=False, br=ctx.br()
             ),
         )
         for seq, expect in enumerate(tables)
@@ -88,7 +88,7 @@ def main() -> int:
         msg: Message[TableChunk] | None
         while (msg := await ch_in.recv(ctx)) is not None:
             # Convert the message back into a table chunk (releases the message).
-            table = TableChunk.from_message(msg)
+            table = TableChunk.from_message(msg, br=ctx.br())
 
             # Accumulate the number of rows.
             total_num_rows[0] += table.table_view().num_rows()
@@ -131,7 +131,7 @@ def main() -> int:
     # Collect and verify results.
     expect = 0
     for msg in out_messages.release():
-        table = TableChunk.from_message(msg).table_view()
+        table = TableChunk.from_message(msg, br=ctx.br()).table_view()
         expect += table.num_rows()
     assert total_num_rows[0] == expect
 
