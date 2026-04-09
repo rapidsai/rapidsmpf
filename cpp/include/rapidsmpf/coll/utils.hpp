@@ -232,6 +232,105 @@ class Chunk {
 };
 
 /**
+ * @brief A thread-safe container for managing chunks in collectives.
+ *
+ * A `PostBox` provides a synchronized storage mechanism for chunks, allowing
+ * multiple threads to insert chunks and extract ready chunks safely.
+ * It maintains a goalpost mechanism to track when all expected chunks
+ * have been received.
+ */
+class PostBox {
+  public:
+    /// @brief Default constructor.
+    PostBox() = default;
+    /// @brief Default destructor.
+    ~PostBox() = default;
+    /// @brief Deleted copy constructor.
+    PostBox(PostBox const&) = delete;
+    /// @brief Deleted copy assignment operator.
+    PostBox& operator=(PostBox const&) = delete;
+    /// @brief Deleted move constructor.
+    PostBox(PostBox&&) = delete;
+    /// @brief Deleted move assignment operator.
+    PostBox& operator=(PostBox&&) = delete;
+
+    /**
+     * @brief Insert a single chunk into the postbox.
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert(std::unique_ptr<Chunk> chunk);
+
+    /**
+     * @brief Insert multiple chunks into the postbox.
+     *
+     * @param chunks A vector of chunks to insert.
+     */
+    void insert(std::vector<std::unique_ptr<Chunk>>&& chunks);
+
+    /**
+     * @brief Increment the goalpost to a new expected chunk count.
+     *
+     * @param amount The amount to move the goalpost by.
+     */
+    void increment_goalpost(std::uint64_t amount);
+
+    /**
+     * @brief Check if the postbox has reached its goal.
+     *
+     * @return True if the number of stored chunks matches the current
+     * goalpost, false otherwise.
+     */
+    [[nodiscard]] bool ready() const noexcept;
+
+    /**
+     * @brief Extract ready chunks from the postbox.
+     *
+     * @return A vector of chunks that are ready for processing.
+     *
+     * @note Ready chunks are those with no pending operations on
+     * their data buffers.
+     */
+    [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract_ready();
+
+    /**
+     * @brief Extract all chunks from the postbox.
+     *
+     * @return A vector containing all chunks in the postbox.
+     *
+     * @note The caller must ensure that any subsequent operations on
+     * the return chunks are stream-ordered.
+     */
+    [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract();
+
+    /**
+     * @brief Check if the postbox is empty.
+     *
+     * @return True if the postbox contains no chunks, false otherwise.
+     */
+    [[nodiscard]] bool empty() const noexcept;
+
+    /**
+     * @brief Spill device data from the post box.
+     *
+     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     *
+     * @param br The buffer resource for host and device allocations.
+     * @param amount Requested amount of data to spill in bytes.
+     * @return Actual amount of data spilled in bytes.
+     *
+     * @note We attempt to minimise the number of individual buffers
+     * spilled, as well as the amount of "overspill".
+     */
+    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+
+  private:
+    mutable std::mutex mutex_{};  ///< Mutex for thread-safe access
+    std::vector<std::unique_ptr<Chunk>> chunks_{};  ///< Container for stored chunks
+    std::atomic<std::uint64_t> goalpost_{0};  ///< Expected number of chunks
+};
+
+/**
  * @brief Complete posted chunk receives.
  *
  * Tests a set of outstanding communicator futures, and for every
