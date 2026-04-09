@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <cuda_device_runtime_api.h>
@@ -31,7 +32,7 @@ namespace {
  * @param listener_address object containing the listener address of the root,
  * which will be read from in rank 0 and stored to in all other ranks.
  */
-void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_address_str) {
+void broadcast_listener_address(MPI_Comm mpi_comm, std::string_view root_worker_address_str) {
     std::size_t address_size{root_worker_address_str.size()};
 
     RAPIDSMPF_MPI(
