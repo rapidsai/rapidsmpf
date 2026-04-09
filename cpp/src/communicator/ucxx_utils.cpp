@@ -40,9 +40,13 @@ void broadcast_listener_address(
         MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
     );
 
-    RAPIDSMPF_MPI(
-        MPI_Bcast(reinterpret_cast<void*>(root_worker_address_str.data()), address_size, MPI_UINT8_T, 0, mpi_comm)
-    );
+    RAPIDSMPF_MPI(MPI_Bcast(
+        reinterpret_cast<void*>(root_worker_address_str.data()),
+        address_size,
+        MPI_UINT8_T,
+        0,
+        mpi_comm
+    ));
 }
 
 }  // namespace
