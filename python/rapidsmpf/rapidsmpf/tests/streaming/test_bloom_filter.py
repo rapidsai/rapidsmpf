@@ -131,7 +131,7 @@ def test_bloom_filter_roundtrip(context: Context, comm: Communicator) -> None:
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
-    result = TableChunk.from_message(messages[0])
+    result = TableChunk.from_message(messages[0], br=context.br())
     expected = plc.Table([plc.Column.from_array(values, stream=result.stream)])
     result.stream.synchronize()
     assert_eq(result.table_view(), expected)
@@ -149,7 +149,7 @@ def test_bloom_filter_empty_build_filters_all(
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
-    result = TableChunk.from_message(messages[0])
+    result = TableChunk.from_message(messages[0], br=context.br())
     expected = plc.Table(
         [plc.Column.from_array(np.array([], dtype=np.int32), stream=result.stream)]
     )

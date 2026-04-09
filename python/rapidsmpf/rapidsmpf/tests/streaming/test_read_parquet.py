@@ -137,7 +137,7 @@ def test_read_parquet(
         m1.sequence_number < m2.sequence_number
         for m1, m2 in itertools.pairwise(messages)
     )
-    chunks = [TableChunk.from_message(m) for m in messages]
+    chunks = [TableChunk.from_message(m, br=context.br()) for m in messages]
     for chunk in chunks:
         chunk.stream.synchronize()
 
