@@ -178,15 +178,6 @@ void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
     });
 }
 
-void PostBox::increment_goalpost(std::uint64_t amount) {
-    goalpost_.fetch_add(amount, std::memory_order_acq_rel);
-}
-
-bool PostBox::ready() const noexcept {
-    std::lock_guard lock(mutex_);
-    return goalpost_.load(std::memory_order_acquire) == chunks_.size();
-}
-
 std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
     std::lock_guard lock(mutex_);
     std::vector<std::unique_ptr<Chunk>> result;
@@ -197,14 +188,17 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
         result.emplace_back(std::move(chunk));
     }
     std::erase(chunks_, nullptr);
-    goalpost_.fetch_sub(result.size(), std::memory_order_relaxed);
     return result;
 }
 
 std::vector<std::unique_ptr<Chunk>> PostBox::extract() {
     std::lock_guard lock(mutex_);
-    goalpost_.fetch_sub(chunks_.size(), std::memory_order_relaxed);
     return std::move(chunks_);
+}
+
+std::size_t PostBox::size() const noexcept {
+    std::lock_guard lock(mutex_);
+    return chunks_.size();
 }
 
 bool PostBox::empty() const noexcept {

@@ -53,16 +53,17 @@ void AllGather::insert_finished() {
 }
 
 void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
-    // We must increment the goalpost before decrementing the finish
-    // counter so that we cannot, on another thread, observe a finish
-    // counter of zero with chunks still to be received.
-    for_extraction_.increment_goalpost(expected_chunks);
+    // We must increment the extraction goalpost before decrementing the finish
+    // counter so that we cannot, on another thread, observe a finish counter of zero
+    // with chunks still to be received.
+    extraction_goalpost_.fetch_add(expected_chunks, std::memory_order_acq_rel);
     finish_counter_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 bool AllGather::finished() const noexcept {
     return finish_counter_.load(std::memory_order_acquire) == 0
-           && for_extraction_.ready();
+           && extraction_goalpost_.load(std::memory_order_acquire)
+                  == for_extraction_.size();
 }
 
 std::vector<PackedData> AllGather::wait_and_extract(
@@ -70,6 +71,7 @@ std::vector<PackedData> AllGather::wait_and_extract(
 ) {
     wait(timeout);
     auto chunks = for_extraction_.extract();
+    extraction_goalpost_.fetch_sub(chunks.size(), std::memory_order_acq_rel);
     std::vector<PackedData> result;
     result.reserve(chunks.size());
     if (ordered == AllGather::Ordered::YES) {
@@ -301,7 +303,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
     // Finish progress only if we're inactive and all containers are empty (i.e. all work
     // is done).
     bool const is_done =
-        !active_.load(std::memory_order_acquire) && (is_finished && containers_empty);
+        !active_.load(std::memory_order_acquire) && is_finished && containers_empty;
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
         {

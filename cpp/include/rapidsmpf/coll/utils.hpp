@@ -258,8 +258,6 @@ class Chunk {
  *
  * A `PostBox` provides a synchronized storage mechanism for chunks, allowing
  * multiple threads to insert chunks and extract ready chunks safely.
- * It maintains a goalpost mechanism to track when all expected chunks
- * have been received.
  */
 class PostBox {
   public:
@@ -291,21 +289,6 @@ class PostBox {
     void insert(std::vector<std::unique_ptr<Chunk>>&& chunks);
 
     /**
-     * @brief Increment the goalpost to a new expected chunk count.
-     *
-     * @param amount The amount to move the goalpost by.
-     */
-    void increment_goalpost(std::uint64_t amount);
-
-    /**
-     * @brief Check if the postbox has reached its goal.
-     *
-     * @return True if the number of stored chunks matches the current
-     * goalpost, false otherwise.
-     */
-    [[nodiscard]] bool ready() const noexcept;
-
-    /**
      * @brief Extract ready chunks from the postbox.
      *
      * @return A vector of chunks that are ready for processing.
@@ -324,6 +307,13 @@ class PostBox {
      * the return chunks are stream-ordered.
      */
     [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract();
+
+    /**
+     * @brief Check the number of chunks currently stored.
+     *
+     * @return The number of chunks currently in the postbox.
+     */
+    [[nodiscard]] std::size_t size() const noexcept;
 
     /**
      * @brief Check if the postbox is empty.
@@ -349,7 +339,6 @@ class PostBox {
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access
     std::vector<std::unique_ptr<Chunk>> chunks_{};  ///< Container for stored chunks
-    std::atomic<std::uint64_t> goalpost_{0};  ///< Expected number of chunks
 };
 
 /**

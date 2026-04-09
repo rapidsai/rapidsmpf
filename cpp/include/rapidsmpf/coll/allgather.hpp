@@ -209,6 +209,9 @@ class AllGather {
     };  ///< Optional callback to run when allgather is finished and ready for extraction.
     std::atomic<Rank> finish_counter_;  ///< Counter for finish markers received
     std::atomic<std::uint32_t> nlocal_insertions_;  ///< Number of local data insertions
+    std::atomic<std::uint64_t> extraction_goalpost_{
+        0
+    };  ///< Number of chunks still expected to remain in the extraction postbox.
     OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
     std::atomic<bool> active_{true};  ///< Whether the operation is active
