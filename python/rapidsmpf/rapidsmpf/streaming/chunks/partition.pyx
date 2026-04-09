@@ -6,6 +6,7 @@ from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
@@ -28,7 +29,7 @@ cdef class PartitionMapChunk:
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle
+        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br=None
     ):
         """
         Construct a PartitionMapChunk from an existing C++ handle.
@@ -45,10 +46,11 @@ cdef class PartitionMapChunk:
 
         cdef PartitionMapChunk ret = PartitionMapChunk.__new__(PartitionMapChunk)
         ret._handle = move(handle)
+        ret._br = br
         return ret
 
     @staticmethod
-    def from_message(Message message not None):
+    def from_message(Message message not None, BufferResource br=None):
         """
         Construct a PartitionMapChunk by consuming a Message.
 
@@ -65,7 +67,8 @@ cdef class PartitionMapChunk:
         return PartitionMapChunk.from_handle(
             make_unique[cpp_PartitionMapChunk](
                 message._handle.release[cpp_PartitionMapChunk]()
-            )
+            ),
+            br,
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):
@@ -146,7 +149,7 @@ cdef class PartitionVectorChunk:
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle
+        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br=None
     ):
         """
         Construct a PartitionVectorChunk from an existing C++ handle.
@@ -164,10 +167,11 @@ cdef class PartitionVectorChunk:
             PartitionVectorChunk
         )
         ret._handle = move(handle)
+        ret._br = br
         return ret
 
     @staticmethod
-    def from_message(Message message not None):
+    def from_message(Message message not None, BufferResource br=None):
         """
         Construct a PartitionVectorChunk by consuming a Message.
 
@@ -184,7 +188,8 @@ cdef class PartitionVectorChunk:
         return PartitionVectorChunk.from_handle(
             make_unique[cpp_PartitionVectorChunk](
                 message._handle.release[cpp_PartitionVectorChunk]()
-            )
+            ),
+            br,
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):
