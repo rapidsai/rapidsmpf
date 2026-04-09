@@ -629,7 +629,9 @@ void listener_address_pack_into(
                 auto address_size = remote_address->getLength();
                 encode(dest, &type, sizeof(type), offset);
                 encode(dest, &address_size, sizeof(address_size), offset);
-                encode(dest, remote_address->getString().data(), address_size, offset);
+                encode(
+                    dest, remote_address->getStringView().data(), address_size, offset
+                );
                 encode(
                     dest, &listener_address.rank, sizeof(listener_address.rank), offset
                 );
