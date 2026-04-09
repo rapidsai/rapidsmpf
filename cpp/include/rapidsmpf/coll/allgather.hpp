@@ -104,28 +104,6 @@ class AllGather {
     );
 
     /**
-     * @brief Extract any available partitions.
-     *
-     * @return A vector containing available data (or empty if none).
-     *
-     * @note This is a non-blocking, unordered interface.
-     *
-     * Example usage to drain an `AllGather`:
-     * @code{.cpp}
-     * auto allgather = ...; // create
-     * ...; // insert data
-     * allgather->insert_finished(); // finish inserting
-     * std::vector<PackedData> results;
-     * while (!allgather->finished()) {
-     *    std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
-     * }
-     * // Extract any final chunks that may have arrived.
-     * std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
-     * @endcode
-     */
-    [[nodiscard]] std::vector<PackedData> extract_ready();
-
-    /**
      * @brief Construct a new allgather operation.
      *
      * @param comm The communicator for communication.

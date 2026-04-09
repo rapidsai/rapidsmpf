@@ -42,7 +42,6 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             Ordered ordered,
             milliseconds_t timeout
         ) except +ex_handler
-        vector[cpp_PackedData] extract_ready() except +ex_handler
 
 
 cdef class AllGather:

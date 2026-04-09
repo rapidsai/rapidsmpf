@@ -81,23 +81,6 @@ std::vector<PackedData> AllGather::wait_and_extract(
     return result;
 }
 
-std::vector<PackedData> AllGather::extract_ready() {
-    // It is OK to extract chunks even if an individual chunk is not
-    // ready because the promise is that we deliver data valid in
-    // stream-order on the input stream. Even if an output chunk is
-    // being spilled, the user must access it in stream order, so we are fine.
-    auto chunks = for_extraction_.extract();
-    if (chunks.empty()) {
-        return {};
-    }
-    std::vector<PackedData> result;
-    result.reserve(chunks.size());
-    std::ranges::transform(chunks, std::back_inserter(result), [](auto&& chunk) {
-        return chunk->release();
-    });
-    return result;
-}
-
 void AllGather::wait(std::chrono::milliseconds timeout) {
     std::unique_lock lock(mutex_);
     if (timeout < std::chrono::milliseconds{0}) {

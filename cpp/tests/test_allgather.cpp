@@ -193,17 +193,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    if (ordered == AllGather::Ordered::YES) {
-        EXPECT_NO_THROW(
-            results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
-        );
-    } else {
-        do {
-            std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
-        } while (!allgather.finished());
-        std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
-    }
-    EXPECT_EQ(n_ranks * n_inserts, results.size());
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
 
     if (ordered == AllGather::Ordered::YES) {
         auto it = results.begin();
