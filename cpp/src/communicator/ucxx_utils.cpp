@@ -65,9 +65,10 @@ std::shared_ptr<UCXX> init_using_mpi(
         );
 
         root_listener_address = comm->listener_address();
-        root_worker_address_str =
+        root_worker_address_str = std::string{
             std::get<std::shared_ptr<::ucxx::Address>>(root_listener_address.address)
-                ->getStringView();
+                ->getStringView()
+        };
     }
     broadcast_listener_address(mpi_comm, root_worker_address_str);
 
