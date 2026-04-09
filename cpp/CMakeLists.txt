@@ -182,6 +182,7 @@ add_library(
   rapidsmpf
   src/coll/allgather.cpp
   src/coll/allreduce.cpp
+  src/coll/sparse_alltoall.cpp
   src/coll/utils.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
