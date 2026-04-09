@@ -31,6 +31,7 @@ using ChunkID = std::uint64_t;
 class Chunk {
   private:
     ChunkID id_;  ///< Unique chunk identifier
+    Rank destination_;  ///< Destination rank
     std::unique_ptr<std::vector<std::uint8_t>> metadata_;  ///< Serialized metadata
     std::unique_ptr<Buffer> data_;  ///< Data buffer
     std::uint64_t
@@ -41,6 +42,8 @@ class Chunk {
      * @brief Construct a data chunk.
      *
      * @param id Unique chunk identifier.
+     * @param destination Destination rank, only used on send side, or `INVALID_RANK` if
+     * unset.
      * @param metadata Serialized metadata for the chunk.
      * @param data Data buffer containing the chunk's payload.
      *
@@ -53,6 +56,7 @@ class Chunk {
      */
     Chunk(
         ChunkID id,
+        Rank destination,
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<Buffer> data
     );
@@ -61,13 +65,19 @@ class Chunk {
      * @brief Construct a finish marker chunk.
      *
      * @param id Unique chunk identifier for the finish marker.
+     * @param destination Destination rank, or `INVALID_RANK` if unset.
      *
      * @note We use the finish marker chunk ID to encode the number of
      * insertions on the originating rank.
      */
-    Chunk(ChunkID id);
+    Chunk(ChunkID id, Rank destination);
 
   public:
+    /// @brief Sentinel destination for chunks with unknown destination.
+    ///
+    /// A received chunk will have an invalid destination.
+    static constexpr Rank INVALID_RANK = -1;
+
     /**
      * @brief Check if the chunk is ready for processing.
      *
@@ -115,6 +125,16 @@ class Chunk {
     [[nodiscard]] Rank origin() const noexcept;
 
     /**
+     * @brief The local destination rank associated with this chunk.
+     *
+     * This value is not serialized. Chunks reconstructed from the wire
+     * format are assigned `INVALID_RANK`.
+     *
+     * @return The destination rank, or `INVALID_RANK` if unset.
+     */
+    [[nodiscard]] Rank destination() const noexcept;
+
+    /**
      * @brief The size of the data buffer in bytes.
      *
      * @return The size of the chunk's data buffer.
@@ -133,11 +153,12 @@ class Chunk {
      *
      * @param sequence The sequence number for the chunk.
      * @param origin The originating rank.
+     * @param destination The destination rank.
      * @param packed_data The packed data to create the chunk from.
      * @return A unique pointer to the created chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> from_packed_data(
-        std::uint64_t sequence, Rank origin, PackedData&& packed_data
+        std::uint64_t sequence, Rank origin, Rank destination, PackedData&& packed_data
     );
 
     /**
@@ -146,10 +167,11 @@ class Chunk {
      * @param num_local_insertions The number of data insertions on
      * this rank.
      * @param origin The originating rank.
+     * @param destination The destination rank.
      * @return A unique pointer to the created finish marker chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> from_empty(
-        std::uint64_t num_local_insertions, Rank origin
+        std::uint64_t num_local_insertions, Rank origin, Rank destination
     );
 
     /**

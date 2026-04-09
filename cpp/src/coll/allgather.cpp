@@ -24,7 +24,10 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
-            sequence_number, comm_->rank(), std::move(packed_data)
+            sequence_number,
+            comm_->rank(),
+            detail::Chunk::INVALID_RANK,  // Destination is hard-coded in ring algorithm
+            std::move(packed_data)
         )
 
     );
@@ -41,7 +44,9 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
 void AllGather::insert_finished() {
     inserted_.insert(
         detail::Chunk::from_empty(
-            nlocal_insertions_.load(std::memory_order_acquire), comm_->rank()
+            nlocal_insertions_.load(std::memory_order_acquire),
+            comm_->rank(),
+            detail::Chunk::INVALID_RANK
         )
     );
     locally_finished_.store(true, std::memory_order_release);

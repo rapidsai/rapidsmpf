@@ -17,10 +17,12 @@ namespace rapidsmpf::coll::detail {
 
 Chunk::Chunk(
     ChunkID id,
+    Rank destination,
     std::unique_ptr<std::vector<std::uint8_t>> metadata,
     std::unique_ptr<Buffer> data
 )
     : id_{id},
+      destination_{destination},
       metadata_{std::move(metadata)},
       data_{std::move(data)},
       data_size_{data_ ? data_->size : 0} {
@@ -36,7 +38,12 @@ Chunk::Chunk(
     );
 }
 
-Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
+Chunk::Chunk(ChunkID id, Rank destination)
+    : id_{id},
+      destination_{destination},
+      metadata_{nullptr},
+      data_{nullptr},
+      data_size_{0} {}
 
 bool Chunk::is_ready() const noexcept {
     return data_size_ == 0 || (data_ && data_->is_latest_write_done());
@@ -62,6 +69,10 @@ Rank Chunk::origin() const noexcept {
     return id() >> ID_BITS;
 }
 
+Rank Chunk::destination() const noexcept {
+    return destination_;
+}
+
 std::uint64_t Chunk::data_size() const noexcept {
     return data_size_;
 }
@@ -71,17 +82,20 @@ std::uint64_t Chunk::metadata_size() const noexcept {
 }
 
 std::unique_ptr<Chunk> Chunk::from_packed_data(
-    std::uint64_t sequence, Rank origin, PackedData&& packed_data
+    std::uint64_t sequence, Rank origin, Rank destination, PackedData&& packed_data
 ) {
     return std::unique_ptr<Chunk>(new Chunk(
         chunk_id(sequence, origin),
+        destination,
         std::move(packed_data.metadata),
         std::move(packed_data.data)
     ));
 }
 
-std::unique_ptr<Chunk> Chunk::from_empty(std::uint64_t sequence, Rank origin) {
-    return std::unique_ptr<Chunk>(new Chunk(chunk_id(sequence, origin)));
+std::unique_ptr<Chunk> Chunk::from_empty(
+    std::uint64_t sequence, Rank origin, Rank destination
+) {
+    return std::unique_ptr<Chunk>(new Chunk(chunk_id(sequence, origin), destination));
 }
 
 constexpr ChunkID Chunk::chunk_id(std::uint64_t sequence, Rank origin) {
@@ -116,7 +130,7 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     std::uint64_t data_size;
     std::memcpy(&id, data.data(), sizeof(ChunkID));
     if (data.size() == sizeof(id)) {
-        return std::unique_ptr<Chunk>(new Chunk(id));
+        return std::unique_ptr<Chunk>(new Chunk(id, Chunk::INVALID_RANK));
     }
     std::memcpy(&data_size, data.data() + sizeof(ChunkID), sizeof(data_size));
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(
@@ -129,6 +143,7 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     );
     return std::unique_ptr<Chunk>(new Chunk(
         id,
+        Chunk::INVALID_RANK,
         std::move(metadata),
         br->allocate(
             br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
