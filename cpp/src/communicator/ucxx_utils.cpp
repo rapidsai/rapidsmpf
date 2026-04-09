@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
 #include <string_view>
 #include <utility>
 
@@ -63,7 +62,7 @@ std::shared_ptr<UCXX> init_using_mpi(
     RAPIDSMPF_MPI(MPI_Comm_size(mpi_comm, &nranks));
 
     auto root_listener_address = ListenerAddress{.rank = 0};
-    std::string root_worker_address_str{};
+    std::string_view root_worker_address_str{};
     std::shared_ptr<UCXX> comm;
     if (rank == 0) {
         auto ucxx_initialized_rank = init(nullptr, nranks, std::nullopt, options);
