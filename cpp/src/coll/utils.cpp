@@ -183,7 +183,7 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
     std::vector<std::unique_ptr<Chunk>> result;
     for (auto&& chunk : chunks_) {
         if (!chunk->is_ready()) {
-            break;
+            continue;
         }
         result.emplace_back(std::move(chunk));
     }
