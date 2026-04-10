@@ -47,6 +47,11 @@ def _run_in_subprocess(target: Callable[[], None]) -> None:
     proc.start()
     proc.join(timeout=30)
 
+    if proc.is_alive():
+        proc.kill()
+        proc.join()
+        raise RuntimeError("Subprocess timed out after 30 seconds")
+        
     if parent_conn.poll():
         exc = parent_conn.recv()
         if exc is not None:
