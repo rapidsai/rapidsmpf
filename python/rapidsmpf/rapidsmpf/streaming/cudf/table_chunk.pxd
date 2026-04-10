@@ -13,6 +13,7 @@ from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer cimport MemoryType
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
@@ -31,8 +32,11 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle
+    # Keep the BufferResource alive as long as this object is so that when this
+    # object is deallocated the associated stream and memory resource are still alive.
+    cdef BufferResource _br
 
     @staticmethod
-    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle)
+    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle, BufferResource br=*)
     cdef const cpp_TableChunk* handle_ptr(self)
     cdef unique_ptr[cpp_TableChunk] release_handle(self)

@@ -42,7 +42,7 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
             {"a": [i, i + 1, i + 2], "b": [i * 10, i * 10 + 1, i * 10 + 2]}
         )
         chunk = TableChunk.from_pylibcudf_table(
-            cudf_to_pylibcudf_table(df), stream, exclusive_view=False
+            cudf_to_pylibcudf_table(df), stream, exclusive_view=False, br=context.br()
         )
         messages.append(Message(i, chunk))
 
@@ -71,8 +71,8 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
         assert results1[i].sequence_number == i
         assert results2[i].sequence_number == i
 
-        chunk1 = TableChunk.from_message(results1[i])
-        chunk2 = TableChunk.from_message(results2[i])
+        chunk1 = TableChunk.from_message(results1[i], br=context.br())
+        chunk2 = TableChunk.from_message(results2[i], br=context.br())
 
         # Expected data
         expected_df = cudf.DataFrame(
@@ -107,7 +107,7 @@ def test_fanout_multiple_outputs(
     for i in range(3):
         df = cudf.DataFrame({"x": [i * 10, i * 10 + 1]})
         chunk = TableChunk.from_pylibcudf_table(
-            cudf_to_pylibcudf_table(df), stream, exclusive_view=False
+            cudf_to_pylibcudf_table(df), stream, exclusive_view=False, br=context.br()
         )
         messages.append(Message(i, chunk))
 

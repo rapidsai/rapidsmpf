@@ -146,4 +146,4 @@ cdef class AllGather:
 
         with nogil:
             _ret = deref(self._handle).wait_and_extract(_ordered, _timeout_ms)
-        return packed_data_vector_to_list(move(_ret))
+        return packed_data_vector_to_list(move(_ret), self._br)

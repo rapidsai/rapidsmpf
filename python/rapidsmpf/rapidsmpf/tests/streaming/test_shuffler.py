@@ -74,6 +74,7 @@ def test_single_rank_shuffler(
             table=cudf_to_pylibcudf_table(df_chunk),
             stream=stream,
             exclusive_view=False,
+            br=context.br(),
         )
         input_chunks.append(Message(i, chunk))
 
@@ -115,7 +116,9 @@ def test_single_rank_shuffler(
 
     run_actor_network(actors=actors)
 
-    output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
+    output_chunks = [
+        TableChunk.from_message(msg, br=context.br()) for msg in out_messages.release()
+    ]
 
     result = cudf.concat(
         [
@@ -141,7 +144,10 @@ async def generate_inputs(
             ]
         )
         msg = Message(
-            i, TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+            i,
+            TableChunk.from_pylibcudf_table(
+                table, stream, exclusive_view=True, br=context.br()
+            ),
         )
         await ch.send(context, msg)
     await ch.drain(context)
@@ -162,7 +168,7 @@ async def do_shuffle(
         context, comm, op_id, num_partitions, partition_assignment=partition_assignment
     )
     while (msg := await ch_in.recv(context)) is not None:
-        chunk = TableChunk.from_message(msg)
+        chunk = TableChunk.from_message(msg, br=context.br())
         num_rows = chunk.table_view().num_rows()
         part_size = num_rows // num_partitions + (num_rows % num_partitions)
         splits = range(part_size, num_rows, part_size)
@@ -177,6 +183,7 @@ async def do_shuffle(
             unpack_and_concat(data, stream, context.br()),
             stream,
             exclusive_view=True,
+            br=context.br(),
         )
         await ch_out.send(context, Message(pid, unpacked))
     await ch_out.drain(context)
@@ -259,7 +266,10 @@ def test_shuffler_object_interface(
     # TODO: single rank only assertions
     assert len(messages) == 5
     assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
-    chunks = [(msg.sequence_number, TableChunk.from_message(msg)) for msg in messages]
+    chunks = [
+        (msg.sequence_number, TableChunk.from_message(msg, br=context.br()))
+        for msg in messages
+    ]
 
     full_column = np.arange(num_rows * num_chunks, dtype=np.int32)
     part_size = num_rows // num_partitions + (num_rows % num_partitions)

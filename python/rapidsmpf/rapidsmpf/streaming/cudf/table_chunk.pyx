@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
+from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t, uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
@@ -91,6 +92,8 @@ cdef extern from * nogil:
         unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
     ) except +ex_handler
 
+
+@no_gc_clear
 cdef class TableChunk:
     """
     A unit of table data in a streaming pipeline.
@@ -113,7 +116,9 @@ cdef class TableChunk:
             self._handle.reset()
 
     @staticmethod
-    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle):
+    cdef TableChunk from_handle(
+        unique_ptr[cpp_TableChunk] handle, BufferResource br=None,
+    ):
         """
         Construct a TableChunk from an existing C++ handle.
 
@@ -121,6 +126,8 @@ cdef class TableChunk:
         ----------
         handle
             A unique pointer to a C++ TableChunk.
+        br
+            An optional BufferResource to keep alive.
 
         Returns
         -------
@@ -128,6 +135,7 @@ cdef class TableChunk:
         """
         cdef TableChunk ret = TableChunk.__new__(TableChunk)
         ret._handle = move(handle)
+        ret._br = br
         return ret
 
     @staticmethod
@@ -136,6 +144,7 @@ cdef class TableChunk:
         Stream stream not None,
         *,
         bool_t exclusive_view,
+        BufferResource br=None,
     ):
         """
         Construct a TableChunk from a pylibcudf Table.
@@ -170,10 +179,6 @@ cdef class TableChunk:
         This reference is managed by the underlying C++ object, so it
         persists even when the chunk is transferred through Channels.
 
-        Warnings
-        --------
-        This object does not keep the provided stream alive. The caller must
-        ensure the stream remains valid for the lifetime of the streaming pipeline.
         """
         cdef cuda_stream_view _stream = stream.view()
         cdef cpp_table_view view = table.view()
@@ -184,11 +189,12 @@ cdef class TableChunk:
                 <PyObject *>table,
                 py_deleter,
                 exclusive_view,
-            )
+            ),
+            br,
         )
 
     @staticmethod
-    def from_packed_data(PackedData pd not None):
+    def from_packed_data(PackedData pd not None, BufferResource br=None):
         """
         Construct a TableChunk from packed data.
 
@@ -205,10 +211,12 @@ cdef class TableChunk:
         -----
         This takes ownership of the data in the PackedData object, which is left empty.
         """
-        return TableChunk.from_handle(make_unique[cpp_TableChunk](move(pd.c_obj)))
+        if br is None:
+            br = pd._br
+        return TableChunk.from_handle(make_unique[cpp_TableChunk](move(pd.c_obj)), br)
 
     @staticmethod
-    def from_message(Message message not None):
+    def from_message(Message message not None, BufferResource br=None):
         """
         Construct a TableChunk by consuming a Message.
 
@@ -223,7 +231,8 @@ cdef class TableChunk:
         A new TableChunk extracted from the given message.
         """
         return TableChunk.from_handle(
-            cpp_release_table_chunk_from_message(move(message._handle))
+            cpp_release_table_chunk_from_message(move(message._handle)),
+            br,
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):
@@ -374,7 +383,7 @@ cdef class TableChunk:
         cdef unique_ptr[cpp_TableChunk] ret
         with nogil:
             ret = cpp_table_make_available(move(handle), res)
-        return TableChunk.from_handle(move(ret))
+        return TableChunk.from_handle(move(ret), self._br)
 
     async def make_available_or_wait(
         self, Context ctx not None, *, int64_t net_memory_delta
@@ -525,7 +534,7 @@ cdef class TableChunk:
         cdef cpp_MemoryReservation* res = reservation._handle.get()
         with nogil:
             ret = cpp_table_copy(self._handle, res)
-        return TableChunk.from_handle(move(ret))
+        return TableChunk.from_handle(move(ret), self._br)
 
     @property
     def shape(self):
