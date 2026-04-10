@@ -290,13 +290,14 @@ ProgressThread::ProgressState AllGather::event_loop() {
         (fire_and_forget_.empty() && sent_posted_.empty() && receive_posted_.empty()
          && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
          && inserted_.empty());
-    bool const is_finished =
+    bool const received_all_data =
         finish_counter_.load(std::memory_order_acquire) == 0
         && extraction_goalpost_.load(std::memory_order_acquire) == for_extraction_.size();
-    // Finish progress only if we're done and all containers are empty (i.e. all work is
-    // done).
-    bool const is_done = is_finished && containers_empty;
-    if (is_finished) {
+    // Finish progress and notify only if we've received all data and sent all data.
+    // The finish counter being zero includes us locally having inserted a finish marker,
+    // so it gates whether or not we will insert more into outgoing messages.
+    bool const is_done = received_all_data && containers_empty;
+    if (is_done) {
         // We can release our output buffers so notify a waiter.
         {
             std::lock_guard lock(mutex_);
@@ -306,9 +307,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
         if (auto callback = std::move(finished_callback_)) {
             callback();
         }
+        return ProgressThread::ProgressState::Done;
     }
-    return is_done ? ProgressThread::ProgressState::Done
-                   : ProgressThread::ProgressState::InProgress;
+    return ProgressThread::ProgressState::InProgress;
 }
 
 }  // namespace rapidsmpf::coll
