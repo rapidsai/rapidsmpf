@@ -255,13 +255,14 @@ cdef class BufferResource:
         -------
         A BufferResource instance configured according to the options.
         """
+        cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
         return cls(
             device_mr=mr,
-            pinned_mr=PinnedMemoryResource.from_options(options),
+            pinned_mr=pinned_mr,
             memory_available=AvailableMemoryMap.from_options(mr, options),
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=Statistics.from_options(mr, options),
+            statistics=Statistics.from_options(mr, options, pinned_mr=pinned_mr),
         )
 
     def __dealloc__(self):

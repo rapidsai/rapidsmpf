@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -99,6 +99,18 @@ struct ScopedMemoryRecord {
     [[nodiscard]] std::int64_t peak(AllocType alloc_type = AllocType::ALL) const noexcept;
 
     /**
+     * @brief Returns the size of the largest single allocation (in bytes) for the
+     * specified allocator type.
+     *
+     * When queried with `AllocType::ALL`, this returns the largest single allocation
+     * seen across both primary and fallback allocators.
+     *
+     * @param alloc_type The allocator type to query. Defaults to `AllocType::ALL`.
+     * @return The largest single allocation in bytes for the specified type.
+     */
+    [[nodiscard]] std::int64_t max(AllocType alloc_type = AllocType::ALL) const noexcept;
+
+    /**
      * @brief Records a memory allocation event.
      *
      * Updates the allocation counters and memory usage statistics, and adjusts
@@ -169,6 +181,7 @@ struct ScopedMemoryRecord {
     AllocTypeArray current_{{0, 0}};
     AllocTypeArray total_{{0, 0}};
     AllocTypeArray peak_{{0, 0}};
+    AllocTypeArray max_{{0, 0}};
     std::int64_t highest_peak_{0};
 };
 

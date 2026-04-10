@@ -7,6 +7,7 @@ from os import PathLike
 from typing import Any, Self
 
 from rapidsmpf.config import Options
+from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
@@ -19,7 +20,11 @@ class Statistics:
     ) -> None: ...
     @classmethod
     def from_options(
-        cls: type[Self], mr: RmmResourceAdaptor, options: Options
+        cls: type[Self],
+        mr: RmmResourceAdaptor,
+        options: Options,
+        *,
+        pinned_mr: PinnedMemoryResource | None = None,
     ) -> Self: ...
     @property
     def enabled(self) -> bool: ...

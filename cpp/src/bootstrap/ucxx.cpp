@@ -47,7 +47,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         put(ctx,
             "ucxx_root_address",
             std::get<std::shared_ptr<::ucxx::Address>>(listener_address.address)
-                ->getString());
+                ->getStringView());
         sync(ctx);
     } else {
         // Non-root ranks: Retrieve root address via get() and connect.
