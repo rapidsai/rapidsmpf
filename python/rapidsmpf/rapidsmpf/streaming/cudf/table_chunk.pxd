@@ -32,6 +32,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle
+    # Prevent the BufferResource (and its stream) from being garbage collected.
     cdef BufferResource _br
 
     @staticmethod

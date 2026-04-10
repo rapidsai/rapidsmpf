@@ -9,6 +9,7 @@ from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 cdef class PackedDataChunk:
     cdef unique_ptr[cpp_PackedData] _handle
+    # Prevent the BufferResource (and its stream) from being garbage collected.
     cdef BufferResource _br
 
     @staticmethod

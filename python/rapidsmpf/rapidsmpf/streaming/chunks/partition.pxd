@@ -20,6 +20,7 @@ cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
 
 cdef class PartitionMapChunk:
     cdef unique_ptr[cpp_PartitionMapChunk] _handle
+    # Prevent the BufferResource (and its stream) from being garbage collected.
     cdef BufferResource _br
 
     @staticmethod
@@ -32,6 +33,7 @@ cdef class PartitionMapChunk:
 
 cdef class PartitionVectorChunk:
     cdef unique_ptr[cpp_PartitionVectorChunk] _handle
+    # Prevent the BufferResource (and its stream) from being garbage collected.
     cdef BufferResource _br
 
     @staticmethod

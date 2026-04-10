@@ -15,6 +15,7 @@ cdef extern from "<rapidsmpf/memory/packed_data.hpp>" nogil:
 
 cdef class PackedData:
     cdef unique_ptr[cpp_PackedData] c_obj
+    # Prevent the BufferResource (and its stream) from being garbage collected.
     cdef BufferResource _br
 
     @staticmethod
