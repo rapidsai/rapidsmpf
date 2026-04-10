@@ -41,6 +41,9 @@ namespace rapidsmpf::coll {
  * @param op_id Operation ID for tag disambiguation. Must be the same on all ranks.
  * @param stats The local statistics to send (ignored on root). Must not be null.
  * @param root The root rank that collects the statistics (default 0).
+ * @note The gathered Statistics objects contain only stats, no memory records
+ * or formatters.
+ *
  * @return On root: a vector of `nranks - 1` deserialized Statistics from all
  * non-root ranks. On non-root ranks: an empty vector.
  */

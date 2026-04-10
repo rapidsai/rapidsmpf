@@ -210,6 +210,8 @@ class Statistics {
     /**
      * @brief Creates a deep copy of this Statistics object.
      *
+     * @note Memory records are not copied.
+     *
      * @return A shared pointer to the new copy.
      */
     [[nodiscard]] std::shared_ptr<Statistics> copy() const;
@@ -217,12 +219,16 @@ class Statistics {
     /**
      * @brief Serializes the stats to a binary byte vector.
      *
+     * @note Memory records and formatters are not serialized.
+     *
      * @return A vector of bytes containing the serialized statistics.
      */
     [[nodiscard]] std::vector<std::uint8_t> serialize() const;
 
     /**
      * @brief Deserializes a Statistics object from a binary byte vector.
+     *
+     * @note The resulting object has no memory records or formatters.
      *
      * @param data The serialized statistics data.
      * @return A shared pointer to the reconstructed Statistics object.
@@ -239,6 +245,8 @@ class Statistics {
      * count, summed value, and the maximum of the two maxima. Formatters are
      * taken from `*this`.
      *
+     * @note Memory records are not merged.
+     *
      * @param other The Statistics to merge with. Must not be null.
      * @return A shared pointer to a new Statistics containing the merged stats.
      */
@@ -250,6 +258,8 @@ class Statistics {
      * @brief Merges this Statistics with multiple others.
      *
      * Equivalent to calling `merge()` repeatedly. Formatters are taken from `*this`.
+     *
+     * @note Memory records are not merged.
      *
      * @param others The Statistics objects to merge with. No element may be null.
      * @return A shared pointer to a new Statistics containing the merged stats.
