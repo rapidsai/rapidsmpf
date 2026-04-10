@@ -12,9 +12,9 @@ from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.message import Message
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
-    from rapidsmpf.streaming.core.actor import PyActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -95,7 +95,7 @@ def test_data_roundtrip_without_metadata(
 ) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     outputs: list[int] = []
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         send_data(context, ch, 0, 3),
     ]
 
@@ -119,7 +119,7 @@ def test_metadata_then_data_roundtrip(
     metadata_out: list[int] = []
     data_out: list[int] = []
 
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         send_metadata_then_data(context, ch, [10, 20], 0, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
@@ -135,7 +135,7 @@ def test_data_only_with_metadata_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         send_data_only_with_metadata_shutdown(context, ch, 5, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
@@ -151,7 +151,7 @@ def test_metadata_only_with_data_shutdown(
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         send_metadata_only(context, ch, [30, 31]),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
@@ -175,11 +175,11 @@ def test_producer_raises_after_metadata(
         await ch_out.send_metadata(ctx, Message(0, ArbitraryChunk(99)))
         raise RuntimeError("producer failed")
 
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         throwing_producer(context, ch),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    with pytest.raises(RuntimeError, match="producer failed"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="producer failed")):
         run_actor_network(actors=actors, py_executor=py_executor)
 
 
@@ -194,9 +194,9 @@ def test_consumer_raises_with_metadata(
     ) -> None:
         raise RuntimeError("consumer failed")
 
-    actors: list[PyActor] = [
+    actors: list[Awaitable[None]] = [
         send_metadata_then_data(context, ch, [1], 0, 1),
         throwing_consumer(context, ch),
     ]
-    with pytest.raises(RuntimeError, match="consumer failed"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="consumer failed")):
         run_actor_network(actors=actors, py_executor=py_executor)

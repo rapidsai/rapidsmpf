@@ -11,9 +11,10 @@ from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.core.message import Payload
@@ -37,13 +38,13 @@ def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> N
 
     pull_task, deferred = pull_from_channel(context, ch3)
 
-    actors: list[CppActor | PyActor] = [
+    actors: list[CppActor | Awaitable[None]] = [
         task_that_throws(context, ch1, ch2),
         task_that_spins(context, ch3),
         pull_task,
     ]
 
-    with pytest.raises(RuntimeError, match="Throwing in task"):
+    with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="Throwing in task")):
         run_actor_network(actors=actors, py_executor=py_executor)
 
     messages = deferred.release()

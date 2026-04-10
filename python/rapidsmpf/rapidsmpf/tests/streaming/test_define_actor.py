@@ -99,9 +99,11 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    with pytest.raises(
-        RuntimeError,
-        match="MyError",
+    with pytest.RaisesGroup(
+        pytest.RaisesExc(
+            RuntimeError,
+            match="MyError",
+        )
     ):
         run_actor_network(
             actors=[

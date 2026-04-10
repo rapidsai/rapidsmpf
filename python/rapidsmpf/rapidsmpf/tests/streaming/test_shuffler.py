@@ -30,6 +30,7 @@ from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
     from rmm.pylibrmm.stream import Stream
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
         PartitionMapChunk,
         PartitionVectorChunk,
     )
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -188,7 +189,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     py_executor: ThreadPoolExecutor,
     num_partitions: int,
 ) -> None:
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
 
     num_rows = 200
     num_chunks = 3
@@ -231,7 +232,7 @@ def test_shuffler_object_interface(
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
 ) -> None:
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
 
     num_partitions = 5
     num_rows = 100

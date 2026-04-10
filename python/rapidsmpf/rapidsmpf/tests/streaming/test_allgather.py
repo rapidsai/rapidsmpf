@@ -21,10 +21,11 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -139,7 +140,7 @@ def test_allgather_object_interface(
 ) -> None:
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
     num_rows = 100
     num_chunks = 10
     op_id = 0
