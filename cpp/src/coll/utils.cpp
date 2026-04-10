@@ -193,7 +193,7 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
 
 std::vector<std::unique_ptr<Chunk>> PostBox::extract() {
     std::lock_guard lock(mutex_);
-    return std::move(chunks_);
+    return std::exchange(chunks_, {});
 }
 
 std::size_t PostBox::size() const noexcept {
