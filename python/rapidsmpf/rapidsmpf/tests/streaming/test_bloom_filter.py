@@ -15,6 +15,7 @@ import pylibcudf as plc
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.cudf import ChannelMetadata
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -32,6 +33,30 @@ if TYPE_CHECKING:
 def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
     table = plc.Table([plc.Column.from_array(values, stream=stream)])
     return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+
+
+@define_actor()
+async def add_metadata(
+    ctx: Context, ch_in: Channel[TableChunk], ch_out: Channel[TableChunk]
+) -> None:
+    await ch_out.send_metadata(ctx, Message(0, ChannelMetadata(1)))
+    await ch_out.drain_metadata(ctx)
+    while (msg := await ch_in.recv(ctx)) is not None:
+        await ch_out.send(ctx, msg)
+    await ch_out.drain(ctx)
+
+
+@define_actor()
+async def receive_metadata(
+    ctx: Context, ch_in: Channel[TableChunk], ch_out: Channel[TableChunk]
+) -> None:
+    m = await ch_in.recv_metadata(ctx)
+    assert m is not None
+    meta = ChannelMetadata.from_message(m)
+    assert meta.local_count == 1
+    while (msg := await ch_in.recv(ctx)) is not None:
+        await ch_out.send(ctx, msg)
+    await ch_out.drain(ctx)
 
 
 @define_actor()
@@ -76,12 +101,16 @@ def run_bloom_filter_pipeline(
 
     ch_build: Channel[TableChunk] = context.create_channel()
     ch_probe: Channel[TableChunk] = context.create_channel()
+    ch_probe_meta: Channel[TableChunk] = context.create_channel()
+    ch_out_meta: Channel[TableChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
     actors: list[CppActor | PyActor] = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
-        bloom_pipeline(context, bloom, ch_build, ch_probe, ch_out),
+        add_metadata(context, ch_probe, ch_probe_meta),
+        bloom_pipeline(context, bloom, ch_build, ch_probe_meta, ch_out_meta),
+        receive_metadata(context, ch_out_meta, ch_out),
     ]
     pull_actor, deferred = pull_from_channel(context, ch_out)
     actors.append(pull_actor)

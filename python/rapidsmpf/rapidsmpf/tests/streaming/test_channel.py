@@ -48,7 +48,7 @@ async def send_metadata_then_data(
 ) -> None:
     for seq, value in enumerate(metadata_values):
         await ch_out.send_metadata(ctx, Message(seq, ArbitraryChunk(value)))
-    await ch_out.shutdown_metadata(ctx)
+    await ch_out.drain_metadata(ctx)
     for msg in make_messages(data_start, data_count):
         await ch_out.send(ctx, msg)
     await ch_out.drain(ctx)
