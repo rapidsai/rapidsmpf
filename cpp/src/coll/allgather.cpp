@@ -60,12 +60,6 @@ void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
     finish_counter_.fetch_sub(1, std::memory_order_relaxed);
 }
 
-bool AllGather::finished() const noexcept {
-    return finish_counter_.load(std::memory_order_acquire) == 0
-           && extraction_goalpost_.load(std::memory_order_acquire)
-                  == for_extraction_.size();
-}
-
 std::vector<PackedData> AllGather::wait_and_extract(
     AllGather::Ordered ordered, std::chrono::milliseconds timeout
 ) {
@@ -299,7 +293,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
         (fire_and_forget_.empty() && sent_posted_.empty() && receive_posted_.empty()
          && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
          && inserted_.empty());
-    bool const is_finished = finished();
+    bool const is_finished =
+        finish_counter_.load(std::memory_order_acquire) == 0
+        && extraction_goalpost_.load(std::memory_order_acquire) == for_extraction_.size();
     // Finish progress only if we're inactive and all containers are empty (i.e. all work
     // is done).
     bool const is_done =

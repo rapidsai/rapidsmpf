@@ -70,14 +70,6 @@ class AllGather {
      */
     void insert_finished();
 
-    /**
-     * @brief Check if the allgather operation has completed.
-     *
-     * @return True if we have received all data and finish messages from all
-     * ranks.
-     */
-    [[nodiscard]] bool finished() const noexcept;
-
     /// @brief Tag requesting ordering for extraction.
     enum class Ordered : bool {
         NO,  ///< Extraction is unordered.

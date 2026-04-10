@@ -158,9 +158,6 @@ def test_basic_allgather(
     # Wait for completion and extract results
     results = allgather.wait_and_extract(ordered=ordered)
 
-    # Verify completion
-    assert allgather.finished()
-
     # Check results
     if n_inserts > 0:
         expected_total = n_inserts * n_ranks

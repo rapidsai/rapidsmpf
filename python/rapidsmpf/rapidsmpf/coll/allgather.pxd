@@ -36,7 +36,6 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
         void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
             except +ex_handler
         void insert_finished() except +ex_handler
-        bool finished() except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         vector[cpp_PackedData] wait_and_extract(
             Ordered ordered,

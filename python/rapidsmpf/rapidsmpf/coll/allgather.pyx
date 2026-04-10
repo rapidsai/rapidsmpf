@@ -116,20 +116,6 @@ cdef class AllGather:
         with nogil:
             deref(self._handle).insert_finished()
 
-    def finished(self):
-        """
-        Check if the allgather operation has completed.
-
-        Returns
-        -------
-        True if all data and finish messages have been received from all ranks,
-        otherwise False.
-        """
-        cdef bool ret
-        with nogil:
-            ret = deref(self._handle).finished()
-        return ret
-
     def wait_and_extract(self, bool ordered = True, int timeout_ms = -1):
         """
         Wait for completion and extract all gathered data.
