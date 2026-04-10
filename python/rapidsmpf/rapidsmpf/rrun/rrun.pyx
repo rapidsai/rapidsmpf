@@ -75,16 +75,16 @@ def bind(
 
     Parameters
     ----------
-    gpu_id : int or None
+    gpu_id
         Physical GPU device index (as reported by ``nvidia-smi``).
         When ``None``, the first GPU in ``CUDA_VISIBLE_DEVICES`` is used.
-    cpu : bool
+    cpu
         Set CPU affinity to cores near the GPU (default ``True``).
-    memory : bool
+    memory
         Set NUMA memory policy to nodes near the GPU (default ``True``).
-    network : bool
+    network
         Set ``UCX_NET_DEVICES`` to NICs near the GPU (default ``True``).
-    verbose : bool
+    verbose
         Print warnings to stderr on binding failures (default ``False``).
 
     Raises
