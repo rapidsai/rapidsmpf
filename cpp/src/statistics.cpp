@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <ranges>
@@ -388,6 +389,126 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
     RAPIDSMPF_EXPECTS(
         !f.fail(), "Failed writing to: " + filepath.string(), std::ios_base::failure
     );
+}
+
+std::shared_ptr<Statistics> Statistics::copy() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    ret->stats_ = stats_;
+    ret->formatters_ = formatters_;
+    return ret;
+}
+
+std::vector<std::uint8_t> Statistics::serialize() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Binary layout:
+    //   [num_stats: uint64]
+    //   Per stat (sorted by name):
+    //     [name_length: uint64] [name: char[]] [count: uint64] [value: double] [max:
+    //     double]
+    std::size_t total = sizeof(std::uint64_t);  // num_stats
+    for (auto const& [name, stat] : stats_) {
+        total += sizeof(std::uint64_t)  // name_length
+                 + name.size()  // name bytes
+                 + sizeof(std::uint64_t)  // count
+                 + sizeof(double)  // value
+                 + sizeof(double);  // max
+    }
+
+    std::vector<std::uint8_t> buf(total);
+    std::uint8_t* ptr = buf.data();
+
+    auto const write = [&ptr](auto const& val) {
+        std::memcpy(ptr, &val, sizeof(val));
+        ptr += sizeof(val);
+    };
+
+    write(static_cast<std::uint64_t>(stats_.size()));
+
+    for (auto const& [name, stat] : stats_) {
+        write(static_cast<std::uint64_t>(name.size()));
+        std::memcpy(ptr, name.data(), name.size());
+        ptr += name.size();
+        write(static_cast<std::uint64_t>(stat.count()));
+        write(stat.value());
+        write(stat.max());
+    }
+    return buf;
+}
+
+std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const> data) {
+    std::uint8_t const* ptr = data.data();
+    std::uint8_t const* end = ptr + data.size();
+
+    auto const read = [&ptr, end]<typename T>(T& val) {
+        RAPIDSMPF_EXPECTS(
+            ptr + sizeof(T) <= end,
+            "truncated Statistics serialization data",
+            std::invalid_argument
+        );
+        std::memcpy(&val, ptr, sizeof(T));
+        ptr += sizeof(T);
+    };
+
+    auto ret = std::make_shared<Statistics>();
+
+    std::uint64_t num_stats{};
+    read(num_stats);
+
+    for (std::uint64_t i = 0; i < num_stats; ++i) {
+        std::uint64_t name_len{};
+        read(name_len);
+        RAPIDSMPF_EXPECTS(
+            ptr + name_len <= end,
+            "truncated Statistics serialization data",
+            std::invalid_argument
+        );
+        std::string name(reinterpret_cast<char const*>(ptr), name_len);
+        ptr += name_len;
+
+        std::uint64_t count{};
+        double value{};
+        double max{};
+        read(count);
+        read(value);
+        read(max);
+        ret->stats_.emplace(std::move(name), Stat(count, value, max));
+    }
+    return ret;
+}
+
+std::shared_ptr<Statistics> Statistics::merge(
+    std::shared_ptr<Statistics> const& other
+) const {
+    RAPIDSMPF_EXPECTS(other != nullptr, "Statistics pointer must not be null");
+    std::scoped_lock lock(mutex_, other->mutex_);
+
+    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    ret->stats_ = stats_;
+    ret->formatters_ = formatters_;
+
+    for (auto const& [name, stat] : other->stats_) {
+        auto [it, inserted] = ret->stats_.try_emplace(name, stat);
+        if (!inserted) {
+            it->second = Stat(
+                it->second.count() + stat.count(),
+                it->second.value() + stat.value(),
+                std::max(it->second.max(), stat.max())
+            );
+        }
+    }
+    return ret;
+}
+
+std::shared_ptr<Statistics> Statistics::merge(
+    std::span<std::shared_ptr<Statistics> const> others
+) const {
+    auto ret = copy();
+    for (auto const& other : others) {
+        ret = ret->merge(other);
+    }
+    return ret;
 }
 
 void Statistics::record_copy(

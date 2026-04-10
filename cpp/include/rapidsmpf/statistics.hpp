@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -207,6 +208,57 @@ class Statistics {
     void write_json(std::filesystem::path const& filepath) const;
 
     /**
+     * @brief Creates a deep copy of this Statistics object.
+     *
+     * @return A shared pointer to the new copy.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> copy() const;
+
+    /**
+     * @brief Serializes the stats to a binary byte vector.
+     *
+     * @return A vector of bytes containing the serialized statistics.
+     */
+    [[nodiscard]] std::vector<std::uint8_t> serialize() const;
+
+    /**
+     * @brief Deserializes a Statistics object from a binary byte vector.
+     *
+     * @param data The serialized statistics data.
+     * @return A shared pointer to the reconstructed Statistics object.
+     * @throws std::invalid_argument If the data is malformed or truncated.
+     */
+    [[nodiscard]] static std::shared_ptr<Statistics> deserialize(
+        std::span<std::uint8_t const> data
+    );
+
+    /**
+     * @brief Merges this Statistics with another, returning a new Statistics.
+     *
+     * For each stat name present in either object, the result has the summed
+     * count, summed value, and the maximum of the two maxima. Formatters are
+     * taken from `*this`.
+     *
+     * @param other The Statistics to merge with. Must not be null.
+     * @return A shared pointer to a new Statistics containing the merged stats.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> merge(
+        std::shared_ptr<Statistics> const& other
+    ) const;
+
+    /**
+     * @brief Merges this Statistics with multiple others.
+     *
+     * Equivalent to calling `merge()` repeatedly. Formatters are taken from `*this`.
+     *
+     * @param others The Statistics objects to merge with. No element may be null.
+     * @return A shared pointer to a new Statistics containing the merged stats.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> merge(
+        std::span<std::shared_ptr<Statistics> const> others
+    ) const;
+
+    /**
      * @brief Represents a single tracked statistic.
      */
     class Stat {
@@ -215,6 +267,16 @@ class Statistics {
          * @brief Default-constructs a Stat.
          */
         Stat() = default;
+
+        /**
+         * @brief Constructs a Stat with explicit field values.
+         *
+         * @param count Number of updates.
+         * @param value Total accumulated value.
+         * @param max Maximum value seen.
+         */
+        Stat(std::size_t count, double value, double max)
+            : count_{count}, value_{value}, max_{max} {}
 
         /**
          * @brief Three-way comparison operator.
