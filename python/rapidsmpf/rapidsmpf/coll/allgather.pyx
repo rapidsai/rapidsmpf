@@ -116,20 +116,6 @@ cdef class AllGather:
         with nogil:
             deref(self._handle).insert_finished()
 
-    def finished(self):
-        """
-        Check if the allgather operation has completed.
-
-        Returns
-        -------
-        True if all data and finish messages have been received from all ranks,
-        otherwise False.
-        """
-        cdef bool ret
-        with nogil:
-            ret = deref(self._handle).finished()
-        return ret
-
     def wait_and_extract(self, bool ordered = True, int timeout_ms = -1):
         """
         Wait for completion and extract all gathered data.
@@ -160,34 +146,4 @@ cdef class AllGather:
 
         with nogil:
             _ret = deref(self._handle).wait_and_extract(_ordered, _timeout_ms)
-        return packed_data_vector_to_list(move(_ret))
-
-    def extract_ready(self):
-        """
-        Extract any available data.
-
-        Returns
-        -------
-        A list containing available data (or empty if none).
-
-        Notes
-        -----
-        This is a non-blocking, unordered interface. Can be used to drain
-        an AllGather operation while it's still ongoing.
-
-        Example
-        -------
-        >>> # Drain an AllGather
-        >>> allgather = ...  # create
-        >>> # ... insert data
-        >>> allgather.insert_finished()  # finish inserting
-        >>> results = []
-        >>> while not allgather.finished():
-        ...     results.extend(allgather.extract_ready())
-        >>> # Extract any final chunks that may have arrived
-        >>> results.extend(allgather.extract_ready())
-        """
-        cdef vector[cpp_PackedData] _ret
-        with nogil:
-            _ret = deref(self._handle).extract_ready()
         return packed_data_vector_to_list(move(_ret))

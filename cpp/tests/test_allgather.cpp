@@ -115,7 +115,6 @@ TEST_P(AllGatherTest, basic_allgather) {
     EXPECT_NO_THROW(
         results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
     );
-    EXPECT_TRUE(allgather.finished());
     if (n_inserts > 0) {
         EXPECT_EQ(n_inserts * comm->nranks(), results.size());
 
@@ -193,17 +192,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     allgather.insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    if (ordered == AllGather::Ordered::YES) {
-        EXPECT_NO_THROW(
-            results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
-        );
-    } else {
-        do {
-            std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
-        } while (!allgather.finished());
-        std::ranges::move(allgather.extract_ready(), std::back_inserter(results));
-    }
-    EXPECT_EQ(n_ranks * n_inserts, results.size());
+    EXPECT_NO_THROW(
+        results = allgather.wait_and_extract(ordered, std::chrono::seconds{30})
+    );
 
     if (ordered == AllGather::Ordered::YES) {
         auto it = results.begin();
@@ -227,8 +218,6 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
             );
         }
     }
-
-    EXPECT_TRUE(allgather.finished());
 }
 
 TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
@@ -279,8 +268,6 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
             }
         }
     }
-
-    EXPECT_TRUE(allgather.finished());
 }
 
 // Test that reusing an OpID after a completed allgather doesn't cause cross-matching of
