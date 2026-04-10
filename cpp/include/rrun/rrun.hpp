@@ -7,7 +7,9 @@
 
 #include <optional>
 
-#include <cucascade/memory/topology_discovery.hpp>
+namespace cucascade::memory {
+struct system_topology_info;
+}  // namespace cucascade::memory
 
 namespace rapidsmpf::rrun {
 

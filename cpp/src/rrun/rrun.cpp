@@ -18,6 +18,8 @@
 #include <numa.h>
 #endif
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rrun/rrun.hpp>
 
 namespace rapidsmpf::rrun {

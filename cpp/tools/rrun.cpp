@@ -37,6 +37,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rrun/rrun.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
