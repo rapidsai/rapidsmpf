@@ -80,6 +80,20 @@ class TestBindResolution:
 
         _run_in_subprocess(body)
 
+    def test_negative_gpu_id_raises(self) -> None:
+        def body() -> None:
+            with pytest.raises(ValueError, match="non-negative integer"):
+                bind(gpu_id=-1, cpu=False, memory=False, network=False)
+
+        _run_in_subprocess(body)
+
+    def test_non_integer_gpu_id_raises(self) -> None:
+        def body() -> None:
+            with pytest.raises(ValueError, match="non-negative integer"):
+                bind(gpu_id="0", cpu=False, memory=False, network=False)  # type: ignore[arg-type]
+
+        _run_in_subprocess(body)
+
     def test_invalid_cuda_visible_devices_raises(self) -> None:
         def body() -> None:
             os.environ["CUDA_VISIBLE_DEVICES"] = "GPU-abcdef12-3456"

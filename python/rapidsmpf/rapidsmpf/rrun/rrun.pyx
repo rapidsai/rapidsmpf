@@ -92,9 +92,15 @@ def bind(
     RuntimeError
         If no GPU ID can be determined or the resolved GPU is not found
         in the discovered topology.
+    ValueError
+        If ``gpu_id`` is not a non-negative integer.
     """
     cdef optional[unsigned int] c_gpu_id
     if gpu_id is not None:
+        if not isinstance(gpu_id, int) or gpu_id < 0:
+            raise ValueError(
+                f"gpu_id must be a non-negative integer, got {gpu_id!r}"
+            )
         c_gpu_id = <unsigned int>gpu_id
 
     cdef cpp_bind_options opts
