@@ -76,7 +76,7 @@ class Chunk {
     /// @brief Sentinel destination for chunks with unknown destination.
     ///
     /// A received chunk will have an invalid destination.
-    static constexpr Rank INVALID_RANK = -1;
+    static constexpr Rank INVALID_RANK = std::numeric_limits<Rank>::max();
 
     /**
      * @brief Check if the chunk is ready for processing.
