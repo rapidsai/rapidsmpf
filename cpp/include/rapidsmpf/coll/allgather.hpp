@@ -206,7 +206,6 @@ class AllGather {
     };  ///< Number of chunks still expected to remain in the extraction postbox.
     OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
-    std::atomic<bool> active_{true};  ///< Whether the operation is active
     bool can_extract_{false};  ///< Whether data can be extracted
     mutable std::mutex mutex_;  ///< Mutex protecting can_extract_
     std::condition_variable cv_;  ///< Notification for waiting on can_extract_

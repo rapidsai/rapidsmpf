@@ -114,11 +114,8 @@ AllGather::~AllGather() noexcept {
         locally_finished_.load(std::memory_order_acquire),
         "Destroying allgather without `insert_finished()`"
     );
-    if (active_.load(std::memory_order_acquire)) {
-        active_.store(false, std::memory_order_release);
-        comm_->progress_thread()->remove_function(function_id_);
-        br_->spill_manager().remove_spill_function(spill_function_id_);
-    }
+    br_->spill_manager().remove_spill_function(spill_function_id_);
+    comm_->progress_thread()->remove_function(function_id_);
 }
 
 AllGather::AllGather(
@@ -296,10 +293,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
     bool const is_finished =
         finish_counter_.load(std::memory_order_acquire) == 0
         && extraction_goalpost_.load(std::memory_order_acquire) == for_extraction_.size();
-    // Finish progress only if we're inactive and all containers are empty (i.e. all work
-    // is done).
-    bool const is_done =
-        !active_.load(std::memory_order_acquire) && is_finished && containers_empty;
+    // Finish progress only if we're done and all containers are empty (i.e. all work is
+    // done).
+    bool const is_done = is_finished && containers_empty;
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
         {
