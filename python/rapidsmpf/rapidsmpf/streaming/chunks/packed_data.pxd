@@ -9,7 +9,8 @@ from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 cdef class PackedDataChunk:
     cdef unique_ptr[cpp_PackedData] _handle
-    # Prevent the BufferResource (and its stream) from being garbage collected.
+    # Keep the BufferResource alive as long as this object is so that when this
+    # object is deallocated the associated stream and memory resource are still alive.
     cdef BufferResource _br
 
     @staticmethod
