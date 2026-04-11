@@ -99,7 +99,7 @@ cdef extern from *:
 
 cdef class PackedData:
     @staticmethod
-    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj, BufferResource br=None):
+    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj, BufferResource br):
         cdef PackedData self = PackedData.__new__(PackedData)
         self.c_obj = move(obj)
         self._br = br
@@ -224,7 +224,7 @@ cdef class PackedData:
 
 # Convert a vector of `cpp_PackedData` into a list of `PackedData`.
 cdef list packed_data_vector_to_list(
-    vector[cpp_PackedData] packed_data, BufferResource br=None
+    vector[cpp_PackedData] packed_data, BufferResource br
 ):
     cdef list ret = []
     for i in range(packed_data.size()):

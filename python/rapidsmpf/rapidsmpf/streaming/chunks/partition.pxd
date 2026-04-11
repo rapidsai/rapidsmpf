@@ -26,8 +26,8 @@ cdef class PartitionMapChunk:
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br=*
-    )
+        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br
+    )  # noqa: E704
     cdef const cpp_PartitionMapChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self)
 
@@ -40,7 +40,7 @@ cdef class PartitionVectorChunk:
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br=*
-    )
+        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br
+    )  # noqa: E704
     cdef const cpp_PartitionVectorChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionVectorChunk] release_handle(self)

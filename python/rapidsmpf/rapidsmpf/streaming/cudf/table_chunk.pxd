@@ -37,6 +37,6 @@ cdef class TableChunk:
     cdef BufferResource _br
 
     @staticmethod
-    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle, BufferResource br=*)
+    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle, BufferResource br)  # noqa: E704
     cdef const cpp_TableChunk* handle_ptr(self)
     cdef unique_ptr[cpp_TableChunk] release_handle(self)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Self, overload
+from typing import Self, overload
 
 from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
@@ -13,7 +13,7 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.core.context import Context
-from rapidsmpf.streaming.core.message import Message, Payload
+from rapidsmpf.streaming.core.message import Message
 
 class TableChunk:
     @staticmethod
@@ -22,15 +22,13 @@ class TableChunk:
         stream: Stream,
         *,
         exclusive_view: bool,
-        br: BufferResource | None = None,
+        br: BufferResource,
     ) -> TableChunk: ...
     @staticmethod
-    def from_packed_data(
-        pd: PackedData, br: BufferResource | None = None
-    ) -> TableChunk: ...
+    def from_packed_data(pd: PackedData, br: BufferResource) -> TableChunk: ...
     @classmethod
     def from_message(
-        cls: type[Self], message: Message[Self], br: BufferResource | None = None
+        cls: type[Self], message: Message[Self], br: BufferResource
     ) -> Self: ...
     def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...
     @property
@@ -69,8 +67,3 @@ async def make_table_chunks_available_or_wait(
     net_memory_delta: int,
     allow_overbooking: bool | None = None,
 ) -> tuple[list[TableChunk], MemoryReservation]: ...
-
-if TYPE_CHECKING:
-    # Check that TableChunk implements Payload.
-    tc: TableChunk
-    p: Payload = tc

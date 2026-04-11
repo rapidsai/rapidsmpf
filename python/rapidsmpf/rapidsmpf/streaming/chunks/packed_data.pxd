@@ -15,7 +15,7 @@ cdef class PackedDataChunk:
 
     @staticmethod
     cdef PackedDataChunk from_handle(
-        unique_ptr[cpp_PackedData] handle, BufferResource br=*
-    )
+        unique_ptr[cpp_PackedData] handle, BufferResource br
+    )  # noqa: E704
     cdef const cpp_PackedData* handle_ptr(self)
     cdef unique_ptr[cpp_PackedData] release_handle(self)

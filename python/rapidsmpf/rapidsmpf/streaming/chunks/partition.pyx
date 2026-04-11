@@ -29,7 +29,7 @@ cdef class PartitionMapChunk:
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br=None
+        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br
     ):
         """
         Construct a PartitionMapChunk from an existing C++ handle.
@@ -50,7 +50,7 @@ cdef class PartitionMapChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br=None):
+    def from_message(Message message not None, BufferResource br):
         """
         Construct a PartitionMapChunk by consuming a Message.
 
@@ -149,7 +149,7 @@ cdef class PartitionVectorChunk:
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br=None
+        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br
     ):
         """
         Construct a PartitionVectorChunk from an existing C++ handle.
@@ -171,7 +171,7 @@ cdef class PartitionVectorChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br=None):
+    def from_message(Message message not None, BufferResource br):
         """
         Construct a PartitionVectorChunk by consuming a Message.
 
