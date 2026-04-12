@@ -465,7 +465,7 @@ def test_dask_cudf_join(
             dd.assert_eq(joined, expected, check_index=False)
 
 
-@gen_test(timeout=30)
+@gen_test(timeout=60)
 @pytest.mark.filterwarnings("ignore")
 async def test_bootstrap_multiple_clients(
     loop: pytest.FixtureDef,  # noqa: F811
@@ -487,7 +487,9 @@ async def test_bootstrap_multiple_clients(
             args=(cluster.scheduler_address, q),
         )
         p.start()
-        result = q.get(timeout=5)
+        # forkserver subprocess must reimport all modules from scratch,
+        # which can be slow on loaded CI machines.
+        result = q.get(timeout=30)
         p.join()
 
     assert result is True
