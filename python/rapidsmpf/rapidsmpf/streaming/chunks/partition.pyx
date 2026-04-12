@@ -50,7 +50,7 @@ cdef class PartitionMapChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br):
+    def from_message(Message message not None, BufferResource br not None):
         """
         Construct a PartitionMapChunk by consuming a Message.
 
@@ -171,7 +171,7 @@ cdef class PartitionVectorChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br):
+    def from_message(Message message not None, BufferResource br not None):
         """
         Construct a PartitionVectorChunk by consuming a Message.
 

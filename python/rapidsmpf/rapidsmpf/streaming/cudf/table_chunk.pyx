@@ -144,7 +144,7 @@ cdef class TableChunk:
         Stream stream not None,
         *,
         bool_t exclusive_view,
-        BufferResource br,
+        BufferResource br not None,
     ):
         """
         Construct a TableChunk from a pylibcudf Table.
@@ -194,7 +194,7 @@ cdef class TableChunk:
         )
 
     @staticmethod
-    def from_packed_data(PackedData pd not None, BufferResource br):
+    def from_packed_data(PackedData pd not None, BufferResource br not None):
         """
         Construct a TableChunk from packed data.
 
@@ -214,7 +214,7 @@ cdef class TableChunk:
         return TableChunk.from_handle(make_unique[cpp_TableChunk](move(pd.c_obj)), br)
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br):
+    def from_message(Message message not None, BufferResource br not None):
         """
         Construct a TableChunk by consuming a Message.
 
