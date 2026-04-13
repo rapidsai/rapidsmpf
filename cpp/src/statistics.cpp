@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <ranges>
@@ -35,6 +36,68 @@ using Names2DArray = std::array<NamesArray, rapidsmpf::MEMORY_TYPES.size()>;
 }  // namespace
 
 namespace rapidsmpf {
+
+// -- Stat --------------------------------------------------------------------
+
+Statistics::Stat::Stat(std::size_t count, double value, double max)
+    : count_{count}, value_{value}, max_{max} {}
+
+void Statistics::Stat::add(double value) {
+    ++count_;
+    value_ += value;
+    max_ = std::max(max_, value);
+}
+
+std::size_t Statistics::Stat::count() const noexcept {
+    return count_;
+}
+
+double Statistics::Stat::value() const noexcept {
+    return value_;
+}
+
+double Statistics::Stat::max() const noexcept {
+    return max_;
+}
+
+std::uint8_t* Statistics::Stat::serialize(std::uint8_t* out) const {
+    auto const write = [&out](auto const& val) {
+        std::memcpy(out, &val, sizeof(val));
+        out += sizeof(val);
+    };
+    write(static_cast<std::uint64_t>(count_));
+    write(value_);
+    write(max_);
+    return out;
+}
+
+std::pair<Statistics::Stat, std::uint8_t const*> Statistics::Stat::deserialize(
+    std::uint8_t const* in, std::uint8_t const* end
+) {
+    // Read a value from `ptr` and return a pointer past the bytes read.
+    auto const read = [end]<typename T>(std::uint8_t const* ptr, T& val) {
+        RAPIDSMPF_EXPECTS(
+            ptr + sizeof(T) <= end,
+            "truncated Stat serialization data",
+            std::invalid_argument
+        );
+        std::memcpy(&val, ptr, sizeof(T));
+        return ptr + sizeof(T);
+    };
+    std::uint64_t count{};
+    double value{};
+    double max{};
+    in = read(in, count);
+    in = read(in, value);
+    in = read(in, max);
+    return {Stat(count, value, max), in};
+}
+
+Statistics::Stat Statistics::Stat::merge(Stat const& other) const {
+    return Stat(count_ + other.count_, value_ + other.value_, std::max(max_, other.max_));
+}
+
+// -- Statistics --------------------------------------------------------------
 
 Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
@@ -388,6 +451,112 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
     RAPIDSMPF_EXPECTS(
         !f.fail(), "Failed writing to: " + filepath.string(), std::ios_base::failure
     );
+}
+
+std::shared_ptr<Statistics> Statistics::copy() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    ret->stats_ = stats_;
+    ret->formatters_ = formatters_;
+    return ret;
+}
+
+std::vector<std::uint8_t> Statistics::serialize() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Binary layout:
+    //   [num_stats: uint64]
+    //   Per stat (sorted by name):
+    //     [name_length: uint64] [name: char[]] [Stat::serialized_size() bytes]
+    std::size_t total = sizeof(std::uint64_t);  // num_stats
+    for (auto const& [name, stat] : stats_) {
+        total += sizeof(std::uint64_t) + name.size() + Stat::serialized_size();
+    }
+
+    std::vector<std::uint8_t> buf(total);
+    std::uint8_t* ptr = buf.data();
+
+    auto const write = [&ptr](auto const& val) {
+        std::memcpy(ptr, &val, sizeof(val));
+        ptr += sizeof(val);
+    };
+
+    write(static_cast<std::uint64_t>(stats_.size()));
+
+    for (auto const& [name, stat] : stats_) {
+        write(static_cast<std::uint64_t>(name.size()));
+        std::memcpy(ptr, name.data(), name.size());
+        ptr += name.size();
+        ptr = stat.serialize(ptr);
+    }
+    return buf;
+}
+
+std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const> data) {
+    std::uint8_t const* ptr = data.data();
+    std::uint8_t const* end = ptr + data.size();
+
+    // Read a value from `in` and return a pointer past the bytes read.
+    auto const read = [end]<typename T>(std::uint8_t const* in, T& val) {
+        RAPIDSMPF_EXPECTS(
+            in + sizeof(T) <= end,
+            "truncated Statistics serialization data",
+            std::invalid_argument
+        );
+        std::memcpy(&val, in, sizeof(T));
+        return in + sizeof(T);
+    };
+
+    auto ret = std::make_shared<Statistics>();
+
+    std::uint64_t num_stats{};
+    ptr = read(ptr, num_stats);
+
+    for (std::uint64_t i = 0; i < num_stats; ++i) {
+        std::uint64_t name_len{};
+        ptr = read(ptr, name_len);
+        RAPIDSMPF_EXPECTS(
+            ptr + name_len <= end,
+            "truncated Statistics serialization data",
+            std::invalid_argument
+        );
+        std::string name(reinterpret_cast<char const*>(ptr), name_len);
+        ptr += name_len;
+
+        auto [stat, next] = Stat::deserialize(ptr, end);
+        ptr = next;
+        ret->stats_.emplace(std::move(name), std::move(stat));
+    }
+    return ret;
+}
+
+std::shared_ptr<Statistics> Statistics::merge(
+    std::shared_ptr<Statistics> const& other
+) const {
+    RAPIDSMPF_EXPECTS(other != nullptr, "Statistics pointer must not be null");
+    std::scoped_lock lock(mutex_, other->mutex_);
+
+    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    ret->stats_ = stats_;
+    ret->formatters_ = formatters_;
+
+    for (auto const& [name, stat] : other->stats_) {
+        auto [it, inserted] = ret->stats_.try_emplace(name, stat);
+        if (!inserted) {
+            it->second = it->second.merge(stat);
+        }
+    }
+    return ret;
+}
+
+std::shared_ptr<Statistics> Statistics::merge(
+    std::span<std::shared_ptr<Statistics> const> others
+) const {
+    auto ret = copy();
+    for (auto const& other : others) {
+        ret = ret->merge(other);
+    }
+    return ret;
 }
 
 void Statistics::record_copy(

@@ -425,3 +425,145 @@ TEST_F(StatisticsTest, JsonReport) {
     stats.write_json(ss);
     EXPECT_EQ(file_contents, ss.str());
 }
+
+TEST_F(StatisticsTest, StatConstructor) {
+    Statistics::Stat s(5, 42.0, 10.0);
+    EXPECT_EQ(s.count(), 5);
+    EXPECT_EQ(s.value(), 42.0);
+    EXPECT_EQ(s.max(), 10.0);
+}
+
+TEST_F(StatisticsTest, SerializeRoundTrip) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("alpha", 10.0);
+    stats.add_stat("alpha", 5.0);  // count=2, value=15, max=10
+    stats.add_stat("beta", 3.0);
+
+    auto const bytes = stats.serialize();
+    auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
+
+    EXPECT_TRUE(deserialized->enabled());
+    EXPECT_EQ(deserialized->get_stat("alpha"), stats.get_stat("alpha"));
+    EXPECT_EQ(deserialized->get_stat("beta"), stats.get_stat("beta"));
+    EXPECT_EQ(deserialized->list_stat_names().size(), 2);
+}
+
+TEST_F(StatisticsTest, SerializeEmpty) {
+    rapidsmpf::Statistics stats;
+    auto const bytes = stats.serialize();
+    auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
+
+    EXPECT_TRUE(deserialized->enabled());
+    EXPECT_TRUE(deserialized->list_stat_names().empty());
+}
+
+TEST_F(StatisticsTest, SerializeMalformed) {
+    // Empty data.
+    std::vector<std::uint8_t> empty;
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::Statistics::deserialize(empty), std::invalid_argument
+    );
+
+    // Truncated: just one byte, not enough for num_stats.
+    std::vector<std::uint8_t> truncated = {1};
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::Statistics::deserialize(truncated), std::invalid_argument
+    );
+}
+
+TEST_F(StatisticsTest, Copy) {
+    rapidsmpf::Statistics stats;
+    stats.add_stat("x", 10.0);
+    stats.register_formatter(
+        "x", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << "fmt:" << s[0].value();
+        }
+    );
+
+    auto copied = stats.copy();
+    EXPECT_TRUE(copied->enabled());
+    EXPECT_EQ(copied->get_stat("x"), stats.get_stat("x"));
+    EXPECT_THAT(copied->report(), ::testing::HasSubstr("fmt:10"));
+}
+
+TEST_F(StatisticsTest, MergeOverlapping) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->add_stat("x", 10.0);
+    a->add_stat("x", 3.0);  // count=2, value=13, max=10
+
+    auto b = std::make_shared<rapidsmpf::Statistics>();
+    b->add_stat("x", 7.0);  // count=1, value=7, max=7
+
+    auto merged = a->merge(b);
+    auto s = merged->get_stat("x");
+    EXPECT_EQ(s.count(), 3);
+    EXPECT_EQ(s.value(), 20.0);
+    EXPECT_EQ(s.max(), 10.0);
+}
+
+TEST_F(StatisticsTest, MergeDisjoint) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->add_stat("x", 1.0);
+
+    auto b = std::make_shared<rapidsmpf::Statistics>();
+    b->add_stat("y", 2.0);
+
+    auto merged = a->merge(b);
+    EXPECT_EQ(merged->list_stat_names().size(), 2);
+    EXPECT_EQ(merged->get_stat("x"), a->get_stat("x"));
+    EXPECT_EQ(merged->get_stat("y"), b->get_stat("y"));
+}
+
+TEST_F(StatisticsTest, MergeEmpty) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->add_stat("x", 5.0);
+
+    auto empty = std::make_shared<rapidsmpf::Statistics>();
+
+    auto merged = a->merge(empty);
+    EXPECT_EQ(merged->get_stat("x"), a->get_stat("x"));
+    EXPECT_EQ(merged->list_stat_names().size(), 1);
+
+    auto merged2 = empty->merge(a);
+    EXPECT_EQ(merged2->get_stat("x"), a->get_stat("x"));
+    EXPECT_EQ(merged2->list_stat_names().size(), 1);
+}
+
+TEST_F(StatisticsTest, MergeUsesThisFormatters) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->register_formatter(
+        "x", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << "custom:" << s[0].value();
+        }
+    );
+    a->add_stat("x", 10.0);
+
+    auto b = std::make_shared<rapidsmpf::Statistics>();
+    b->add_stat("x", 5.0);
+
+    // Merging a (has formatter) with b: result uses a's formatter.
+    auto merged = a->merge(b);
+    EXPECT_THAT(merged->report(), ::testing::HasSubstr("custom:15"));
+
+    // Merging b (no formatter) with a: result does not have the formatter.
+    auto merged2 = b->merge(a);
+    EXPECT_THAT(merged2->report(), ::testing::Not(::testing::HasSubstr("custom:")));
+}
+
+TEST_F(StatisticsTest, MergeSpan) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->add_stat("x", 1.0);
+
+    auto b = std::make_shared<rapidsmpf::Statistics>();
+    b->add_stat("x", 2.0);
+
+    auto c = std::make_shared<rapidsmpf::Statistics>();
+    c->add_stat("y", 10.0);
+
+    std::vector<std::shared_ptr<rapidsmpf::Statistics>> others{b, c};
+    auto merged = a->merge(std::span{others});
+
+    EXPECT_EQ(merged->list_stat_names().size(), 2);
+    EXPECT_EQ(merged->get_stat("x").value(), 3.0);
+    EXPECT_EQ(merged->get_stat("y").value(), 10.0);
+}
