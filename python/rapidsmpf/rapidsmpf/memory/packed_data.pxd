@@ -20,9 +20,9 @@ cdef class PackedData:
     cdef BufferResource _br
 
     @staticmethod
-    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj, BufferResource br=*)
+    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj, BufferResource br)
 
 
 cdef list packed_data_vector_to_list(
-    vector[cpp_PackedData] packed_data, BufferResource br=*
+    vector[cpp_PackedData] packed_data, BufferResource br
 )

@@ -48,7 +48,7 @@ cdef class PackedDataChunk:
         return PackedData.from_librapidsmpf(self.release_handle(), self._br)
 
     @staticmethod
-    def from_packed_data(PackedData obj not None, BufferResource br=None):
+    def from_packed_data(PackedData obj not None, BufferResource br not None):
         """
         Construct a PackedDataChunk from an existing PackedData object.
 
@@ -61,13 +61,11 @@ cdef class PackedDataChunk:
         -------
         A new PackedDataChunk from the given object.
         """
-        if br is None:
-            br = obj._br
         return PackedDataChunk.from_handle(move(obj.c_obj), br)
 
     @staticmethod
     cdef PackedDataChunk from_handle(
-        unique_ptr[cpp_PackedData] handle, BufferResource br=None
+        unique_ptr[cpp_PackedData] handle, BufferResource br
     ):
         """
         Construct a PackedDataChunk from an existing C++ handle.
@@ -88,7 +86,7 @@ cdef class PackedDataChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message not None, BufferResource br=None):
+    def from_message(Message message not None, BufferResource br not None):
         """
         Construct a PackedDataChunk by consuming a Message.
 
