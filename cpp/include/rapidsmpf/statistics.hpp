@@ -270,6 +270,9 @@ class Statistics {
 
     /**
      * @brief Represents a single tracked statistic.
+     *
+     * @note Stat is not thread-safe. Thread safety is provided by the enclosing
+     * Statistics object's mutex.
      */
     class Stat {
       public:
@@ -285,8 +288,7 @@ class Statistics {
          * @param value Total accumulated value.
          * @param max Maximum value seen.
          */
-        Stat(std::size_t count, double value, double max)
-            : count_{count}, value_{value}, max_{max} {}
+        Stat(std::size_t count, double value, double max);
 
         /**
          * @brief Three-way comparison operator.
@@ -302,29 +304,21 @@ class Statistics {
          *
          * @param value The value to add.
          */
-        void add(double value) {
-            ++count_;
-            value_ += value;
-            max_ = std::max(max_, value);
-        }
+        void add(double value);
 
         /**
          * @brief Returns the number of updates applied to this statistic.
          *
          * @return The number of times `add()` was called.
          */
-        [[nodiscard]] std::size_t count() const noexcept {
-            return count_;
-        }
+        [[nodiscard]] std::size_t count() const noexcept;
 
         /**
          * @brief Returns the total accumulated value.
          *
          * @return The sum of all values added.
          */
-        [[nodiscard]] double value() const noexcept {
-            return value_;
-        }
+        [[nodiscard]] double value() const noexcept;
 
         /**
          * @brief Returns the maximum value seen across all `add()` calls.
@@ -332,9 +326,51 @@ class Statistics {
          * @return The maximum value added, or negative infinity if `add()` was never
          * called.
          */
-        [[nodiscard]] double max() const noexcept {
-            return max_;
+        [[nodiscard]] double max() const noexcept;
+
+        /**
+         * @brief Returns the serialized size of this Stat in bytes.
+         *
+         * We size each field individually rather than using `sizeof(Stat)` to
+         * avoid platform-dependent struct padding.
+         *
+         * @return The number of bytes needed to serialize this Stat.
+         */
+        [[nodiscard]] static constexpr std::size_t serialized_size() noexcept {
+            return sizeof(std::uint64_t) + sizeof(double) + sizeof(double);
         }
+
+        /**
+         * @brief Serializes this Stat to a byte buffer.
+         *
+         * @param out Pointer to the output buffer. Must have at least
+         * `serialized_size()` bytes available.
+         * @return Pointer past the last byte written.
+         */
+        std::uint8_t* serialize(std::uint8_t* out) const;
+
+        /**
+         * @brief Deserializes a Stat from a byte buffer.
+         *
+         * @param in Pointer to the input buffer.
+         * @param end Pointer past the end of the input buffer.
+         * @return A pair of the deserialized Stat and a pointer past the last byte
+         * read.
+         * @throws std::invalid_argument If the data is truncated.
+         */
+        [[nodiscard]] static std::pair<Stat, std::uint8_t const*> deserialize(
+            std::uint8_t const* in, std::uint8_t const* end
+        );
+
+        /**
+         * @brief Merges another Stat into this one, returning the combined result.
+         *
+         * Counts and values are summed; the maximum is taken.
+         *
+         * @param other The Stat to merge with.
+         * @return A new Stat containing the merged result.
+         */
+        [[nodiscard]] Stat merge(Stat const& other) const;
 
       private:
         std::size_t count_{0};
