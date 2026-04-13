@@ -3,6 +3,7 @@
  * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -18,9 +19,14 @@
 #include <numa.h>
 #endif
 
+#include <cuda_runtime.h>
+
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
+
+#include <rapidsmpf/bootstrap/utils.hpp>
+#include <rapidsmpf/system_info.hpp>
 
 namespace rapidsmpf::rrun {
 
@@ -215,6 +221,28 @@ unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
     );
 }
 
+/**
+ * @brief Get PCI bus ID for the current CUDA device.
+ *
+ * When `CUDA_VISIBLE_DEVICES` is set (as done by rrun), CUDA only sees
+ * the assigned GPU as logical device 0 regardless of the physical GPU ID.
+ *
+ * @return PCI bus ID string, or empty string on error.
+ */
+std::string get_gpu_pci_bus_id() {
+    int device = 0;
+    cudaError_t err = cudaGetDevice(&device);
+    if (err != cudaSuccess) {
+        return {};
+    }
+    std::string pci_bus_id(16, '\0');
+    err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), device);
+    if (err != cudaSuccess) {
+        return {};
+    }
+    return pci_bus_id.substr(0, pci_bus_id.find('\0'));
+}
+
 }  // namespace
 
 void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
@@ -268,6 +296,89 @@ void bind(
     throw std::runtime_error(
         "rapidsmpf::rrun::bind(): GPU " + std::to_string(id) + " not found in topology"
     );
+}
+
+resource_binding check_binding(int gpu_id_hint) {
+    resource_binding binding;
+
+    binding.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
+    binding.numa_nodes = rapidsmpf::get_current_numa_nodes();
+    binding.ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
+    binding.rank = rapidsmpf::bootstrap::get_rank();
+
+    binding.gpu_id =
+        (gpu_id_hint >= 0) ? gpu_id_hint : rapidsmpf::bootstrap::get_gpu_id();
+
+    if (binding.gpu_id >= 0) {
+        binding.gpu_pci_bus_id = get_gpu_pci_bus_id();
+    }
+
+    return binding;
+}
+
+std::optional<expected_binding> get_expected_binding(
+    cucascade::memory::system_topology_info const& topology, int gpu_id
+) {
+    auto it = std::find_if(
+        topology.gpus.begin(),
+        topology.gpus.end(),
+        [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
+            return static_cast<int>(gpu.id) == gpu_id;
+        }
+    );
+
+    if (it == topology.gpus.end()) {
+        return std::nullopt;
+    }
+
+    expected_binding expected;
+    expected.cpu_affinity = it->cpu_affinity_list;
+    expected.memory_binding = it->memory_binding;
+    expected.network_devices = it->network_devices;
+    return expected;
+}
+
+binding_validation validate_binding(
+    resource_binding const& actual, expected_binding const& expected
+) {
+    binding_validation result;
+
+    result.cpu_ok = rapidsmpf::bootstrap::compare_cpu_affinity(
+        actual.cpu_affinity, expected.cpu_affinity
+    );
+
+    if (!expected.memory_binding.empty()) {
+        if (actual.numa_nodes.empty()) {
+            result.numa_ok = false;
+        } else {
+            bool found = false;
+            for (int actual_node : actual.numa_nodes) {
+                if (std::find(
+                        expected.memory_binding.begin(),
+                        expected.memory_binding.end(),
+                        actual_node
+                    )
+                    != expected.memory_binding.end())
+                {
+                    found = true;
+                    break;
+                }
+            }
+            result.numa_ok = found;
+        }
+    }
+
+    for (std::size_t i = 0; i < expected.network_devices.size(); ++i) {
+        if (i > 0) {
+            result.expected_ucx_devices += ",";
+        }
+        result.expected_ucx_devices += expected.network_devices[i];
+    }
+    result.ucx_ok = rapidsmpf::bootstrap::compare_device_lists(
+        actual.ucx_net_devices, result.expected_ucx_devices
+    );
+
+    return result;
 }
 
 }  // namespace rapidsmpf::rrun
