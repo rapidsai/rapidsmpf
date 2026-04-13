@@ -97,8 +97,6 @@ Statistics::Stat Statistics::Stat::merge(Stat const& other) const {
     return Stat(count_ + other.count_, value_ + other.value_, std::max(max_, other.max_));
 }
 
-// -- Statistics --------------------------------------------------------------
-
 Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
@@ -515,11 +513,6 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
     for (std::uint64_t i = 0; i < num_stats; ++i) {
         std::uint64_t name_len{};
         ptr = read(ptr, name_len);
-        RAPIDSMPF_EXPECTS(
-            ptr + name_len <= end,
-            "truncated Statistics serialization data",
-            std::invalid_argument
-        );
         std::string name(reinterpret_cast<char const*>(ptr), name_len);
         ptr += name_len;
 
