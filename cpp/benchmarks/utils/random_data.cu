@@ -80,7 +80,7 @@ void random_fill(rapidsmpf::Buffer& buffer, rmm::device_async_resource_ref mr) {
             );
             buffer.write_access([&](std::byte* buffer_data,
                                     rmm::cuda_stream_view stream) {
-                RAPIDSMPF_CUDA_TRY_ALLOC(
+                RAPIDSMPF_CUDA_TRY(
                     rapidsmpf::cuda_memcpy_async(
                         buffer_data, vec.data(), buffer.size, stream
                     )

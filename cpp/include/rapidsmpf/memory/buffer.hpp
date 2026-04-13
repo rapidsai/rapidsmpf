@@ -116,7 +116,7 @@ class Buffer {
      * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
      * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
      *   assert(buffer.stream().value() == stream.value());
-     *   RAPIDSMPF_CUDA_TRY_ALLOC(rapidsmpf::cuda_memcpy_async(
+     *   RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
      *       buffer_ptr,
      *       src_ptr,
      *       num_bytes,
