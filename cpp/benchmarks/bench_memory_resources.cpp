@@ -13,6 +13,7 @@
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 using rapidsmpf::safe_cast;
@@ -158,7 +159,7 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     for (auto _ : state) {
         void* dst = host_mr->allocate(stream, transfer_size);
         RAPIDSMPF_CUDA_TRY(
-            cudaMemcpyAsync(dst, src.data(), transfer_size, cudaMemcpyDefault, stream)
+            rapidsmpf::cuda_memcpy_async(dst, src.data(), transfer_size, stream)
         );
         stream.synchronize();
 
@@ -191,7 +192,7 @@ void bench_copy(
         stream.synchronize();
         state.ResumeTiming();
 
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(dst, src, size, cudaMemcpyDefault, stream));
+        RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(dst, src, size, stream));
         stream.synchronize();
 
         state.PauseTiming();

@@ -14,6 +14,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 
@@ -163,12 +164,8 @@ void buffer_copy(
     src.latest_write_event().stream_wait(dst.stream());
     StreamOrderedTiming timing{dst.stream(), statistics};
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            dst_data + dst_offset,
-            src.data() + src_offset,
-            size,
-            cudaMemcpyDefault,
-            stream
+        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+            dst_data + dst_offset, src.data() + src_offset, size, stream
         ));
     });
     // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,

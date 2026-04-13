@@ -20,6 +20,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 
 #include "utils.hpp"
 
@@ -27,7 +28,7 @@ using namespace rapidsmpf;
 
 namespace {
 
-// unlike cudaMemcpyAsync, cudaMemsetAsync does not transparently handle host ptrs on all
+// unlike MemcpyAsync, MemsetAsync does not transparently handle host ptrs on all
 // architectures.
 void checked_memset(
     void* ptr, std::size_t size, std::uint8_t value, rmm::cuda_stream_view stream
@@ -103,11 +104,10 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     for (std::size_t i = 0; i < num_chunks; ++i) {
         std::size_t offset = i * chunk_size;
         buffer1->write_access([&](std::byte* dst, rmm::cuda_stream_view stream) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
                 dst + offset,
                 static_cast<std::byte*>(rmm_buffer->data()) + offset,
                 chunk_size,
-                cudaMemcpyDefault,
                 stream
             ));
         });
@@ -125,9 +125,9 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     buffer_copy(br->statistics(), *buffer2, *buffer1, buffer_size);
 
     std::vector<std::uint8_t> result(buffer_size);
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        result.data(), buffer2->data(), buffer_size, cudaMemcpyDefault, stream2
-    ));
+    RAPIDSMPF_CUDA_TRY(
+        cuda_memcpy_async(result.data(), buffer2->data(), buffer_size, stream2)
+    );
     stream2.synchronize();
 
     EXPECT_EQ(result, random_data);
@@ -158,9 +158,9 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     });
 
     std::vector<std::uint8_t> result(test_size);
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        result.data(), buffer1->data(), test_size, cudaMemcpyDefault, stream2
-    ));
+    RAPIDSMPF_CUDA_TRY(
+        cuda_memcpy_async(result.data(), buffer1->data(), test_size, stream2)
+    );
     stream2.synchronize();
 
     for (std::size_t i = 0; i < test_size / 2; ++i) {
@@ -199,9 +199,9 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
     });
 
     std::vector<std::uint8_t> result(test_size);
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        result.data(), buffer->data(), test_size, cudaMemcpyDefault, stream1
-    ));
+    RAPIDSMPF_CUDA_TRY(
+        cuda_memcpy_async(result.data(), buffer->data(), test_size, stream1)
+    );
     stream1.synchronize();
 
     for (std::size_t i = 0; i < test_size / 2; ++i) {
