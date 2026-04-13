@@ -71,26 +71,27 @@ std::uint8_t* Statistics::Stat::serialize(std::uint8_t* out) const {
     return out;
 }
 
-std::pair<Statistics::Stat, std::uint8_t const*> Statistics::Stat::deserialize(
-    std::uint8_t const* in, std::uint8_t const* end
+std::pair<Statistics::Stat, std::span<std::uint8_t const>> Statistics::Stat::deserialize(
+    std::span<std::uint8_t const> data
 ) {
-    // Read a value from `ptr` and return a pointer past the bytes read.
-    auto const read = [end]<typename T>(std::uint8_t const* ptr, T& val) {
-        RAPIDSMPF_EXPECTS(
-            ptr + sizeof(T) <= end,
-            "truncated Stat serialization data",
-            std::invalid_argument
-        );
-        std::memcpy(&val, ptr, sizeof(T));
-        return ptr + sizeof(T);
+    RAPIDSMPF_EXPECTS(
+        data.size() >= serialized_size(),
+        "truncated Stat serialization data",
+        std::invalid_argument
+    );
+
+    // Read a POD value from the front of `buf` and return the remainder.
+    auto const read = []<typename T>(std::span<std::uint8_t const> buf, T& val) {
+        std::memcpy(&val, buf.data(), sizeof(T));
+        return buf.subspan(sizeof(T));
     };
     std::uint64_t count{};
     double value{};
     double max{};
-    in = read(in, count);
-    in = read(in, value);
-    in = read(in, max);
-    return {Stat(count, value, max), in};
+    data = read(data, count);
+    data = read(data, value);
+    data = read(data, max);
+    return {Stat(count, value, max), data};
 }
 
 Statistics::Stat Statistics::Stat::merge(Stat const& other) const {
@@ -491,33 +492,35 @@ std::vector<std::uint8_t> Statistics::serialize() const {
 }
 
 std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const> data) {
-    std::uint8_t const* ptr = data.data();
-    std::uint8_t const* end = ptr + data.size();
-
-    // Read a value from `in` and return a pointer past the bytes read.
-    auto const read = [end]<typename T>(std::uint8_t const* in, T& val) {
+    // Read a POD value from the front of `buf` and return the remainder.
+    auto const read = []<typename T>(std::span<std::uint8_t const> buf, T& val) {
         RAPIDSMPF_EXPECTS(
-            in + sizeof(T) <= end,
+            buf.size() >= sizeof(T),
             "truncated Statistics serialization data",
             std::invalid_argument
         );
-        std::memcpy(&val, in, sizeof(T));
-        return in + sizeof(T);
+        std::memcpy(&val, buf.data(), sizeof(T));
+        return buf.subspan(sizeof(T));
     };
 
     auto ret = std::make_shared<Statistics>();
 
     std::uint64_t num_stats{};
-    ptr = read(ptr, num_stats);
+    data = read(data, num_stats);
 
     for (std::uint64_t i = 0; i < num_stats; ++i) {
         std::uint64_t name_len{};
-        ptr = read(ptr, name_len);
-        std::string name(reinterpret_cast<char const*>(ptr), name_len);
-        ptr += name_len;
+        data = read(data, name_len);
+        RAPIDSMPF_EXPECTS(
+            data.size() >= name_len,
+            "truncated Statistics serialization data",
+            std::invalid_argument
+        );
+        std::string name(reinterpret_cast<char const*>(data.data()), name_len);
+        data = data.subspan(name_len);
 
-        auto [stat, next] = Stat::deserialize(ptr, end);
-        ptr = next;
+        auto [stat, remaining] = Stat::deserialize(data);
+        data = remaining;
         ret->stats_.emplace(std::move(name), std::move(stat));
     }
     return ret;

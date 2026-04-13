@@ -352,14 +352,14 @@ class Statistics {
         /**
          * @brief Deserializes a Stat from a byte buffer.
          *
-         * @param in Pointer to the input buffer.
-         * @param end Pointer past the end of the input buffer.
-         * @return A pair of the deserialized Stat and a pointer past the last byte
-         * read.
+         * @param data The input buffer. Must contain at least `serialized_size()`
+         * bytes.
+         * @return A pair of the deserialized Stat and the remaining unconsumed
+         * bytes.
          * @throws std::invalid_argument If the data is truncated.
          */
-        [[nodiscard]] static std::pair<Stat, std::uint8_t const*> deserialize(
-            std::uint8_t const* in, std::uint8_t const* end
+        [[nodiscard]] static std::pair<Stat, std::span<std::uint8_t const>> deserialize(
+            std::span<std::uint8_t const> data
         );
 
         /**
