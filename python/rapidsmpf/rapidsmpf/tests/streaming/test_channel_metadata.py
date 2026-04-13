@@ -4,10 +4,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 import cudf
-import rmm.pylibrmm.stream
 
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf import (
@@ -18,6 +19,9 @@ from rapidsmpf.streaming.cudf import (
     TableChunk,
 )
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
+
+if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.context import Context
 
 
 def test_hash_scheme() -> None:
@@ -43,6 +47,7 @@ def test_order_scheme() -> None:
     assert o1.column_indices == (0, 1)
     assert o1.orders == ("ascending", "descending")
     assert o1.null_orders == ("first", "last")
+    assert o1.strict_boundary is False
     assert not o1.has_boundaries
     assert o1.get_boundaries_table() is None
     assert "OrderScheme" in repr(o1)
@@ -72,8 +77,24 @@ def test_order_scheme() -> None:
     )
     assert o1 != o4
 
+    o_strict = OrderScheme(
+        (0, 1),
+        ("ascending", "descending"),
+        ("first", "last"),
+        strict_boundary=True,
+    )
+    assert o_strict.strict_boundary is True
+    assert o1 != o_strict
+    o_strict_2 = OrderScheme(
+        (0, 1),
+        ("ascending", "descending"),
+        ("first", "last"),
+        strict_boundary=True,
+    )
+    assert o_strict == o_strict_2
 
-def test_order_scheme_with_boundaries() -> None:
+
+def test_order_scheme_with_boundaries(context: Context) -> None:
     """Test OrderScheme with boundaries TableChunk (multi-column)."""
     # Create boundaries table with 2 columns (for composite sort key)
     # 2 boundary rows for 3 partitions
@@ -83,9 +104,12 @@ def test_order_scheme_with_boundaries() -> None:
             "key2": ["abc", "xyz"],
         }
     )
-    stream = rmm.pylibrmm.stream.DEFAULT_STREAM
+    stream = context.get_stream_from_pool()
     boundaries = TableChunk.from_pylibcudf_table(
-        cudf_to_pylibcudf_table(df), stream, exclusive_view=False
+        cudf_to_pylibcudf_table(df),
+        stream,
+        exclusive_view=False,
+        br=context.br(),
     )
 
     o1 = OrderScheme(
@@ -231,13 +255,16 @@ def test_message_roundtrip() -> None:
     assert msg_m.empty()
 
 
-def test_message_roundtrip_with_order_scheme() -> None:
+def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     """Test ChannelMetadata with OrderScheme can round-trip through Message."""
     # Create boundaries TableChunk
     df = cudf.DataFrame({"key1": [100, 200], "key2": ["abc", "xyz"]})
-    stream = rmm.pylibrmm.stream.DEFAULT_STREAM
+    stream = context.get_stream_from_pool()
     boundaries = TableChunk.from_pylibcudf_table(
-        cudf_to_pylibcudf_table(df), stream, exclusive_view=False
+        cudf_to_pylibcudf_table(df),
+        stream,
+        exclusive_view=False,
+        br=context.br(),
     )
 
     order_scheme = OrderScheme(
@@ -245,6 +272,7 @@ def test_message_roundtrip_with_order_scheme() -> None:
         orders=("ascending", "descending"),
         null_orders=("first", "last"),
         boundaries=boundaries,
+        strict_boundary=True,
     )
     assert order_scheme.has_boundaries
 
@@ -263,6 +291,7 @@ def test_message_roundtrip_with_order_scheme() -> None:
     assert got_m.partitioning.inter_rank.orders == ("ascending", "descending")
     assert got_m.partitioning.inter_rank.null_orders == ("first", "last")
     assert got_m.partitioning.local == "inherit"
+    assert got_m.partitioning.inter_rank.strict_boundary is True
     # Boundaries should round-trip through the message
     assert got_m.partitioning.inter_rank.has_boundaries
     tbl = got_m.partitioning.inter_rank.get_boundaries_table()

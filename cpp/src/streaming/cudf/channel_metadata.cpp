@@ -12,7 +12,7 @@ namespace rapidsmpf::streaming {
 bool OrderScheme::operator==(OrderScheme const& other) const {
     // Compare basic fields
     if (column_indices != other.column_indices || orders != other.orders
-        || null_orders != other.null_orders)
+        || null_orders != other.null_orders || strict_boundary != other.strict_boundary)
     {
         return false;
     }

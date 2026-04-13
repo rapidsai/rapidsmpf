@@ -143,6 +143,12 @@ cdef class OrderScheme:
 
     Data is partitioned by value ranges based on predetermined boundaries.
     For N partitions, there are N-1 boundary rows.
+
+    Parameters
+    ----------
+    strict_boundary
+        If True, sort keys do not span partition interiors so merge-style
+        algorithms may skip halo exchange. Default False.
     """
 
     def __init__(
@@ -151,6 +157,8 @@ cdef class OrderScheme:
         tuple orders,
         tuple null_orders,
         TableChunk boundaries = None,
+        *,
+        bint strict_boundary = False,
     ):
         cdef vector[int32_t] cols
         cdef vector[cpp_order] ords
@@ -176,6 +184,8 @@ cdef class OrderScheme:
             # Move the TableChunk's handle into a shared_ptr (consumes the TableChunk)
             self._scheme.boundaries = unique_to_shared(boundaries.release_handle())
 
+        self._scheme.strict_boundary = strict_boundary
+
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
@@ -198,6 +208,11 @@ cdef class OrderScheme:
     def has_boundaries(self) -> bool:
         """Check if boundaries are set."""
         return has_chunk(self._scheme.boundaries)
+
+    @property
+    def strict_boundary(self) -> bool:
+        """True if sort keys do not span partition interiors (strict ranges)."""
+        return self._scheme.strict_boundary
 
     def get_boundaries_table(self):
         """Get the boundaries as a pylibcudf.Table, or None if not set.
@@ -224,7 +239,8 @@ cdef class OrderScheme:
     def __repr__(self):
         return (
             f"OrderScheme({self.column_indices!r}, {self.orders!r}, "
-            f"{self.null_orders!r}, has_boundaries={self.has_boundaries})"
+            f"{self.null_orders!r}, has_boundaries={self.has_boundaries}, "
+            f"strict_boundary={self.strict_boundary})"
         )
 
 

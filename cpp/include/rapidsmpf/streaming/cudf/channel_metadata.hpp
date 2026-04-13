@@ -50,13 +50,14 @@ struct OrderScheme {
     std::vector<cudf::null_order>
         null_orders;  ///< Null ordering per column (BEFORE/AFTER).
     std::shared_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
+    bool strict_boundary{false};  ///< Sort keys disjoint across chunks.
 
     /**
      * @brief Equality comparison.
      *
      * @note Two OrderSchemes are equal if they have the same column indices,
-     * orders, null_orders, and boundary values. Boundary comparison requires
-     * table content comparison.
+     * orders, null_orders, strict_boundary flag, and boundary values. Boundary
+     * comparison currently uses table shape only (full content comparison TBD).
      *
      * @param other The OrderScheme to compare against.
      * @return True if both schemes are equal.

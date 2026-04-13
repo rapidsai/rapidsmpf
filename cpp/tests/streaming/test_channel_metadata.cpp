@@ -40,6 +40,12 @@ TEST_F(StreamingChannelMetadata, OrderScheme) {
     EXPECT_EQ(o.null_orders[0], cudf::null_order::BEFORE);
     EXPECT_EQ(o.null_orders[1], cudf::null_order::AFTER);
     EXPECT_EQ(o.boundaries, nullptr);
+    EXPECT_FALSE(o.strict_boundary);
+
+    OrderScheme o_strict = o;
+    o_strict.strict_boundary = true;
+    EXPECT_NE(o, o_strict);
+    EXPECT_TRUE(o_strict.strict_boundary);
 
     // Equality (without boundaries)
     OrderScheme o_same{
@@ -254,5 +260,24 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderScheme) {
         released.partitioning.inter_rank.order->null_orders[1], cudf::null_order::AFTER
     );
     EXPECT_EQ(released.partitioning.local.type, PartitioningSpec::Type::INHERIT);
+    EXPECT_FALSE(released.partitioning.inter_rank.order->strict_boundary);
     EXPECT_TRUE(msg_m.empty());
+}
+
+TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderSchemeStrictBoundary) {
+    OrderScheme os{
+        {0, 1},
+        {cudf::order::ASCENDING, cudf::order::DESCENDING},
+        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        nullptr
+    };
+    os.strict_boundary = true;
+
+    Partitioning part{
+        PartitioningSpec::from_order(std::move(os)), PartitioningSpec::inherit()
+    };
+    auto m = std::make_unique<ChannelMetadata>(8, std::move(part), false);
+    auto msg_m = to_message(43, std::move(m));
+    auto released = msg_m.release<ChannelMetadata>();
+    EXPECT_TRUE(released.partitioning.inter_rank.order->strict_boundary);
 }

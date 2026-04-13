@@ -28,6 +28,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         vector[cpp_order] orders
         vector[cpp_null_order] null_orders
         shared_ptr[cpp_TableChunk] boundaries
+        bool_t strict_boundary
         cpp_OrderScheme() except +
         bool_t operator==(const cpp_OrderScheme&)
 
