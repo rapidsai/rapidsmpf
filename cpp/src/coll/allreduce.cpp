@@ -305,11 +305,11 @@ ProgressThread::ProgressState AllReduce::event_loop() {
         {
             std::lock_guard lock(mutex_);
             phase_.store(Phase::ResultAvailable, std::memory_order_release);
-            if (finished_callback_) {
-                finished_callback_();
-            }
         }
-        cv_.notify_all();
+        cv_.notify_one();
+        if (auto callback = std::move(finished_callback_)) {
+            callback();
+        }
         return ProgressThread::ProgressState::Done;
     }
 

@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 #include <rapidsmpf/bootstrap/types.hpp>
 
@@ -20,7 +21,7 @@ enum class BackendType {
      * @brief Automatically detect the best backend based on environment.
      *
      * Detection order:
-     * 1. File-based (if RAPIDSMPF_COORD_DIR set by rrun)
+     * 1. File-based (if RRUN_COORD_DIR set by rrun)
      * 2. Slurm/PMIx (if SLURM environment detected)
      * 3. File-based (default fallback)
      */
@@ -30,8 +31,8 @@ enum class BackendType {
      * @brief File-based coordination using a shared directory.
      *
      * Uses filesystem for rank coordination and address exchange.  Works on single-node
-     * and multi-node with shared storage (e.g., NFS) via SSH. Requires RAPIDSMPF_RANK,
-     * RAPIDSMPF_NRANKS, RAPIDSMPF_COORD_DIR environment variables.
+     * and multi-node with shared storage (e.g., NFS) via SSH. Requires RRUN_RANK,
+     * RRUN_NRANKS, RRUN_COORD_DIR environment variables.
      */
     FILE,
 
@@ -78,7 +79,7 @@ class Backend {
      *
      * @throws std::runtime_error if called by non-zero rank.
      */
-    virtual void put(std::string const& key, std::string const& value) = 0;
+    virtual void put(std::string const& key, std::string_view value) = 0;
 
     /**
      * @brief Retrieve a value, blocking until available or timeout occurs.

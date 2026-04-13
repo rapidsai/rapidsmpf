@@ -9,6 +9,7 @@ import pytest
 
 import cudf
 
+from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -47,6 +48,7 @@ def test_send_table_chunks(
                         table=chunk,
                         stream=stream,
                         exclusive_view=False,
+                        br=context.br(),
                     ),
                 ),
             )
@@ -65,7 +67,7 @@ def test_send_table_chunks(
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         assert result.sequence_number == seq
-        tbl = TableChunk.from_message(result)
+        tbl = TableChunk.from_message(result, br=context.br())
         assert_eq(tbl.table_view(), expect)
 
 
@@ -98,9 +100,11 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
-    with pytest.raises(
-        RuntimeError,
-        match="MyError",
+    with pytest.RaisesGroup(
+        pytest.RaisesExc(
+            RuntimeError,
+            match="MyError",
+        )
     ):
         run_actor_network(
             actors=[
@@ -122,7 +126,10 @@ def test_recv_table_chunks(
     ]
     table_chunks = [
         Message(
-            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=False)
+            seq,
+            TableChunk.from_pylibcudf_table(
+                expect, stream, exclusive_view=False, br=context.br()
+            ),
         )
         for seq, expect in enumerate(expects)
     ]
@@ -149,5 +156,19 @@ def test_recv_table_chunks(
 
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         assert result.sequence_number == seq
-        tbl = TableChunk.from_message(result)
+        tbl = TableChunk.from_message(result, br=context.br())
         assert_eq(tbl.table_view(), expect)
+
+
+@pytest.mark.filterwarnings("error")
+def test_unawaited_actor_closed_coroutines_no_warning(context: Context) -> None:
+    ch: Channel[ArbitraryChunk[int]] = context.create_channel()
+
+    @define_actor()
+    async def my_actor(ctx: Context, ch_out: Channel[ArbitraryChunk[int]]) -> None:
+        await ch_out.send(ctx, Message(0, ArbitraryChunk(42)))
+        await ch_out.drain(ctx)
+
+    # Never awaited, just verifying no RuntimeWarning is emitted
+    actor = my_actor(context, ch_out=ch)
+    del actor

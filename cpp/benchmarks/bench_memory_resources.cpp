@@ -317,7 +317,7 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
 }
 
 // Custom argument generator for the benchmark
-void CustomArguments(benchmark::internal::Benchmark* b) {
+void CustomArguments(benchmark::Benchmark* b) {
     // Test different allocation sizes
     for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
         // Test all memory resource types
@@ -401,7 +401,7 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
         static_cast<double>(primed ? allocation_size : 0);
 }
 
-void PinnedFirstAlloc_InitialPoolSize_Args(benchmark::internal::Benchmark* b) {
+void PinnedFirstAlloc_InitialPoolSize_Args(benchmark::Benchmark* b) {
     for (auto size : {1, 256, 1024}) {  // in MB
         b->Args({size, 1});  // primed
         b->Args({size, 0});  // no priming

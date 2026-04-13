@@ -255,13 +255,16 @@ static __device__ void calculate_amount(double *amount, double discount, double 
 }
            )***";
         result.push_back(
-            cudf::transform(
-                {discount, extendedprice, supplycost, quantity},
+            cudf::transform_extended(
+                std::vector<cudf::transform_input>{
+                    discount, extendedprice, supplycost, quantity
+                },
                 udf,
                 cudf::data_type(cudf::type_id::FLOAT64),
-                false,
+                cudf::udf_source_type::CUDA,
                 std::nullopt,
                 cudf::null_aware::NO,
+                std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()
@@ -301,6 +304,9 @@ rapidsmpf::streaming::Actor round_sum_profit(
     auto chunk =
         co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto table = chunk.table_view();
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    // cudf::round_decimal does not support float types
     auto rounded = cudf::round(
         table.column(2),
         2,
@@ -308,6 +314,7 @@ rapidsmpf::streaming::Actor round_sum_profit(
         chunk.stream(),
         ctx->br()->device_mr()
     );
+#pragma GCC diagnostic pop
     auto result = rapidsmpf::streaming::to_message(
         0,
         std::make_unique<rapidsmpf::streaming::TableChunk>(

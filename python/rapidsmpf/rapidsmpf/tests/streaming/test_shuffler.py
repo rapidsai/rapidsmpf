@@ -30,6 +30,7 @@ from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
     from rmm.pylibrmm.stream import Stream
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
         PartitionMapChunk,
         PartitionVectorChunk,
     )
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -73,6 +74,7 @@ def test_single_rank_shuffler(
             table=cudf_to_pylibcudf_table(df_chunk),
             stream=stream,
             exclusive_view=False,
+            br=context.br(),
         )
         input_chunks.append(Message(i, chunk))
 
@@ -114,7 +116,9 @@ def test_single_rank_shuffler(
 
     run_actor_network(actors=actors)
 
-    output_chunks = [TableChunk.from_message(msg) for msg in out_messages.release()]
+    output_chunks = [
+        TableChunk.from_message(msg, br=context.br()) for msg in out_messages.release()
+    ]
 
     result = cudf.concat(
         [
@@ -140,7 +144,10 @@ async def generate_inputs(
             ]
         )
         msg = Message(
-            i, TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+            i,
+            TableChunk.from_pylibcudf_table(
+                table, stream, exclusive_view=True, br=context.br()
+            ),
         )
         await ch.send(context, msg)
     await ch.drain(context)
@@ -155,14 +162,13 @@ async def do_shuffle(
     op_id: int,
     num_partitions: int,
     *,
-    use_extract_any: bool,
     partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
 ) -> None:
     shuffle = ShufflerAsync(
         context, comm, op_id, num_partitions, partition_assignment=partition_assignment
     )
     while (msg := await ch_in.recv(context)) is not None:
-        chunk = TableChunk.from_message(msg)
+        chunk = TableChunk.from_message(msg, br=context.br())
         num_rows = chunk.table_view().num_rows()
         part_size = num_rows // num_partitions + (num_rows % num_partitions)
         splits = range(part_size, num_rows, part_size)
@@ -170,40 +176,27 @@ async def do_shuffle(
             split_and_pack(chunk.table_view(), splits, chunk.stream, context.br())
         )
     await shuffle.insert_finished(context)
-    if use_extract_any:
-        while (out := await shuffle.extract_any_async(context)) is not None:
-            pid, data = out
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(data, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
-    else:
-        for pid in shuffle.local_partitions():
-            pd = await shuffle.extract_async(context, pid)
-            assert pd is not None
-            stream = context.get_stream_from_pool()
-            unpacked = TableChunk.from_pylibcudf_table(
-                unpack_and_concat(pd, stream, context.br()),
-                stream,
-                exclusive_view=True,
-            )
-            await ch_out.send(context, Message(pid, unpacked))
+    for pid in shuffle.local_partitions():
+        data = shuffle.extract(pid)
+        stream = context.get_stream_from_pool()
+        unpacked = TableChunk.from_pylibcudf_table(
+            unpack_and_concat(data, stream, context.br()),
+            stream,
+            exclusive_view=True,
+            br=context.br(),
+        )
+        await ch_out.send(context, Message(pid, unpacked))
     await ch_out.drain(context)
 
 
 @pytest.mark.parametrize("num_partitions", [4, 8])
-@pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_runtime_obeys_contiguous_assignment(
     context: Context,
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
     num_partitions: int,
-    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
 
     num_rows = 200
     num_chunks = 3
@@ -219,7 +212,6 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=use_extract_any,
             partition_assignment=PartitionAssignment.CONTIGUOUS,
         )
     )
@@ -242,14 +234,12 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     assert len(received_pids) == len(expected_local)
 
 
-@pytest.mark.parametrize("use_extract_any", [False, True])
 def test_shuffler_object_interface(
     context: Context,
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
-    use_extract_any: bool,  # noqa: FBT001
 ) -> None:
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
 
     num_partitions = 5
     num_rows = 100
@@ -266,7 +256,6 @@ def test_shuffler_object_interface(
             ch_shuffled,
             op_id,
             num_partitions,
-            use_extract_any=use_extract_any,
         )
     )
     actor, deferred = pull_from_channel(context, ch_shuffled)
@@ -276,11 +265,11 @@ def test_shuffler_object_interface(
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5
-    if use_extract_any:
-        assert {msg.sequence_number for msg in messages} == set(range(num_partitions))
-    else:
-        assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
-    chunks = [(msg.sequence_number, TableChunk.from_message(msg)) for msg in messages]
+    assert [msg.sequence_number for msg in messages] == list(range(num_partitions))
+    chunks = [
+        (msg.sequence_number, TableChunk.from_message(msg, br=context.br()))
+        for msg in messages
+    ]
 
     full_column = np.arange(num_rows * num_chunks, dtype=np.int32)
     part_size = num_rows // num_partitions + (num_rows % num_partitions)

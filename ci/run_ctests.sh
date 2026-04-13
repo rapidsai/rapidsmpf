@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -34,16 +34,23 @@ EXTRA_ARGS=("$@")
 timeout_secs=$((10*60)) # 10m
 
 # Run tests using mpirun with multiple nranks. Test cases and nranks are defined in the cpp/tests/CMakeLists.txt
+# Each nrank count gets its own timeout budget to prevent slow high-rank tests from being starved
+# by the cumulative runtime of earlier tests.
+nranks_to_run=(1 2 3 4 5 8)
 
 # mpi_tests cases
-python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
-   ctest --verbose --no-tests=error --output-on-failure -R "mpi_tests_*" "${EXTRA_ARGS[@]}"
+for nranks in "${nranks_to_run[@]}"; do
+    python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
+        ctest --verbose --no-tests=error --output-on-failure -R "^mpi_tests_${nranks}$" "${EXTRA_ARGS[@]}"
+done
 
 # ucxx_tests cases, includes both default (thread-blocking) and polling progress modes
-python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
-    ctest --verbose --no-tests=error --output-on-failure -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
-RAPIDSMPF_UCXX_PROGRESS_MODE=polling python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
-    ctest --verbose --no-tests=error --output-on-failure -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
+for nranks in "${nranks_to_run[@]}"; do
+    python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
+        ctest --verbose --no-tests=error --output-on-failure -R "^ucxx_tests_${nranks}$" "${EXTRA_ARGS[@]}"
+    RAPIDSMPF_UCXX_PROGRESS_MODE=polling python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
+        ctest --verbose --no-tests=error --output-on-failure -R "^ucxx_tests_${nranks}$" "${EXTRA_ARGS[@]}"
+done
 
 # single_tests case
 python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \

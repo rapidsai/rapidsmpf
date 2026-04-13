@@ -44,23 +44,38 @@ using StorageType = BloomFilterRefType::filter_block_type;
 BloomFilter::BloomFilter(
     std::size_t num_blocks,
     std::uint64_t seed,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    void* storage,
+    rmm::cuda_stream_view stream
 )
-    : num_blocks_{num_blocks},
-      seed_{seed},
-      storage_{num_blocks * sizeof(StorageType), stream, mr} {
+    : num_blocks_{num_blocks}, seed_{seed}, storage_{storage}, stream_{stream} {
     // TODO: use an aligned allocator adaptor to ensure this holds.
     // Today all RMM device allocators guarantee at least 256 byte alignment, but that is
     // an implementation detail.
     RAPIDSMPF_EXPECTS(
-        reinterpret_cast<std::uintptr_t>(storage_.data())
-                % std::alignment_of_v<StorageType>
+        reinterpret_cast<std::uintptr_t>(storage_) % std::alignment_of_v<StorageType>
             == 0,
         "Allocation for bloom filter is not aligned."
     );
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemsetAsync(storage_.data(), 0, storage_.size(), storage_.stream())
+}
+
+BloomFilter const BloomFilter::view(
+    std::size_t num_blocks,
+    std::uint64_t seed,
+    void const* storage,
+    rmm::cuda_stream_view stream
+) {
+    // const-cast is safe because the returned object is also const and therefore can't
+    // call methods that throw away constness.
+    return BloomFilter(num_blocks, seed, const_cast<void*>(storage), stream);
+}
+
+std::unique_ptr<rmm::device_buffer> BloomFilter::storage(
+    std::size_t num_blocks,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    return std::make_unique<rmm::device_buffer>(
+        num_blocks * sizeof(StorageType), stream, mr
     );
 }
 
@@ -71,10 +86,7 @@ void BloomFilter::add(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data()),
-        num_blocks_,
-        cuco::thread_scope_device,
-        {}
+        static_cast<StorageType*>(storage_), num_blocks_, cuco::thread_scope_device, {}
     };
     auto hashes = cudf::hashing::xxhash_64(values_to_hash, seed_, stream, mr);
     auto hash_view = hashes->view();
@@ -85,19 +97,16 @@ void BloomFilter::add(
     filter_ref.add_async(hash_view.begin<KeyType>(), hash_view.end<KeyType>(), stream);
 }
 
-void BloomFilter::merge(BloomFilter& other, rmm::cuda_stream_view stream) {
+void BloomFilter::merge(BloomFilter const& other, rmm::cuda_stream_view stream) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_EXPECTS(
         num_blocks_ == other.num_blocks_, "Mismatching number of blocks in filters"
     );
     auto ref_this = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data()),
-        num_blocks_,
-        cuco::thread_scope_device,
-        {}
+        static_cast<StorageType*>(storage_), num_blocks_, cuco::thread_scope_device, {}
     };
     auto ref_other = BloomFilterRefType{
-        static_cast<StorageType*>(other.storage_.data()),
+        static_cast<StorageType*>(other.storage_),
         num_blocks_,
         cuco::thread_scope_device,
         {}
@@ -109,13 +118,10 @@ rmm::device_uvector<bool> BloomFilter::contains(
     cudf::table_view const& values,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
-) {
+) const {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto filter_ref = BloomFilterRefType{
-        static_cast<StorageType*>(storage_.data()),
-        num_blocks_,
-        cuco::thread_scope_device,
-        {}
+        static_cast<StorageType*>(storage_), num_blocks_, cuco::thread_scope_device, {}
     };
     auto hashes = cudf::hashing::xxhash_64(values, seed_, stream, mr);
     auto view = hashes->view();
@@ -131,15 +137,19 @@ std::size_t BloomFilter::fitting_num_blocks(std::size_t l2size) noexcept {
 }
 
 rmm::cuda_stream_view BloomFilter::stream() const noexcept {
-    return storage_.stream();
+    return stream_;
 }
 
 void* BloomFilter::data() noexcept {
-    return storage_.data();
+    return storage_;
+}
+
+void const* BloomFilter::data() const noexcept {
+    return storage_;
 }
 
 std::size_t BloomFilter::size() const noexcept {
-    return storage_.size();
+    return num_blocks_ * sizeof(StorageType);
 }
 
 }  // namespace rapidsmpf

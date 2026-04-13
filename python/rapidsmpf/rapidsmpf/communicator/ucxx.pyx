@@ -169,7 +169,7 @@ def get_root_ucxx_address(Communicator comm not None):
 
     if address := get_if[shared_ptr[Address]](&listener_address.address):
         # Dereference twice: first the `get_if` result, then `shared_ptr`
-        return bytes(deref(deref(address)).getString())
+        return bytes(deref(deref(address)).getStringView())
     elif host_port_pair := get_if[HostPortPair](&listener_address.address):
         raise NotImplementedError("Accepting HostPortPair is not implemented yet")
         assert host_port_pair  # Prevent "defined but unused" error

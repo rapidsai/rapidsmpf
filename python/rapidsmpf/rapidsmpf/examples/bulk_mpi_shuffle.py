@@ -218,12 +218,11 @@ def bulk_mpi_shuffle(
             shuffler.insert_chunks(packed_inputs)
 
         # Tell the shuffler we are done adding local data
-        for pid in range(total_num_partitions):
-            shuffler.insert_finished(pid)
+        shuffler.insert_finished()
 
-        # Write shuffled partitions to disk as they finish
-        while not shuffler.finished():
-            partition_id = shuffler.wait_any()
+        # Write shuffled partitions to disk
+        shuffler.wait()
+        for partition_id in shuffler.local_partitions():
             table = unpack_and_concat(
                 unspill_partitions(
                     shuffler.extract(partition_id),

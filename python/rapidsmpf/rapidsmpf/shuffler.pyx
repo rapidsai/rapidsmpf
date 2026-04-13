@@ -144,33 +144,15 @@ cdef class Shuffler:
         with nogil:
             deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, pids):
+    def insert_finished(self):
         """
-        Mark partitions as finished.
+        Signal that no more data will be inserted into the shuffle.
 
-        This informs the shuffler that no more chunks for the specified partitions
-        will be inserted.
-
-        Parameters
-        ----------
-        pids
-            Partition IDs to mark as finished (int or an iterable of ints).
-
-        Notes
-        -----
-        Once a partition is marked as finished, it is considered complete and no
-        further chunks will be accepted for that partition.
+        This informs the shuffler that this rank has finished inserting
+        data. Must be called exactly once.
         """
-        cdef vector[uint32_t] _pids
-
-        if isinstance(pids, int):
-            _pids.push_back(pids)
-        else:
-            for pid in pids:
-                _pids.push_back(pid)
-
         with nogil:
-            deref(self._handle).insert_finished(move(_pids))
+            deref(self._handle).insert_finished()
 
     def extract(self, uint32_t pid):
         """
@@ -188,7 +170,7 @@ cdef class Shuffler:
         cdef vector[cpp_PackedData] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
-        return packed_data_vector_to_list(move(_ret))
+        return packed_data_vector_to_list(move(_ret), self._br)
 
     def finished(self):
         """
@@ -207,36 +189,15 @@ cdef class Shuffler:
             ret = deref(self._handle).finished()
         return ret
 
-    def wait_any(self):
+    def wait(self):
         """
-        Wait for any partition to finish.
+        Wait for all partitions to finish (blocking).
 
-        This method blocks until at least one partition is marked as finished.
-        It is useful for processing partitions as they are completed.
-
-        Returns
-        -------
-        The partition ID of the next finished partition.
-        """
-        cdef uint32_t ret
-        with nogil:
-            ret = deref(self._handle).wait_any()
-        return ret
-
-    def wait_on(self, uint32_t pid):
-        """
-        Wait for a specific partition to finish.
-
-        This method blocks until the desired partition
-        is ready for processing.
-
-        Parameters
-        ----------
-        pid
-            The desired partition ID.
+        This method blocks until all partitions are finished and ready
+        to be extracted.
         """
         with nogil:
-            deref(self._handle).wait_on(pid)
+            deref(self._handle).wait()
 
     def local_partitions(self):
         """

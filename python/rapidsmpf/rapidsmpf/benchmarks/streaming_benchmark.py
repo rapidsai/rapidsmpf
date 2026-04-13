@@ -74,8 +74,8 @@ def consume_finished_partitions(
         The shuffler to use.
     """
     finished = set()
-    while not shuffler.finished():
-        partition_id = shuffler.wait_any()
+    shuffler.wait()
+    for partition_id in shuffler.local_partitions():
         assert partition_id % comm.nranks == comm.rank
 
         # discard the extracted partition splits
@@ -169,8 +169,7 @@ def streaming_shuffle(
 
         shuffler.insert_chunks(chunks)
     # finish inserting all partitions
-    for i in range(output_nparts):
-        shuffler.insert_finished(i)
+    shuffler.insert_finished()
 
     # wait for the consumer thread to finish.
     consumer_thread.join(timeout=wait_timeout)

@@ -260,13 +260,14 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
 
         // revenue
         result.push_back(
-            cudf::transform(
-                {extendedprice, discount},
+            cudf::transform_extended(
+                std::vector<cudf::transform_input>{extendedprice, discount},
                 udf,
                 cudf::data_type(cudf::type_id::FLOAT64),
-                false,
+                cudf::udf_source_type::CUDA,
                 std::nullopt,
                 cudf::null_aware::NO,
+                std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
                 ctx->br()->device_mr()

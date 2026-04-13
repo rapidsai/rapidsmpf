@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
 import pylibcudf as plc
 
@@ -63,9 +63,9 @@ class ChannelMetadata:
         partitioning: Partitioning | None = None,
         duplicated: bool = False,
     ) -> None: ...
-    @staticmethod
-    def from_message(message: Message) -> ChannelMetadata: ...
-    def into_message(self, sequence_number: int, message: Message) -> None: ...
+    @classmethod
+    def from_message(cls: type[Self], message: Message[Self]) -> ChannelMetadata: ...
+    def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...
     @property
     def local_count(self) -> int: ...
     @property

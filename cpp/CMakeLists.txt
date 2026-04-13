@@ -182,6 +182,7 @@ add_library(
   rapidsmpf
   src/coll/allgather.cpp
   src/coll/allreduce.cpp
+  src/coll/utils.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
   src/bootstrap/utils.cpp
@@ -206,6 +207,7 @@ add_library(
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
+  src/rrun/rrun.cpp
   src/shuffler/chunk.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
@@ -222,6 +224,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
     rapidsmpf
     PRIVATE src/streaming/chunks/partition.cpp
             src/streaming/coll/allgather.cpp
+            src/streaming/coll/allreduce.cpp
             src/streaming/coll/shuffler.cpp
             src/streaming/core/actor.cpp
             src/streaming/core/channel.cpp
@@ -436,6 +439,7 @@ install(
   EXPORT rapidsmpf-exports
 )
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
+install(DIRECTORY include/rrun/ DESTINATION include/rrun)
 
 set(doc_string
     [=[

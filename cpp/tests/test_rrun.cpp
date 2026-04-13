@@ -33,16 +33,33 @@ class TopologyBindingTest : public ::testing::Test {
   protected:
     void SetUp() override {
         if (!rapidsmpf::bootstrap::is_running_with_rrun()) {
-            GTEST_SKIP() << "Test must be run with rrun (RAPIDSMPF_RANK not set)";
-        }
-
-        if (!discovery_.discover()) {
-            GTEST_SKIP() << "Failed to discover topology";
+            GTEST_SKIP() << "Test must be run with rrun (RRUN_RANK not set)";
         }
 
         gpu_id_ = rapidsmpf::bootstrap::get_gpu_id();
         if (gpu_id_ < 0) {
             GTEST_SKIP() << "Could not determine GPU ID from CUDA_VISIBLE_DEVICES.";
+        }
+
+        // Temporarily clear CUDA_VISIBLE_DEVICES so topology discovery sees
+        // all physical GPUs, not just the one rrun narrowed the variable to.
+        char const* cvd = std::getenv("CUDA_VISIBLE_DEVICES");
+        std::string saved_cvd;
+        bool had_cvd = false;
+        if (cvd != nullptr) {
+            had_cvd = true;
+            saved_cvd = cvd;
+            unsetenv("CUDA_VISIBLE_DEVICES");
+        }
+
+        bool ok = discovery_.discover();
+
+        if (had_cvd) {
+            setenv("CUDA_VISIBLE_DEVICES", saved_cvd.c_str(), 1);
+        }
+
+        if (!ok) {
+            GTEST_SKIP() << "Failed to discover topology";
         }
 
         auto const& topology = discovery_.get_topology();

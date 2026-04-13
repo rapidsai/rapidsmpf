@@ -177,6 +177,9 @@ class BufferResource {
      * @return A pair containing the reservation and the amount of overbooking. On success
      * the size of the reservation always equals `size` and on failure the size always
      * equals zero (a zero-sized reservation never fails).
+     *
+     * @throws std::invalid_argument if the memory type is `MemoryType::PINNED_HOST` and
+     * the pinned memory resource is not available.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
@@ -441,7 +444,7 @@ class LimitAvailableMemory {
      * @return The remaining memory in bytes.
      */
     std::int64_t operator()() const {
-        return limit - static_cast<std::int64_t>(mr_->current_allocated());
+        return limit - mr_->current_allocated();
     }
 
   public:

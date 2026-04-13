@@ -67,8 +67,7 @@ def _worker_rmpf_barrier(
     """
     for shuffle_id in shuffle_ids:
         shuffler = get_shuffler(get_worker_context(), shuffle_id)
-        for pid in range(partition_count):
-            shuffler.insert_finished(pid)
+        shuffler.insert_finished()
 
 
 def _stage_shuffler(
@@ -310,8 +309,9 @@ def rapidsmpf_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    :class:`rapidsmpf.shuffler.Shuffler` object on the worker (using `rapidsmpf.shuffler.Shuffler.wait_on`
-    and `rapidsmpf.integrations.cudf.partition.unpack_and_concat`).
+    :class:`rapidsmpf.shuffler.Shuffler` object on the worker (using
+    `rapidsmpf.shuffler.Shuffler.wait` and
+    `rapidsmpf.integrations.cudf.partition.unpack_and_concat`).
 
     The extraction phase will include a single task for each of
     the ``partition_count_out`` partitions in the shuffled output

@@ -9,6 +9,7 @@ from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.shuffler cimport cpp_PartitionOwner
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
@@ -39,8 +40,10 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +ex_handler
         span[const uint32_t] local_partitions() except +ex_handler
+        vector[cpp_PackedData] extract(uint32_t pid) except +ex_handler
 
 
 cdef class ShufflerAsync:
     cdef unique_ptr[cpp_ShufflerAsync] _handle
     cdef Communicator _comm
+    cdef BufferResource _br

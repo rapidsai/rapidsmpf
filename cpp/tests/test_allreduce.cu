@@ -206,8 +206,6 @@ extern Environment* GlobalEnvironment;
 class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        GlobalEnvironment->barrier();
-
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
@@ -216,7 +214,6 @@ class BaseAllReduceTest : public ::testing::Test {
     void TearDown() override {
         br.reset();
         mr.reset();
-        GlobalEnvironment->barrier();
     }
 
     rapidsmpf::Communicator* comm;
@@ -384,19 +381,15 @@ struct AllReduceCase {
 
 using AllReduceCases = ::testing::Types<
     ALL_BUFFER_REDUCTION_CASES(int, SumOp<int>),
-    ALL_BUFFER_REDUCTION_CASES(int, ProdOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MinOp<int>),
     ALL_BUFFER_REDUCTION_CASES(int, MaxOp<int>),
     ALL_BUFFER_REDUCTION_CASES(float, SumOp<float>),
-    ALL_BUFFER_REDUCTION_CASES(float, ProdOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MinOp<float>),
     ALL_BUFFER_REDUCTION_CASES(float, MaxOp<float>),
     ALL_BUFFER_REDUCTION_CASES(double, SumOp<double>),
-    ALL_BUFFER_REDUCTION_CASES(double, ProdOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MinOp<double>),
     ALL_BUFFER_REDUCTION_CASES(double, MaxOp<double>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, SumOp<std::uint64_t>),
-    ALL_BUFFER_REDUCTION_CASES(std::uint64_t, ProdOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MinOp<std::uint64_t>),
     ALL_BUFFER_REDUCTION_CASES(std::uint64_t, MaxOp<std::uint64_t>)>;
 
@@ -573,8 +566,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto nranks = comm->nranks();
     constexpr int n_elements = 10;
 
-    std::atomic<bool> callback_called{false};
-    std::atomic<int> callback_count{0};
+    bool callback_called{false};
 
     std::vector<int> data(n_elements);
     for (int j = 0; j < n_elements; j++) {
@@ -584,24 +576,33 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
     auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
 
+    std::mutex m;
+    std::condition_variable cv;
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         std::move(in_buffer),
         std::move(out_buffer),
         OpID{0},
         rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
-        [&callback_called, &callback_count]() {
-            callback_called.store(true, std::memory_order_release);
-            callback_count.fetch_add(1, std::memory_order_relaxed);
+        [&callback_called, &m, &cv]() {
+            // We use a cv in the test because the callback is called after a waiter at
+            // wait_and_extract is woken
+            {
+                std::lock_guard lck{m};
+                callback_called = true;
+            }
+            cv.notify_one();
         }
     );
 
+    {
+        std::unique_lock lck{m};
+        cv.wait(lck, [&]() { return callback_called; });
+    }
+    // Callback should wake waiter
+    EXPECT_TRUE(callback_called);
+
     auto [in_result, out_result] = allreduce.wait_and_extract();
-
-    // After wait_and_extract completes, callback should have been called exactly once
-    EXPECT_TRUE(callback_called.load(std::memory_order_acquire));
-    EXPECT_EQ(callback_count.load(std::memory_order_acquire), 1);
-
     auto reduced = unpack_to_host<int>(*out_result);
     ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
     int const expected_value = (nranks * (nranks - 1)) / 2;

@@ -7,13 +7,11 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <concepts>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <span>
 #include <utility>
 
 #ifdef __CUDACC__
@@ -35,6 +33,9 @@ namespace rapidsmpf::coll {
  * A reduction function is a binary operator `left \oplus right`. The function
  * implementing the operation must update `right` in place. That is, the result of calling
  * the reduction should be as if we do `right <- left \oplus right`.
+ *
+ * @note Both buffers are guaranteed to be on the same stream when the function is
+ * called by `AllReduce`.
  */
 using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
 
@@ -77,6 +78,9 @@ class AllReduce {
      * @param reduce_operator Type-erased reduction operator to use. See `ReduceOperator`.
      * @param finished_callback Optional callback run once locally when the allreduce
      * is finished and results are ready for extraction.
+     *
+     * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
+     * locally.
      *
      * @throws std::invalid_argument If the input and output buffers do not match
      * appropriately (same size, same memory type).
