@@ -170,7 +170,7 @@ cdef class Shuffler:
         cdef vector[cpp_PackedData] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
-        return packed_data_vector_to_list(move(_ret))
+        return packed_data_vector_to_list(move(_ret), self._br)
 
     def finished(self):
         """

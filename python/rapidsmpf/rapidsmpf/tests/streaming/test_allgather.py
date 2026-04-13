@@ -21,10 +21,11 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -52,7 +53,8 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
                 plc.contiguous_split.pack(table, stream=stream),
                 stream,
                 context.br(),
-            )
+            ),
+            br=context.br(),
         )
         for table in input_tables
     ]
@@ -74,7 +76,7 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
 
     result = unpack_and_concat(
         (
-            PackedDataChunk.from_message(msg).to_packed_data()
+            PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
             for msg in deferred.release()
         ),
         stream,
@@ -106,7 +108,8 @@ async def generate_inputs(
                     plc.contiguous_split.pack(table, stream=stream),
                     stream,
                     context.br(),
-                )
+                ),
+                br=context.br(),
             ),
         )
         await ch.send(context, msg)
@@ -123,13 +126,15 @@ async def allgather_and_concat(
 ) -> None:
     gather = AllGather(context, comm, op_id)
     while (msg := await ch_in.recv(context)) is not None:
-        chunk = PackedDataChunk.from_message(msg).to_packed_data()
+        chunk = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
         gather.insert(msg.sequence_number, chunk)
     gather.insert_finished()
     gathered = await gather.extract_all(context, ordered=True)
     stream = context.get_stream_from_pool()
     table = unpack_and_concat(gathered, stream, context.br())
-    to_send = TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+    to_send = TableChunk.from_pylibcudf_table(
+        table, stream, exclusive_view=True, br=context.br()
+    )
     await ch_out.send(context, Message(0, to_send))
     await ch_out.drain(context)
 
@@ -139,7 +144,7 @@ def test_allgather_object_interface(
 ) -> None:
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
-    actors: list[CppActor | PyActor] = []
+    actors: list[CppActor | Awaitable[None]] = []
     num_rows = 100
     num_chunks = 10
     op_id = 0
@@ -151,7 +156,7 @@ def test_allgather_object_interface(
 
     run_actor_network(actors=actors, py_executor=py_executor)
     (result_msg,) = deferred.release()
-    result = TableChunk.from_message(result_msg)
+    result = TableChunk.from_message(result_msg, br=context.br())
     expect = plc.Table(
         [
             plc.Column.from_array(

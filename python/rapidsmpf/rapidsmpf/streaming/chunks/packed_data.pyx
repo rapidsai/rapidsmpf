@@ -6,6 +6,7 @@ from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -44,10 +45,10 @@ cdef class PackedDataChunk:
         -------
         A new PackedData from this chunk. The chunk is left empty.
         """
-        return PackedData.from_librapidsmpf(self.release_handle())
+        return PackedData.from_librapidsmpf(self.release_handle(), self._br)
 
     @staticmethod
-    def from_packed_data(PackedData obj not None):
+    def from_packed_data(PackedData obj not None, BufferResource br=None):
         """
         Construct a PackedDataChunk from an existing PackedData object.
 
@@ -60,11 +61,13 @@ cdef class PackedDataChunk:
         -------
         A new PackedDataChunk from the given object.
         """
-        return PackedDataChunk.from_handle(move(obj.c_obj))
+        if br is None:
+            br = obj._br
+        return PackedDataChunk.from_handle(move(obj.c_obj), br)
 
     @staticmethod
     cdef PackedDataChunk from_handle(
-        unique_ptr[cpp_PackedData] handle
+        unique_ptr[cpp_PackedData] handle, BufferResource br=None
     ):
         """
         Construct a PackedDataChunk from an existing C++ handle.
@@ -81,10 +84,11 @@ cdef class PackedDataChunk:
 
         cdef PackedDataChunk ret = PackedDataChunk.__new__(PackedDataChunk)
         ret._handle = move(handle)
+        ret._br = br
         return ret
 
     @staticmethod
-    def from_message(Message message not None):
+    def from_message(Message message not None, BufferResource br=None):
         """
         Construct a PackedDataChunk by consuming a Message.
 
@@ -99,7 +103,7 @@ cdef class PackedDataChunk:
         A new PackedDataChunk extracted from the given message.
         """
         return PackedDataChunk.from_handle(
-            cpp_from_message(move(message._handle))
+            cpp_from_message(move(message._handle)), br
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):
