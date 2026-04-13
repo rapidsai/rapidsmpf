@@ -13,6 +13,7 @@ from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
+# Need the header include for inline C++ code
 from rapidsmpf.memory.buffer_resource cimport BufferResource  # no-cython-lint
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
