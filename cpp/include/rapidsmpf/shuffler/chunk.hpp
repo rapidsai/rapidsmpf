@@ -228,17 +228,24 @@ class Chunk {
      * @brief Create a chunk by deserializing a metadata message.
      *
      * @param msg The metadata message received from another rank.
-     * @param br Buffer resource for allocating a the data buffer of the deserialized
-     * message.
+     * @param br Buffer resource for allocating the data buffer of the deserialized
+     * message. Ignored when @p data is provided.
      * @param validate Whether to validate the metadata buffer.
+     * @param data Optional pre-existing data buffer to use instead of allocating a new
+     * one. When non-null, the buffer resource allocation is skipped entirely, avoiding
+     * unnecessary memory pressure from a temporary allocation.
      * @return The chunk.
      *
-     * @throws std::logic_error if the chunk is not a control message and no buffer
-     * resource is provided. @throws std::runtime_error if the metadata buffer does not
-     * follow the expected format and `validate` is true.
+     * @throws std::logic_error if the chunk is not a control message and neither @p data
+     * nor @p br is provided.
+     * @throws std::runtime_error if the metadata buffer does not follow the expected
+     * format and @p validate is true.
      */
     static Chunk deserialize(
-        std::vector<std::uint8_t> const& msg, BufferResource* br, bool validate = true
+        std::vector<std::uint8_t> const& msg,
+        BufferResource* br,
+        bool validate = true,
+        std::unique_ptr<Buffer> data = nullptr
     );
 
     /**
