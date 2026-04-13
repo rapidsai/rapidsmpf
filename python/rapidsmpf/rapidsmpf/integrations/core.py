@@ -711,6 +711,7 @@ def rmpf_worker_local_setup(
     WorkerContext
         New local worker context
     """
+    print("rapidsmpf local setup options: ", options.get_strings())
     # Insert RMM resource adaptor on top of the current RMM resource stack.
     mr = RmmResourceAdaptor(
         upstream_mr=rmm.mr.get_current_device_resource(),

@@ -290,7 +290,9 @@ TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     RmmResourceAdaptor mr{mr_cuda};
     auto stats = std::make_shared<Statistics>(&mr);
-    auto pinned_mr = PinnedMemoryResource::make_if_available();
+    // TODO find better way to get pinned memory resource.
+    auto pinned_mr =
+        PinnedMemoryResource::make_fixed_sized_if_available(get_current_numa_node());
     BufferResource br{
         mr,
         pinned_mr,
