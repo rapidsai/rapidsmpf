@@ -40,7 +40,6 @@ std::vector<std::shared_ptr<Statistics>> gather_statistics(
         while (!comm->test(future)) {
             std::this_thread::yield();
         }
-        std::ignore = comm->release_sync_host_data(std::move(future));
         return {};
     }
 
