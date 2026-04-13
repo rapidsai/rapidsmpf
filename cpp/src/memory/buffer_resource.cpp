@@ -82,7 +82,7 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-rmm::host_async_resource_ref BufferResource::pinned_mr() {
+rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
@@ -196,14 +196,37 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> data,
+    rmm::cuda_stream_view stream,
+    MemoryType mem_type
 ) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+
+    if (mem_type == MemoryType::DEVICE) {
+        return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
+    } else if (mem_type == MemoryType::PINNED_HOST) {
+        RAPIDSMPF_EXPECTS(
+            pinned_mr_ != PinnedMemoryResource::Disabled,
+            "pinned memory resource is not available",
+            std::invalid_argument
+        );
+
+        auto pinned_host_buffer = std::make_unique<HostBuffer>(
+            HostBuffer::from_rmm_device_buffer(std::move(data), stream, pinned_mr())
+        );
+        return std::unique_ptr<Buffer>(
+            new Buffer(std::move(pinned_host_buffer), stream, MemoryType::PINNED_HOST)
+        );
+    } else {
+        RAPIDSMPF_FAIL(
+            "Invalid memory type: " + std::string(to_string(mem_type)),
+            std::invalid_argument
+        );
+    }
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
