@@ -26,15 +26,16 @@ if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.memory.buffer_resource import BufferResource
     from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
 
 
-def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
+def make_table(values: np.ndarray, stream: Stream, br: BufferResource) -> TableChunk:
     table = plc.Table([plc.Column.from_array(values, stream=stream)])
-    return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+    return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True, br=br)
 
 
 @define_actor()
@@ -126,8 +127,8 @@ def test_bloom_filter_roundtrip(context: Context, comm: Communicator) -> None:
 
     stream = context.get_stream_from_pool()
     values = np.arange(10, dtype=np.int32)
-    build_table = make_table(values, stream=stream)
-    probe_table = make_table(values, stream=stream)
+    build_table = make_table(values, stream=stream, br=context.br())
+    probe_table = make_table(values, stream=stream, br=context.br())
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
@@ -144,8 +145,12 @@ def test_bloom_filter_empty_build_filters_all(
         pytest.skip("Only support single-rank runs")
 
     stream = context.get_stream_from_pool()
-    build_table = make_table(np.array([], dtype=np.int32), stream=stream)
-    probe_table = make_table(np.arange(5, dtype=np.int32), stream=stream)
+    build_table = make_table(
+        np.array([], dtype=np.int32), stream=stream, br=context.br()
+    )
+    probe_table = make_table(
+        np.arange(5, dtype=np.int32), stream=stream, br=context.br()
+    )
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 

@@ -13,6 +13,8 @@ from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator
+# Need the header include for inline C++ code
+from rapidsmpf.memory.buffer_resource cimport BufferResource  # no-cython-lint
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -156,6 +158,7 @@ cdef class ShufflerAsync:
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
     ):
         self._comm = comm
+        self._br = ctx.br()
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
@@ -238,7 +241,7 @@ cdef class ShufflerAsync:
         cdef vector[cpp_PackedData] c_ret
         with nogil:
             c_ret = deref(self._handle).extract(pid)
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(c_ret), self._br)
 
     def local_partitions(self):
         """
