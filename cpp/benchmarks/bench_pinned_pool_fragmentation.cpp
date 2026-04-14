@@ -44,6 +44,28 @@
  * probing) num_streams           ∈ {1, 4, 8}  (stream pool size; always 1 for fixed-block
  * pools) num_producer_threads  ∈ {1, 2, 4}  (concurrent threads used during fill and
  * fragment phases; always 1 for fixed-block pools)
+ *
+ * BM_PinnedPoolFragmentedMaxAllocPostSync — variable-size pools only
+ * -------------------------------------------------------------------
+ * Same fill + fragment phases as above, but the probe phase is split in two:
+ *
+ *   Phase 3a — Initial probe (same as above)
+ *     Find max_alloc_GiB: the largest single allocation in the fragmented pool before
+ *     any stream synchronisation.  Probe allocations and their stream-ordered
+ *     deallocations may still be pending on the probe stream at this point.
+ *
+ *   Stream sync
+ *     All streams in the pool are synchronised, flushing any pending stream-ordered
+ *     deallocations (including those issued during Phase 3a) back to the pool's free
+ *     list.  This can coalesce previously non-contiguous holes into a larger span.
+ *
+ *   Phase 3b — Post-sync probe
+ *     Re-probe for the largest allocation after the sync.  The result is reported as
+ *     max_alloc_post_sync_GiB.  A larger value than Phase 3a indicates that stream-
+ *     ordering was the bottleneck for memory coalescing, not actual fragmentation.
+ *
+ * Additional reported counter:
+ *   max_alloc_post_sync_GiB — largest allocation after all streams are synchronised
  */
 
 #include <algorithm>
@@ -180,7 +202,8 @@ struct VarAlloc {
     rmm::device_async_resource_ref mr,
     rmm::cuda_stream_pool& stream_pool,
     std::size_t max_fill_bytes,
-    std::size_t num_threads
+    std::size_t num_threads, 
+    bool use_dummy_work = false
 ) {
     std::mutex mtx;
     std::vector<VarAlloc> live;
@@ -212,7 +235,9 @@ struct VarAlloc {
                     break;
                 }
                 // Schedule some dummy work to make the stream busy
-                schedule_dummy_work(p, req, alloc_stream);
+                if (use_dummy_work) {
+                    schedule_dummy_work(p, req, alloc_stream);
+                }
                 // Record event on the allocating stream
                 auto event = rapidsmpf::CudaEvent::make_shared_record(alloc_stream);
                 std::lock_guard lock{mtx};
@@ -487,6 +512,146 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
     }
 }
 
+/// Variable-size pool variant that measures how much the largest allocatable size grows
+/// after a full CUDA stream synchronisation.  Fill and fragment phases are identical to
+/// BM_PinnedPoolFragmentedMaxAlloc.  The probe phase is split:
+///   • Phase 3a: find max_alloc_GiB (initial, before sync)
+///   • stream sync: flush all pending stream-ordered deallocations
+///   • Phase 3b: find max_alloc_post_sync_GiB (after sync)
+/// Only variable-size pool block_tags are accepted; fixed-block modes are skipped.
+void BM_PinnedPoolFragmentedMaxAllocPostSync(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+
+    std::int64_t const block_tag = state.range(0);
+    bool const use_rapidsmpf_variable = (block_tag == kBlockTagRapidsmpfVariablePool);
+    bool const use_rmm_variable = (block_tag == kBlockTagRmmPinnedPool);
+    bool const use_variable_pool = use_rapidsmpf_variable || use_rmm_variable;
+
+    if (!use_variable_pool) {
+        state.SkipWithMessage("post-sync test only applies to variable-size pools");
+        return;
+    }
+
+    auto const max_fill_bytes = static_cast<std::size_t>(state.range(1)) << 20;
+    auto const free_factor = static_cast<double>(state.range(2)) / 100.0;
+    auto const num_streams = static_cast<std::size_t>(state.range(3));
+    auto const num_producer_threads = static_cast<std::size_t>(state.range(4));
+    rmm::cuda_stream_pool stream_pool{num_streams};
+    auto const props = make_pool_properties();
+    auto const free_target =
+        static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
+
+    for (auto _ : state) {
+        state.PauseTiming();
+
+        std::size_t max_allocatable = 0;
+        std::size_t max_allocatable_post_sync = 0;
+
+        if (use_rapidsmpf_variable) {
+            rapidsmpf::PinnedMemoryResource mr{rapidsmpf::get_current_numa_node(), props};
+            rmm::device_async_resource_ref mr_ref{mr};
+
+            auto live =
+                var_fill(mr_ref, stream_pool, max_fill_bytes, num_producer_threads, true);
+            var_fragment(mr_ref, stream_pool, live, free_target, num_producer_threads);
+
+            auto probe_stream = stream_pool.get_stream();
+
+            // Phase 3a: initial probe — pending probe deallocations remain on stream.
+            max_allocatable = var_probe_max(mr_ref, probe_stream, free_target);
+
+            // Flush all pending stream-ordered deallocations (including probe stream).
+            sync_streams(stream_pool);
+
+            // Phase 3b: re-probe after sync — coalesced free list may yield more.
+            max_allocatable_post_sync = var_probe_max(mr_ref, probe_stream, free_target);
+
+            std::ranges::for_each(live, [&](auto const& a) {
+                a.event->stream_wait(probe_stream);
+                mr.deallocate(probe_stream, a.ptr, a.size);
+            });
+
+            sync_streams(stream_pool);
+        } else {
+            rmm::mr::pinned_host_memory_resource pinned_upstream{};
+            rmm::mr::pool_memory_resource<rmm::mr::pinned_host_memory_resource> pool_mr{
+                pinned_upstream, kInitialPool, std::optional<std::size_t>{kMaxPool}
+            };
+            rmm::device_async_resource_ref pool_ref{pool_mr};
+
+            auto live =
+                var_fill(pool_ref, stream_pool, max_fill_bytes, num_producer_threads);
+            var_fragment(pool_ref, stream_pool, live, free_target, num_producer_threads);
+
+            auto probe_stream = stream_pool.get_stream();
+
+            // Phase 3a: initial probe — pending probe deallocations remain on stream.
+            max_allocatable = var_probe_max(pool_ref, probe_stream, free_target);
+
+            // Flush all pending stream-ordered deallocations (including probe stream).
+            sync_streams(stream_pool);
+
+            // Phase 3b: re-probe after sync — coalesced free list may yield more.
+            max_allocatable_post_sync = var_probe_max(pool_ref, probe_stream, free_target);
+
+            std::ranges::for_each(live, [&](auto const& a) {
+                a.event->stream_wait(probe_stream);
+                pool_mr.deallocate(probe_stream, a.ptr, a.size);
+            });
+
+            sync_streams(stream_pool);
+        }
+
+        state.ResumeTiming();
+        benchmark::DoNotOptimize(max_allocatable);
+        benchmark::DoNotOptimize(max_allocatable_post_sync);
+
+        state.counters["free_target_GiB"] =
+            static_cast<double>(free_target) / static_cast<double>(1ULL << 30);
+        state.counters["max_alloc_GiB"] =
+            static_cast<double>(max_allocatable) / static_cast<double>(1ULL << 30);
+        state.counters["max_alloc_post_sync_GiB"] =
+            static_cast<double>(max_allocatable_post_sync) / static_cast<double>(1ULL << 30);
+        state.counters["pool_free_factor"] = free_factor;
+        state.counters["max_fill_MiB"] =
+            static_cast<double>(max_fill_bytes) / static_cast<double>(1ULL << 20);
+        state.counters["num_streams"] = static_cast<double>(num_streams);
+        state.counters["num_producer_threads"] =
+            static_cast<double>(num_producer_threads);
+        state.SetLabel(get_block_tag_name(block_tag));
+    }
+}
+
+void register_post_sync_args(benchmark::Benchmark* b) {
+    for (int64_t const free_pct : {25 /* , 50 */}) {
+        for (int64_t const max_fill_mib : {64, 128, 256, 512 /* , 1024 */}) {
+            for (int64_t const num_streams : {1, 4, 8}) {
+                for (int64_t const num_threads : {1, 2, 4}) {
+                    b->Args(
+                        {kBlockTagRapidsmpfVariablePool,
+                         max_fill_mib,
+                         free_pct,
+                         num_streams,
+                         num_threads}
+                    );
+                    b->Args(
+                        {kBlockTagRmmPinnedPool,
+                         max_fill_mib,
+                         free_pct,
+                         num_streams,
+                         num_threads}
+                    );
+                }
+            }
+        }
+    }
+}
+
 void register_fragmentation_args(benchmark::Benchmark* b) {
     for (int64_t const free_pct : {25 /* , 50 */}) {
         for (int64_t const max_fill_mib : {64, 128, 256, 512 /* , 1024 */}) {
@@ -521,6 +686,12 @@ void register_fragmentation_args(benchmark::Benchmark* b) {
 
 BENCHMARK(BM_PinnedPoolFragmentedMaxAlloc)
     ->Apply(register_fragmentation_args)
+    ->Iterations(1)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_PinnedPoolFragmentedMaxAllocPostSync)
+    ->Apply(register_post_sync_args)
     ->Iterations(1)
     ->UseRealTime()
     ->Unit(benchmark::kMillisecond);
