@@ -36,7 +36,7 @@ TableChunk::TableChunk(
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
     data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] =
-        estimated_memory_usage(table_view, stream_);
+        rapidsmpf::packed_size(table_view, stream_);
     make_available_cost_ = 0;
 }
 

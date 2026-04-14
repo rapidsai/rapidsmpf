@@ -8,8 +8,10 @@
 #include <string>
 
 #include <cudf/column/column_view.hpp>
+#include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 namespace rapidsmpf {
 
@@ -78,6 +80,22 @@ std::size_t estimated_memory_usage(
 std::size_t estimated_memory_usage(
     cudf::table_view const& tbl, rmm::cuda_stream_view stream
 );
+
+/**
+ * @brief Exact memory usage of a table after packing.
+ *
+ * @param tbl The table to estimate the memory usage of.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Memory resource for device memory allocation.
+ * @return The estimated memory usage of the table after packing.
+ */
+[[nodiscard]] inline std::size_t packed_size(
+    cudf::table_view const& tbl,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref()
+) {
+    return cudf::packed_size(tbl, stream, mr);
+}
 
 
 }  // namespace rapidsmpf

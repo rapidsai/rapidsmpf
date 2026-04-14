@@ -17,6 +17,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -214,7 +215,7 @@ TEST_P(StreamingTableChunk, FromPackedDataOn) {
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
-    EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
+    EXPECT_THROW(std::ignore = chunk.table_view(), std::invalid_argument);
     EXPECT_EQ(chunk.make_available_cost(), size);
 
     auto chunk2 = chunk.make_available(
@@ -458,6 +459,11 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     EXPECT_FALSE(m.content_description().spillable());
     EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(
+        m.content_description().content_size(MemoryType::DEVICE),
+        rapidsmpf::packed_size(expect, stream)
+    );
+    // packed size is greater than or equal to the alloc size due to buffer alignments.
+    EXPECT_GE(
         m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
