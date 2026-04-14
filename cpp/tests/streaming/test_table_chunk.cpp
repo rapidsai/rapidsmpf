@@ -457,7 +457,12 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     EXPECT_TRUE(m.holds<TableChunk>());
     EXPECT_FALSE(m.content_description().spillable());
     EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    // content size greater than or equal to alloc size due to alignments during packing.
     EXPECT_EQ(
+        m.content_description().content_size(MemoryType::DEVICE),
+        cudf::packed_size(expect, stream)
+    );
+    EXPECT_GT(
         m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
