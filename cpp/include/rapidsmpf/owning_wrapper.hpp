@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,6 +54,16 @@ class OwningWrapper {
      */
     explicit OwningWrapper(void* obj, deleter_type deleter)
         : obj_{owning_type(obj, deleter)} {}
+
+    /**
+     * @brief Take ownership and responsibility for the destruction of an object.
+     *
+     * @param obj Object to own.
+     * @tparam T Type of the object to own.
+     */
+    template <typename T>
+    constexpr OwningWrapper(T* obj)
+        : obj_{obj, [](void* v) { delete static_cast<T*>(v); }} {}
 
     /**
      * @brief Release ownership of the underlying pointer

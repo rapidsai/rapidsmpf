@@ -137,6 +137,13 @@ class BufferResource {
     [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
 
     /**
+     * @brief Get a reference to the pinned host memory resource.
+     *
+     * @return Reference to the pinned host memory resource.
+     */
+    [[nodiscard]] PinnedMemoryResource const& access_pinned_mr() const;
+
+    /**
      * @brief Retrieves the memory availability function for a given memory type.
      *
      * This function returns the callback function used to determine the available memory
