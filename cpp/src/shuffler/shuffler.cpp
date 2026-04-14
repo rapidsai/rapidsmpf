@@ -51,7 +51,7 @@ convert_chunks_to_messages(
 
     for (auto&& chunk : chunks) {
         auto dst = peer_rank_fn(chunk);
-        auto metadata = *chunk.serialize();
+        auto metadata = std::move(*chunk.serialize());
         auto data = chunk.release_data_buffer();
 
         messages.push_back(
