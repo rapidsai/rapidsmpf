@@ -12,10 +12,11 @@ from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_chann
 from rapidsmpf.streaming.core.message import Message
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
     from concurrent.futures import ThreadPoolExecutor
     from typing import Any
 
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
@@ -127,7 +128,7 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
             )
         await ch_out.drain(ctx)
 
-    actors: list[CppActor | PyActor] = [
+    actors: list[CppActor | Awaitable[None]] = [
         push_to_channel(context, ch_in, inputs),
         increment(context, ch_in, ch_out),
     ]

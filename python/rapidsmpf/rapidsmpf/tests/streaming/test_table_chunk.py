@@ -52,7 +52,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     seq = 42
     expect = random_table(1024)
     table_chunk = TableChunk.from_pylibcudf_table(
-        expect, stream, exclusive_view=exclusive_view
+        expect, stream, exclusive_view=exclusive_view, br=context.br()
     )
     assert is_equal_streams(table_chunk.stream, stream)
     assert table_chunk.is_available()
@@ -79,7 +79,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert res.size == 0
 
     # msg1 is availabe
-    table_chunk2 = TableChunk.from_message(msg1)
+    table_chunk2 = TableChunk.from_message(msg1, br=context.br())
     assert is_equal_streams(table_chunk2.stream, stream)
     assert table_chunk2.is_available()
     assert table_chunk2.make_available_cost() == 0
@@ -92,7 +92,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert res.size == 0
 
     # msg2 is on host and is not availabe
-    table_chunk3 = TableChunk.from_message(msg2)
+    table_chunk3 = TableChunk.from_message(msg2, br=context.br())
     assert is_equal_streams(table_chunk3.stream, stream)
     assert not table_chunk3.is_available()
     assert table_chunk3.make_available_cost() == 1024
@@ -106,7 +106,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
 
     # msg3 is on device (was created by copying the host msg2). During the copy this
     # is made available trivially.
-    table_chunk5 = TableChunk.from_message(msg3)
+    table_chunk5 = TableChunk.from_message(msg3, br=context.br())
     assert is_equal_streams(table_chunk5.stream, stream)
     assert table_chunk5.is_available()
     # and it cost no device memory to make available.
@@ -129,7 +129,9 @@ def test_copy_roundtrip(context: Context, stream: Stream) -> None:
             )
         )
 
-        tbl1 = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+        tbl1 = TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True, br=context.br()
+        )
         res, _ = context.br().reserve(
             MemoryType.HOST,
             tbl1.data_alloc_size(MemoryType.DEVICE),
@@ -150,7 +152,12 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
 
     sm = SpillableMessages()
     sm.insert(
-        Message(seq, TableChunk.from_pylibcudf_table(df1, stream, exclusive_view=True))
+        Message(
+            seq,
+            TableChunk.from_pylibcudf_table(
+                df1, stream, exclusive_view=True, br=context.br()
+            ),
+        )
     )
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
@@ -163,7 +170,12 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
         )
     }
     sm.insert(
-        Message(seq, TableChunk.from_pylibcudf_table(df2, stream, exclusive_view=False))
+        Message(
+            seq,
+            TableChunk.from_pylibcudf_table(
+                df2, stream, exclusive_view=False, br=context.br()
+            ),
+        )
     )
     assert sm.get_content_descriptions() == {
         0: ContentDescription(
@@ -223,7 +235,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     }
 
     # Extract, make available, and check table chunk 1.
-    df1_got = TableChunk.from_message(sm.extract(mid=0))
+    df1_got = TableChunk.from_message(sm.extract(mid=0), br=context.br())
     res, _ = context.br().reserve(
         MemoryType.DEVICE, df1_got.make_available_cost(), allow_overbooking=True
     )
@@ -233,7 +245,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     with pytest.raises(IndexError, match="Invalid key"):
         sm.extract(mid=0)
 
-    df2_got = TableChunk.from_message(sm.extract(mid=1))
+    df2_got = TableChunk.from_message(sm.extract(mid=1), br=context.br())
     df2_got = df2_got.make_available_and_spill(context.br(), allow_overbooking=True)
     assert_eq(df2, df2_got.table_view())
     assert sm.get_content_descriptions() == {}
@@ -245,7 +257,10 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
 
     mid = context.spillable_messages().insert(
         Message(
-            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+            seq,
+            TableChunk.from_pylibcudf_table(
+                expect, stream, exclusive_view=True, br=context.br()
+            ),
         )
     )
     assert context.spillable_messages().get_content_descriptions() == {
@@ -258,7 +273,9 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
             spillable=True,
         )
     }
-    got = TableChunk.from_message(context.spillable_messages().extract(mid=mid))
+    got = TableChunk.from_message(
+        context.spillable_messages().extract(mid=mid), br=context.br()
+    )
     assert_eq(expect, got.table_view())
 
 
@@ -266,7 +283,9 @@ def test_make_available_or_wait_already_available(
     context: Context, stream: Stream, py_executor: ThreadPoolExecutor
 ) -> None:
     expect = random_table(1024)
-    chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    chunk = TableChunk.from_pylibcudf_table(
+        expect, stream, exclusive_view=True, br=context.br()
+    )
     result_holder: list[TableChunk] = []
 
     @define_actor()
@@ -287,7 +306,9 @@ def test_make_available_or_wait_from_host(
     net_memory_delta: int,
 ) -> None:
     expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    device_chunk = TableChunk.from_pylibcudf_table(
+        expect, stream, exclusive_view=True, br=context.br()
+    )
     res, _ = context.br().reserve(
         MemoryType.HOST,
         device_chunk.data_alloc_size(MemoryType.DEVICE),
@@ -310,7 +331,9 @@ def test_make_available_or_wait_from_host(
 def test_data_alloc_size(context: Context, stream: Stream) -> None:
     # Create a table chunk on device memory.
     expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    device_chunk = TableChunk.from_pylibcudf_table(
+        expect, stream, exclusive_view=True, br=context.br()
+    )
 
     # Check device memory size.
     assert device_chunk.data_alloc_size(MemoryType.DEVICE) == 1024
@@ -373,10 +396,10 @@ def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> No
         pd = PackedData.from_cudf_packed_columns(
             plc.contiguous_split.pack(expect, stream), stream, context.br()
         )
-        device_chunk = TableChunk.from_packed_data(pd)
+        device_chunk = TableChunk.from_packed_data(pd, br=context.br())
     else:
         device_chunk = TableChunk.from_pylibcudf_table(
-            expect, stream, exclusive_view=True
+            expect, stream, exclusive_view=True, br=context.br()
         )
     assert device_chunk.is_available()
     assert device_chunk.shape == expected_shape
@@ -407,7 +430,9 @@ def test_make_table_chunks_available_or_wait_single_chunk(
     chunk_location: str,
 ) -> None:
     expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    device_chunk = TableChunk.from_pylibcudf_table(
+        expect, stream, exclusive_view=True, br=context.br()
+    )
 
     if chunk_location == "host":
         res_holder, _ = context.br().reserve(
@@ -450,7 +475,9 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
 
     # Create host chunks.
     device_chunks = [
-        TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+        TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True, br=context.br()
+        )
         for expect in expects
     ]
 
@@ -511,7 +538,9 @@ def test_make_table_chunks_available_or_wait(
     allow_overbooking: bool | None,
 ) -> None:
     expect = random_table(1024)
-    device_chunk = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    device_chunk = TableChunk.from_pylibcudf_table(
+        expect, stream, exclusive_view=True, br=context.br()
+    )
     res_holder, _ = context.br().reserve(
         MemoryType.HOST,
         device_chunk.data_alloc_size(MemoryType.DEVICE),
@@ -547,12 +576,12 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
 
     # First chunk is already available on device.
     available_chunk = TableChunk.from_pylibcudf_table(
-        expect1, stream, exclusive_view=True
+        expect1, stream, exclusive_view=True, br=context.br()
     )
 
     # Second chunk is on host memory.
     device_chunk2 = TableChunk.from_pylibcudf_table(
-        expect2, stream, exclusive_view=True
+        expect2, stream, exclusive_view=True, br=context.br()
     )
     res2, _ = context.br().reserve(
         MemoryType.HOST,

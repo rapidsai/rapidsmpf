@@ -107,7 +107,8 @@ def partition_and_pack(
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
     while(it != _ret.end()):
         ret[deref(it).first] = PackedData.from_librapidsmpf(
-            make_unique[cpp_PackedData](move(deref(it).second))
+            make_unique[cpp_PackedData](move(deref(it).second)),
+            br,
         )
         postincrement(it)
     return ret
@@ -165,7 +166,8 @@ def split_and_pack(
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
     while(it != _ret.end()):
         ret[deref(it).first] = PackedData.from_librapidsmpf(
-            make_unique[cpp_PackedData](move(deref(it).second))
+            make_unique[cpp_PackedData](move(deref(it).second)),
+            br,
         )
         postincrement(it)
     return ret
@@ -295,7 +297,7 @@ def spill_partitions(
             move(_partitions),
             _br,
         )
-    return packed_data_vector_to_list(move(_ret))
+    return packed_data_vector_to_list(move(_ret), br)
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -357,4 +359,4 @@ def unspill_partitions(
             _br,
             ab,
         )
-    return packed_data_vector_to_list(move(_ret))
+    return packed_data_vector_to_list(move(_ret), br)

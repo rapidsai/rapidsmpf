@@ -15,23 +15,51 @@ import pylibcudf as plc
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.cudf import ChannelMetadata
 from rapidsmpf.streaming.cudf.bloom_filter import BloomFilter
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.streaming.core.actor import CppActor, PyActor
+    from rapidsmpf.memory.buffer_resource import BufferResource
+    from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.bloom_filter import BloomFilterChunk
 
 
-def make_table(values: np.ndarray, stream: Stream) -> TableChunk:
+def make_table(values: np.ndarray, stream: Stream, br: BufferResource) -> TableChunk:
     table = plc.Table([plc.Column.from_array(values, stream=stream)])
-    return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True)
+    return TableChunk.from_pylibcudf_table(table, stream, exclusive_view=True, br=br)
+
+
+@define_actor()
+async def add_metadata(
+    ctx: Context, ch_in: Channel[TableChunk], ch_out: Channel[TableChunk]
+) -> None:
+    await ch_out.send_metadata(ctx, Message(0, ChannelMetadata(1)))
+    await ch_out.drain_metadata(ctx)
+    while (msg := await ch_in.recv(ctx)) is not None:
+        await ch_out.send(ctx, msg)
+    await ch_out.drain(ctx)
+
+
+@define_actor()
+async def receive_metadata(
+    ctx: Context, ch_in: Channel[TableChunk], ch_out: Channel[TableChunk]
+) -> None:
+    m = await ch_in.recv_metadata(ctx)
+    assert m is not None
+    meta = ChannelMetadata.from_message(m)
+    assert meta.local_count == 1
+    while (msg := await ch_in.recv(ctx)) is not None:
+        await ch_out.send(ctx, msg)
+    await ch_out.drain(ctx)
 
 
 @define_actor()
@@ -76,12 +104,16 @@ def run_bloom_filter_pipeline(
 
     ch_build: Channel[TableChunk] = context.create_channel()
     ch_probe: Channel[TableChunk] = context.create_channel()
+    ch_probe_meta: Channel[TableChunk] = context.create_channel()
+    ch_out_meta: Channel[TableChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
 
-    actors: list[CppActor | PyActor] = [
+    actors: list[CppActor | Awaitable[None]] = [
         push_to_channel(context, ch_build, [build_msg]),
         push_to_channel(context, ch_probe, [probe_msg]),
-        bloom_pipeline(context, bloom, ch_build, ch_probe, ch_out),
+        add_metadata(context, ch_probe, ch_probe_meta),
+        bloom_pipeline(context, bloom, ch_build, ch_probe_meta, ch_out_meta),
+        receive_metadata(context, ch_out_meta, ch_out),
     ]
     pull_actor, deferred = pull_from_channel(context, ch_out)
     actors.append(pull_actor)
@@ -95,12 +127,12 @@ def test_bloom_filter_roundtrip(context: Context, comm: Communicator) -> None:
 
     stream = context.get_stream_from_pool()
     values = np.arange(10, dtype=np.int32)
-    build_table = make_table(values, stream=stream)
-    probe_table = make_table(values, stream=stream)
+    build_table = make_table(values, stream=stream, br=context.br())
+    probe_table = make_table(values, stream=stream, br=context.br())
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
-    result = TableChunk.from_message(messages[0])
+    result = TableChunk.from_message(messages[0], br=context.br())
     expected = plc.Table([plc.Column.from_array(values, stream=result.stream)])
     result.stream.synchronize()
     assert_eq(result.table_view(), expected)
@@ -113,12 +145,16 @@ def test_bloom_filter_empty_build_filters_all(
         pytest.skip("Only support single-rank runs")
 
     stream = context.get_stream_from_pool()
-    build_table = make_table(np.array([], dtype=np.int32), stream=stream)
-    probe_table = make_table(np.arange(5, dtype=np.int32), stream=stream)
+    build_table = make_table(
+        np.array([], dtype=np.int32), stream=stream, br=context.br()
+    )
+    probe_table = make_table(
+        np.arange(5, dtype=np.int32), stream=stream, br=context.br()
+    )
     messages = run_bloom_filter_pipeline(context, comm, build_table, probe_table)
     assert len(messages) == 1
 
-    result = TableChunk.from_message(messages[0])
+    result = TableChunk.from_message(messages[0], br=context.br())
     expected = plc.Table(
         [plc.Column.from_array(np.array([], dtype=np.int32), stream=result.stream)]
     )

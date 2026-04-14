@@ -100,6 +100,10 @@ Actor BloomFilter::apply(
     CudaEvent event;
     auto filter =
         rapidsmpf::BloomFilter(num_filter_blocks_, seed_, storage.data(), stream);
+    auto meta = co_await ch_in->receive_metadata();
+    if (!meta.empty()) {
+        co_await ch_out->send_metadata(std::move(meta));
+    }
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {

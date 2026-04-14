@@ -184,7 +184,7 @@ void sync(Context const& ctx) {
     ctx.backend->sync();
 }
 
-void put(Context const& ctx, std::string const& key, std::string const& value) {
+void put(Context const& ctx, std::string const& key, std::string_view value) {
     if (!ctx.backend) {
         throw std::runtime_error("Context not properly initialized - backend is null");
     }

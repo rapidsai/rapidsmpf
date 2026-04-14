@@ -8,6 +8,7 @@
 add_executable(
   rrun
   "rrun.cpp"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
   "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>>"
 )

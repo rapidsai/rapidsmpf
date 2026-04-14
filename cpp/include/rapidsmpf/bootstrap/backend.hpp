@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 #include <rapidsmpf/bootstrap/types.hpp>
 
@@ -78,7 +79,7 @@ class Backend {
      *
      * @throws std::runtime_error if called by non-zero rank.
      */
-    virtual void put(std::string const& key, std::string const& value) = 0;
+    virtual void put(std::string const& key, std::string_view value) = 0;
 
     /**
      * @brief Retrieve a value, blocking until available or timeout occurs.
