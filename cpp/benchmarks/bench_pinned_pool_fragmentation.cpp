@@ -202,7 +202,7 @@ struct VarAlloc {
     rmm::device_async_resource_ref mr,
     rmm::cuda_stream_pool& stream_pool,
     std::size_t max_fill_bytes,
-    std::size_t num_threads, 
+    std::size_t num_threads,
     bool use_dummy_work = false
 ) {
     std::mutex mtx;
@@ -430,7 +430,7 @@ void BM_PinnedPoolFragmentedMaxAlloc(benchmark::State& state) {
     auto const free_factor = static_cast<double>(state.range(2)) / 100.0;
     auto const num_streams = static_cast<std::size_t>(state.range(3));
     auto const num_producer_threads = static_cast<std::size_t>(state.range(4));
-    rmm::cuda_stream_pool stream_pool{num_streams};
+    rmm::cuda_stream_pool stream_pool{num_streams, rmm::cuda_stream::flags::non_blocking};
     auto const props = make_pool_properties();
     auto const free_target =
         static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
@@ -541,7 +541,7 @@ void BM_PinnedPoolFragmentedMaxAllocPostSync(benchmark::State& state) {
     auto const free_factor = static_cast<double>(state.range(2)) / 100.0;
     auto const num_streams = static_cast<std::size_t>(state.range(3));
     auto const num_producer_threads = static_cast<std::size_t>(state.range(4));
-    rmm::cuda_stream_pool stream_pool{num_streams};
+    rmm::cuda_stream_pool stream_pool{num_streams, rmm::cuda_stream::flags::non_blocking};
     auto const props = make_pool_properties();
     auto const free_target =
         static_cast<std::size_t>(free_factor * static_cast<double>(kMaxPool));
@@ -597,7 +597,8 @@ void BM_PinnedPoolFragmentedMaxAllocPostSync(benchmark::State& state) {
             sync_streams(stream_pool);
 
             // Phase 3b: re-probe after sync — coalesced free list may yield more.
-            max_allocatable_post_sync = var_probe_max(pool_ref, probe_stream, free_target);
+            max_allocatable_post_sync =
+                var_probe_max(pool_ref, probe_stream, free_target);
 
             std::ranges::for_each(live, [&](auto const& a) {
                 a.event->stream_wait(probe_stream);
@@ -616,7 +617,8 @@ void BM_PinnedPoolFragmentedMaxAllocPostSync(benchmark::State& state) {
         state.counters["max_alloc_GiB"] =
             static_cast<double>(max_allocatable) / static_cast<double>(1ULL << 30);
         state.counters["max_alloc_post_sync_GiB"] =
-            static_cast<double>(max_allocatable_post_sync) / static_cast<double>(1ULL << 30);
+            static_cast<double>(max_allocatable_post_sync)
+            / static_cast<double>(1ULL << 30);
         state.counters["pool_free_factor"] = free_factor;
         state.counters["max_fill_MiB"] =
             static_cast<double>(max_fill_bytes) / static_cast<double>(1ULL << 20);
