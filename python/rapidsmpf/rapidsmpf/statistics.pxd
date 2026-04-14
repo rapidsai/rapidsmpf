@@ -7,6 +7,7 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
+from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
@@ -25,6 +26,10 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         bool is_memory_profiling_enabled() except +ex_handler
         unordered_map[string, cpp_MemoryRecord] get_memory_records() \
             except +ex_handler
+        shared_ptr[cpp_Statistics] copy() except +ex_handler
+        shared_ptr[cpp_Statistics] merge_many "merge"(
+            vector[shared_ptr[cpp_Statistics]] others
+        ) except +ex_handler
 
     cdef struct cpp_MemoryRecord "rapidsmpf::Statistics::MemoryRecord":
         cpp_ScopedMemoryRecord scoped

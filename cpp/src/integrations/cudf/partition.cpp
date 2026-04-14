@@ -129,11 +129,11 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     // contiguous split does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
     auto reservation = br->reserve_device_memory_and_spill(
-        estimated_memory_usage(table, stream), allow_overbooking
+        cudf::packed_size(table, stream, br->device_mr()), allow_overbooking
     );
     auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     reservation.clear();
-
+    ret.reserve(packed.size());
     for (shuffler::PartID i = 0; safe_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
