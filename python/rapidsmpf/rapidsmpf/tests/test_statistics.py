@@ -171,3 +171,68 @@ def test_write_json(tmp_path: pathlib.Path, as_type: type) -> None:
     assert data["statistics"]["foo"]["value"] == 15.0
     assert data["statistics"]["foo"]["max"] == 10.0
     assert "memory_records" not in data
+
+
+def test_copy() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("x", 10.0)
+
+    copied = stats.copy()
+    assert copied.enabled
+    assert copied.get_stat("x") == stats.get_stat("x")
+
+    # Modifying the copy does not affect the original.
+    copied.add_stat("y", 1.0)
+    assert "y" not in stats.list_stat_names()
+
+
+def test_merge_overlapping() -> None:
+    a = Statistics(enable=True)
+    a.add_stat("x", 10.0)
+    a.add_stat("x", 3.0)
+
+    b = Statistics(enable=True)
+    b.add_stat("x", 7.0)
+
+    merged = a.merge([b])
+    s = merged.get_stat("x")
+    assert s["count"] == 3
+    assert s["value"] == 20.0
+    assert s["max"] == 10.0
+
+
+def test_merge_disjoint() -> None:
+    a = Statistics(enable=True)
+    a.add_stat("x", 1.0)
+
+    b = Statistics(enable=True)
+    b.add_stat("y", 2.0)
+
+    merged = a.merge([b])
+    assert len(merged.list_stat_names()) == 2
+    assert merged.get_stat("x") == a.get_stat("x")
+    assert merged.get_stat("y") == b.get_stat("y")
+
+
+def test_merge_multiple() -> None:
+    a = Statistics(enable=True)
+    a.add_stat("x", 1.0)
+
+    b = Statistics(enable=True)
+    b.add_stat("x", 2.0)
+
+    c = Statistics(enable=True)
+    c.add_stat("y", 10.0)
+
+    merged = a.merge([b, c])
+    assert len(merged.list_stat_names()) == 2
+    assert merged.get_stat("x")["value"] == 3.0
+    assert merged.get_stat("y")["value"] == 10.0
+
+
+def test_merge_empty() -> None:
+    a = Statistics(enable=True)
+    a.add_stat("x", 5.0)
+
+    merged = a.merge([])
+    assert merged.get_stat("x") == a.get_stat("x")
