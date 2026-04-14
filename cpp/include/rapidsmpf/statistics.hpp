@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -207,7 +208,71 @@ class Statistics {
     void write_json(std::filesystem::path const& filepath) const;
 
     /**
+     * @brief Creates a deep copy of this Statistics object.
+     *
+     * @note Memory records are not copied.
+     *
+     * @return A shared pointer to the new copy.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> copy() const;
+
+    /**
+     * @brief Serializes the stats to a binary byte vector.
+     *
+     * @note Memory records and formatters are not serialized.
+     *
+     * @return A vector of bytes containing the serialized statistics.
+     */
+    [[nodiscard]] std::vector<std::uint8_t> serialize() const;
+
+    /**
+     * @brief Deserializes a Statistics object from a binary byte vector.
+     *
+     * @note The resulting object has no memory records or formatters.
+     *
+     * @param data The serialized statistics data.
+     * @return A shared pointer to the reconstructed Statistics object.
+     * @throws std::invalid_argument If the data is malformed or truncated.
+     */
+    [[nodiscard]] static std::shared_ptr<Statistics> deserialize(
+        std::span<std::uint8_t const> data
+    );
+
+    /**
+     * @brief Merges this Statistics with another, returning a new Statistics.
+     *
+     * For each stat name present in either object, the result has the summed
+     * count, summed value, and the maximum of the two maxima. Formatters are
+     * taken from `*this`.
+     *
+     * @note Memory records are not merged.
+     *
+     * @param other The Statistics to merge with. Must not be null.
+     * @return A shared pointer to a new Statistics containing the merged stats.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> merge(
+        std::shared_ptr<Statistics> const& other
+    ) const;
+
+    /**
+     * @brief Merges this Statistics with multiple others.
+     *
+     * Equivalent to calling `merge()` repeatedly. Formatters are taken from `*this`.
+     *
+     * @note Memory records are not merged.
+     *
+     * @param others The Statistics objects to merge with. No element may be null.
+     * @return A shared pointer to a new Statistics containing the merged stats.
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> merge(
+        std::span<std::shared_ptr<Statistics> const> others
+    ) const;
+
+    /**
      * @brief Represents a single tracked statistic.
+     *
+     * @note Stat is not thread-safe. Thread safety is provided by the enclosing
+     * Statistics object's mutex.
      */
     class Stat {
       public:
@@ -215,6 +280,15 @@ class Statistics {
          * @brief Default-constructs a Stat.
          */
         Stat() = default;
+
+        /**
+         * @brief Constructs a Stat with explicit field values.
+         *
+         * @param count Number of updates.
+         * @param value Total accumulated value.
+         * @param max Maximum value seen.
+         */
+        Stat(std::size_t count, double value, double max);
 
         /**
          * @brief Three-way comparison operator.
@@ -230,29 +304,21 @@ class Statistics {
          *
          * @param value The value to add.
          */
-        void add(double value) {
-            ++count_;
-            value_ += value;
-            max_ = std::max(max_, value);
-        }
+        void add(double value);
 
         /**
          * @brief Returns the number of updates applied to this statistic.
          *
          * @return The number of times `add()` was called.
          */
-        [[nodiscard]] std::size_t count() const noexcept {
-            return count_;
-        }
+        [[nodiscard]] std::size_t count() const noexcept;
 
         /**
          * @brief Returns the total accumulated value.
          *
          * @return The sum of all values added.
          */
-        [[nodiscard]] double value() const noexcept {
-            return value_;
-        }
+        [[nodiscard]] double value() const noexcept;
 
         /**
          * @brief Returns the maximum value seen across all `add()` calls.
@@ -260,9 +326,51 @@ class Statistics {
          * @return The maximum value added, or negative infinity if `add()` was never
          * called.
          */
-        [[nodiscard]] double max() const noexcept {
-            return max_;
+        [[nodiscard]] double max() const noexcept;
+
+        /**
+         * @brief Returns the serialized size of this Stat in bytes.
+         *
+         * We size each field individually rather than using `sizeof(Stat)` to
+         * avoid platform-dependent struct padding.
+         *
+         * @return The number of bytes needed to serialize this Stat.
+         */
+        [[nodiscard]] static constexpr std::size_t serialized_size() noexcept {
+            return sizeof(std::uint64_t) + sizeof(double) + sizeof(double);
         }
+
+        /**
+         * @brief Serializes this Stat to a byte buffer.
+         *
+         * @param out Pointer to the output buffer. Must have at least
+         * `serialized_size()` bytes available.
+         * @return Pointer past the last byte written.
+         */
+        std::uint8_t* serialize(std::uint8_t* out) const;
+
+        /**
+         * @brief Deserializes a Stat from a byte buffer.
+         *
+         * @param data The input buffer. Must contain at least `serialized_size()`
+         * bytes.
+         * @return A pair of the deserialized Stat and the remaining unconsumed
+         * bytes.
+         * @throws std::invalid_argument If the data is truncated.
+         */
+        [[nodiscard]] static std::pair<Stat, std::span<std::uint8_t const>> deserialize(
+            std::span<std::uint8_t const> data
+        );
+
+        /**
+         * @brief Merges another Stat into this one, returning the combined result.
+         *
+         * Counts and values are summed; the maximum is taken.
+         *
+         * @param other The Stat to merge with.
+         * @return A new Stat containing the merged result.
+         */
+        [[nodiscard]] Stat merge(Stat const& other) const;
 
       private:
         std::size_t count_{0};
