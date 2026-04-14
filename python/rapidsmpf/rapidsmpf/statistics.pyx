@@ -335,6 +335,46 @@ cdef class Statistics:
         with nogil:
             cpp_write_json(deref(self._handle), path)
 
+    def copy(self):
+        """
+        Creates a deep copy of this Statistics object.
+
+        Memory records are not copied.
+
+        Returns
+        -------
+        A new Statistics with the same stats and formatters.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = deref(self._handle).copy()
+        return ret
+
+    def merge(self, others):
+        """
+        Merges this Statistics with a sequence of others.
+
+        For each stat name present in any object, the result has the summed
+        count, summed value, and the maximum of the two maxima. Formatters are
+        taken from this object. Memory records are not merged.
+
+        Parameters
+        ----------
+        others
+            A sequence of Statistics to merge with.
+
+        Returns
+        -------
+        A new Statistics containing the merged stats.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        cdef vector[shared_ptr[cpp_Statistics]] cpp_others
+        for item in others:
+            cpp_others.push_back((<Statistics?>item)._handle)
+        with nogil:
+            ret._handle = deref(self._handle).merge_many(cpp_others)
+        return ret
+
     def write_json_string(self) -> str:
         """
         Returns a JSON representation of all collected statistics as a string.
