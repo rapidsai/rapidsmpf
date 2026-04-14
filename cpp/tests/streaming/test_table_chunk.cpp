@@ -17,7 +17,6 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
-#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -460,7 +459,9 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(
         m.content_description().content_size(MemoryType::DEVICE),
-        rapidsmpf::packed_size(expect, stream)
+        cudf::packed_size(
+            expect.view(), stream, rmm::mr::get_current_device_resource_ref()
+        )
     );
     // packed size is greater than or equal to the alloc size due to buffer alignments.
     EXPECT_GE(
