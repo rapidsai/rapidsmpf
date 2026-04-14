@@ -15,16 +15,29 @@ namespace rapidsmpf {
  * @brief Asynchronously copies memory between host and/or device buffers.
  *
  * The copy direction is inferred from the pointer types (`cudaMemcpyDefault`).
- * The source buffer must remain valid until the stream has executed the copy.
+ * The source buffer must remain valid until the stream executes the copy.
  *
- * @note Currently delegates to `cudf::detail::memcpy_async`, which uses
- * `cudaMemcpyBatchAsync` on CUDA 13.0+ with `cudaMemcpySrcAccessOrderStream`.
- * The underlying implementation may change in the future; all callers should
- * use this function so that any such change is applied uniformly.
+ * This function should be used instead of `cudaMemcpyAsync`, as it provides
+ * improved semantics for asynchronous copies, especially from pageable host memory.
  *
- * @param dst    Destination memory address.
- * @param src    Source memory address.
- * @param count  Number of bytes to copy.
+ * ## Background
+ *
+ * The legacy `cudaMemcpyAsync` API accesses non-CUDA-registered host pointers
+ * (e.g., allocations from `malloc` or `new`) at the time of the API call,
+ * rather than in stream order. This behavior originates from earlier GPU
+ * architectures that could not directly access such memory, requiring an
+ * immediate CPU-side staging step.
+ *
+ * Modern systems with HMM/ATS allow GPUs to access these pointers directly.
+ * However, the semantics of `cudaMemcpyAsync` cannot be changed without
+ * breaking existing code. The batched memcpy APIs (e.g.,
+ * `cudaMemcpyBatchAsync`) introduced in CUDA 13.0 allow the caller to specify
+ * `cudaMemcpySrcAccessOrderStream`, ensuring that the source is accessed in
+ * stream order and enabling true asynchronous copies from pageable host memory.
+ *
+ * @param dst Destination memory address.
+ * @param src Source memory address.
+ * @param count Number of bytes to copy.
  * @param stream CUDA stream on which the copy is enqueued.
  * @return cudaError_t CUDA error code.
  */
