@@ -42,7 +42,18 @@ struct HashScheme {
  * - Partition i (0 < i < N-1): boundaries[i-1] <= values < boundaries[i]
  * - Partition N-1: values >= boundaries[N-2]
  *
- * Comparisons use the specified column orders and null ordering.
+ * Multi-column ordering is lexicographic: column `column_indices[0]` is the most
+ * significant sort key, then `column_indices[1]`, and so on, each using its
+ * matching `orders[k]` and `null_orders[k]`.
+ *
+ * When `boundaries` is set, its columns must align with the ordered key columns
+ * (same count and compatible data types as the sort keys in the payload table).
+ * Unsupported or mismatched boundary dtypes are a usage error for producers.
+ *
+ * @note `column_indices`, `orders`, and `null_orders` use the same parallel-vector
+ * layout as many libcudf APIs (one entry per key column). They must always have
+ * equal length; `PartitioningSpec::from_order` enforces this. A single struct per
+ * key was considered but not adopted here to stay consistent with that pattern.
  */
 struct OrderScheme {
     std::vector<cudf::size_type> column_indices;  ///< Column indices to order on.
@@ -53,14 +64,18 @@ struct OrderScheme {
     bool strict_boundary{false};  ///< Sort keys disjoint across chunks.
 
     /**
-     * @brief Equality comparison.
+     * @brief Shallow metadata equality (not semantic boundary value equality).
      *
-     * @note Two OrderSchemes are equal if they have the same column indices,
-     * orders, null_orders, strict_boundary flag, and boundary values. Boundary
-     * comparison currently uses table shape only (full content comparison TBD).
+     * Returns true when `column_indices`, `orders`, `null_orders`, and
+     * `strict_boundary` match, and boundary tables are consistent in the weak
+     * sense: both absent, or both present with the same `(num_rows, num_columns)`.
+     * Cell values inside `boundaries` are intentionally not compared (that would
+     * require a device comparison API with stream and memory resource). Do not
+     * use `operator==` to assert that two schemes have identical range boundaries.
+     * A future API may add deep boundary comparison with explicit stream and MR.
      *
      * @param other The OrderScheme to compare against.
-     * @return True if both schemes are equal.
+     * @return True under the shallow rules above.
      */
     bool operator==(OrderScheme const& other) const;
 };
@@ -118,12 +133,12 @@ struct PartitioningSpec {
 
     /**
      * @brief Create a spec for order/range partitioning.
-     * @param o The order scheme to use.
+     *
+     * @param o The order scheme to use. `o.column_indices`, `o.orders`, and
+     * `o.null_orders` must have the same length; otherwise throws std::invalid_argument.
      * @return A PartitioningSpec with type ORDER.
      */
-    static PartitioningSpec from_order(OrderScheme o) {
-        return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
-    }
+    static PartitioningSpec from_order(OrderScheme o);
 
     /**
      * @brief Equality comparison.

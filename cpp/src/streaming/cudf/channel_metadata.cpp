@@ -4,10 +4,24 @@
  */
 
 #include <memory>
+#include <stdexcept>
+#include <utility>
 
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
 namespace rapidsmpf::streaming {
+
+PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
+    if (o.column_indices.size() != o.orders.size()
+        || o.column_indices.size() != o.null_orders.size())
+    {
+        throw std::invalid_argument(
+            "OrderScheme: column_indices, orders, and null_orders must have the same "
+            "length"
+        );
+    }
+    return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
+}
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
     // Compare basic fields
@@ -30,7 +44,7 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
         return true;
     }
 
-    // Both have boundaries - compare dimensions via table_view
+    // Both have boundaries: shape only (see OrderScheme::operator== doc in header).
     auto this_view = boundaries->table_view();
     auto other_view = other.boundaries->table_view();
     if (this_view.num_rows() != other_view.num_rows()
@@ -39,9 +53,6 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
         return false;
     }
 
-    // Note: Full content comparison would require device-side comparison.
-    // For now, we consider tables with same dimensions as potentially equal.
-    // A more complete implementation would use cudf utilities for comparison.
     return true;
 }
 

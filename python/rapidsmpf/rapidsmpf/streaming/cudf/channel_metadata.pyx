@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Channel metadata types for streaming pipelines."""
 
+# cudaStream_t: boundaries TableChunk exposes libcudf's stream handle;
+# wrap via Stream._from_cudaStream_t (see streaming/core/context.pyx).
 from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
@@ -16,6 +18,9 @@ from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
+
+from pylibcudf.types import NullOrder as PyNullOrder
+from pylibcudf.types import Order as PyOrder
 
 
 cdef extern from * nogil:
@@ -73,7 +78,7 @@ cdef extern from * nogil:
 cdef class HashScheme:
     """Hash partitioning scheme: rows distributed by hash(column_indices) % modulus."""
 
-    def __init__(self, tuple column_indices, int modulus):
+    def __init__(self, object column_indices, int modulus):
         cdef vector[int32_t] cols
         for c in column_indices:
             cols.push_back(<int32_t?>c)
@@ -102,40 +107,29 @@ cdef class HashScheme:
         return f"HashScheme({self.column_indices!r}, {self.modulus})"
 
 
-cdef cpp_order _str_to_order(str s) except *:
-    """Convert Python string to cudf::order enum."""
-    if s == "ascending":
+cdef cpp_order _object_to_cpp_order(object o) except *:
+    """Map pylibcudf.types.Order (int-valued enum) to libcudf order."""
+    cdef int v = int(o)
+    if v == <int>cpp_order.ASCENDING:
         return cpp_order.ASCENDING
-    elif s == "descending":
+    if v == <int>cpp_order.DESCENDING:
         return cpp_order.DESCENDING
-    else:
-        raise ValueError(f"Invalid order: {s!r}, expected 'ascending' or 'descending'")
+    raise ValueError(
+        f"Invalid order: {o!r}; use pylibcudf.types.Order.ASCENDING or Order.DESCENDING"
+    )
 
 
-cdef str _order_to_str(cpp_order o):
-    """Convert cudf::order enum to Python string."""
-    if o == cpp_order.ASCENDING:
-        return "ascending"
-    else:
-        return "descending"
-
-
-cdef cpp_null_order _str_to_null_order(str s) except *:
-    """Convert Python string to cudf::null_order enum."""
-    if s == "first":
+cdef cpp_null_order _object_to_cpp_null_order(object o) except *:
+    """Map pylibcudf.types.NullOrder (int-valued enum) to libcudf null_order."""
+    cdef int v = int(o)
+    if v == <int>cpp_null_order.BEFORE:
         return cpp_null_order.BEFORE
-    elif s == "last":
+    if v == <int>cpp_null_order.AFTER:
         return cpp_null_order.AFTER
-    else:
-        raise ValueError(f"Invalid null_order: {s!r}, expected 'first' or 'last'")
-
-
-cdef str _null_order_to_str(cpp_null_order o):
-    """Convert cudf::null_order enum to Python string."""
-    if o == cpp_null_order.BEFORE:
-        return "first"
-    else:
-        return "last"
+    raise ValueError(
+        f"Invalid null order: {o!r}; use pylibcudf.types.NullOrder.BEFORE or "
+        f"NullOrder.AFTER (libcudf names; BEFORE/AFTER null placement in sort)"
+    )
 
 
 cdef class OrderScheme:
@@ -144,8 +138,15 @@ cdef class OrderScheme:
     Data is partitioned by value ranges based on predetermined boundaries.
     For N partitions, there are N-1 boundary rows.
 
+    Equality (``==``) matches the C++ definition: same indices, orders,
+    null_orders, strict_boundary, and boundary tables with the same shape if
+    present; boundary *cell values* are not compared.
+
     Parameters
     ----------
+    column_indices, orders, null_orders
+        Per sort key: use ``pylibcudf.types.Order`` and ``pylibcudf.types.NullOrder``
+        (libcudf ``BEFORE``/``AFTER`` naming for null placement).
     strict_boundary
         If True, sort keys do not span partition interiors so merge-style
         algorithms may skip halo exchange. Default False.
@@ -153,9 +154,9 @@ cdef class OrderScheme:
 
     def __init__(
         self,
-        tuple column_indices,
-        tuple orders,
-        tuple null_orders,
+        object column_indices,
+        object orders,
+        object null_orders,
         TableChunk boundaries = None,
         *,
         bint strict_boundary = False,
@@ -172,9 +173,9 @@ cdef class OrderScheme:
         for c in column_indices:
             cols.push_back(<int32_t?>c)
         for o in orders:
-            ords.push_back(_str_to_order(o))
+            ords.push_back(_object_to_cpp_order(o))
         for n in null_orders:
-            nulls.push_back(_str_to_null_order(n))
+            nulls.push_back(_object_to_cpp_null_order(n))
 
         self._scheme.column_indices = move(cols)
         self._scheme.orders = move(ords)
@@ -198,15 +199,32 @@ cdef class OrderScheme:
 
     @property
     def orders(self) -> tuple:
-        return tuple(_order_to_str(o) for o in self._scheme.orders)
+        cdef int i
+        cdef int n = <int>self._scheme.orders.size()
+        cdef cpp_order co
+        out = []
+        for i in range(n):
+            co = self._scheme.orders[i]
+            out.append(PyOrder(<int>co))
+        return tuple(out)
 
     @property
     def null_orders(self) -> tuple:
-        return tuple(_null_order_to_str(o) for o in self._scheme.null_orders)
+        cdef int i
+        cdef int n = <int>self._scheme.null_orders.size()
+        cdef cpp_null_order no
+        out = []
+        for i in range(n):
+            no = self._scheme.null_orders[i]
+            out.append(PyNullOrder(<int>no))
+        return tuple(out)
 
     @property
     def has_boundaries(self) -> bool:
-        """Check if boundaries are set."""
+        """True if a boundaries table is attached.
+
+        Cheap; does not build a ``Table``.
+        """
         return has_chunk(self._scheme.boundaries)
 
     @property
@@ -215,12 +233,11 @@ cdef class OrderScheme:
         return self._scheme.strict_boundary
 
     def get_boundaries_table(self):
-        """Get the boundaries as a pylibcudf.Table, or None if not set.
+        """Return boundary rows as ``pylibcudf.Table``, or ``None``.
 
-        Returns
-        -------
-        pylibcudf.Table or None
-            The boundaries table, or None if not set.
+        Prefer :attr:`has_boundaries` for a boolean. This builds a ``Table`` view
+        tied to this object's lifetime; keep use to tests and consumers that must
+        inspect boundary values (e.g. cudf-polars round-trip checks).
         """
         if not has_chunk(self._scheme.boundaries):
             return None

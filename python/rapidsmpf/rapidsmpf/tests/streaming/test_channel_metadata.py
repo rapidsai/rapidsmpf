@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf import (
@@ -41,54 +42,54 @@ def test_order_scheme() -> None:
     """Test OrderScheme construction, properties, equality, and repr."""
     o1 = OrderScheme(
         column_indices=(0, 1),
-        orders=("ascending", "descending"),
-        null_orders=("first", "last"),
+        orders=(plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        null_orders=(plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
     )
     assert o1.column_indices == (0, 1)
-    assert o1.orders == ("ascending", "descending")
-    assert o1.null_orders == ("first", "last")
+    assert o1.orders == (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING)
+    assert o1.null_orders == (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER)
     assert o1.strict_boundary is False
     assert not o1.has_boundaries
     assert o1.get_boundaries_table() is None
     assert "OrderScheme" in repr(o1)
-    assert "ascending" in repr(o1)
+    assert "ASCENDING" in repr(o1)
 
     # Equality (without boundaries)
     o2 = OrderScheme(
         column_indices=(0, 1),
-        orders=("ascending", "descending"),
-        null_orders=("first", "last"),
+        orders=(plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        null_orders=(plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
     )
     assert o1 == o2
 
     # Different orders
     o3 = OrderScheme(
         column_indices=(0, 1),
-        orders=("descending", "descending"),
-        null_orders=("first", "last"),
+        orders=(plc.types.Order.DESCENDING, plc.types.Order.DESCENDING),
+        null_orders=(plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
     )
     assert o1 != o3
 
     # Different column indices
     o4 = OrderScheme(
         column_indices=(2,),
-        orders=("ascending",),
-        null_orders=("first",),
+        orders=(plc.types.Order.ASCENDING,),
+        null_orders=(plc.types.NullOrder.BEFORE,),
     )
     assert o1 != o4
 
     o_strict = OrderScheme(
         (0, 1),
-        ("ascending", "descending"),
-        ("first", "last"),
+        (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
         strict_boundary=True,
     )
     assert o_strict.strict_boundary is True
     assert o1 != o_strict
     o_strict_2 = OrderScheme(
         (0, 1),
-        ("ascending", "descending"),
-        ("first", "last"),
+        (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
         strict_boundary=True,
     )
     assert o_strict == o_strict_2
@@ -114,13 +115,13 @@ def test_order_scheme_with_boundaries(context: Context) -> None:
 
     o1 = OrderScheme(
         column_indices=(0, 1),
-        orders=("ascending", "descending"),
-        null_orders=("first", "last"),
+        orders=(plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        null_orders=(plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
         boundaries=boundaries,
     )
     assert o1.column_indices == (0, 1)
-    assert o1.orders == ("ascending", "descending")
-    assert o1.null_orders == ("first", "last")
+    assert o1.orders == (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING)
+    assert o1.null_orders == (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER)
     assert o1.has_boundaries
     # Get the boundaries as a pylibcudf.Table
     tbl = o1.get_boundaries_table()
@@ -135,31 +136,37 @@ def test_order_scheme_validation() -> None:
     with pytest.raises(ValueError, match="same length"):
         OrderScheme(
             column_indices=(0, 1),
-            orders=("ascending",),  # Wrong length
-            null_orders=("first", "last"),
+            orders=(plc.types.Order.ASCENDING,),  # Wrong length
+            null_orders=(
+                plc.types.NullOrder.BEFORE,
+                plc.types.NullOrder.AFTER,
+            ),
         )
 
     with pytest.raises(ValueError, match="same length"):
         OrderScheme(
             column_indices=(0, 1),
-            orders=("ascending", "descending"),
-            null_orders=("first",),  # Wrong length
+            orders=(
+                plc.types.Order.ASCENDING,
+                plc.types.Order.DESCENDING,
+            ),
+            null_orders=(plc.types.NullOrder.BEFORE,),  # Wrong length
         )
 
-    # Invalid order string
+    # Invalid order value (not ASCENDING/DESCENDING)
     with pytest.raises(ValueError, match="Invalid order"):
         OrderScheme(
             column_indices=(0,),
-            orders=("invalid",),  # type: ignore[arg-type]
-            null_orders=("first",),
+            orders=(99,),  # type: ignore[arg-type]
+            null_orders=(plc.types.NullOrder.BEFORE,),
         )
 
-    # Invalid null_order string
-    with pytest.raises(ValueError, match="Invalid null_order"):
+    # Invalid null order value (not BEFORE/AFTER)
+    with pytest.raises(ValueError, match="Invalid null order"):
         OrderScheme(
             column_indices=(0,),
-            orders=("ascending",),
-            null_orders=("invalid",),  # type: ignore[arg-type]
+            orders=(plc.types.Order.ASCENDING,),
+            null_orders=(99,),  # type: ignore[arg-type]
         )
 
 
@@ -189,8 +196,8 @@ def test_partitioning_scenarios() -> None:
     # Order-based partitioning (range partitioned / sorted)
     order_scheme = OrderScheme(
         column_indices=(0,),
-        orders=("ascending",),
-        null_orders=("last",),
+        orders=(plc.types.Order.ASCENDING,),
+        null_orders=(plc.types.NullOrder.AFTER,),
     )
     p_ordered = Partitioning(order_scheme, "inherit")
     assert p_ordered.inter_rank == order_scheme
@@ -198,7 +205,11 @@ def test_partitioning_scenarios() -> None:
 
     # Mixed: inter_rank=Order, local=Hash
     p_mixed = Partitioning(
-        OrderScheme((0,), ("ascending",), ("first",)),
+        OrderScheme(
+            (0,),
+            (plc.types.Order.ASCENDING,),
+            (plc.types.NullOrder.BEFORE,),
+        ),
         HashScheme((1,), 8),
     )
     assert isinstance(p_mixed.inter_rank, OrderScheme)
@@ -269,8 +280,8 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
 
     order_scheme = OrderScheme(
         column_indices=(0, 1),
-        orders=("ascending", "descending"),
-        null_orders=("first", "last"),
+        orders=(plc.types.Order.ASCENDING, plc.types.Order.DESCENDING),
+        null_orders=(plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER),
         boundaries=boundaries,
         strict_boundary=True,
     )
@@ -288,8 +299,14 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     assert got_m.duplicated is True
     assert isinstance(got_m.partitioning.inter_rank, OrderScheme)
     assert got_m.partitioning.inter_rank.column_indices == (0, 1)
-    assert got_m.partitioning.inter_rank.orders == ("ascending", "descending")
-    assert got_m.partitioning.inter_rank.null_orders == ("first", "last")
+    assert got_m.partitioning.inter_rank.orders == (
+        plc.types.Order.ASCENDING,
+        plc.types.Order.DESCENDING,
+    )
+    assert got_m.partitioning.inter_rank.null_orders == (
+        plc.types.NullOrder.BEFORE,
+        plc.types.NullOrder.AFTER,
+    )
     assert got_m.partitioning.local == "inherit"
     assert got_m.partitioning.inter_rank.strict_boundary is True
     # Boundaries should round-trip through the message

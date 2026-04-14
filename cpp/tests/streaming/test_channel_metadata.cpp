@@ -3,11 +3,29 @@
  * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdexcept>
+
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
 using namespace rapidsmpf::streaming;
+
+namespace {
+
+/** Two-key OrderScheme shared by message round-trip tests (strict_boundary in one init).
+ */
+OrderScheme make_order_scheme_two_key(bool strict_boundary) {
+    return OrderScheme{
+        {0, 1},
+        {cudf::order::ASCENDING, cudf::order::DESCENDING},
+        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        nullptr,
+        strict_boundary,
+    };
+}
+
+}  // namespace
 
 class StreamingChannelMetadata : public ::testing::Test {};
 
@@ -79,6 +97,20 @@ TEST_F(StreamingChannelMetadata, OrderScheme) {
         nullptr
     };
     EXPECT_NE(o, o_diff_nulls);
+}
+
+TEST_F(StreamingChannelMetadata, FromOrderRejectsMismatchedLengths) {
+    EXPECT_THROW(
+        static_cast<void>(PartitioningSpec::from_order(
+            OrderScheme{
+                {0, 1},
+                {cudf::order::ASCENDING},
+                {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+                nullptr,
+            }
+        )),
+        std::invalid_argument
+    );
 }
 
 TEST_F(StreamingChannelMetadata, PartitioningSpec) {
@@ -228,16 +260,9 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderScheme) {
-    // ChannelMetadata round-trip with OrderScheme
+    // ChannelMetadata round-trip with OrderScheme (full field assertions).
     Partitioning part{
-        PartitioningSpec::from_order(
-            OrderScheme{
-                {0, 1},
-                {cudf::order::ASCENDING, cudf::order::DESCENDING},
-                {cudf::null_order::BEFORE, cudf::null_order::AFTER},
-                nullptr
-            }
-        ),
+        PartitioningSpec::from_order(make_order_scheme_two_key(false)),
         PartitioningSpec::inherit()
     };
     auto m = std::make_unique<ChannelMetadata>(8, std::move(part), true);
@@ -265,16 +290,10 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderScheme) {
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderSchemeStrictBoundary) {
-    OrderScheme os{
-        {0, 1},
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
-        nullptr
-    };
-    os.strict_boundary = true;
-
+    // Only strict_boundary + Message path; full OrderScheme field checks are above.
     Partitioning part{
-        PartitioningSpec::from_order(std::move(os)), PartitioningSpec::inherit()
+        PartitioningSpec::from_order(make_order_scheme_two_key(true)),
+        PartitioningSpec::inherit()
     };
     auto m = std::make_unique<ChannelMetadata>(8, std::move(part), false);
     auto msg_m = to_message(43, std::move(m));

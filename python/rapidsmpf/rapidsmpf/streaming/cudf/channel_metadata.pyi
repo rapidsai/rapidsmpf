@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal, Self
 
 import pylibcudf as plc
@@ -12,7 +13,7 @@ from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 class HashScheme:
-    def __init__(self, column_indices: tuple[int, ...], modulus: int) -> None: ...
+    def __init__(self, column_indices: Sequence[int], modulus: int) -> None: ...
     @property
     def column_indices(self) -> tuple[int, ...]: ...
     @property
@@ -23,9 +24,9 @@ class HashScheme:
 class OrderScheme:
     def __init__(
         self,
-        column_indices: tuple[int, ...],
-        orders: tuple[Literal["ascending", "descending"], ...],
-        null_orders: tuple[Literal["first", "last"], ...],
+        column_indices: Sequence[int],
+        orders: Sequence[plc.types.Order],
+        null_orders: Sequence[plc.types.NullOrder],
         boundaries: TableChunk | None = None,
         *,
         strict_boundary: bool = False,
@@ -33,14 +34,15 @@ class OrderScheme:
     @property
     def column_indices(self) -> tuple[int, ...]: ...
     @property
-    def orders(self) -> tuple[Literal["ascending", "descending"], ...]: ...
+    def orders(self) -> tuple[plc.types.Order, ...]: ...
     @property
-    def null_orders(self) -> tuple[Literal["first", "last"], ...]: ...
+    def null_orders(self) -> tuple[plc.types.NullOrder, ...]: ...
     @property
     def has_boundaries(self) -> bool: ...
     @property
     def strict_boundary(self) -> bool: ...
     def get_boundaries_table(self) -> plc.Table | None: ...
+    # Shallow equality: boundary values not compared.
     def __eq__(self, other: object) -> bool: ...
     def __repr__(self) -> str: ...
 
