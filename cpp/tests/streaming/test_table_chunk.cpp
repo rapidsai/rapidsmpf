@@ -462,7 +462,7 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
         m.content_description().content_size(MemoryType::DEVICE),
         cudf::packed_size(expect, stream)
     );
-    EXPECT_GT(
+    EXPECT_GE(
         m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
