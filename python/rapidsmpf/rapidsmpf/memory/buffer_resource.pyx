@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
@@ -119,6 +120,8 @@ cdef extern from * nogil:
         vector[MemoryType],
     ) except +ex_handler
 
+
+@no_gc_clear
 cdef class BufferResource:
     """
     Class managing buffer resources.

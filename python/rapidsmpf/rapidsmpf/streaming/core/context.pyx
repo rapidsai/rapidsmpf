@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
@@ -21,6 +22,7 @@ from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
 from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
 
 
+@no_gc_clear
 cdef class Context:
     """
     Context for actors (coroutines) in rapidsmpf.

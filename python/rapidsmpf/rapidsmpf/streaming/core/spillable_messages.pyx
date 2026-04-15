@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
 from libc.stdint cimport uint64_t
@@ -12,6 +13,7 @@ from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.content_description cimport content_description_from_cpp
 
 
+@no_gc_clear
 cdef class SpillableMessages:
     """
     Container for individually spillable messages.
