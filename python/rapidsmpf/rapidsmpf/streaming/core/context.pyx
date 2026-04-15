@@ -82,7 +82,7 @@ cdef class Context:
             )
 
         self._spillable_messages = SpillableMessages.from_handle(
-            deref(self._handle).spillable_messages()
+            deref(self._handle).spillable_messages(), self._br
         )
         self._memory = {}
         for mem_type in py_MemoryType:

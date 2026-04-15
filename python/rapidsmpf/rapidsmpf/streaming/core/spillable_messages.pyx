@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -29,18 +29,20 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self):
+    def __init__(self, BufferResource br=None):
         self._handle = make_shared[cpp_SpillableMessages]()
+        self._br = br
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
 
     @staticmethod
-    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle):
+    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle, BufferResource br=None):
         """Create a new instance from an existing C++ handle."""
         cdef SpillableMessages ret = SpillableMessages.__new__(SpillableMessages)
         ret._handle = move(handle)
+        ret._br = br
         return ret
 
     def insert(self, Message message not None):
