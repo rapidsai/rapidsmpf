@@ -31,7 +31,7 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self, BufferResource br=None):
+    def __init__(self, BufferResource br not None):
         self._handle = make_shared[cpp_SpillableMessages]()
         self._br = br
 
@@ -40,7 +40,10 @@ cdef class SpillableMessages:
             self._handle.reset()
 
     @staticmethod
-    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle, BufferResource br=None):
+    cdef from_handle(
+        shared_ptr[cpp_SpillableMessages] handle,
+        BufferResource br not None
+    ):
         """Create a new instance from an existing C++ handle."""
         cdef SpillableMessages ret = SpillableMessages.__new__(SpillableMessages)
         ret._handle = move(handle)
