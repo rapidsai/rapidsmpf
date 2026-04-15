@@ -60,8 +60,13 @@ TEST_F(StreamingChannelMetadata, OrderScheme) {
     EXPECT_EQ(o.boundaries, nullptr);
     EXPECT_FALSE(o.strict_boundary);
 
-    OrderScheme o_strict = o;
-    o_strict.strict_boundary = true;
+    OrderScheme o_strict{
+        {0, 1},
+        {cudf::order::ASCENDING, cudf::order::DESCENDING},
+        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        nullptr,
+        true,
+    };
     EXPECT_NE(o, o_strict);
     EXPECT_TRUE(o_strict.strict_boundary);
 

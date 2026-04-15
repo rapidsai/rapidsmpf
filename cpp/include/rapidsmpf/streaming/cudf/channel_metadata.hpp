@@ -12,6 +12,8 @@
 
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -60,8 +62,19 @@ struct OrderScheme {
     std::vector<cudf::order> orders;  ///< Sort order per column (ASCENDING/DESCENDING).
     std::vector<cudf::null_order>
         null_orders;  ///< Null ordering per column (BEFORE/AFTER).
-    std::shared_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
+    std::unique_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
     bool strict_boundary{false};  ///< Sort keys disjoint across chunks.
+
+    /**
+     * @brief Deep-copy this scheme into a new one.
+     *
+     * Copies vectors and `strict_boundary`. If `boundaries` is non-null, copies
+     * the underlying `TableChunk` via `TableChunk::copy(reservation)`.
+     *
+     * @param reservation Memory reservation for the boundary copy.
+     * @return A new independent `OrderScheme`.
+     */
+    [[nodiscard]] OrderScheme clone(MemoryReservation& reservation) const;
 
     /**
      * @brief Shallow metadata equality (not semantic boundary value equality).
@@ -141,6 +154,17 @@ struct PartitioningSpec {
     static PartitioningSpec from_order(OrderScheme o);
 
     /**
+     * @brief Deep-copy this spec, cloning any ORDER boundaries via `reservation`.
+     *
+     * NONE/INHERIT/HASH arms are trivially cheap; ORDER delegates to
+     * `OrderScheme::clone(reservation)`.
+     *
+     * @param reservation Memory reservation forwarded to `OrderScheme::clone`.
+     * @return A new independent `PartitioningSpec`.
+     */
+    [[nodiscard]] PartitioningSpec clone(MemoryReservation& reservation) const;
+
+    /**
      * @brief Equality comparison.
      * @return True if both specs are equal.
      */
@@ -166,6 +190,13 @@ struct Partitioning {
     PartitioningSpec inter_rank;
     /// Distribution within a rank (corresponds to local/single communicator).
     PartitioningSpec local;
+
+    /**
+     * @brief Deep-copy, cloning any ORDER boundaries via `reservation`.
+     * @param reservation Memory reservation forwarded through the clone chain.
+     * @return A new independent `Partitioning`.
+     */
+    [[nodiscard]] Partitioning clone(MemoryReservation& reservation) const;
 
     /**
      * @brief Equality comparison.
@@ -203,11 +234,31 @@ struct ChannelMetadata {
           duplicated(duplicated) {}
 
     /**
+     * @brief Deep-copy, cloning any ORDER boundaries via `reservation`.
+     * @param reservation Memory reservation forwarded through the clone chain.
+     * @return A new independent `ChannelMetadata`.
+     */
+    [[nodiscard]] ChannelMetadata clone(MemoryReservation& reservation) const;
+
+    /**
      * @brief Equality comparison.
      * @return True if both metadata objects are equal.
      */
     bool operator==(ChannelMetadata const&) const = default;
 };
+
+/**
+ * @brief Compute a `ContentDescription` for a `ChannelMetadata`.
+ *
+ * Walks `m.partitioning.inter_rank` and `m.partitioning.local` and accumulates
+ * per-memory-type sizes from any ORDER boundary `TableChunk`. Spillability is
+ * set to `Spillable::NO`; full spill support for metadata messages is a
+ * separate concern.
+ *
+ * @param m The metadata to describe.
+ * @return A `ContentDescription` reflecting boundary device bytes.
+ */
+ContentDescription content_description_for(ChannelMetadata const& m);
 
 /**
  * @brief Wrap a `ChannelMetadata` into a `Message`.

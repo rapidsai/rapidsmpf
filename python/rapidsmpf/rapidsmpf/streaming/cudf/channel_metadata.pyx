@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Channel metadata types for streaming pipelines."""
 
-# cudaStream_t: boundaries TableChunk exposes libcudf's stream handle;
-# wrap via Stream._from_cudaStream_t (see streaming/core/context.pyx).
 from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
@@ -17,7 +15,7 @@ from pylibcudf.table cimport Table
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.streaming.core.message cimport Message
-from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
+from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
 
 from pylibcudf.types import NullOrder as PyNullOrder
 from pylibcudf.types import Order as PyOrder
@@ -26,52 +24,119 @@ from pylibcudf.types import Order as PyOrder
 cdef extern from * nogil:
     """
     #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+    #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
     #include <memory>
     namespace {
-    // Convert unique_ptr to shared_ptr (takes ownership)
-    std::shared_ptr<rapidsmpf::streaming::TableChunk>
-    unique_to_shared(std::unique_ptr<rapidsmpf::streaming::TableChunk> ptr) {
-        return std::shared_ptr<rapidsmpf::streaming::TableChunk>(ptr.release());
-    }
-    // Check if shared_ptr is non-null
-    bool has_chunk(const std::shared_ptr<rapidsmpf::streaming::TableChunk>& ptr) {
-        return ptr != nullptr;
-    }
-    // Get table_view from shared_ptr<TableChunk>
-    cudf::table_view get_boundaries_view(
-        const std::shared_ptr<rapidsmpf::streaming::TableChunk>& ptr
-    ) {
-        return ptr->table_view();
-    }
-    // Get cudaStream_t from shared_ptr<TableChunk>
-    cudaStream_t get_boundaries_stream(
-        const std::shared_ptr<rapidsmpf::streaming::TableChunk>& ptr
-    ) {
-        return ptr->stream().value();
-    }
-    }
-    """
-    shared_ptr[cpp_TableChunk] unique_to_shared(
-        unique_ptr[cpp_TableChunk]
-    ) noexcept
-    bint has_chunk(const shared_ptr[cpp_TableChunk]&) noexcept
-    cpp_table_view get_boundaries_view(const shared_ptr[cpp_TableChunk]&) except +
-    cudaStream_t get_boundaries_stream(const shared_ptr[cpp_TableChunk]&) noexcept
 
+    // In-place spec setters — use move-assignment to avoid copy of move-only types.
+    void _spec_set_none(rapidsmpf::streaming::PartitioningSpec& s) {
+        s = rapidsmpf::streaming::PartitioningSpec::none();
+    }
+    void _spec_set_inherit(rapidsmpf::streaming::PartitioningSpec& s) {
+        s = rapidsmpf::streaming::PartitioningSpec::inherit();
+    }
+    void _spec_set_hash(rapidsmpf::streaming::PartitioningSpec& s,
+                        rapidsmpf::streaming::HashScheme h) {
+        s = rapidsmpf::streaming::PartitioningSpec::from_hash(std::move(h));
+    }
+    // Copies vectors, moves boundaries (source keeps vectors, loses ownership).
+    void _spec_set_order(rapidsmpf::streaming::PartitioningSpec& s,
+                         rapidsmpf::streaming::OrderScheme& src) {
+        rapidsmpf::streaming::OrderScheme o{
+            .column_indices = src.column_indices,
+            .orders         = src.orders,
+            .null_orders    = src.null_orders,
+            .boundaries     = std::move(src.boundaries),
+            .strict_boundary = src.strict_boundary,
+        };
+        s = rapidsmpf::streaming::PartitioningSpec::from_order(std::move(o));
+    }
 
-cdef extern from * nogil:
-    """
-    namespace {
+    // Return a table_view from the raw OrderScheme pointer.
+    cudf::table_view _order_scheme_boundaries_view(
+        const rapidsmpf::streaming::OrderScheme* p
+    ) {
+        return p->boundaries->table_view();
+    }
+
+    // Return the cuda stream from the raw OrderScheme pointer.
+    cudaStream_t _order_scheme_boundaries_stream(
+        const rapidsmpf::streaming::OrderScheme* p
+    ) {
+        return p->boundaries->stream().value();
+    }
+
+    // Retrieve a raw pointer to the OrderScheme inside an ORDER PartitioningSpec.
+    rapidsmpf::streaming::OrderScheme* _spec_order_ptr(
+        rapidsmpf::streaming::PartitioningSpec& spec
+    ) {
+        return &spec.order.value();
+    }
+
     std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
     cpp_channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
         return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
             msg.release<rapidsmpf::streaming::ChannelMetadata>()
         );
     }
+
+    // Construct ChannelMetadata by shallow-cloning a Partitioning:
+    // copies hash specs and vectors; moves any ORDER boundaries (source loses them).
+    std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
+    _make_channel_metadata(
+        uint64_t local_count,
+        rapidsmpf::streaming::Partitioning& p,
+        bool duplicated
+    ) {
+        auto clone_spec = [](rapidsmpf::streaming::PartitioningSpec& spec)
+            -> rapidsmpf::streaming::PartitioningSpec
+        {
+            using T = rapidsmpf::streaming::PartitioningSpec::Type;
+            switch (spec.type) {
+                case T::NONE:
+                    return rapidsmpf::streaming::PartitioningSpec::none();
+                case T::INHERIT:
+                    return rapidsmpf::streaming::PartitioningSpec::inherit();
+                case T::HASH:
+                    return rapidsmpf::streaming::PartitioningSpec::from_hash(
+                        *spec.hash
+                    );
+                case T::ORDER: {
+                    rapidsmpf::streaming::OrderScheme o{
+                        .column_indices  = spec.order->column_indices,
+                        .orders          = spec.order->orders,
+                        .null_orders     = spec.order->null_orders,
+                        .boundaries      = std::move(spec.order->boundaries),
+                        .strict_boundary = spec.order->strict_boundary,
+                    };
+                    return rapidsmpf::streaming::PartitioningSpec::from_order(
+                        std::move(o)
+                    );
+                }
+            }
+            return rapidsmpf::streaming::PartitioningSpec::none();
+        };
+        rapidsmpf::streaming::Partitioning part{
+            clone_spec(p.inter_rank), clone_spec(p.local)
+        };
+        return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
+            local_count, std::move(part), duplicated
+        );
+    }
     }
     """
+    void _spec_set_none(cpp_PartitioningSpec&) noexcept
+    void _spec_set_inherit(cpp_PartitioningSpec&) noexcept
+    void _spec_set_hash(cpp_PartitioningSpec&, cpp_HashScheme) noexcept
+    void _spec_set_order(cpp_PartitioningSpec&, cpp_OrderScheme&) except +
+    cpp_table_view _order_scheme_boundaries_view(cpp_OrderScheme*) except +
+    cudaStream_t _order_scheme_boundaries_stream(cpp_OrderScheme*) noexcept
+    cpp_OrderScheme* _spec_order_ptr(cpp_PartitioningSpec&) noexcept
     unique_ptr[cpp_ChannelMetadata] cpp_channel_metadata_from_message(
         cpp_Message
+    ) except +
+    unique_ptr[cpp_ChannelMetadata] _make_channel_metadata(
+        uint64_t, cpp_Partitioning&, bint
     ) except +
 
 
@@ -150,7 +215,18 @@ cdef class OrderScheme:
     strict_boundary
         If True, sort keys do not span partition interiors so merge-style
         algorithms may skip halo exchange. Default False.
+
+    Notes
+    -----
+    Passing this object to ``Partitioning(...)`` transfers ownership of any
+    ``boundaries`` data into the partitioning.  The source object retains its
+    column/order vectors, but ``get_boundaries_table()`` will return ``None``
+    afterward.
     """
+
+    def __cinit__(self):
+        self._view = NULL
+        self._owner = None
 
     def __init__(
         self,
@@ -182,8 +258,7 @@ cdef class OrderScheme:
         self._scheme.null_orders = move(nulls)
 
         if boundaries is not None:
-            # Move the TableChunk's handle into a shared_ptr (consumes the TableChunk)
-            self._scheme.boundaries = unique_to_shared(boundaries.release_handle())
+            self._scheme.boundaries = move(boundaries.release_handle())
 
         self._scheme.strict_boundary = strict_boundary
 
@@ -193,57 +268,60 @@ cdef class OrderScheme:
         ret._scheme = move(scheme)
         return ret
 
+    @staticmethod
+    cdef OrderScheme view_of(cpp_OrderScheme* ptr, object owner):
+        """Return a non-owning OrderScheme backed by *ptr; owner kept alive."""
+        cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
+        ret._view = ptr
+        ret._owner = owner
+        return ret
+
+    cdef cpp_OrderScheme* _get(self):
+        return self._view if self._view != NULL else &self._scheme
+
     @property
     def column_indices(self) -> tuple:
-        return tuple(self._scheme.column_indices)
+        return tuple(self._get().column_indices)
 
     @property
     def orders(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._scheme.orders.size()
+        cdef int n = <int>self._get().orders.size()
         cdef cpp_order co
         out = []
         for i in range(n):
-            co = self._scheme.orders[i]
+            co = self._get().orders[i]
             out.append(PyOrder(<int>co))
         return tuple(out)
 
     @property
     def null_orders(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._scheme.null_orders.size()
+        cdef int n = <int>self._get().null_orders.size()
         cdef cpp_null_order no
         out = []
         for i in range(n):
-            no = self._scheme.null_orders[i]
+            no = self._get().null_orders[i]
             out.append(PyNullOrder(<int>no))
         return tuple(out)
 
     @property
-    def has_boundaries(self) -> bool:
-        """True if a boundaries table is attached.
-
-        Cheap; does not build a ``Table``.
-        """
-        return has_chunk(self._scheme.boundaries)
-
-    @property
     def strict_boundary(self) -> bool:
         """True if sort keys do not span partition interiors (strict ranges)."""
-        return self._scheme.strict_boundary
+        return self._get().strict_boundary
 
     def get_boundaries_table(self):
         """Return boundary rows as ``pylibcudf.Table``, or ``None``.
 
-        Prefer :attr:`has_boundaries` for a boolean. This builds a ``Table`` view
-        tied to this object's lifetime; keep use to tests and consumers that must
-        inspect boundary values (e.g. cudf-polars round-trip checks).
+        Builds a ``Table`` view tied to this object's lifetime; keep use to
+        tests and consumers that must inspect boundary values (e.g. cudf-polars
+        round-trip checks).
         """
-        if not has_chunk(self._scheme.boundaries):
+        if self._get().boundaries == NULL:
             return None
-        cdef cpp_table_view view = get_boundaries_view(self._scheme.boundaries)
-        cdef cudaStream_t stream = get_boundaries_stream(self._scheme.boundaries)
-        # owner=self keeps the underlying TableChunk (via shared_ptr) alive
+        cdef cpp_table_view view = _order_scheme_boundaries_view(self._get())
+        cdef cudaStream_t stream = _order_scheme_boundaries_stream(self._get())
+        # owner=self keeps the OrderScheme (and its keepalive chain) alive
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )
@@ -251,26 +329,28 @@ cdef class OrderScheme:
     def __eq__(self, other):
         if not isinstance(other, OrderScheme):
             return NotImplemented
-        return self._scheme == (<OrderScheme>other)._scheme
+        return deref(self._get()) == deref((<OrderScheme>other)._get())
 
     def __repr__(self):
+        has_b = self._get().boundaries != NULL
         return (
             f"OrderScheme({self.column_indices!r}, {self.orders!r}, "
-            f"{self.null_orders!r}, has_boundaries={self.has_boundaries}, "
+            f"{self.null_orders!r}, has_boundaries={has_b}, "
             f"strict_boundary={self.strict_boundary})"
         )
 
 
-cdef cpp_PartitioningSpec _to_spec(obj) except *:
-    """Convert Python object to PartitioningSpec."""
+cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
+    """Set *spec* in-place from a Python object (avoids copying move-only types)."""
     if obj is None:
-        return cpp_PartitioningSpec.none()
+        _spec_set_none(spec)
     elif obj == "inherit":
-        return cpp_PartitioningSpec.inherit()
+        _spec_set_inherit(spec)
     elif isinstance(obj, HashScheme):
-        return cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
+        _spec_set_hash(spec, (<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        return cpp_PartitioningSpec.from_order((<OrderScheme>obj)._scheme)
+        # Copies vectors; moves boundaries unique_ptr (source loses boundary ownership).
+        _spec_set_order(spec, (<OrderScheme>obj)._scheme)
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -278,8 +358,11 @@ cdef cpp_PartitioningSpec _to_spec(obj) except *:
         )
 
 
-cdef object _from_spec(cpp_PartitioningSpec spec):
-    """Convert PartitioningSpec to Python object."""
+cdef object _from_spec(cpp_PartitioningSpec& spec, object owner):
+    """Convert PartitioningSpec (by reference) to Python object.
+
+    For ORDER specs, returns a non-owning OrderScheme view backed by *owner*.
+    """
     if spec.type == cpp_PartitioningSpec.cpp_Type.NONE:
         return None
     elif spec.type == cpp_PartitioningSpec.cpp_Type.INHERIT:
@@ -287,7 +370,7 @@ cdef object _from_spec(cpp_PartitioningSpec spec):
     elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     elif spec.type == cpp_PartitioningSpec.cpp_Type.ORDER:
-        return OrderScheme.from_cpp(deref(spec.order))
+        return OrderScheme.view_of(_spec_order_ptr(spec), owner)
     else:
         raise ValueError("Unknown PartitioningSpec.Type")
 
@@ -306,10 +389,14 @@ cdef class Partitioning:
         or 'inherit'.
     """
 
+    def __cinit__(self):
+        self._ptr = NULL
+        self._owner = None
+
     def __init__(self, inter_rank=None, local=None):
         self._handle = make_unique[cpp_Partitioning]()
-        deref(self._handle).inter_rank = _to_spec(inter_rank)
-        deref(self._handle).local = _to_spec(local)
+        _apply_spec(deref(self._handle).inter_rank, inter_rank)
+        _apply_spec(deref(self._handle).local, local)
 
     def __dealloc__(self):
         with nogil:
@@ -321,18 +408,29 @@ cdef class Partitioning:
         ret._handle = move(handle)
         return ret
 
+    @staticmethod
+    cdef Partitioning view_of(cpp_Partitioning* ptr, object owner):
+        """Return a non-owning Partitioning backed by *ptr; owner kept alive."""
+        cdef Partitioning ret = Partitioning.__new__(Partitioning)
+        ret._ptr = ptr
+        ret._owner = owner
+        return ret
+
+    cdef cpp_Partitioning* _get(self):
+        return self._ptr if self._ptr != NULL else self._handle.get()
+
     @property
     def inter_rank(self):
-        return _from_spec(deref(self._handle).inter_rank)
+        return _from_spec(self._get().inter_rank, self)
 
     @property
     def local(self):
-        return _from_spec(deref(self._handle).local)
+        return _from_spec(self._get().local, self)
 
     def __eq__(self, other):
         if not isinstance(other, Partitioning):
             return NotImplemented
-        return deref(self._handle) == deref((<Partitioning>other)._handle)
+        return deref(self._get()) == deref((<Partitioning>other)._get())
 
     def __repr__(self):
         return f"Partitioning(inter_rank={self.inter_rank!r}, local={self.local!r})"
@@ -362,13 +460,15 @@ cdef class ChannelMetadata:
         if local_count < 0:
             raise ValueError(f"local_count must be non-negative, got {local_count}")
 
-        cdef cpp_Partitioning part
+        cdef cpp_Partitioning empty_part
         if partitioning is not None:
-            part = deref((<Partitioning>partitioning)._handle)
-
-        self._handle = make_unique[cpp_ChannelMetadata](
-            local_count, part, duplicated
-        )
+            # Shallow-clone: copies hash specs and vectors, moves ORDER boundaries.
+            # The source Partitioning retains its vectors but loses boundary ownership.
+            self._handle = _make_channel_metadata(
+                local_count, deref((<Partitioning>partitioning)._get()), duplicated
+            )
+        else:
+            self._handle = _make_channel_metadata(local_count, empty_part, duplicated)
 
     def __dealloc__(self):
         with nogil:
@@ -407,9 +507,10 @@ cdef class ChannelMetadata:
 
     @property
     def partitioning(self) -> Partitioning:
-        cdef Partitioning ret = Partitioning.__new__(Partitioning)
-        ret._handle = make_unique[cpp_Partitioning](self.handle_ptr().partitioning)
-        return ret
+        if not self._handle:
+            raise ValueError("ChannelMetadata is uninitialized, has it been released?")
+        # Non-owning view backed by this object (keeps self alive).
+        return Partitioning.view_of(&self._handle.get().partitioning, self)
 
     @property
     def duplicated(self) -> bool:

@@ -49,7 +49,6 @@ def test_order_scheme() -> None:
     assert o1.orders == (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING)
     assert o1.null_orders == (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER)
     assert o1.strict_boundary is False
-    assert not o1.has_boundaries
     assert o1.get_boundaries_table() is None
     assert "OrderScheme" in repr(o1)
     assert "ASCENDING" in repr(o1)
@@ -122,7 +121,6 @@ def test_order_scheme_with_boundaries(context: Context) -> None:
     assert o1.column_indices == (0, 1)
     assert o1.orders == (plc.types.Order.ASCENDING, plc.types.Order.DESCENDING)
     assert o1.null_orders == (plc.types.NullOrder.BEFORE, plc.types.NullOrder.AFTER)
-    assert o1.has_boundaries
     # Get the boundaries as a pylibcudf.Table
     tbl = o1.get_boundaries_table()
     assert tbl is not None
@@ -285,8 +283,6 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
         boundaries=boundaries,
         strict_boundary=True,
     )
-    assert order_scheme.has_boundaries
-
     m = ChannelMetadata(
         local_count=8,
         partitioning=Partitioning(order_scheme, "inherit"),
@@ -309,8 +305,6 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     )
     assert got_m.partitioning.local == "inherit"
     assert got_m.partitioning.inter_rank.strict_boundary is True
-    # Boundaries should round-trip through the message
-    assert got_m.partitioning.inter_rank.has_boundaries
     tbl = got_m.partitioning.inter_rank.get_boundaries_table()
     assert tbl is not None
     assert tbl.num_columns() == 2

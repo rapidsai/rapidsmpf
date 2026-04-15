@@ -3,7 +3,7 @@
 
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport unique_ptr
 from libcpp.optional cimport optional
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
@@ -27,7 +27,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         vector[int32_t] column_indices
         vector[cpp_order] orders
         vector[cpp_null_order] null_orders
-        shared_ptr[cpp_TableChunk] boundaries
+        unique_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundary
         cpp_OrderScheme() except +
         bool_t operator==(const cpp_OrderScheme&)
@@ -86,17 +86,31 @@ cdef class HashScheme:
 
 
 cdef class OrderScheme:
-    cdef cpp_OrderScheme _scheme
+    cdef cpp_OrderScheme _scheme       # owning (used when _view is NULL)
+    cdef cpp_OrderScheme* _view        # non-owning (used when non-NULL)
+    cdef object _owner                 # keepalive for non-owning mode
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme)
 
+    @staticmethod
+    cdef OrderScheme view_of(cpp_OrderScheme* ptr, object owner)
+
+    cdef cpp_OrderScheme* _get(self)
+
 
 cdef class Partitioning:
-    cdef unique_ptr[cpp_Partitioning] _handle
+    cdef unique_ptr[cpp_Partitioning] _handle  # owning (used when _ptr is NULL)
+    cdef cpp_Partitioning* _ptr                # non-owning (used when non-NULL)
+    cdef object _owner                         # keepalive for non-owning mode
 
     @staticmethod
     cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)
+
+    @staticmethod
+    cdef Partitioning view_of(cpp_Partitioning* ptr, object owner)
+
+    cdef cpp_Partitioning* _get(self)
 
 
 cdef class ChannelMetadata:
