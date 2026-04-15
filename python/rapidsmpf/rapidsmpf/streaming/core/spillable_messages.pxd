@@ -37,4 +37,4 @@ cdef class SpillableMessages:
     cdef BufferResource _br
 
     @staticmethod
-    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle, BufferResource br=*)
+    cdef from_handle(shared_ptr[cpp_SpillableMessages] handle, BufferResource br)
