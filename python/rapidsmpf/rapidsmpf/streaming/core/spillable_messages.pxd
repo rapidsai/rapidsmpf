@@ -28,6 +28,12 @@ cdef class SpillableMessages:
     cdef shared_ptr[cpp_SpillableMessages] _handle
     # Keep the BufferResource alive as long as this object is so that when this
     # object is deallocated the associated stream and memory resource are still alive.
+    # Unlike other rapidsmpf objects that do this, under normal execution flow
+    # SpillableMessages should not actually hold any GPU memory in a situation where the
+    # BufferResource has been deallocated. However, when an exception is raised and a
+    # context is shut down, there could be unspilled (on-device) messages that have not
+    # been consumed, and they will end up being cleaned up later by the gc. The
+    # BufferResource must still be alive at that point.
     cdef BufferResource _br
 
     @staticmethod
