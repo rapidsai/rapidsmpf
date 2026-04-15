@@ -21,6 +21,7 @@ from rapidsmpf.memory.packed_data cimport cpp_PackedData
 cdef extern from *:
     """
     #include <rapidsmpf/error.hpp>
+    #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 
     std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_buffers(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
@@ -67,12 +68,8 @@ cdef extern from *:
         auto const nbytes = buf->size;
         std::vector<std::uint8_t> result(nbytes);
         if (nbytes > 0) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                result.data(),
-                buf->data(),
-                nbytes,
-                cudaMemcpyDefault,
-                buf->stream().value()
+            RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
+                result.data(), buf->data(), nbytes, buf->stream()
             ));
             buf->stream().synchronize();
         }

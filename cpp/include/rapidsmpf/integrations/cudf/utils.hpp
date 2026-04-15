@@ -8,6 +8,7 @@
 #include <string>
 
 #include <cudf/column/column_view.hpp>
+#include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
@@ -78,6 +79,5 @@ std::size_t estimated_memory_usage(
 std::size_t estimated_memory_usage(
     cudf::table_view const& tbl, rmm::cuda_stream_view stream
 );
-
 
 }  // namespace rapidsmpf

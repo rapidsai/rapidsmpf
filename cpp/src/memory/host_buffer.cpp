@@ -7,6 +7,7 @@
 
 #include <cuda/memory>
 
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 
@@ -98,9 +99,7 @@ std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
     std::vector<std::uint8_t> ret(size());
     if (!empty()) {
         stream_.synchronize();
-        RAPIDSMPF_CUDA_TRY(
-            cudaMemcpyAsync(ret.data(), data(), size(), cudaMemcpyDefault, stream_)
-        );
+        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(ret.data(), data(), size(), stream_));
         stream_.synchronize();
     }
     return ret;
@@ -113,9 +112,10 @@ HostBuffer HostBuffer::from_uint8_vector(
 ) {
     HostBuffer ret(data.size(), stream, mr);
     if (!ret.empty()) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            ret.data(), data.data(), data.size(), cudaMemcpyDefault, stream
-        ));
+        RAPIDSMPF_CUDA_TRY(
+            cuda_memcpy_async(ret.data(), data.data(), data.size(), stream)
+        );
+        stream.synchronize();  // need to ensure that data outlives the async copy
     }
     return ret;
 }
