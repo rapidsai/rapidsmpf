@@ -15,7 +15,6 @@ cdef extern from "<rrun/rrun.hpp>" namespace "rapidsmpf::rrun" nogil:
         cbool cpu
         cbool memory
         cbool network
-        cbool verbose
 
     void cpp_bind "rapidsmpf::rrun::bind"(
         optional[unsigned int] gpu_id,
@@ -50,7 +49,6 @@ def bind(
     cpu=True,
     memory=True,
     network=True,
-    verbose=False,
 ):
     """
     Bind the calling process to resources topologically close to a GPU.
@@ -84,14 +82,14 @@ def bind(
         Set NUMA memory policy to nodes near the GPU (default ``True``).
     network
         Set ``UCX_NET_DEVICES`` to NICs near the GPU (default ``True``).
-    verbose
-        Print warnings to stderr on binding failures (default ``False``).
 
     Raises
     ------
     RuntimeError
-        If no GPU ID can be determined or the resolved GPU is not found
-        in the discovered topology.
+        If no GPU ID can be determined, topology discovery fails, the
+        resolved GPU is not found in the discovered topology, or an
+        enabled binding (CPU affinity, NUMA memory policy) could not be
+        applied.
     ValueError
         If ``gpu_id`` is not a non-negative integer.
     """
@@ -107,7 +105,6 @@ def bind(
     opts.cpu = cpu
     opts.memory = memory
     opts.network = network
-    opts.verbose = verbose
 
     with nogil:
         cpp_bind(c_gpu_id, opts)
