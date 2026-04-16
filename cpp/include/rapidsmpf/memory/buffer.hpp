@@ -97,8 +97,8 @@ class Buffer {
      * Enqueuing work on any other stream without synchronizing with the buffer's
      * stream before and after the call is undefined behavior. In other words,
      * @p f must behave as a single stream-ordered operation, similar to issuing one
-     * `cudaMemcpyAsync` on the buffer's stream. For non-stream-aware integrations,
-     * use `exclusive_data_access()`.
+     * `rapidsmpf::cuda_memcpy_async` on the buffer's stream. For non-stream-aware
+     * integrations, use `exclusive_data_access()`.
      *
      * After @p f returns, an event is recorded on the buffer's stream, establishing
      * the new "latest write" for this buffer.
@@ -116,11 +116,10 @@ class Buffer {
      * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
      * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
      *   assert(buffer.stream().value() == stream.value());
-     *   RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+     *   RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
      *       buffer_ptr,
      *       src_ptr,
      *       num_bytes,
-     *       cudaMemcpyDefault,
      *       stream
      *   ));
      * });

@@ -143,9 +143,8 @@ binding_validation validate_binding(
  * @param options Controls which resource bindings to apply.
  *
  * @throws std::runtime_error if no GPU ID can be determined, topology
- *         discovery fails, the resolved GPU is not found in the discovered
- *         topology, or an enabled binding (CPU affinity, NUMA memory policy)
- *         could not be applied.
+ * discovery fails, the resolved GPU is not found in the discovered topology,
+ * or an enabled binding (CPU affinity, NUMA memory policy) could not be applied.
  */
 void bind(
     std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
@@ -171,9 +170,9 @@ void bind(
  * GPU in `CUDA_VISIBLE_DEVICES` is used instead.
  * @param options Controls which resource bindings to apply.
  *
- * @throws std::runtime_error if no GPU ID can be determined, the resolved
- *         GPU is not found in @p topology, or an enabled binding (CPU
- *         affinity, NUMA memory policy) could not be applied.
+ * @throws std::runtime_error if no GPU ID can be determined, the resolved GPU
+ * is not found in @p topology, or an enabled binding (CPU affinity, NUMA memory
+ * policy) could not be applied.
  */
 void bind(
     cucascade::memory::system_topology_info const& topology,

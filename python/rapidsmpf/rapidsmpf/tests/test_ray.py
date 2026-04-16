@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import os
 from typing import TYPE_CHECKING
 
-import pynvml
 import toolz
+from cuda.core import system
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
@@ -129,10 +129,7 @@ def test_disallowed_classes(ray_cluster: None) -> None:
 
 @toolz.memoize
 def get_gpu_count() -> int:
-    pynvml.nvmlInit()
-    device_count = int(pynvml.nvmlDeviceGetCount())  # casting Any to int
-    pynvml.nvmlShutdown()
-    return device_count
+    return system.get_num_devices()  # type: ignore
 
 
 @pytest.mark.parametrize("num_workers", [1, 4])
