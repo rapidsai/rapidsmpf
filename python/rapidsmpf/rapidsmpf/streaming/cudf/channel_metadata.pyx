@@ -4,6 +4,7 @@
 
 from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
+from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
@@ -14,6 +15,9 @@ from pylibcudf.libcudf.types cimport order as cpp_order
 from pylibcudf.table cimport Table
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
+                                                  cpp_MemoryReservation)
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
 
@@ -69,6 +73,36 @@ cdef extern from * nogil:
         rapidsmpf::streaming::PartitioningSpec& spec
     ) {
         return &spec.order.value();
+    }
+
+    bool _boundaries_available(
+        const rapidsmpf::streaming::OrderScheme* s
+    ) noexcept {
+        return s->boundaries->is_available();
+    }
+
+    cudf::size_type _boundaries_num_rows(
+        const rapidsmpf::streaming::OrderScheme* s
+    ) noexcept {
+        return s->boundaries->shape().first;
+    }
+
+    std::size_t _boundaries_make_available_cost(
+        const rapidsmpf::streaming::OrderScheme* s
+    ) noexcept {
+        return s->boundaries->make_available_cost();
+    }
+
+    // Unspills boundaries in-place (no-op if already available).
+    void _ensure_boundaries_available(
+        rapidsmpf::streaming::OrderScheme* s,
+        rapidsmpf::MemoryReservation& res
+    ) {
+        if (!s->boundaries->is_available()) {
+            s->boundaries = std::make_unique<rapidsmpf::streaming::TableChunk>(
+                s->boundaries->make_available(res)
+            );
+        }
     }
 
     std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
@@ -128,6 +162,10 @@ cdef extern from * nogil:
     cpp_table_view _order_scheme_boundaries_view(cpp_OrderScheme*) except +
     cudaStream_t _order_scheme_boundaries_stream(cpp_OrderScheme*) noexcept
     cpp_OrderScheme* _spec_order_ptr(cpp_PartitioningSpec&) noexcept
+    bint _boundaries_available(cpp_OrderScheme*) noexcept
+    int _boundaries_num_rows(cpp_OrderScheme*) noexcept
+    size_t _boundaries_make_available_cost(cpp_OrderScheme*) noexcept
+    void _ensure_boundaries_available(cpp_OrderScheme*, cpp_MemoryReservation&) except +
     unique_ptr[cpp_ChannelMetadata] cpp_channel_metadata_from_message(
         cpp_Message
     ) except +
@@ -312,18 +350,38 @@ cdef class OrderScheme:
         """True if sort keys do not span partition interiors (strict ranges)."""
         return self._get().strict_boundary
 
-    def get_boundaries_table(self):
-        """Return boundary rows as ``pylibcudf.Table``, or ``None``.
-
-        Builds a ``Table`` view tied to this object's lifetime; keep use to
-        tests and consumers that must inspect boundary values (e.g. cudf-polars
-        round-trip checks).
-        """
+    @property
+    def num_boundaries(self):
+        """Number of boundary rows, or ``None`` if no boundaries. Spill-safe."""
         if self._get().boundaries == NULL:
             return None
+        return _boundaries_num_rows(self._get())
+
+    def get_boundaries_table(self, BufferResource br=None):
+        """Return boundary rows as ``pylibcudf.Table``, or ``None``.
+
+        If boundaries have been spilled, pass a ``BufferResource`` to unspill
+        them; the required device-memory reservation is computed internally from
+        ``make_available_cost()``.  Raises ``ValueError`` if boundaries are
+        spilled and no ``br`` is given.
+        """
+        cdef size_t cost
+        if self._get().boundaries == NULL:
+            return None
+        if not _boundaries_available(self._get()):
+            if br is None:
+                raise ValueError(
+                    "boundaries have been spilled; pass a BufferResource to unspill"
+                )
+            cost = _boundaries_make_available_cost(self._get())
+            reservation = br.reserve_device_memory_and_spill(
+                cost, allow_overbooking=True
+            )
+            _ensure_boundaries_available(
+                self._get(), deref((<MemoryReservation>reservation)._handle)
+            )
         cdef cpp_table_view view = _order_scheme_boundaries_view(self._get())
         cdef cudaStream_t stream = _order_scheme_boundaries_stream(self._get())
-        # owner=self keeps the OrderScheme (and its keepalive chain) alive
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )

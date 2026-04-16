@@ -73,7 +73,7 @@ ChannelMetadata ChannelMetadata::clone(MemoryReservation& reservation) const {
 }
 
 ContentDescription content_description_for(ChannelMetadata const& m) {
-    ContentDescription cd{ContentDescription::Spillable::NO};
+    ContentDescription cd{ContentDescription::Spillable::YES};
     auto add_spec = [&](PartitioningSpec const& spec) {
         if (spec.type == PartitioningSpec::Type::ORDER && spec.order->boundaries) {
             for (auto mem_type : MEMORY_TYPES) {

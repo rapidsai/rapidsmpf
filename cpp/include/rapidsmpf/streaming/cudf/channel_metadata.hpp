@@ -256,8 +256,8 @@ struct ChannelMetadata {
  *
  * Walks `m.partitioning.inter_rank` and `m.partitioning.local` and accumulates
  * per-memory-type sizes from any ORDER boundary `TableChunk`. Spillability is
- * set to `Spillable::NO`; full spill support for metadata messages is a
- * separate concern.
+ * set to `Spillable::YES`; the copy callback in `to_message` handles both
+ * device-to-device and device-to-host (spill) paths via `clone(reservation)`.
  *
  * @param m The metadata to describe.
  * @return A `ContentDescription` reflecting boundary device bytes.

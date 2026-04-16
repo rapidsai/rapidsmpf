@@ -120,10 +120,17 @@ def test_order_scheme_with_boundaries(context: Context) -> None:
         ],
         boundaries=boundaries,
     )
+    assert o1.num_boundaries == 2
     tbl = o1.get_boundaries_table()
     assert tbl is not None
     assert tbl.num_columns() == 2
     assert tbl.num_rows() == 2
+
+
+def test_num_boundaries() -> None:
+    """num_boundaries is None without boundaries, returns row count otherwise."""
+    o_no_b = _two_key_order_scheme()
+    assert o_no_b.num_boundaries is None
 
 
 def test_partitioning_scenarios() -> None:
@@ -252,6 +259,7 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     )
     assert got_m.partitioning.local == "inherit"
     assert got_m.partitioning.inter_rank.strict_boundary is True
+    assert got_m.partitioning.inter_rank.num_boundaries == 2
     tbl = got_m.partitioning.inter_rank.get_boundaries_table()
     assert tbl is not None
     assert tbl.num_columns() == 2
