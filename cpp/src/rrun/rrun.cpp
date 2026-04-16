@@ -4,7 +4,6 @@
  */
 
 #include <cstdlib>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -136,8 +135,10 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
  * @brief Apply topology-based resource bindings for a single GPU.
  *
  * @param gpu_info Topology information for the target GPU.
- * @param gpu_id   GPU device index (used only in diagnostic messages).
+ * @param gpu_id   GPU device index (used in error messages).
  * @param options  Which bindings to apply.
+ *
+ * @throws std::runtime_error if an enabled binding cannot be applied.
  */
 void apply_bindings(
     cucascade::memory::gpu_topology_info const& gpu_info,
@@ -146,20 +147,20 @@ void apply_bindings(
 ) {
     if (options.cpu && !gpu_info.cpu_affinity_list.empty()) {
         if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
-            if (options.verbose) {
-                std::cerr << "[rrun] Warning: Failed to set CPU affinity for GPU "
-                          << gpu_id << std::endl;
-            }
+            throw std::runtime_error(
+                "rapidsmpf::rrun::bind(): failed to set CPU affinity for GPU "
+                + std::to_string(gpu_id)
+            );
         }
     }
 
     if (options.memory && !gpu_info.memory_binding.empty()) {
         if (!set_numa_memory_binding(gpu_info.memory_binding)) {
 #if RAPIDSMPF_HAVE_NUMA
-            if (options.verbose) {
-                std::cerr << "[rrun] Warning: Failed to set NUMA memory binding for GPU "
-                          << gpu_id << std::endl;
-            }
+            throw std::runtime_error(
+                "rapidsmpf::rrun::bind(): failed to set NUMA memory binding for GPU "
+                + std::to_string(gpu_id)
+            );
 #endif
         }
     }
@@ -241,12 +242,9 @@ void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
     }
 
     if (!ok) {
-        if (options.verbose) {
-            std::cerr << "[rrun] Warning: Failed to discover system topology. "
-                      << "CPU affinity, NUMA binding, and UCX network device "
-                      << "configuration will be skipped." << std::endl;
-        }
-        return;
+        throw std::runtime_error(
+            "rapidsmpf::rrun::bind(): failed to discover system topology"
+        );
     }
     bind(discovery.get_topology(), id, options);
 }
