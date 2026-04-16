@@ -18,8 +18,6 @@
 #include <numa.h>
 #endif
 
-#include <cuda_runtime.h>
-
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
@@ -284,25 +282,27 @@ unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
 }
 
 /**
- * @brief Get PCI bus ID for the current CUDA device.
+ * @brief Get PCI bus ID for a GPU via NVML-based topology discovery.
  *
- * When `CUDA_VISIBLE_DEVICES` is set (as done by rrun), CUDA only sees
- * the assigned GPU as logical device 0 regardless of the physical GPU ID.
- *
- * @return PCI bus ID string, or empty string on error.
+ * @param gpu_id Physical GPU device index.
+ * @return PCI bus ID string, or empty string if not found.
  */
-std::string get_gpu_pci_bus_id() {
-    int device = 0;
-    cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) {
+std::string get_gpu_pci_bus_id(int gpu_id) {
+    if (gpu_id < 0) {
         return {};
     }
-    std::string pci_bus_id(16, '\0');
-    err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), device);
-    if (err != cudaSuccess) {
+
+    cucascade::memory::topology_discovery discovery;
+    if (!discovery.discover()) {
         return {};
     }
-    return pci_bus_id.substr(0, pci_bus_id.find('\0'));
+
+    for (auto const& gpu : discovery.get_topology().gpus) {
+        if (static_cast<int>(gpu.id) == gpu_id) {
+            return gpu.pci_bus_id;
+        }
+    }
+    return {};
 }
 
 }  // namespace
@@ -369,7 +369,7 @@ resource_binding check_binding(int gpu_id_hint) {
         (gpu_id_hint >= 0) ? gpu_id_hint : rapidsmpf::bootstrap::get_gpu_id();
 
     if (binding.gpu_id >= 0) {
-        binding.gpu_pci_bus_id = get_gpu_pci_bus_id();
+        binding.gpu_pci_bus_id = get_gpu_pci_bus_id(binding.gpu_id);
     }
 
     return binding;

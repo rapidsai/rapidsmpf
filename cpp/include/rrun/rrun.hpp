@@ -79,10 +79,9 @@ struct binding_validation {
  * Queries the current CPU affinity, NUMA memory nodes, UCX network device
  * configuration, process rank, and GPU information.
  *
- * @param gpu_id_hint  GPU device index hint. When >= 0 the value is stored
+ * @param gpu_id_hint  GPU device index hint.  When >= 0 the value is stored
  *   directly; otherwise the GPU ID is read from `CUDA_VISIBLE_DEVICES`.
- *   When a valid GPU ID is available, the PCI bus ID is also queried
- *   (which may trigger CUDA initialization).
+ *   When a valid GPU ID is available, the PCI bus ID is also queried.
  *
  * @return The collected resource binding.
  */
