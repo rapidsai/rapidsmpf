@@ -709,15 +709,19 @@ int execute_single_node_mode(Config& cfg) {
     }
 
     if (have_topology) {
-        rapidsmpf::rrun::bind(
-            discovery.get_topology(),
-            gpu_id >= 0 ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
-                        : std::nullopt,
-            {.cpu = cfg.bind_cpu,
-             .memory = cfg.bind_memory,
-             .network = cfg.bind_network,
-             .verbose = cfg.verbose}
-        );
+        try {
+            rapidsmpf::rrun::bind(
+                discovery.get_topology(),
+                gpu_id >= 0
+                    ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
+                    : std::nullopt,
+                {.cpu = cfg.bind_cpu,
+                 .memory = cfg.bind_memory,
+                 .network = cfg.bind_network}
+            );
+        } catch (std::exception const& e) {
+            std::cerr << "[rrun] Warning: " << e.what() << std::endl;
+        }
     } else if (cfg.verbose) {
         std::cerr << "[rrun] Warning: topology discovery failed; "
                   << "resource binding skipped." << std::endl;
@@ -919,16 +923,20 @@ pid_t launch_rank_local(
             }
 
             if (have_topology) {
-                rapidsmpf::rrun::bind(
-                    discovery.get_topology(),
-                    gpu_id >= 0
-                        ? std::optional<unsigned int>(static_cast<unsigned int>(gpu_id))
-                        : std::nullopt,
-                    {.cpu = cfg.bind_cpu,
-                     .memory = cfg.bind_memory,
-                     .network = cfg.bind_network,
-                     .verbose = cfg.verbose}
-                );
+                try {
+                    rapidsmpf::rrun::bind(
+                        discovery.get_topology(),
+                        gpu_id >= 0 ? std::optional<unsigned int>(
+                                          static_cast<unsigned int>(gpu_id)
+                                      )
+                                    : std::nullopt,
+                        {.cpu = cfg.bind_cpu,
+                         .memory = cfg.bind_memory,
+                         .network = cfg.bind_network}
+                    );
+                } catch (std::exception const& e) {
+                    fprintf(stderr, "[rrun] Warning: %s\n", e.what());
+                }
             } else if (cfg.verbose) {
                 fprintf(
                     stderr,
