@@ -79,9 +79,9 @@ struct binding_validation {
  * Queries the current CPU affinity, NUMA memory nodes, UCX network device
  * configuration, process rank, and GPU information.
  *
- * @param gpu_id_hint  GPU device index hint.  When >= 0 the value is stored
- *   directly; otherwise the GPU ID is read from `CUDA_VISIBLE_DEVICES`.
- *   When a valid GPU ID is available, the PCI bus ID is also queried.
+ * @param gpu_id_hint GPU device index hint. When >= 0 the value is stored
+ * directly; otherwise the GPU ID is read from `CUDA_VISIBLE_DEVICES`.
+ * When a valid GPU ID is available, the PCI bus ID is also queried.
  *
  * @return The collected resource binding.
  */
@@ -94,7 +94,7 @@ resource_binding check_binding(int gpu_id_hint = -1);
  * memory binding, and network devices.
  *
  * @param topology Pre-discovered system topology.
- * @param gpu_id   GPU device index to look up.
+ * @param gpu_id GPU device index to look up.
  * @return The expected binding, or `std::nullopt` if @p gpu_id is not found.
  */
 std::optional<expected_binding> get_expected_binding(
@@ -107,7 +107,7 @@ std::optional<expected_binding> get_expected_binding(
  * Compares the live @p actual binding with @p expected and reports per-resource
  * pass/fail status.
  *
- * @param actual   Live resource binding (from `check_binding()`).
+ * @param actual Live resource binding (from `check_binding()`).
  * @param expected Expected binding (from topology or a JSON file).
  * @return Validation results.
  */

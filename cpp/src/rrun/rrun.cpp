@@ -33,7 +33,7 @@ namespace {
  * @brief Parse a CPU list string (e.g. "0-31,128-159") into a cpu_set_t mask.
  *
  * @param cpulist CPU list string.
- * @param cpuset  Output CPU set to populate.
+ * @param cpuset Output CPU set to populate.
  * @return true on success, false on failure.
  */
 bool parse_cpu_list_to_mask(std::string const& cpulist, cpu_set_t* cpuset) {
@@ -140,14 +140,14 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
  * that each enabled binding took effect.
  *
  * After applying the requested bindings, the live process state is read back
- * via the public `validate_binding()` / query helpers and compared against the
- * topology-derived expected values.  If any enabled binding could not be
+ * via the public `validate_binding()` or query helpers and compared against
+ * the topology-derived expected values. If any enabled binding could not be
  * applied or the resulting state does not match the request, a
  * `std::runtime_error` is thrown.
  *
  * @param gpu_info Topology information for the target GPU.
- * @param gpu_id   GPU device index (used in error messages).
- * @param options  Which bindings to apply.
+ * @param gpu_id GPU device index (used in error messages).
+ * @param options Which bindings to apply.
  *
  * @throws std::runtime_error if an enabled binding cannot be applied or
  *         post-bind verification fails.
@@ -282,7 +282,7 @@ unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
 }
 
 /**
- * @brief Get PCI bus ID for a GPU via NVML-based topology discovery.
+ * @brief Get PCI bus ID for a GPU via topology discovery.
  *
  * @param gpu_id Physical GPU device index.
  * @return PCI bus ID string, or empty string if not found.
