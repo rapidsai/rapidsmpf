@@ -620,9 +620,9 @@ TEST_F(RrunCheckBindingLive, GpuIdHintIsStored) {
 }
 
 TEST_F(RrunCheckBindingLive, NegativeHintFallsToCvd) {
-    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", "7");
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id_).c_str());
     auto binding = rapidsmpf::rrun::check_binding(-1);
-    EXPECT_EQ(binding.gpu_id, 7);
+    EXPECT_EQ(binding.gpu_id, gpu_id_);
 }
 
 TEST_F(RrunCheckBindingLive, BindThenCheckMatchesExpected) {
