@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <sched.h>
@@ -298,7 +299,7 @@ std::string get_gpu_pci_bus_id(int gpu_id) {
     }
 
     for (auto const& gpu : discovery.get_topology().gpus) {
-        if (static_cast<int>(gpu.id) == gpu_id) {
+        if (std::cmp_equal(gpu.id, gpu_id)) {
             return gpu.pci_bus_id;
         }
     }
@@ -378,11 +379,9 @@ resource_binding check_binding(int gpu_id_hint) {
 std::optional<expected_binding> get_expected_binding(
     cucascade::memory::system_topology_info const& topology, int gpu_id
 ) {
-    auto it = std::find_if(
-        topology.gpus.begin(),
-        topology.gpus.end(),
-        [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
-            return static_cast<int>(gpu.id) == gpu_id;
+    auto it = std::ranges::find_if(
+        topology.gpus, [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
+            return std::cmp_equal(gpu.id, gpu_id);
         }
     );
 
@@ -412,11 +411,7 @@ binding_validation validate_binding(
         } else {
             bool found = false;
             for (int actual_node : actual.numa_nodes) {
-                if (std::find(
-                        expected.memory_binding.begin(),
-                        expected.memory_binding.end(),
-                        actual_node
-                    )
+                if (std::ranges::find(expected.memory_binding, actual_node)
                     != expected.memory_binding.end())
                 {
                     found = true;
