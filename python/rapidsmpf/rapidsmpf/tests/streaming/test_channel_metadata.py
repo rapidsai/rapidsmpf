@@ -12,6 +12,7 @@ import cudf
 import pylibcudf as plc
 
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf import (
     ChannelMetadata,
     HashScheme,
@@ -265,6 +266,56 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     assert tbl.num_columns() == 2
     assert tbl.num_rows() == 2
     assert msg_m.empty()
+
+
+def test_get_boundaries_table_after_spill(context: Context) -> None:
+    """Boundaries spilled to host are unspilled on demand via get_boundaries_table(br)."""
+    df = cudf.DataFrame({"key1": [100, 200], "key2": ["abc", "xyz"]})
+    stream = context.get_stream_from_pool()
+    # exclusive_view=True so the TableChunk owns its memory and is spillable
+    boundaries = TableChunk.from_pylibcudf_table(
+        cudf_to_pylibcudf_table(df),
+        stream,
+        exclusive_view=True,
+        br=context.br(),
+    )
+    order_scheme = OrderScheme(
+        [
+            OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
+            OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
+        ],
+        boundaries=boundaries,
+    )
+    m = ChannelMetadata(
+        local_count=1,
+        partitioning=Partitioning(order_scheme, "inherit"),
+    )
+
+    sm = SpillableMessages()
+    mid = sm.insert(Message(0, m))
+    spilled = sm.spill(mid=mid, br=context.br())
+    assert spilled > 0, "nothing was spilled — check exclusive_view=True"
+
+    got = ChannelMetadata.from_message(sm.extract(mid=mid))
+    scheme = got.partitioning.inter_rank
+    assert isinstance(scheme, OrderScheme)
+
+    # num_boundaries works without unspilling
+    assert scheme.num_boundaries == 2
+
+    # get_boundaries_table without br raises
+    with pytest.raises(ValueError, match="spilled"):
+        scheme.get_boundaries_table()
+
+    # get_boundaries_table with br unspills and returns correct data
+    tbl = scheme.get_boundaries_table(br=context.br())
+    assert tbl is not None
+    assert tbl.num_rows() == 2
+    assert tbl.num_columns() == 2
+
+    # subsequent call no longer needs br (boundaries are back on device)
+    tbl2 = scheme.get_boundaries_table()
+    assert tbl2 is not None
 
 
 def test_order_scheme_view_roundtrip() -> None:
