@@ -15,6 +15,7 @@ cdef extern from "<rrun/rrun.hpp>" namespace "rapidsmpf::rrun" nogil:
         cbool cpu
         cbool memory
         cbool network
+        cbool verify
 
     void cpp_bind "rapidsmpf::rrun::bind"(
         optional[unsigned int] gpu_id,
@@ -49,6 +50,7 @@ def bind(
     cpu=True,
     memory=True,
     network=True,
+    verify=True,
 ):
     """
     Bind the calling process to resources topologically close to a GPU.
@@ -82,6 +84,9 @@ def bind(
         Set NUMA memory policy to nodes near the GPU (default ``True``).
     network
         Set ``UCX_NET_DEVICES`` to NICs near the GPU (default ``True``).
+    verify
+        Read back and verify that bindings match the requested
+        configuration after applying them (default ``True``).
 
     Raises
     ------
@@ -106,6 +111,7 @@ def bind(
     opts.cpu = cpu
     opts.memory = memory
     opts.network = network
+    opts.verify = verify
 
     with nogil:
         cpp_bind(c_gpu_id, opts)

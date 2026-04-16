@@ -25,6 +25,7 @@ struct bind_options {
     bool cpu{true};  ///< Set CPU affinity to cores near the GPU.
     bool memory{true};  ///< Set NUMA memory policy to nodes near the GPU.
     bool network{true};  ///< Set `UCX_NET_DEVICES` to NICs near the GPU.
+    bool verify{true};  ///< Read back and verify bindings after applying them.
 };
 
 /**

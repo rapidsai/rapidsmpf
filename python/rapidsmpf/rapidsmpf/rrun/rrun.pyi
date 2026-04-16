@@ -7,4 +7,5 @@ def bind(
     cpu: bool = True,
     memory: bool = True,
     network: bool = True,
+    verify: bool = True,
 ) -> None: ...
