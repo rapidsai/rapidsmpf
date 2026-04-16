@@ -401,9 +401,11 @@ binding_validation validate_binding(
 ) {
     binding_validation result;
 
-    result.cpu_ok = rapidsmpf::bootstrap::compare_cpu_affinity(
-        actual.cpu_affinity, expected.cpu_affinity
-    );
+    if (!expected.cpu_affinity.empty()) {
+        result.cpu_ok = rapidsmpf::bootstrap::compare_cpu_affinity(
+            actual.cpu_affinity, expected.cpu_affinity
+        );
+    }
 
     if (!expected.memory_binding.empty()) {
         if (actual.numa_nodes.empty()) {
@@ -422,15 +424,17 @@ binding_validation validate_binding(
         }
     }
 
-    for (std::size_t i = 0; i < expected.network_devices.size(); ++i) {
-        if (i > 0) {
-            result.expected_ucx_devices += ",";
+    if (!expected.network_devices.empty()) {
+        for (std::size_t i = 0; i < expected.network_devices.size(); ++i) {
+            if (i > 0) {
+                result.expected_ucx_devices += ",";
+            }
+            result.expected_ucx_devices += expected.network_devices[i];
         }
-        result.expected_ucx_devices += expected.network_devices[i];
+        result.ucx_ok = rapidsmpf::bootstrap::compare_device_lists(
+            actual.ucx_net_devices, result.expected_ucx_devices
+        );
     }
-    result.ucx_ok = rapidsmpf::bootstrap::compare_device_lists(
-        actual.ucx_net_devices, result.expected_ucx_devices
-    );
 
     return result;
 }
