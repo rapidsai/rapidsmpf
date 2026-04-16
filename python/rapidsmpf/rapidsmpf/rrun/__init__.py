@@ -4,8 +4,20 @@
 
 from __future__ import annotations
 
-from rapidsmpf.rrun.rrun import bind
+from rapidsmpf.rrun.rrun import (
+    BindingValidation,
+    ExpectedBinding,
+    ResourceBinding,
+    bind,
+    check_binding,
+    validate_binding,
+)
 
 __all__ = [
+    "BindingValidation",
+    "ExpectedBinding",
+    "ResourceBinding",
     "bind",
+    "check_binding",
+    "validate_binding",
 ]
