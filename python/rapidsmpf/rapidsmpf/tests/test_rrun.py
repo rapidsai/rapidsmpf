@@ -12,7 +12,14 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from rapidsmpf.rrun import bind
+from rapidsmpf.rrun import (
+    BindingValidation,
+    ExpectedBinding,
+    ResourceBinding,
+    bind,
+    check_binding,
+    validate_binding,
+)
 
 
 def _run_in_subprocess(target: Callable[[], None]) -> None:
@@ -170,5 +177,211 @@ class TestBindEffect:
             os.environ.pop("UCX_NET_DEVICES", None)
             bind(gpu_id=0, cpu=False, memory=False, network=False)
             assert os.environ.get("UCX_NET_DEVICES") is None
+
+        _run_in_subprocess(body)
+
+
+class TestCheckBinding:
+    """Tests for check_binding()."""
+
+    def test_returns_resource_binding(self) -> None:
+        def body() -> None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            result = check_binding()
+            assert isinstance(result, ResourceBinding)
+            assert result.gpu_id == 0
+            assert isinstance(result.cpu_affinity, str)
+            assert isinstance(result.numa_nodes, list)
+            assert isinstance(result.ucx_net_devices, str)
+
+        _run_in_subprocess(body)
+
+    def test_explicit_gpu_id_hint(self) -> None:
+        def body() -> None:
+            result = check_binding(gpu_id_hint=42)
+            assert result.gpu_id == 42
+
+        _run_in_subprocess(body)
+
+    def test_negative_hint_falls_back_to_cvd(self) -> None:
+        def body() -> None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+            result = check_binding(gpu_id_hint=-1)
+            assert result.gpu_id == 3
+
+        _run_in_subprocess(body)
+
+    def test_default_hint_uses_cvd(self) -> None:
+        def body() -> None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+            result = check_binding()
+            assert result.gpu_id == 5
+
+        _run_in_subprocess(body)
+
+    def test_cpu_affinity_is_nonempty(self) -> None:
+        def body() -> None:
+            result = check_binding(gpu_id_hint=0)
+            assert len(result.cpu_affinity) > 0
+
+        _run_in_subprocess(body)
+
+
+class TestValidateBinding:
+    """Tests for validate_binding() with synthetic data (no GPU needed)."""
+
+    def test_all_pass_when_matching(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="0-3",
+            numa_nodes=[0],
+            ucx_net_devices="mlx5_0",
+        )
+        expected = ExpectedBinding(
+            cpu_affinity="0-3",
+            memory_binding=[0],
+            network_devices=["mlx5_0"],
+        )
+        result = validate_binding(actual, expected)
+        assert isinstance(result, BindingValidation)
+        assert result.cpu_ok is True
+        assert result.numa_ok is True
+        assert result.ucx_ok is True
+        assert result.all_passed() is True
+
+    def test_cpu_mismatch_detected(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="4-7",
+            numa_nodes=[],
+            ucx_net_devices="",
+        )
+        expected = ExpectedBinding(cpu_affinity="0-3")
+        result = validate_binding(actual, expected)
+        assert result.cpu_ok is False
+        assert result.all_passed() is False
+
+    def test_numa_mismatch_detected(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="",
+            numa_nodes=[1],
+            ucx_net_devices="",
+        )
+        expected = ExpectedBinding(memory_binding=[0])
+        result = validate_binding(actual, expected)
+        assert result.numa_ok is False
+        assert result.all_passed() is False
+
+    def test_numa_passes_when_any_node_matches(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="",
+            numa_nodes=[1, 0],
+            ucx_net_devices="",
+        )
+        expected = ExpectedBinding(memory_binding=[0])
+        result = validate_binding(actual, expected)
+        assert result.numa_ok is True
+
+    def test_ucx_mismatch_detected(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="",
+            numa_nodes=[],
+            ucx_net_devices="mlx5_1",
+        )
+        expected = ExpectedBinding(network_devices=["mlx5_0"])
+        result = validate_binding(actual, expected)
+        assert result.ucx_ok is False
+        assert result.expected_ucx_devices == "mlx5_0"
+        assert result.all_passed() is False
+
+    def test_ucx_order_independent(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="",
+            numa_nodes=[],
+            ucx_net_devices="mlx5_1,mlx5_0",
+        )
+        expected = ExpectedBinding(network_devices=["mlx5_0", "mlx5_1"])
+        result = validate_binding(actual, expected)
+        assert result.ucx_ok is True
+
+    def test_empty_expected_is_all_pass(self) -> None:
+        actual = ResourceBinding(
+            rank=-1,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="0-7",
+            numa_nodes=[0],
+            ucx_net_devices="mlx5_0",
+        )
+        expected = ExpectedBinding()
+        result = validate_binding(actual, expected)
+        assert result.all_passed() is True
+
+
+class TestDataclasses:
+    """Tests for the dataclass types themselves."""
+
+    def test_resource_binding_is_frozen(self) -> None:
+        rb = ResourceBinding(
+            rank=0,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="0-3",
+            numa_nodes=[0],
+            ucx_net_devices="mlx5_0",
+        )
+        with pytest.raises(AttributeError):
+            rb.rank = 1  # type: ignore[misc]
+
+    def test_expected_binding_defaults(self) -> None:
+        eb = ExpectedBinding()
+        assert eb.cpu_affinity == ""
+        assert eb.memory_binding == []
+        assert eb.network_devices == []
+
+    def test_binding_validation_all_passed(self) -> None:
+        bv = BindingValidation(
+            cpu_ok=True, numa_ok=True, ucx_ok=True, expected_ucx_devices=""
+        )
+        assert bv.all_passed() is True
+
+    def test_binding_validation_not_all_passed(self) -> None:
+        bv = BindingValidation(
+            cpu_ok=True, numa_ok=False, ucx_ok=True, expected_ucx_devices=""
+        )
+        assert bv.all_passed() is False
+
+
+class TestBindThenValidate:
+    """Integration: bind() then check_binding()/validate_binding()."""
+
+    def test_bind_and_check_produces_valid_result(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=True, memory=True, network=True, verify=True)
+            result = check_binding(gpu_id_hint=0)
+            assert result.gpu_id == 0
+            assert len(result.cpu_affinity) > 0
+
+        _run_in_subprocess(body)
+
+    def test_bind_with_verify_false_succeeds(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=True, memory=True, network=True, verify=False)
 
         _run_in_subprocess(body)
