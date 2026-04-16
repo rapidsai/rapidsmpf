@@ -138,13 +138,21 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
 }
 
 /**
- * @brief Apply topology-based resource bindings for a single GPU.
+ * @brief Apply topology-based resource bindings for a single GPU and verify
+ * that each enabled binding took effect.
+ *
+ * After applying the requested bindings, the live process state is read back
+ * via the public `validate_binding()` / query helpers and compared against the
+ * topology-derived expected values.  If any enabled binding could not be
+ * applied or the resulting state does not match the request, a
+ * `std::runtime_error` is thrown.
  *
  * @param gpu_info Topology information for the target GPU.
  * @param gpu_id   GPU device index (used in error messages).
  * @param options  Which bindings to apply.
  *
- * @throws std::runtime_error if an enabled binding cannot be applied.
+ * @throws std::runtime_error if an enabled binding cannot be applied or
+ *         post-bind verification fails.
  */
 void apply_bindings(
     cucascade::memory::gpu_topology_info const& gpu_info,
@@ -179,7 +187,59 @@ void apply_bindings(
             }
             ucx_net_devices += gpu_info.network_devices[i];
         }
-        setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1);
+        if (setenv("UCX_NET_DEVICES", ucx_net_devices.c_str(), 1) != 0) {
+            throw std::runtime_error(
+                "rapidsmpf::rrun::bind(): failed to set UCX_NET_DEVICES for GPU "
+                + std::to_string(gpu_id)
+            );
+        }
+    }
+
+    // Build the expected and actual bindings, then verify only the
+    // subsystems that were requested via options.
+    expected_binding expected;
+    if (options.cpu) {
+        expected.cpu_affinity = gpu_info.cpu_affinity_list;
+    }
+    if (options.memory) {
+        expected.memory_binding = gpu_info.memory_binding;
+    }
+    if (options.network) {
+        expected.network_devices = gpu_info.network_devices;
+    }
+
+    resource_binding actual;
+    if (options.cpu) {
+        actual.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
+    }
+    if (options.memory) {
+        actual.numa_nodes = rapidsmpf::get_current_numa_nodes();
+    }
+    if (options.network) {
+        actual.ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
+    }
+
+    binding_validation result = validate_binding(actual, expected);
+
+    if (!result.cpu_ok) {
+        throw std::runtime_error(
+            "rapidsmpf::rrun::bind(): CPU affinity verification failed for GPU "
+            + std::to_string(gpu_id) + " (expected: " + expected.cpu_affinity
+            + ", actual: " + actual.cpu_affinity + ")"
+        );
+    }
+    if (!result.numa_ok) {
+        throw std::runtime_error(
+            "rapidsmpf::rrun::bind(): NUMA memory binding verification failed for GPU "
+            + std::to_string(gpu_id)
+        );
+    }
+    if (!result.ucx_ok) {
+        throw std::runtime_error(
+            "rapidsmpf::rrun::bind(): UCX_NET_DEVICES verification failed for GPU "
+            + std::to_string(gpu_id) + " (expected: " + result.expected_ucx_devices
+            + ", actual: " + actual.ucx_net_devices + ")"
+        );
     }
 }
 

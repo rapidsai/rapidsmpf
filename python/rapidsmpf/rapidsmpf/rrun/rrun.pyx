@@ -87,9 +87,10 @@ def bind(
     ------
     RuntimeError
         If no GPU ID can be determined, topology discovery fails, the
-        resolved GPU is not found in the discovered topology, or an
-        enabled binding (CPU affinity, NUMA memory policy) could not be
-        applied.
+        resolved GPU is not found in the discovered topology, an
+        enabled binding (CPU affinity, NUMA memory policy, network
+        devices) could not be applied, or post-bind verification
+        detects a mismatch between the requested and actual state.
     ValueError
         If ``gpu_id`` is not a non-negative integer.
     """

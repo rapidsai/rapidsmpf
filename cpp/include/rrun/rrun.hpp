@@ -78,7 +78,7 @@ struct binding_validation {
  * Queries the current CPU affinity, NUMA memory nodes, UCX network device
  * configuration, process rank, and GPU information.
  *
- * @param gpu_id_hint  GPU device index hint.  When >= 0 the value is stored
+ * @param gpu_id_hint  GPU device index hint. When >= 0 the value is stored
  *   directly; otherwise the GPU ID is read from `CUDA_VISIBLE_DEVICES`.
  *   When a valid GPU ID is available, the PCI bus ID is also queried
  *   (which may trigger CUDA initialization).
@@ -144,7 +144,9 @@ binding_validation validate_binding(
  *
  * @throws std::runtime_error if no GPU ID can be determined, topology
  * discovery fails, the resolved GPU is not found in the discovered topology,
- * or an enabled binding (CPU affinity, NUMA memory policy) could not be applied.
+ * an enabled binding (CPU affinity, NUMA memory policy, network devices) could
+ * not be applied, or post-bind verification detects a mismatch between the
+ * requested and actual binding state.
  */
 void bind(
     std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
@@ -154,7 +156,7 @@ void bind(
  * @brief Bind using pre-discovered topology information.
  *
  * Same as the other overload, but skips the topology discovery step by reusing
- * a previously obtained `system_topology_info`.  Useful when the caller has
+ * a previously obtained `system_topology_info`. Useful when the caller has
  * already performed discovery (e.g., in a parent process before forking).
  *
  * GPU resolution follows the same order as the other overload (explicit
@@ -171,8 +173,9 @@ void bind(
  * @param options Controls which resource bindings to apply.
  *
  * @throws std::runtime_error if no GPU ID can be determined, the resolved GPU
- * is not found in @p topology, or an enabled binding (CPU affinity, NUMA memory
- * policy) could not be applied.
+ * is not found in @p topology, an enabled binding (CPU affinity, NUMA memory
+ * policy, network devices) could not be applied, or post-bind verification
+ * detects a mismatch between the requested and actual binding state.
  */
 void bind(
     cucascade::memory::system_topology_info const& topology,
