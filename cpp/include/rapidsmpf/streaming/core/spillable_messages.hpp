@@ -133,6 +133,13 @@ class SpillableMessages {
      */
     ContentDescription get_content_description(MessageId mid) const;
 
+    /**
+     * @brief Clear all outstanding messages
+     *
+     * This is useful for avoiding Items from outliving the BufferResource on
+     * which they were allocated. It is the caller's responsibility to clear
+     * the messages before the BufferResource is destroyed.
+     */
     void clear();
 
   private:
