@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -132,6 +132,8 @@ class SpillableMessages {
      * @throws std::out_of_range If the message does not exist.
      */
     ContentDescription get_content_description(MessageId mid) const;
+
+    void clear();
 
   private:
     /**

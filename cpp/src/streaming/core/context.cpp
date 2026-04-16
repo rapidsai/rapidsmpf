@@ -128,6 +128,7 @@ void Context::shutdown() noexcept {
             "constructed the executor"
         );
         executor_->shutdown();
+        spillable_messages_->clear();
     }
 }
 
