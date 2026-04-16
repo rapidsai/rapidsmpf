@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/coll/allreduce.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
@@ -34,9 +35,7 @@ std::unique_ptr<Buffer> make_buffer(
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->allocate(stream, std::move(reservation));
     buffer->write_access([&](std::byte* buf_data, rmm::cuda_stream_view s) {
-        RAPIDSMPF_CUDA_TRY(
-            cudaMemcpyAsync(buf_data, data, nbytes, cudaMemcpyDefault, s.value())
-        );
+        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(buf_data, data, nbytes, s));
     });
     buffer->latest_write_event().host_wait();
     return buffer;
@@ -51,9 +50,7 @@ std::vector<T> unpack_to_host(Buffer& buffer) {
     auto const count = nbytes / sizeof(T);
     std::vector<T> out(count);
     auto* raw_ptr = buffer.exclusive_data_access();
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        out.data(), raw_ptr, nbytes, cudaMemcpyDefault, buffer.stream().value()
-    ));
+    RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(out.data(), raw_ptr, nbytes, buffer.stream()));
     buffer.stream().synchronize();
     buffer.unlock();
     return out;
