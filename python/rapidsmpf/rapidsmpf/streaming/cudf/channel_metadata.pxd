@@ -23,10 +23,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         cpp_HashScheme(vector[int32_t], int) except +
         bool_t operator==(const cpp_HashScheme&)
 
+    cdef cppclass cpp_OrderKey "rapidsmpf::streaming::OrderKey":
+        int32_t column_index
+        cpp_order order
+        cpp_null_order null_order
+        bool_t operator==(const cpp_OrderKey&)
+
     cdef cppclass cpp_OrderScheme "rapidsmpf::streaming::OrderScheme":
-        vector[int32_t] column_indices
-        vector[cpp_order] orders
-        vector[cpp_null_order] null_orders
+        vector[cpp_OrderKey] keys
         unique_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundary
         cpp_OrderScheme() except +
@@ -83,6 +87,13 @@ cdef class HashScheme:
 
     @staticmethod
     cdef HashScheme from_cpp(cpp_HashScheme scheme)
+
+
+cdef class OrderKey:
+    cdef cpp_OrderKey _key
+
+    @staticmethod
+    cdef OrderKey from_cpp(cpp_OrderKey key)
 
 
 cdef class OrderScheme:

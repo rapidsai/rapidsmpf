@@ -39,14 +39,12 @@ cdef extern from * nogil:
                         rapidsmpf::streaming::HashScheme h) {
         s = rapidsmpf::streaming::PartitioningSpec::from_hash(std::move(h));
     }
-    // Copies vectors, moves boundaries (source keeps vectors, loses ownership).
+    // Copies keys vector, moves boundaries (source keeps keys, loses ownership).
     void _spec_set_order(rapidsmpf::streaming::PartitioningSpec& s,
                          rapidsmpf::streaming::OrderScheme& src) {
         rapidsmpf::streaming::OrderScheme o{
-            .column_indices = src.column_indices,
-            .orders         = src.orders,
-            .null_orders    = src.null_orders,
-            .boundaries     = std::move(src.boundaries),
+            .keys            = src.keys,
+            .boundaries      = std::move(src.boundaries),
             .strict_boundary = src.strict_boundary,
         };
         s = rapidsmpf::streaming::PartitioningSpec::from_order(std::move(o));
@@ -103,9 +101,7 @@ cdef extern from * nogil:
                     );
                 case T::ORDER: {
                     rapidsmpf::streaming::OrderScheme o{
-                        .column_indices  = spec.order->column_indices,
-                        .orders          = spec.order->orders,
-                        .null_orders     = spec.order->null_orders,
+                        .keys            = spec.order->keys,
                         .boundaries      = std::move(spec.order->boundaries),
                         .strict_boundary = spec.order->strict_boundary,
                     };
@@ -197,31 +193,70 @@ cdef cpp_null_order _object_to_cpp_null_order(object o) except *:
     )
 
 
+cdef class OrderKey:
+    """A single sort key: column index, sort direction, and null placement."""
+
+    def __init__(
+        self,
+        int column_index,
+        object order,
+        object null_order,
+    ):
+        self._key.column_index = column_index
+        self._key.order = _object_to_cpp_order(order)
+        self._key.null_order = _object_to_cpp_null_order(null_order)
+
+    @staticmethod
+    cdef OrderKey from_cpp(cpp_OrderKey key):
+        cdef OrderKey ret = OrderKey.__new__(OrderKey)
+        ret._key = key
+        return ret
+
+    @property
+    def column_index(self) -> int:
+        return self._key.column_index
+
+    @property
+    def order(self):
+        return PyOrder(<int>self._key.order)
+
+    @property
+    def null_order(self):
+        return PyNullOrder(<int>self._key.null_order)
+
+    def __eq__(self, other):
+        if not isinstance(other, OrderKey):
+            return NotImplemented
+        return self._key == (<OrderKey>other)._key
+
+    def __repr__(self):
+        return f"OrderKey({self.column_index}, {self.order!r}, {self.null_order!r})"
+
+
 cdef class OrderScheme:
     """Order-based partitioning scheme for sorted/range-partitioned data.
 
     Data is partitioned by value ranges based on predetermined boundaries.
     For N partitions, there are N-1 boundary rows.
 
-    Equality (``==``) matches the C++ definition: same indices, orders,
-    null_orders, strict_boundary, and boundary tables with the same shape if
-    present; boundary *cell values* are not compared.
+    Equality (``==``) matches the C++ definition: same keys and strict_boundary,
+    and boundary tables with the same shape if present; boundary *cell values*
+    are not compared.
 
     Parameters
     ----------
-    column_indices, orders, null_orders
-        Per sort key: use ``pylibcudf.types.Order`` and ``pylibcudf.types.NullOrder``
-        (libcudf ``BEFORE``/``AFTER`` naming for null placement).
+    keys
+        Sequence of ``OrderKey`` objects (one per sort column).
+    boundaries
+        Optional ``TableChunk`` of N-1 boundary rows for N partitions.
     strict_boundary
-        If True, sort keys do not span partition interiors so merge-style
-        algorithms may skip halo exchange. Default False.
+        If True, sort keys do not span partition interiors. Default False.
 
     Notes
     -----
     Passing this object to ``Partitioning(...)`` transfers ownership of any
-    ``boundaries`` data into the partitioning.  The source object retains its
-    column/order vectors, but ``get_boundaries_table()`` will return ``None``
-    afterward.
+    ``boundaries`` into the partitioning.  The source retains its keys but
+    ``get_boundaries_table()`` will return ``None`` afterward.
     """
 
     def __cinit__(self):
@@ -230,37 +265,24 @@ cdef class OrderScheme:
 
     def __init__(
         self,
-        object column_indices,
-        object orders,
-        object null_orders,
+        object keys,
         TableChunk boundaries = None,
         *,
         bint strict_boundary = False,
     ):
-        cdef vector[int32_t] cols
-        cdef vector[cpp_order] ords
-        cdef vector[cpp_null_order] nulls
-
-        if len(column_indices) != len(orders):
-            raise ValueError("column_indices and orders must have the same length")
-        if len(column_indices) != len(null_orders):
-            raise ValueError("column_indices and null_orders must have the same length")
-
-        for c in column_indices:
-            cols.push_back(<int32_t?>c)
-        for o in orders:
-            ords.push_back(_object_to_cpp_order(o))
-        for n in null_orders:
-            nulls.push_back(_object_to_cpp_null_order(n))
-
-        self._scheme.column_indices = move(cols)
-        self._scheme.orders = move(ords)
-        self._scheme.null_orders = move(nulls)
-
+        cdef vector[cpp_OrderKey] cpp_keys
+        for key in keys:
+            if not isinstance(key, OrderKey):
+                raise TypeError(
+                    f"keys must contain OrderKey objects, got {type(key).__name__}"
+                )
+            cpp_keys.push_back((<OrderKey>key)._key)
+        if cpp_keys.empty():
+            raise ValueError("OrderScheme: keys must not be empty")
+        self._get().keys = move(cpp_keys)
         if boundaries is not None:
-            self._scheme.boundaries = move(boundaries.release_handle())
-
-        self._scheme.strict_boundary = strict_boundary
+            self._get().boundaries = move(boundaries.release_handle())
+        self._get().strict_boundary = strict_boundary
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
@@ -280,30 +302,10 @@ cdef class OrderScheme:
         return self._view if self._view != NULL else &self._scheme
 
     @property
-    def column_indices(self) -> tuple:
-        return tuple(self._get().column_indices)
-
-    @property
-    def orders(self) -> tuple:
+    def keys(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._get().orders.size()
-        cdef cpp_order co
-        out = []
-        for i in range(n):
-            co = self._get().orders[i]
-            out.append(PyOrder(<int>co))
-        return tuple(out)
-
-    @property
-    def null_orders(self) -> tuple:
-        cdef int i
-        cdef int n = <int>self._get().null_orders.size()
-        cdef cpp_null_order no
-        out = []
-        for i in range(n):
-            no = self._get().null_orders[i]
-            out.append(PyNullOrder(<int>no))
-        return tuple(out)
+        cdef int n = <int>self._get().keys.size()
+        return tuple(OrderKey.from_cpp(self._get().keys[i]) for i in range(n))
 
     @property
     def strict_boundary(self) -> bool:
@@ -334,8 +336,7 @@ cdef class OrderScheme:
     def __repr__(self):
         has_b = self._get().boundaries != NULL
         return (
-            f"OrderScheme({self.column_indices!r}, {self.orders!r}, "
-            f"{self.null_orders!r}, has_boundaries={has_b}, "
+            f"OrderScheme({self.keys!r}, has_boundaries={has_b}, "
             f"strict_boundary={self.strict_boundary})"
         )
 
@@ -349,8 +350,10 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
     elif isinstance(obj, HashScheme):
         _spec_set_hash(spec, (<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        # Copies vectors; moves boundaries unique_ptr (source loses boundary ownership).
-        _spec_set_order(spec, (<OrderScheme>obj)._scheme)
+        # Copies keys; moves boundaries unique_ptr (source loses boundary ownership).
+        # Use _get() for view-mode OrderSchemes (e.g. metadata.partitioning.inter_rank)
+        # so we target the live cpp_OrderScheme, not the wrapper's empty owning slot.
+        _spec_set_order(spec, deref((<OrderScheme>obj)._get()))
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "

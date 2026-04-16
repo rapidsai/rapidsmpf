@@ -13,13 +13,10 @@ using namespace rapidsmpf::streaming;
 
 namespace {
 
-/** Two-key OrderScheme shared by message round-trip tests (strict_boundary in one init).
- */
 OrderScheme make_order_scheme_two_key(bool strict_boundary) {
     return OrderScheme{
-        {0, 1},
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
+         {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
         nullptr,
         strict_boundary,
     };
@@ -43,77 +40,61 @@ TEST_F(StreamingChannelMetadata, HashScheme) {
 }
 
 TEST_F(StreamingChannelMetadata, OrderScheme) {
-    // Basic construction (without boundaries)
     OrderScheme o{
-        {0, 1},  // column_indices
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},  // orders
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},  // null_orders
-        nullptr  // boundaries
+        {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
+         {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
+        nullptr
     };
-    EXPECT_EQ(o.column_indices.size(), 2);
-    EXPECT_EQ(o.column_indices[0], 0);
-    EXPECT_EQ(o.column_indices[1], 1);
-    EXPECT_EQ(o.orders[0], cudf::order::ASCENDING);
-    EXPECT_EQ(o.orders[1], cudf::order::DESCENDING);
-    EXPECT_EQ(o.null_orders[0], cudf::null_order::BEFORE);
-    EXPECT_EQ(o.null_orders[1], cudf::null_order::AFTER);
+    EXPECT_EQ(o.keys.size(), 2);
+    EXPECT_EQ(o.keys[0].column_index, 0);
+    EXPECT_EQ(o.keys[0].order, cudf::order::ASCENDING);
+    EXPECT_EQ(o.keys[0].null_order, cudf::null_order::BEFORE);
+    EXPECT_EQ(o.keys[1].column_index, 1);
+    EXPECT_EQ(o.keys[1].order, cudf::order::DESCENDING);
+    EXPECT_EQ(o.keys[1].null_order, cudf::null_order::AFTER);
     EXPECT_EQ(o.boundaries, nullptr);
     EXPECT_FALSE(o.strict_boundary);
 
     OrderScheme o_strict{
-        {0, 1},
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
+         {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
         nullptr,
         true,
     };
     EXPECT_NE(o, o_strict);
     EXPECT_TRUE(o_strict.strict_boundary);
 
-    // Equality (without boundaries)
     OrderScheme o_same{
-        {0, 1},
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
+        {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
+         {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
         nullptr
     };
     EXPECT_EQ(o, o_same);
 
-    // Different column indices
-    OrderScheme o_diff_cols{
-        {2}, {cudf::order::ASCENDING}, {cudf::null_order::BEFORE}, nullptr
-    };
-    EXPECT_NE(o, o_diff_cols);
-
-    // Different orders
-    OrderScheme o_diff_orders{
-        {0, 1},
-        {cudf::order::DESCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::BEFORE, cudf::null_order::AFTER},
-        nullptr
-    };
-    EXPECT_NE(o, o_diff_orders);
-
-    // Different null orders
-    OrderScheme o_diff_nulls{
-        {0, 1},
-        {cudf::order::ASCENDING, cudf::order::DESCENDING},
-        {cudf::null_order::AFTER, cudf::null_order::AFTER},
-        nullptr
-    };
-    EXPECT_NE(o, o_diff_nulls);
+    EXPECT_NE(
+        o, (OrderScheme{{{2, cudf::order::ASCENDING, cudf::null_order::BEFORE}}, nullptr})
+    );
+    EXPECT_NE(
+        o,
+        (OrderScheme{
+            {{0, cudf::order::DESCENDING, cudf::null_order::BEFORE},
+             {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
+            nullptr
+        })
+    );
+    EXPECT_NE(
+        o,
+        (OrderScheme{
+            {{0, cudf::order::ASCENDING, cudf::null_order::AFTER},
+             {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
+            nullptr
+        })
+    );
 }
 
-TEST_F(StreamingChannelMetadata, FromOrderRejectsMismatchedLengths) {
+TEST_F(StreamingChannelMetadata, FromOrderRejectsEmptyKeys) {
     EXPECT_THROW(
-        static_cast<void>(PartitioningSpec::from_order(
-            OrderScheme{
-                {0, 1},
-                {cudf::order::ASCENDING},
-                {cudf::null_order::BEFORE, cudf::null_order::AFTER},
-                nullptr,
-            }
-        )),
+        static_cast<void>(PartitioningSpec::from_order(OrderScheme{{}, nullptr})),
         std::invalid_argument
     );
 }
@@ -135,12 +116,12 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
 
     // Order
     auto spec_order = PartitioningSpec::from_order(
-        OrderScheme{{0}, {cudf::order::ASCENDING}, {cudf::null_order::BEFORE}, nullptr}
+        OrderScheme{{{0, cudf::order::ASCENDING, cudf::null_order::BEFORE}}, nullptr}
     );
     EXPECT_EQ(spec_order.type, PartitioningSpec::Type::ORDER);
-    EXPECT_EQ(spec_order.order->column_indices[0], 0);
-    EXPECT_EQ(spec_order.order->orders[0], cudf::order::ASCENDING);
-    EXPECT_EQ(spec_order.order->null_orders[0], cudf::null_order::BEFORE);
+    EXPECT_EQ(spec_order.order->keys[0].column_index, 0);
+    EXPECT_EQ(spec_order.order->keys[0].order, cudf::order::ASCENDING);
+    EXPECT_EQ(spec_order.order->keys[0].null_order, cudf::null_order::BEFORE);
 
     // Equality
     EXPECT_EQ(spec_none, PartitioningSpec::none());
@@ -150,9 +131,8 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 32}));
     EXPECT_NE(spec_hash, spec_order);
 
-    // Order equality
     auto spec_order_same = PartitioningSpec::from_order(
-        OrderScheme{{0}, {cudf::order::ASCENDING}, {cudf::null_order::BEFORE}, nullptr}
+        OrderScheme{{{0, cudf::order::ASCENDING, cudf::null_order::BEFORE}}, nullptr}
     );
     EXPECT_EQ(spec_order, spec_order_same);
 }
@@ -182,20 +162,18 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     // Order-based partitioning (range partitioned / sorted)
     Partitioning p_ordered{
         PartitioningSpec::from_order(
-            OrderScheme{{0}, {cudf::order::ASCENDING}, {cudf::null_order::AFTER}, nullptr}
+            OrderScheme{{{0, cudf::order::ASCENDING, cudf::null_order::AFTER}}, nullptr}
         ),
         PartitioningSpec::inherit()
     };
     EXPECT_EQ(p_ordered.inter_rank.type, PartitioningSpec::Type::ORDER);
     EXPECT_EQ(p_ordered.local.type, PartitioningSpec::Type::INHERIT);
-    EXPECT_EQ(p_ordered.inter_rank.order->column_indices[0], 0);
+    EXPECT_EQ(p_ordered.inter_rank.order->keys[0].column_index, 0);
 
     // Mixed: inter_rank=Order, local=Hash
     Partitioning p_mixed{
         PartitioningSpec::from_order(
-            OrderScheme{
-                {0}, {cudf::order::DESCENDING}, {cudf::null_order::BEFORE}, nullptr
-            }
+            OrderScheme{{{0, cudf::order::DESCENDING, cudf::null_order::BEFORE}}, nullptr}
         ),
         PartitioningSpec::from_hash(HashScheme{{1}, 8})
     };
@@ -278,16 +256,22 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderScheme) {
     EXPECT_EQ(released.local_count, 8);
     EXPECT_TRUE(released.duplicated);
     EXPECT_EQ(released.partitioning.inter_rank.type, PartitioningSpec::Type::ORDER);
-    EXPECT_EQ(released.partitioning.inter_rank.order->column_indices.size(), 2);
-    EXPECT_EQ(released.partitioning.inter_rank.order->column_indices[0], 0);
-    EXPECT_EQ(released.partitioning.inter_rank.order->column_indices[1], 1);
-    EXPECT_EQ(released.partitioning.inter_rank.order->orders[0], cudf::order::ASCENDING);
-    EXPECT_EQ(released.partitioning.inter_rank.order->orders[1], cudf::order::DESCENDING);
+    EXPECT_EQ(released.partitioning.inter_rank.order->keys.size(), 2);
+    EXPECT_EQ(released.partitioning.inter_rank.order->keys[0].column_index, 0);
     EXPECT_EQ(
-        released.partitioning.inter_rank.order->null_orders[0], cudf::null_order::BEFORE
+        released.partitioning.inter_rank.order->keys[0].order, cudf::order::ASCENDING
     );
     EXPECT_EQ(
-        released.partitioning.inter_rank.order->null_orders[1], cudf::null_order::AFTER
+        released.partitioning.inter_rank.order->keys[0].null_order,
+        cudf::null_order::BEFORE
+    );
+    EXPECT_EQ(released.partitioning.inter_rank.order->keys[1].column_index, 1);
+    EXPECT_EQ(
+        released.partitioning.inter_rank.order->keys[1].order, cudf::order::DESCENDING
+    );
+    EXPECT_EQ(
+        released.partitioning.inter_rank.order->keys[1].null_order,
+        cudf::null_order::AFTER
     );
     EXPECT_EQ(released.partitioning.local.type, PartitioningSpec::Type::INHERIT);
     EXPECT_FALSE(released.partitioning.inter_rank.order->strict_boundary);

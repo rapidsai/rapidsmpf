@@ -36,6 +36,21 @@ struct HashScheme {
 };
 
 /**
+ * @brief A single sort key: column index, sort direction, and null placement.
+ */
+struct OrderKey {
+    cudf::size_type column_index;  ///< Column to sort on.
+    cudf::order order;  ///< ASCENDING or DESCENDING.
+    cudf::null_order null_order;  ///< BEFORE or AFTER.
+
+    /**
+     * @brief Equality comparison.
+     * @return True if all fields are equal.
+     */
+    bool operator==(OrderKey const&) const = default;
+};
+
+/**
  * @brief Order-based partitioning scheme for sorted/range-partitioned data.
  *
  * Data is partitioned by value ranges based on predetermined boundaries.
@@ -44,24 +59,14 @@ struct HashScheme {
  * - Partition i (0 < i < N-1): boundaries[i-1] <= values < boundaries[i]
  * - Partition N-1: values >= boundaries[N-2]
  *
- * Multi-column ordering is lexicographic: column `column_indices[0]` is the most
- * significant sort key, then `column_indices[1]`, and so on, each using its
- * matching `orders[k]` and `null_orders[k]`.
+ * `keys[i]` is the i-th sort column; ordering is lexicographic by `keys[0]`,
+ * then `keys[1]`, and so on.
  *
- * When `boundaries` is set, its columns must align with the ordered key columns
- * (same count and compatible data types as the sort keys in the payload table).
- * Unsupported or mismatched boundary dtypes are a usage error for producers.
- *
- * @note `column_indices`, `orders`, and `null_orders` use the same parallel-vector
- * layout as many libcudf APIs (one entry per key column). They must always have
- * equal length; `PartitioningSpec::from_order` enforces this. A single struct per
- * key was considered but not adopted here to stay consistent with that pattern.
+ * When `boundaries` is set, its columns must align with `keys`
+ * (same count and compatible dtypes). Mismatched dtypes are a usage error.
  */
 struct OrderScheme {
-    std::vector<cudf::size_type> column_indices;  ///< Column indices to order on.
-    std::vector<cudf::order> orders;  ///< Sort order per column (ASCENDING/DESCENDING).
-    std::vector<cudf::null_order>
-        null_orders;  ///< Null ordering per column (BEFORE/AFTER).
+    std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
     std::unique_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
     bool strict_boundary{false};  ///< Sort keys disjoint across chunks.
 
@@ -79,9 +84,9 @@ struct OrderScheme {
     /**
      * @brief Shallow metadata equality (not semantic boundary value equality).
      *
-     * Returns true when `column_indices`, `orders`, `null_orders`, and
-     * `strict_boundary` match, and boundary tables are consistent in the weak
-     * sense: both absent, or both present with the same `(num_rows, num_columns)`.
+     * Returns true when `keys` and `strict_boundary` match, and boundary tables
+     * are consistent in the weak sense: both absent, or both present with the
+     * same `(num_rows, num_columns)`.
      * Cell values inside `boundaries` are intentionally not compared (that would
      * require a device comparison API with stream and memory resource). Do not
      * use `operator==` to assert that two schemes have identical range boundaries.
@@ -146,9 +151,8 @@ struct PartitioningSpec {
 
     /**
      * @brief Create a spec for order/range partitioning.
-     *
-     * @param o The order scheme to use. `o.column_indices`, `o.orders`, and
-     * `o.null_orders` must have the same length; otherwise throws std::invalid_argument.
+     * @param o The order scheme to use. `o.keys` must be non-empty; otherwise
+     * throws `std::invalid_argument`.
      * @return A PartitioningSpec with type ORDER.
      */
     static PartitioningSpec from_order(OrderScheme o);

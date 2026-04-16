@@ -13,24 +13,16 @@
 namespace rapidsmpf::streaming {
 
 PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
-    if (o.column_indices.size() != o.orders.size()
-        || o.column_indices.size() != o.null_orders.size())
-    {
-        throw std::invalid_argument(
-            "OrderScheme: column_indices, orders, and null_orders must have the same "
-            "length"
-        );
+    if (o.keys.empty()) {
+        throw std::invalid_argument("OrderScheme: keys must not be empty");
     }
     return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
-    if (column_indices != other.column_indices || orders != other.orders
-        || null_orders != other.null_orders || strict_boundary != other.strict_boundary)
-    {
+    if (keys != other.keys || strict_boundary != other.strict_boundary) {
         return false;
     }
-
     bool this_has = boundaries != nullptr;
     bool other_has = other.boundaries != nullptr;
     if (this_has != other_has) {
@@ -39,7 +31,6 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
     if (!this_has) {
         return true;
     }
-
     // Both have boundaries: shape only (see doc in header).
     auto tv = boundaries->table_view();
     auto ov = other.boundaries->table_view();
@@ -48,9 +39,7 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
 
 OrderScheme OrderScheme::clone(MemoryReservation& reservation) const {
     return OrderScheme{
-        .column_indices = column_indices,
-        .orders = orders,
-        .null_orders = null_orders,
+        .keys = keys,
         .boundaries = boundaries
                           ? std::make_unique<TableChunk>(boundaries->copy(reservation))
                           : nullptr,
