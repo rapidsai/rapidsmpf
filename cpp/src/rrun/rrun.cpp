@@ -22,6 +22,7 @@
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
+#include <rrun/scoped_env_var.hpp>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -312,26 +313,14 @@ void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
     unsigned int id = resolve_gpu_id(gpu_id);
 
     // Temporarily clear CUDA_VISIBLE_DEVICES so the topology discovery layer
-    // sees all physical GPUs.  When the variable restricts visibility to a
+    // sees all physical GPUs. When the variable restricts visibility to a
     // single device, NVML remaps it to index 0 and a lookup by the real
-    // physical ID would fail.
-    char const* cvd = std::getenv("CUDA_VISIBLE_DEVICES");
-    std::string saved_cvd;
-    bool had_cvd = false;
-    if (cvd != nullptr) {
-        had_cvd = true;
-        saved_cvd = cvd;
-        unsetenv("CUDA_VISIBLE_DEVICES");
-    }
+    // physical ID would fail. The ScopedEnvVar guard restores the original
+    // value when the scope exits (including on exception).
+    ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
 
     cucascade::memory::topology_discovery discovery;
-    bool ok = discovery.discover();
-
-    if (had_cvd) {
-        setenv("CUDA_VISIBLE_DEVICES", saved_cvd.c_str(), 1);
-    }
-
-    if (!ok) {
+    if (!discovery.discover()) {
         throw std::runtime_error(
             "rapidsmpf::rrun::bind(): failed to discover system topology"
         );

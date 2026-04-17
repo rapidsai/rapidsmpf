@@ -31,48 +31,12 @@
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
+#include <rrun/scoped_env_var.hpp>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
 
-/**
- * @brief RAII guard that sets or unsets an environment variable and restores
- * the original state on destruction.
- *
- * @param name  Name of the environment variable.
- * @param value Value to set, or `nullptr` to unset the variable.
- */
-class ScopedEnvVar {
-  public:
-    ScopedEnvVar(char const* name, char const* value) : name_(name) {
-        char const* old = std::getenv(name);
-        if (old != nullptr) {
-            had_value_ = true;
-            old_value_ = old;
-        }
-        if (value != nullptr) {
-            setenv(name, value, 1);
-        } else {
-            unsetenv(name);
-        }
-    }
-
-    ~ScopedEnvVar() {
-        if (had_value_) {
-            setenv(name_.c_str(), old_value_.c_str(), 1);
-        } else {
-            unsetenv(name_.c_str());
-        }
-    }
-
-    ScopedEnvVar(ScopedEnvVar const&) = delete;
-    ScopedEnvVar& operator=(ScopedEnvVar const&) = delete;
-
-  private:
-    std::string name_;
-    std::string old_value_;
-    bool had_value_{false};
-};
+using rapidsmpf::rrun::ScopedEnvVar;
 
 /**
  * @brief Build a minimal synthetic topology containing a single GPU.
