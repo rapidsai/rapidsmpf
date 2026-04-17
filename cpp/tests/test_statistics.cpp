@@ -529,7 +529,7 @@ TEST_F(StatisticsTest, MergeEmpty) {
     EXPECT_EQ(merged2->list_stat_names().size(), 1);
 }
 
-TEST_F(StatisticsTest, MergeUsesThisFormatters) {
+TEST_F(StatisticsTest, MergeFormatters) {
     auto a = std::make_shared<rapidsmpf::Statistics>();
     a->register_formatter(
         "x", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
@@ -545,9 +545,27 @@ TEST_F(StatisticsTest, MergeUsesThisFormatters) {
     auto merged = a->merge(b);
     EXPECT_THAT(merged->report(), ::testing::HasSubstr("custom:15"));
 
-    // Merging b (no formatter) with a: result does not have the formatter.
+    // Merging b (no formatter for "x") with a (has formatter for "x"): a's formatter
+    // propagates into the result since b has no conflicting formatter for "x".
     auto merged2 = b->merge(a);
-    EXPECT_THAT(merged2->report(), ::testing::Not(::testing::HasSubstr("custom:")));
+    EXPECT_THAT(merged2->report(), ::testing::HasSubstr("custom:15"));
+
+    // When both sides have a formatter for the same key, "this" (b) takes precedence.
+    b->register_formatter(
+        "y", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << "b-custom:" << s[0].value();
+        }
+    );
+    a->register_formatter(
+        "y", [](std::ostream& os, std::vector<rapidsmpf::Statistics::Stat> const& s) {
+            os << "a-custom:" << s[0].value();
+        }
+    );
+    b->add_stat("y", 3.0);
+    a->add_stat("y", 7.0);
+    auto merged3 = b->merge(a);
+    EXPECT_THAT(merged3->report(), ::testing::HasSubstr("b-custom:10"));
+    EXPECT_THAT(merged3->report(), ::testing::Not(::testing::HasSubstr("a-custom:")));
 }
 
 TEST_F(StatisticsTest, MergeSpan) {
@@ -566,4 +584,60 @@ TEST_F(StatisticsTest, MergeSpan) {
     EXPECT_EQ(merged->list_stat_names().size(), 2);
     EXPECT_EQ(merged->get_stat("x").value(), 3.0);
     EXPECT_EQ(merged->get_stat("y").value(), 10.0);
+}
+
+TEST_F(StatisticsTest, RecordSetupStat) {
+    rapidsmpf::Statistics stats;
+
+    stats.record_setup_stat("setup-a", 100, Duration{1.0});
+    stats.record_setup_stat("setup-b", 200, Duration{0.5});
+
+    // The underlying time and bytes stats are accessible by their full names.
+    EXPECT_DOUBLE_EQ(stats.get_stat("setup-a-time").value(), 1.0);
+    EXPECT_DOUBLE_EQ(stats.get_stat("setup-a-bytes").value(), 100.0);
+    EXPECT_DOUBLE_EQ(stats.get_stat("setup-b-time").value(), 0.5);
+    EXPECT_DOUBLE_EQ(stats.get_stat("setup-b-bytes").value(), static_cast<double>(200));
+
+    // Both prefixes are tracked.
+    auto const& prefixes = stats.get_setup_stats_prefixes();
+    EXPECT_EQ(prefixes.size(), 2);
+    EXPECT_EQ(prefixes.count("setup-a"), 1);
+    EXPECT_EQ(prefixes.count("setup-b"), 1);
+
+    // A report-entry formatter is registered under each prefix name.
+    EXPECT_TRUE(stats.exist_report_entry_name("setup-a"));
+    EXPECT_TRUE(stats.exist_report_entry_name("setup-b"));
+
+    // The report shows prefix labels but not the individual sub-stat names.
+    auto report = stats.report();
+    EXPECT_THAT(report, ::testing::HasSubstr("setup-a"));
+    EXPECT_THAT(report, ::testing::HasSubstr("setup-b"));
+    EXPECT_THAT(report, ::testing::Not(::testing::HasSubstr("setup-a-time")));
+    EXPECT_THAT(report, ::testing::Not(::testing::HasSubstr("setup-a-bytes")));
+    EXPECT_THAT(report, ::testing::Not(::testing::HasSubstr("setup-b-time")));
+    EXPECT_THAT(report, ::testing::Not(::testing::HasSubstr("setup-b-bytes")));
+
+    // Duplicate prefix throws.
+    EXPECT_THROW(
+        stats.record_setup_stat("setup-a", 256, Duration{0.2}), std::logic_error
+    );
+}
+
+TEST_F(StatisticsTest, MergeSetupStatPrefixes) {
+    auto a = std::make_shared<rapidsmpf::Statistics>();
+    a->record_setup_stat("setup-a", 100, Duration{1.0});
+
+    auto b = std::make_shared<rapidsmpf::Statistics>();
+    b->record_setup_stat("setup-b", 200, Duration{2.0});
+
+    auto merged = a->merge(b);
+
+    // Both prefixes must be present in the merged result.
+    auto const& prefixes = merged->get_setup_stats_prefixes();
+    EXPECT_EQ(prefixes.count("setup-a"), 1);
+    EXPECT_EQ(prefixes.count("setup-b"), 1);
+
+    // Stats from both sides should be merged.
+    EXPECT_DOUBLE_EQ(merged->get_stat("setup-a-bytes").value(), 100.0);
+    EXPECT_DOUBLE_EQ(merged->get_stat("setup-b-bytes").value(), 200.0);
 }

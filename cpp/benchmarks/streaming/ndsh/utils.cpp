@@ -156,10 +156,19 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr) {
         std::invalid_argument
     );
 
+    std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled;
+    if (!arguments.no_pinned_host_memory) {
+        auto const setup_stat = Clock::now();
+        pinned_mr = std::make_shared<PinnedMemoryResource>();
+        auto setup_time = Clock::now() - setup_stat;
+        statistics->record_setup_stat(
+            "pinned-pool-setup", pinned_mr->current_allocated(), setup_time
+        );
+    }
+
     auto br = std::make_shared<BufferResource>(
         mr,
-        arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
-                                        : std::make_shared<PinnedMemoryResource>(),
+        std::move(pinned_mr),
         std::move(memory_available),
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(

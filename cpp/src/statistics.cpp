@@ -138,13 +138,25 @@ Statistics::Stat Statistics::get_stat(std::string const& name) const {
     return stats_.at(name);
 }
 
+std::unordered_map<std::string, Statistics::Stat> Statistics::get_stats(
+    std::string const& prefix
+) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::unordered_map<std::string, Stat> ret;
+    for (auto const& [name, stat] : stats_) {
+        if (name.starts_with(prefix)) {
+            ret[name] = stat;
+        }
+    }
+    return ret;
+}
+
 void Statistics::add_stat(std::string const& name, double value) {
     if (!enabled()) {
         return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    auto [it, _] = stats_.try_emplace(name);
-    it->second.add(value);
+    stats_[name].add(value);
 }
 
 bool Statistics::exist_report_entry_name(std::string const& name) const {
@@ -535,6 +547,7 @@ std::shared_ptr<Statistics> Statistics::merge(
     auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
     ret->stats_ = stats_;
     ret->formatters_ = formatters_;
+    ret->setup_stats_prefixes_ = setup_stats_prefixes_;
 
     for (auto const& [name, stat] : other->stats_) {
         auto [it, inserted] = ret->stats_.try_emplace(name, stat);
@@ -542,6 +555,14 @@ std::shared_ptr<Statistics> Statistics::merge(
             it->second = it->second.merge(stat);
         }
     }
+
+    // update the missing formatters
+    ret->formatters_.insert(other->formatters_.begin(), other->formatters_.end());
+
+    // update the missing setup stats prefixes
+    ret->setup_stats_prefixes_.insert(
+        other->setup_stats_prefixes_.begin(), other->setup_stats_prefixes_.end()
+    );
     return ret;
 }
 
@@ -659,6 +680,34 @@ void Statistics::record_alloc(
                   );
         }
     );
+}
+
+void Statistics::record_setup_stat(
+    std::string prefix, std::size_t nbytes, Duration duration
+) {
+    RAPIDSMPF_EXPECTS(
+        setup_stats_prefixes_.emplace(prefix).second,
+        "setup stat prefix already exists: " + prefix
+    );
+
+    const std::vector<std::string> stat_names{
+        prefix + "-time",
+        prefix + "-bytes",
+    };
+    add_stat(stat_names[0], duration.count());
+    add_stat(stat_names[1], nbytes);
+
+    register_formatter(
+        prefix, stat_names, [](std::ostream& os, std::vector<Stat> const& stats) {
+            auto const time = stats.at(0);
+            auto const bytes = stats.at(1);
+            os << format_duration(time.value()) << " | " << format_nbytes(bytes.value());
+        }
+    );
+}
+
+std::unordered_set<std::string> const& Statistics::get_setup_stats_prefixes() const {
+    return setup_stats_prefixes_;
 }
 
 }  // namespace rapidsmpf

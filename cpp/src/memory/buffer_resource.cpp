@@ -56,14 +56,25 @@ BufferResource::BufferResource(
 std::shared_ptr<BufferResource> BufferResource::from_options(
     RmmResourceAdaptor* mr, config::Options options
 ) {
+    // TODO: currently statistics requires pinned mr/ mr to be passed in the constructor.
+    // But this is not really required. After the RMM refactor, we can make statistics
+    // object independent from memory resources. Its not possible now because we dont have
+    // a way to convert rmm::device_async_resource_ref to RmmResourceAdaptor.
+    // Because of this, pinned pool setup time is only recorded during from_options
+    // method.
+    auto const setup_stat = Clock::now();
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     auto mem_available = memory_available_from_options(mr, options);
 
     if (pinned_mr != PinnedMemoryResource::Disabled) {
         mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
+    auto setup_time = Clock::now() - setup_stat;
 
     auto statistics = Statistics::from_options(mr, options, pinned_mr);
+    statistics->record_setup_stat(
+        "pinned-pool-setup", pinned_mr->current_allocated(), setup_time
+    );
     return std::make_shared<BufferResource>(
         mr,
         std::move(pinned_mr),

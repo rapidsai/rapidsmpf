@@ -394,6 +394,14 @@ class Statistics {
     Stat get_stat(std::string const& name) const;
 
     /**
+     * @brief Retrieves all statistics by prefix.
+     *
+     * @param prefix The prefix to filter statistics by.
+     * @return A vector of statistics matching the prefix.
+     */
+    std::unordered_map<std::string, Stat> get_stats(std::string const& prefix) const;
+
+    /**
      * @brief Adds a numeric value to the named statistic.
      *
      * Creates the statistic if it doesn't exist.
@@ -519,6 +527,22 @@ class Statistics {
     );
 
     /**
+     * @brief Record setup statistics for a given prefix.
+     *
+     * @param prefix The prefix to use for the setup statistics.
+     * @param nbytes The number of bytes to record.
+     * @param duration The duration to record.
+     */
+    void record_setup_stat(std::string prefix, std::size_t nbytes, Duration duration);
+
+    /**
+     * @brief Get the prefixes of all setup statistics.
+     *
+     * @return A reference to the set of setup statistics prefixes.
+     */
+    std::unordered_set<std::string> const& get_setup_stats_prefixes() const;
+
+    /**
      * @brief Get the names of all statistics.
      *
      * @return A vector of all statistic names.
@@ -622,6 +646,7 @@ class Statistics {
     RmmResourceAdaptor* mr_;
     std::shared_ptr<PinnedMemoryResource>
         pinned_mr_;  ///< optional; not used by MemoryRecorder
+    std::unordered_set<std::string> setup_stats_prefixes_;
 };
 
 /**
