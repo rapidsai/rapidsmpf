@@ -78,7 +78,9 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
             auto const size = chunk.data_size();
-            if (chunk.data_memory_type() != MemoryType::DEVICE || size == 0) {
+            if (size == 0 || !chunk.is_data_buffer_set()
+                || chunk.data_memory_type() != MemoryType::DEVICE)
+            {
                 continue;
             }
             auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);

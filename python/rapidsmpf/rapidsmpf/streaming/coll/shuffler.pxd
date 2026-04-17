@@ -9,6 +9,7 @@ from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.shuffler cimport cpp_PartitionOwner
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
@@ -45,3 +46,4 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
 cdef class ShufflerAsync:
     cdef unique_ptr[cpp_ShufflerAsync] _handle
     cdef Communicator _comm
+    cdef BufferResource _br

@@ -21,6 +21,7 @@ from rapidsmpf.memory.packed_data cimport cpp_PackedData
 cdef extern from *:
     """
     #include <rapidsmpf/error.hpp>
+    #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 
     std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_buffers(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
@@ -67,12 +68,8 @@ cdef extern from *:
         auto const nbytes = buf->size;
         std::vector<std::uint8_t> result(nbytes);
         if (nbytes > 0) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                result.data(),
-                buf->data(),
-                nbytes,
-                cudaMemcpyDefault,
-                buf->stream().value()
+            RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
+                result.data(), buf->data(), nbytes, buf->stream()
             ));
             buf->stream().synchronize();
         }
@@ -99,9 +96,10 @@ cdef extern from *:
 
 cdef class PackedData:
     @staticmethod
-    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj):
+    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj, BufferResource br):
         cdef PackedData self = PackedData.__new__(PackedData)
         self.c_obj = move(obj)
+        self._br = br
         return self
 
     @classmethod
@@ -147,6 +145,7 @@ cdef class PackedData:
                 _stream,
                 _br,
             )
+        ret._br = br
         return ret
 
     def __init__(self):
@@ -188,6 +187,7 @@ cdef class PackedData:
             data_ptr = <const uint8_t*>&data[0]
         with nogil:
             ret.c_obj = cpp_packed_data_from_host_bytes(data_ptr, size, _br)
+        ret._br = br
         return ret
 
     def to_host_bytes(self) -> bytes:
@@ -220,12 +220,14 @@ cdef class PackedData:
 
 
 # Convert a vector of `cpp_PackedData` into a list of `PackedData`.
-cdef list packed_data_vector_to_list(vector[cpp_PackedData] packed_data):
+cdef list packed_data_vector_to_list(
+    vector[cpp_PackedData] packed_data, BufferResource br
+):
     cdef list ret = []
     for i in range(packed_data.size()):
-        ret.append(
-            PackedData.from_librapidsmpf(
-                make_unique[cpp_PackedData](move(packed_data[i]))
-            )
+        item = PackedData.from_librapidsmpf(
+            make_unique[cpp_PackedData](move(packed_data[i])),
+            br,
         )
+        ret.append(item)
     return ret

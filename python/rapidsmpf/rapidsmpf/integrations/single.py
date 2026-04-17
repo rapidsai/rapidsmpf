@@ -85,6 +85,9 @@ def destroy_worker() -> None:
     """
     global _worker_context  # noqa: PLW0603
     with WorkerContext.lock:
+        if _worker_context is None:
+            return
+        _worker_context.unregister_python_spill_callback()
         _worker_context = None
 
 

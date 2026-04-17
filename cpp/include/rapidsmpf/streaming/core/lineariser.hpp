@@ -94,7 +94,8 @@ class Lineariser {
     Actor drain() {
         ShutdownAtExit c{ch_out_};
         co_await ctx_->executor()->schedule();
-        while (!queues_.empty()) {
+        bool shutdown{false};
+        while (!(shutdown || queues_.empty())) {
             for (auto& q : queues_) {
                 auto [receipt, msg] = co_await q->receive();
                 if (msg.empty()) {
@@ -103,6 +104,7 @@ class Lineariser {
                 }
                 if (!co_await ch_out_->send(std::move(msg))) {
                     // Output channel is shut down, tell the producers to shutdown.
+                    shutdown = true;
                     break;
                 }
                 co_await receipt;

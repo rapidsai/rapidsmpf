@@ -6,8 +6,8 @@
 #include <memory>
 
 #include <cudf/contiguous_split.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
-#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
@@ -35,8 +35,9 @@ TableChunk::TableChunk(
       table_view_{table_view},
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
-    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] =
-        estimated_memory_usage(table_view, stream_);
+    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = cudf::packed_size(
+        table_view, stream_, rmm::mr::get_current_device_resource_ref()
+    );
     make_available_cost_ = 0;
 }
 

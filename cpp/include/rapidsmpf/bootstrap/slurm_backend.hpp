@@ -12,6 +12,7 @@
 #include <array>
 #include <chrono>
 #include <string>
+#include <string_view>
 
 #include <pmix.h>
 
@@ -80,7 +81,7 @@ class SlurmBackend : public Backend {
      *
      * @throws std::runtime_error if PMIx operation fails.
      */
-    void put(std::string const& key, std::string const& value) override;
+    void put(std::string const& key, std::string_view value) override;
 
     /**
      * @copydoc Backend::get()

@@ -8,7 +8,7 @@ from typing import Generic, Protocol, Self, TypeVar
 from rapidsmpf.memory.content_description import ContentDescription
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 
-PayloadT = TypeVar("PayloadT", bound="Payload")
+PayloadT = TypeVar("PayloadT")
 
 class Payload(Protocol):
     """

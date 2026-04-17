@@ -62,6 +62,14 @@ cdef class PinnedMemoryResource:
         with nogil:
             self._handle.reset()
 
+    @property
+    def enabled(self) -> bool:
+        """
+        Check if pinned memory resource is enabled. ie. if pinned memory is supported
+        by the system and a valid instance is created.
+        """
+        return True if self._handle else False
+
     @staticmethod
     def make_if_available(numa_id = None):
         """

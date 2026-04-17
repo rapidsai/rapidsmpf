@@ -7,11 +7,12 @@ from libcpp.utility cimport move
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from functools import partial, wraps
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
+
 from rapidsmpf.streaming.core.context cimport Context
 
 
@@ -79,38 +80,6 @@ cdef class CppActor:
         return move(self._handle)
 
 
-class PyActor(Awaitable[None]):
-    """
-    A streaming actor implemented in Python.
-
-    This runs as an Python coroutine (asyncio), which means it comes with a significant
-    Python overhead. The GIL is released while C++ actors are executing.
-    """
-    def __init__(self, func, extra_channels, /, *args, **kwargs):
-        if len(args) < 1 or not isinstance(args[0], Context):
-            raise TypeError(
-                "expect a Context as the first positional argument "
-                "(not as a keyword argument)"
-            )
-        ctx = args[0]
-        channels_to_shutdown = (*collect_channels(args, kwargs), *extra_channels)
-        self._coro = self.run(ctx, channels_to_shutdown, func(*args, **kwargs))
-
-    @staticmethod
-    async def run(Context ctx not None, channels_to_shutdown, coro):
-        """
-        Run the coroutine and shutdown the channels when done.
-        """
-        try:
-            return await coro
-        finally:
-            for ch in channels_to_shutdown:
-                await ch.shutdown(ctx)
-
-    def __await__(self):
-        return self._coro.__await__()
-
-
 def collect_channels(*objs):
     """Recursively yield all `Channel` instances found in ``objs``."""
     for obj in objs:
@@ -124,16 +93,39 @@ def collect_channels(*objs):
             yield from collect_channels(*obj)
 
 
+async def py_actor(func, extra_channels, /, *args, **kwargs):
+    """
+    A streaming actor implemented in Python.
+
+    This runs as an Python coroutine (asyncio), which means it comes with a significant
+    Python overhead. The GIL is released while C++ actors are executing.
+    """
+    if len(args) < 1 or not isinstance(args[0], Context):
+        raise TypeError(
+            "expect a Context as the first positional argument "
+            "(not as a keyword argument)"
+        )
+    ctx = args[0]
+    channels_to_shutdown = (*collect_channels(args, kwargs), *extra_channels)
+    try:
+        return await func(*args, **kwargs)
+    finally:
+        for ch in channels_to_shutdown:
+            await ch.shutdown(ctx)
+
+
 cdef decorate_actor(extra_channels, func):
     """Validate ``func`` is async and wrap it as a PyActor."""
     if not inspect.iscoroutinefunction(func):
         raise TypeError(f"`{func.__qualname__}` must be an async function")
-    return wraps(func)(partial(PyActor, func, extra_channels))
+    return wraps(func)(partial(py_actor, func, extra_channels))
 
 
 async def run_py_actors(py_actors):
     """Await all ``py_actors`` concurrently."""
-    return await asyncio.gather(*py_actors)
+    async with asyncio.TaskGroup() as tg:
+        for actor in py_actors:
+            tg.create_task(actor)
 
 
 def define_actor(*, extra_channels=()):
@@ -248,12 +240,8 @@ def run_actor_network(*, actors, py_executor = None):
     for actor in actors:
         if isinstance(actor, CppActor):
             cpp_actors.push_back(move(deref((<CppActor>actor).release_handle())))
-        elif isinstance(actor, PyActor):
-            py_actors.append(actor)
         else:
-            raise ValueError(
-                "Unknown actor type, did you forget to use `@define_actor()`?"
-            )
+            py_actors.append(actor)
 
     if len(py_actors) > 0:
         if py_executor is None:

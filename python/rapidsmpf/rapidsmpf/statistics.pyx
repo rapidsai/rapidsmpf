@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
+                                                      cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -22,7 +24,9 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor* mr, cpp_Options options
+            cpp_RmmResourceAdaptor* mr,
+            cpp_Options options,
+            shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
@@ -97,7 +101,13 @@ cdef class Statistics:
                 self._handle = make_shared[cpp_Statistics](enable)
 
     @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+    def from_options(
+        cls,
+        RmmResourceAdaptor mr not None,
+        Options options not None,
+        *,
+        PinnedMemoryResource pinned_mr=None,
+    ):
         """
         Construct from configuration options.
 
@@ -107,6 +117,8 @@ cdef class Statistics:
             Pointer to a memory resource used for memory profiling.
         options
             Configuration options.
+        pinned_mr
+            When given, the pinned memory resource held for profiling.
 
         Returns
         -------
@@ -114,8 +126,13 @@ cdef class Statistics:
         """
         cdef Statistics ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
+        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned
+        if pinned_mr is not None:
+            cpp_pinned = pinned_mr._handle
+        else:
+            cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
-            ret._handle = cpp_from_options(mr_handle, options._handle)
+            ret._handle = cpp_from_options(mr_handle, options._handle, cpp_pinned)
         ret._mr = mr
         return ret
 
@@ -317,6 +334,46 @@ cdef class Statistics:
         cdef string path = <bytes>os.fsencode(filepath)
         with nogil:
             cpp_write_json(deref(self._handle), path)
+
+    def copy(self):
+        """
+        Creates a deep copy of this Statistics object.
+
+        Memory records are not copied.
+
+        Returns
+        -------
+        A new Statistics with the same stats and formatters.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = deref(self._handle).copy()
+        return ret
+
+    def merge(self, others):
+        """
+        Merges this Statistics with a sequence of others.
+
+        For each stat name present in any object, the result has the summed
+        count, summed value, and the maximum of the two maxima. Formatters are
+        taken from this object. Memory records are not merged.
+
+        Parameters
+        ----------
+        others
+            A sequence of Statistics to merge with.
+
+        Returns
+        -------
+        A new Statistics containing the merged stats.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        cdef vector[shared_ptr[cpp_Statistics]] cpp_others
+        for item in others:
+            cpp_others.push_back((<Statistics?>item)._handle)
+        with nogil:
+            ret._handle = deref(self._handle).merge_many(cpp_others)
+        return ret
 
     def write_json_string(self) -> str:
         """

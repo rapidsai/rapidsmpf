@@ -151,7 +151,7 @@ cdef class AllGather:
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        return packed_data_vector_to_list(move(deref(c_ret)))
+        return packed_data_vector_to_list(move(deref(c_ret)), ctx.br())
 
 
 def allgather(

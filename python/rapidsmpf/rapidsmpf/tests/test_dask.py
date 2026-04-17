@@ -325,17 +325,20 @@ def test_many_shuffles_single() -> None:
     rapidsmpf.integrations.single.setup_worker(
         options=Options({"single_spill_device": "0.1"})
     )
-    # We can run many concurrent shuffles
-    do_shuffle(seed=1, num_shuffles=max_num_shuffles)
+    try:
+        # We can run many concurrent shuffles
+        do_shuffle(seed=1, num_shuffles=max_num_shuffles)
 
-    # Check that all shufflers has been cleaned up.
-    ctx = rapidsmpf.integrations.single.get_worker_context()
-    assert len(ctx.shufflers) == 0
+        # Check that all shufflers has been cleaned up.
+        ctx = rapidsmpf.integrations.single.get_worker_context()
+        assert len(ctx.shufflers) == 0
 
-    context = rapidsmpf.integrations.single.get_worker_context()
-    for shuffle_id in list(context.shufflers):
-        assert context.shufflers[shuffle_id].finished()
-        del context.shufflers[shuffle_id]
+        context = rapidsmpf.integrations.single.get_worker_context()
+        for shuffle_id in list(context.shufflers):
+            assert context.shufflers[shuffle_id].finished()
+            del context.shufflers[shuffle_id]
+    finally:
+        rapidsmpf.integrations.single.destroy_worker()
 
 
 def test_gather_shuffle_statistics() -> None:
@@ -462,7 +465,7 @@ def test_dask_cudf_join(
             dd.assert_eq(joined, expected, check_index=False)
 
 
-@gen_test(timeout=30)
+@gen_test(timeout=60)
 @pytest.mark.filterwarnings("ignore")
 async def test_bootstrap_multiple_clients(
     loop: pytest.FixtureDef,  # noqa: F811
@@ -484,7 +487,9 @@ async def test_bootstrap_multiple_clients(
             args=(cluster.scheduler_address, q),
         )
         p.start()
-        result = q.get(timeout=5)
+        # forkserver subprocess must reimport all modules from scratch,
+        # which can be slow on loaded CI machines.
+        result = q.get(timeout=30)
         p.join()
 
     assert result is True

@@ -28,7 +28,10 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     ]
     table_chunks = [
         Message(
-            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=False)
+            seq,
+            TableChunk.from_pylibcudf_table(
+                expect, stream, exclusive_view=False, br=context.br()
+            ),
         )
         for seq, expect in enumerate(expects)
     ]
@@ -40,5 +43,5 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         assert result.sequence_number == seq
-        tbl = TableChunk.from_message(result)
+        tbl = TableChunk.from_message(result, br=context.br())
         assert_eq(tbl.table_view(), expect)

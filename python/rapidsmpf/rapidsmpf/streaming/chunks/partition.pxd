@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint32_t, uint64_t
@@ -6,6 +6,7 @@ from libcpp.memory cimport unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
 
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 
@@ -19,10 +20,13 @@ cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
 
 cdef class PartitionMapChunk:
     cdef unique_ptr[cpp_PartitionMapChunk] _handle
+    # Keep the BufferResource alive as long as this object is so that when this
+    # object is deallocated the associated stream and memory resource are still alive.
+    cdef BufferResource _br
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle
+        unique_ptr[cpp_PartitionMapChunk] handle, BufferResource br
     )
     cdef const cpp_PartitionMapChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self)
@@ -30,10 +34,13 @@ cdef class PartitionMapChunk:
 
 cdef class PartitionVectorChunk:
     cdef unique_ptr[cpp_PartitionVectorChunk] _handle
+    # Keep the BufferResource alive as long as this object is so that when this
+    # object is deallocated the associated stream and memory resource are still alive.
+    cdef BufferResource _br
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle
+        unique_ptr[cpp_PartitionVectorChunk] handle, BufferResource br
     )
     cdef const cpp_PartitionVectorChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionVectorChunk] release_handle(self)

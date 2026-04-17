@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <string>
+#include <string_view>
 
 #include <rapidsmpf/bootstrap/backend.hpp>
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
@@ -44,7 +45,7 @@ class FileBackend : public Backend {
     /**
      * @copydoc Backend::put
      */
-    void put(std::string const& key, std::string const& value) override;
+    void put(std::string const& key, std::string_view value) override;
 
     /**
      * @copydoc Backend::get
@@ -106,7 +107,7 @@ class FileBackend : public Backend {
      * @param path Path to file.
      * @param content Content to write.
      */
-    void write_file(std::string const& path, std::string const& content);
+    void write_file(std::string const& path, std::string_view content);
 
     /**
      * @brief Read string from file.
