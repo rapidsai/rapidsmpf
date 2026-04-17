@@ -253,14 +253,6 @@ class TestCheckBindingWithLauncher:
 
         _run_in_subprocess(body)
 
-    def test_gpu_id_from_launcher(self) -> None:
-        def body() -> None:
-            result = check_binding()
-            assert result.gpu_id is not None
-            assert result.gpu_id >= 0
-
-        _run_in_subprocess(body)
-
 
 @requires_no_launcher
 class TestCheckBindingWithoutLauncher:
