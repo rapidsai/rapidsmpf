@@ -23,7 +23,6 @@ struct bind_options {
     bool cpu{true};  ///< Set CPU affinity to cores near the GPU.
     bool memory{true};  ///< Set NUMA memory policy to nodes near the GPU.
     bool network{true};  ///< Set `UCX_NET_DEVICES` to NICs near the GPU.
-    bool verbose{false};  ///< Print warnings to stderr on binding failures.
 };
 
 /**
@@ -53,8 +52,9 @@ struct bind_options {
  * When `std::nullopt`, the first GPU in `CUDA_VISIBLE_DEVICES` is used instead.
  * @param options Controls which resource bindings to apply.
  *
- * @throws std::runtime_error if no GPU ID can be determined or the resolved
- *         GPU is not found in the discovered topology.
+ * @throws std::runtime_error if no GPU ID can be determined, topology
+ * discovery fails, the resolved GPU is not found in the discovered topology,
+ * or an enabled binding (CPU affinity, NUMA memory policy) could not be applied.
  */
 void bind(
     std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
@@ -80,8 +80,9 @@ void bind(
  * GPU in `CUDA_VISIBLE_DEVICES` is used instead.
  * @param options Controls which resource bindings to apply.
  *
- * @throws std::runtime_error if no GPU ID can be determined or the resolved
- *         GPU is not found in @p topology.
+ * @throws std::runtime_error if no GPU ID can be determined, the resolved GPU
+ * is not found in @p topology, or an enabled binding (CPU affinity, NUMA memory
+ * policy) could not be applied.
  */
 void bind(
     cucascade::memory::system_topology_info const& topology,

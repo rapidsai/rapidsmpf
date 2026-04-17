@@ -25,6 +25,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 
 #include "environment.hpp"
@@ -159,9 +160,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     RAPIDSMPF_EXPECTS(buffer->size == nbytes, "unexpected buffer size in make_buffer");
 
     auto* raw_ptr = buffer->exclusive_data_access();
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemcpyAsync(raw_ptr, data, nbytes, cudaMemcpyDefault, stream.value())
-    );
+    RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(raw_ptr, data, nbytes, stream));
     stream.synchronize();
     buffer->unlock();
 
@@ -186,9 +185,9 @@ std::vector<T> unpack_to_host(rapidsmpf::Buffer& buffer) {
     // first.
     buffer.stream().synchronize();
     auto* raw_ptr = buf->exclusive_data_access();
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        out.data(), raw_ptr, nbytes, cudaMemcpyDefault, buf->stream().value()
-    ));
+    RAPIDSMPF_CUDA_TRY(
+        rapidsmpf::cuda_memcpy_async(out.data(), raw_ptr, nbytes, buf->stream())
+    );
     buf->stream().synchronize();
     buf->unlock();
 
