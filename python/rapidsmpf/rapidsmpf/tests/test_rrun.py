@@ -21,6 +21,20 @@ from rapidsmpf.rrun import (
     validate_binding,
 )
 
+_LAUNCHER_VARS = ("RRUN_RANK", "PMIX_RANK", "SLURM_PROCID")
+
+_has_launcher = any(os.environ.get(v) is not None for v in _LAUNCHER_VARS)
+
+requires_launcher = pytest.mark.skipif(
+    not _has_launcher,
+    reason="Requires a process launcher (rrun/mpirun/srun)",
+)
+
+requires_no_launcher = pytest.mark.skipif(
+    _has_launcher,
+    reason="Must run without a process launcher",
+)
+
 
 def _run_in_subprocess(target: Callable[[], None]) -> None:
     """Execute ``target()`` in a forked child process.
@@ -182,7 +196,7 @@ class TestBindEffect:
 
 
 class TestCheckBinding:
-    """Tests for check_binding()."""
+    """Tests for check_binding() that work in any environment."""
 
     def test_returns_resource_binding(self) -> None:
         def body() -> None:
@@ -223,6 +237,47 @@ class TestCheckBinding:
         def body() -> None:
             result = check_binding(gpu_id_hint=0)
             assert len(result.cpu_affinity) > 0
+
+        _run_in_subprocess(body)
+
+
+@requires_launcher
+class TestCheckBindingWithLauncher:
+    """Tests for check_binding() when a process launcher is present."""
+
+    def test_rank_is_populated(self) -> None:
+        def body() -> None:
+            result = check_binding(gpu_id_hint=0)
+            assert result.rank is not None
+            assert result.rank >= 0
+
+        _run_in_subprocess(body)
+
+    def test_gpu_id_from_launcher(self) -> None:
+        def body() -> None:
+            result = check_binding()
+            assert result.gpu_id is not None
+            assert result.gpu_id >= 0
+
+        _run_in_subprocess(body)
+
+
+@requires_no_launcher
+class TestCheckBindingWithoutLauncher:
+    """Tests for check_binding() when no process launcher is present."""
+
+    def test_rank_is_none(self) -> None:
+        def body() -> None:
+            result = check_binding(gpu_id_hint=0)
+            assert result.rank is None
+
+        _run_in_subprocess(body)
+
+    def test_gpu_id_is_none_without_hint_or_cvd(self) -> None:
+        def body() -> None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            result = check_binding()
+            assert result.gpu_id is None
 
         _run_in_subprocess(body)
 
@@ -383,5 +438,24 @@ class TestBindThenValidate:
     def test_bind_with_verify_false_succeeds(self) -> None:
         def body() -> None:
             bind(gpu_id=0, cpu=True, memory=True, network=True, verify=False)
+
+        _run_in_subprocess(body)
+
+    @requires_launcher
+    def test_rank_populated_after_bind(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=True, memory=True, network=True)
+            result = check_binding(gpu_id_hint=0)
+            assert result.rank is not None
+            assert result.rank >= 0
+
+        _run_in_subprocess(body)
+
+    @requires_no_launcher
+    def test_rank_none_after_bind_without_launcher(self) -> None:
+        def body() -> None:
+            bind(gpu_id=0, cpu=True, memory=True, network=True)
+            result = check_binding(gpu_id_hint=0)
+            assert result.rank is None
 
         _run_in_subprocess(body)
