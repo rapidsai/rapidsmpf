@@ -30,7 +30,7 @@ namespace rapidsmpf::bootstrap {
 
 namespace {
 // Hex encoding for binary-safe address transmission
-std::string hex_encode(std::string const& input) {
+std::string hex_encode(std::string_view input) {
     static constexpr const char* hex_chars = "0123456789abcdef";
     std::string result;
     result.reserve(input.size() * 2);
@@ -42,7 +42,7 @@ std::string hex_encode(std::string const& input) {
     return result;
 }
 
-std::string hex_decode(std::string const& input) {
+std::string hex_decode(std::string_view const& input) {
     std::string result;
     result.reserve(input.size() / 2);
     for (size_t i = 0; i < input.size(); i += 2) {
@@ -87,7 +87,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         auto listener_address = comm->listener_address();
         auto root_worker_address_str =
             std::get<std::shared_ptr<::ucxx::Address>>(listener_address.address)
-                ->getString();
+                ->getStringView();
 
         std::string encoded_address = hex_encode(root_worker_address_str);
         // Write to a temp file then rename so the reader never sees partial content.
