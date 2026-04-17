@@ -205,17 +205,17 @@ class TestCheckBinding:
 
     def test_negative_hint_falls_back_to_cvd(self) -> None:
         def body() -> None:
-            os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
             result = check_binding(gpu_id_hint=-1)
-            assert result.gpu_id == 3
+            assert result.gpu_id == 0
 
         _run_in_subprocess(body)
 
     def test_default_hint_uses_cvd(self) -> None:
         def body() -> None:
-            os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
             result = check_binding()
-            assert result.gpu_id == 5
+            assert result.gpu_id == 0
 
         _run_in_subprocess(body)
 
