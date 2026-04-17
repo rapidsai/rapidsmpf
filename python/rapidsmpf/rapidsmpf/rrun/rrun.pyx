@@ -63,7 +63,7 @@ cdef _sync_c_env_to_python():
     """Propagate C-level environment changes made by bind() into os.environ.
 
     The C++ bind() implementation uses setenv()/unsetenv() which modify the C
-    environment directly.  Python's os.environ is a cached dict that is only
+    environment directly. Python's os.environ is a cached dict that is only
     updated when Python code writes to it, so we must manually synchronize the
     variables that bind() may have touched.
     """
@@ -175,14 +175,17 @@ def check_binding(gpu_id_hint=None):
     Collect the live resource binding of the calling process.
 
     Queries the current CPU affinity, NUMA memory nodes, UCX network
-    device configuration, process rank, and GPU information.
+    device configuration, process rank, and GPU information. Fields that
+    cannot be determined (e.g. rank when no launcher environment is set,
+    or GPU ID when ``CUDA_VISIBLE_DEVICES`` is absent and no hint is
+    given) are returned as ``None``.
 
     Parameters
     ----------
     gpu_id_hint
-        GPU device index hint.  When a non-negative integer the value is
+        GPU device index hint. When a non-negative integer the value is
         stored directly; when ``None`` the GPU ID is read from
-        ``CUDA_VISIBLE_DEVICES``.  When a valid GPU ID is available the
+        ``CUDA_VISIBLE_DEVICES``. When a valid GPU ID is available the
         PCI bus ID is also queried.
 
     Returns

@@ -77,7 +77,10 @@ struct binding_validation {
  * @brief Collect the live resource binding of the calling process.
  *
  * Queries the current CPU affinity, NUMA memory nodes, UCX network device
- * configuration, process rank, and GPU information.
+ * configuration, process rank, and GPU information. Fields that cannot be
+ * determined (e.g. rank when no launcher environment is set, or GPU ID when
+ * `CUDA_VISIBLE_DEVICES` is absent and no hint is given) are left at their
+ * default value of -1.
  *
  * @param gpu_id_hint GPU device index hint. When >= 0 the value is stored
  * directly; otherwise the GPU ID is read from `CUDA_VISIBLE_DEVICES`.

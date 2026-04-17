@@ -353,10 +353,20 @@ resource_binding check_binding(int gpu_id_hint) {
     binding.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
     binding.numa_nodes = rapidsmpf::get_current_numa_nodes();
     binding.ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
-    binding.rank = rapidsmpf::bootstrap::get_rank();
 
-    binding.gpu_id =
-        (gpu_id_hint >= 0) ? gpu_id_hint : rapidsmpf::bootstrap::get_gpu_id();
+    try {
+        binding.rank = rapidsmpf::bootstrap::get_rank();
+    } catch (std::runtime_error const&) {
+    }
+
+    if (gpu_id_hint >= 0) {
+        binding.gpu_id = gpu_id_hint;
+    } else {
+        try {
+            binding.gpu_id = rapidsmpf::bootstrap::get_gpu_id();
+        } catch (std::runtime_error const&) {
+        }
+    }
 
     if (binding.gpu_id >= 0) {
         binding.gpu_pci_bus_id = get_gpu_pci_bus_id(binding.gpu_id);
