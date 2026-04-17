@@ -203,10 +203,10 @@ class TestCheckBinding:
 
         _run_in_subprocess(body)
 
-    def test_negative_hint_falls_back_to_cvd(self) -> None:
+    def test_none_hint_falls_back_to_cvd(self) -> None:
         def body() -> None:
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            result = check_binding(gpu_id_hint=-1)
+            result = check_binding(gpu_id_hint=None)
             assert result.gpu_id == 0
 
         _run_in_subprocess(body)
@@ -232,7 +232,7 @@ class TestValidateBinding:
 
     def test_all_pass_when_matching(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="0-3",
@@ -253,7 +253,7 @@ class TestValidateBinding:
 
     def test_cpu_mismatch_detected(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="4-7",
@@ -267,7 +267,7 @@ class TestValidateBinding:
 
     def test_numa_mismatch_detected(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="",
@@ -281,7 +281,7 @@ class TestValidateBinding:
 
     def test_numa_passes_when_any_node_matches(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="",
@@ -294,7 +294,7 @@ class TestValidateBinding:
 
     def test_ucx_mismatch_detected(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="",
@@ -309,7 +309,7 @@ class TestValidateBinding:
 
     def test_ucx_order_independent(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="",
@@ -322,7 +322,7 @@ class TestValidateBinding:
 
     def test_empty_expected_is_all_pass(self) -> None:
         actual = ResourceBinding(
-            rank=-1,
+            rank=None,
             gpu_id=0,
             gpu_pci_bus_id="",
             cpu_affinity="0-7",

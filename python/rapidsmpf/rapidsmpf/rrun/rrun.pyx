@@ -87,9 +87,9 @@ class ResourceBinding:
     Parameters
     ----------
     rank
-        Process rank (-1 if not available).
+        Process rank, or ``None`` if not available.
     gpu_id
-        GPU device ID (-1 if not available).
+        GPU device ID, or ``None`` if not available.
     gpu_pci_bus_id
         GPU PCI bus ID (empty if unavailable).
     cpu_affinity
@@ -104,8 +104,8 @@ class ResourceBinding:
     check_binding : Collect the live binding of the calling process.
     """
 
-    rank: int
-    gpu_id: int
+    rank: int | None
+    gpu_id: int | None
     gpu_pci_bus_id: str
     cpu_affinity: str
     numa_nodes: list[int]
@@ -170,7 +170,7 @@ class BindingValidation:
         return self.cpu_ok and self.numa_ok and self.ucx_ok
 
 
-def check_binding(gpu_id_hint=-1):
+def check_binding(gpu_id_hint=None):
     """
     Collect the live resource binding of the calling process.
 
@@ -180,22 +180,23 @@ def check_binding(gpu_id_hint=-1):
     Parameters
     ----------
     gpu_id_hint
-        GPU device index hint.  When >= 0 the value is stored directly;
-        otherwise the GPU ID is read from ``CUDA_VISIBLE_DEVICES``.
-        When a valid GPU ID is available the PCI bus ID is also queried.
+        GPU device index hint.  When a non-negative integer the value is
+        stored directly; when ``None`` the GPU ID is read from
+        ``CUDA_VISIBLE_DEVICES``.  When a valid GPU ID is available the
+        PCI bus ID is also queried.
 
     Returns
     -------
     ResourceBinding
         The collected resource binding.
     """
-    cdef int c_hint = gpu_id_hint
+    cdef int c_hint = gpu_id_hint if gpu_id_hint is not None else -1
     cdef cpp_resource_binding c_result
     with nogil:
         c_result = cpp_check_binding(c_hint)
     return ResourceBinding(
-        rank=c_result.rank,
-        gpu_id=c_result.gpu_id,
+        rank=c_result.rank if c_result.rank >= 0 else None,
+        gpu_id=c_result.gpu_id if c_result.gpu_id >= 0 else None,
         gpu_pci_bus_id=c_result.gpu_pci_bus_id.decode(),
         cpu_affinity=c_result.cpu_affinity.decode(),
         numa_nodes=list(c_result.numa_nodes),
@@ -223,8 +224,8 @@ def validate_binding(actual, expected):
         Per-resource validation results.
     """
     cdef cpp_resource_binding c_actual
-    c_actual.rank = actual.rank
-    c_actual.gpu_id = actual.gpu_id
+    c_actual.rank = actual.rank if actual.rank is not None else -1
+    c_actual.gpu_id = actual.gpu_id if actual.gpu_id is not None else -1
     c_actual.gpu_pci_bus_id = actual.gpu_pci_bus_id.encode()
     c_actual.cpu_affinity = actual.cpu_affinity.encode()
     c_actual.numa_nodes = actual.numa_nodes

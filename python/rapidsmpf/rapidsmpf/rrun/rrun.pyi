@@ -5,8 +5,8 @@ import dataclasses
 
 @dataclasses.dataclass(frozen=True)
 class ResourceBinding:
-    rank: int
-    gpu_id: int
+    rank: int | None
+    gpu_id: int | None
     gpu_pci_bus_id: str
     cpu_affinity: str
     numa_nodes: list[int]
@@ -26,7 +26,7 @@ class BindingValidation:
     expected_ucx_devices: str
     def all_passed(self) -> bool: ...
 
-def check_binding(gpu_id_hint: int = -1) -> ResourceBinding: ...
+def check_binding(gpu_id_hint: int | None = None) -> ResourceBinding: ...
 def validate_binding(
     actual: ResourceBinding,
     expected: ExpectedBinding,
