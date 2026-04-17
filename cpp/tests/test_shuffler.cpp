@@ -36,7 +36,8 @@ TEST(ReceivedChunks, spill_skips_control_messages) {
 
     rapidsmpf::shuffler::detail::ReceivedChunks received;
 
-    // Control messages have no data buffer (data_ == nullptr); spill must skip them.
+    // Control messages have no data buffer (data_ == nullptr); spill must skip them
+    // rather than calling data_memory_type(), which throws if data_ is null.
     received.insert(rapidsmpf::shuffler::detail::Chunk::from_finished_partition(
         /*chunk_id=*/0, /*part_id=*/0, /*expected_num_chunks=*/1
     ));
