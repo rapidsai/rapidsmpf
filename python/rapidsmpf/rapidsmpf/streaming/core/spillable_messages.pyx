@@ -24,6 +24,11 @@ cdef class SpillableMessages:
     The container is thread-safe for concurrent insertions, extractions,
     and spills.
 
+    Parameters
+    ----------
+    br
+        A BufferResource to keep alive.
+
     Examples
     --------
     >>> msgs = SpillableMessages()
@@ -31,7 +36,7 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self, BufferResource br):
+    def __init__(self, BufferResource br not None):
         self._handle = make_shared[cpp_SpillableMessages]()
         self._br = br
 

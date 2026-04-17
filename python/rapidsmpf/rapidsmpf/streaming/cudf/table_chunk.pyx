@@ -127,7 +127,7 @@ cdef class TableChunk:
         handle
             A unique pointer to a C++ TableChunk.
         br
-            An optional BufferResource to keep alive.
+            A BufferResource to keep alive.
 
         Returns
         -------
