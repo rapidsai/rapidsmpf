@@ -298,7 +298,7 @@ class BufferResource {
     );
 
     /**
-     * @brief Move device/ pinned host buffer data into a Buffer.
+     * @brief Move device or pinned host buffer data into a Buffer.
      *
      * This operation is cheap; no copy is performed. The resulting Buffer resides in
      * device memory.
@@ -310,8 +310,8 @@ class BufferResource {
      * @param data Unique pointer to the device buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
-     * @param mem_type The memory type of the underlying @p data. This requires to be a
-     * device accessible memory type (ie. MemoryType::DEVICE or MemoryType::PINNED_HOST).
+     * @param mem_type The memory type of the underlying @p data. A device accessible memory
+     * type is required (ie. MemoryType::DEVICE or MemoryType::PINNED_HOST).
      * @return Unique pointer to the resulting Buffer.
      *
      * @throws std::invalid_argument If the memory type is invalid.
