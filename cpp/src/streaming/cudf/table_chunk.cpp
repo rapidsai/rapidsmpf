@@ -194,8 +194,9 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
 
                 StreamOrderedTiming timing{stream, br->statistics()};
 
-                // use cudf pack with pinned mr. When the pinned mr is warmed up, the
-                // performance
+                // use cudf pack with pinned mr, because it is more device memory
+                // efficient. When the pinned mr is warmed up, the performance is in par
+                // with packing to device memory and copying.
                 auto packed_pinned = cudf::pack(table_view(), stream, br->pinned_mr());
                 auto nbytes = packed_pinned.gpu_data->size();
 
