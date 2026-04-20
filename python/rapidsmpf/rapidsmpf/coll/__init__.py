@@ -5,5 +5,6 @@
 from __future__ import annotations
 
 from rapidsmpf.coll.allgather import AllGather
+from rapidsmpf.coll.sparse_alltoall import SparseAlltoall
 
-__all__ = ["AllGather"]
+__all__ = ["AllGather", "SparseAlltoall"]
