@@ -142,7 +142,8 @@ class SparseAlltoall {
     struct SourceState {
         std::uint64_t expected_count{0};
         std::uint64_t received_count{0};
-        std::vector<std::unique_ptr<detail::Chunk>> chunks;
+        std::vector<std::unique_ptr<detail::Chunk>> chunks{};
+        std::vector<std::unique_ptr<detail::Chunk>> incoming{};
 
         [[nodiscard]] bool ready() const noexcept {
             return expected_count > 0 && expected_count == received_count;
@@ -175,8 +176,6 @@ class SparseAlltoall {
     bool can_extract_{false};
 
     detail::PostBox outgoing_{};
-    std::unordered_map<Rank, std::vector<std::unique_ptr<detail::Chunk>>>
-        incoming_by_src_;
     std::vector<std::unique_ptr<detail::Chunk>> receive_posted_;
     std::vector<std::unique_ptr<Communicator::Future>> receive_futures_;
     std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;

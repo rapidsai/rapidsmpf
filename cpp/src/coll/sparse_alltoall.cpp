@@ -41,11 +41,9 @@ SparseAlltoall::SparseAlltoall(
             src >= 0 && src < size && src != self, "SparseAlltoall invalid source rank."
         );
         RAPIDSMPF_EXPECTS(
-            incoming_by_src_.emplace(src, std::vector<std::unique_ptr<detail::Chunk>>{})
-                .second,
+            source_states_.emplace(src, SourceState{}).second,
             "SparseAlltoall source rank list must be unique"
         );
-        source_states_.emplace(src, SourceState{});
     }
     next_ordinal_per_dst_.reserve(srcs_.size());
     for (auto dst : dsts_) {
@@ -185,7 +183,7 @@ void SparseAlltoall::receive_metadata_messages() {
                 );
                 state.expected_count = chunk->sequence();
             } else {
-                incoming_by_src_[src].push_back(std::move(chunk));
+                state.incoming.push_back(std::move(chunk));
             }
         }
     }
@@ -193,15 +191,15 @@ void SparseAlltoall::receive_metadata_messages() {
 
 void SparseAlltoall::receive_data_messages() {
     Tag const payload_tag{op_id_, 1};
-    for (auto& [src, queue] : incoming_by_src_) {
+    for (auto& [src, state] : source_states_) {
         std::ptrdiff_t processed = 0;
+        auto& queue = state.incoming;
         for (auto& chunk : queue) {
             if (!chunk->is_ready()) {
                 break;
             }
             processed++;
             if (chunk->data_size() == 0) {
-                auto& state = source_states_[src];
                 state.chunks.push_back(std::move(chunk));
             } else {
                 auto buffer = chunk->release_data_buffer();
@@ -229,8 +227,8 @@ void SparseAlltoall::complete_data_messages() {
 bool SparseAlltoall::containers_empty() const {
     return outgoing_.empty() && receive_posted_.empty() && receive_futures_.empty()
            && fire_and_forget_.empty()
-           && std::ranges::all_of(incoming_by_src_, [](auto const& kv) {
-                  return kv.second.empty();
+           && std::ranges::all_of(source_states_, [](auto const& kv) {
+                  return kv.second.incoming.empty();
               });
 }
 
