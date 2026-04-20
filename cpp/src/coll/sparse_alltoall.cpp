@@ -35,6 +35,7 @@ SparseAlltoall::SparseAlltoall(
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be null");
     auto const size = comm_->nranks();
     auto const self = comm_->rank();
+    source_states_.reserve(srcs_.size());
     for (auto src : srcs_) {
         RAPIDSMPF_EXPECTS(
             src >= 0 && src < size && src != self, "SparseAlltoall invalid source rank."
@@ -46,6 +47,7 @@ SparseAlltoall::SparseAlltoall(
         );
         source_states_.emplace(src, SourceState{});
     }
+    next_ordinal_per_dst_.reserve(srcs_.size());
     for (auto dst : dsts_) {
         RAPIDSMPF_EXPECTS(
             dst >= 0 && dst < size && dst != self,
@@ -93,12 +95,16 @@ void SparseAlltoall::insert(Rank dst, PackedData&& packed_data) {
 }
 
 void SparseAlltoall::insert_finished() {
-    for (auto dst : dsts_) {
+    RAPIDSMPF_EXPECTS(
+        !locally_finished_.load(std::memory_order_acquire),
+        "SparseAlltoall::insert_finished can only be called once"
+    );
+    for (auto& [dst, ord] : next_ordinal_per_dst_) {
         outgoing_.insert(
             detail::Chunk::from_empty(
                 // Number of metadata messages we send to the destination rank, including
                 // this finish message.
-                next_ordinal_per_dst_.at(dst).load(std::memory_order_acquire) + 1,
+                ord.load(std::memory_order_acquire) + 1,
                 comm_->rank(),
                 dst
             )
@@ -160,8 +166,7 @@ void SparseAlltoall::send_ready_messages() {
 
 void SparseAlltoall::receive_metadata_messages() {
     Tag const metadata_tag{op_id_, 0};
-    for (auto src : srcs_) {
-        auto& state = source_states_.at(src);
+    for (auto& [src, state] : source_states_) {
         while (!state.ready()) {
             auto msg = comm_->recv_from(src, metadata_tag);
             if (!msg) {
@@ -180,7 +185,7 @@ void SparseAlltoall::receive_metadata_messages() {
                 );
                 state.expected_count = chunk->sequence();
             } else {
-                incoming_by_src_.at(src).push_back(std::move(chunk));
+                incoming_by_src_[src].push_back(std::move(chunk));
             }
         }
     }
@@ -188,8 +193,7 @@ void SparseAlltoall::receive_metadata_messages() {
 
 void SparseAlltoall::receive_data_messages() {
     Tag const payload_tag{op_id_, 1};
-    for (auto src : srcs_) {
-        auto& queue = incoming_by_src_.at(src);
+    for (auto& [src, queue] : incoming_by_src_) {
         std::ptrdiff_t processed = 0;
         for (auto& chunk : queue) {
             if (!chunk->is_ready()) {
@@ -197,7 +201,7 @@ void SparseAlltoall::receive_data_messages() {
             }
             processed++;
             if (chunk->data_size() == 0) {
-                auto& state = source_states_.at(chunk->origin());
+                auto& state = source_states_[src];
                 state.chunks.push_back(std::move(chunk));
             } else {
                 auto buffer = chunk->release_data_buffer();
@@ -217,7 +221,7 @@ void SparseAlltoall::complete_data_messages() {
         RAPIDSMPF_EXPECTS(
             !chunk->is_finish(), "SparseAlltoall can only complete non-finish chunks"
         );
-        auto& state = source_states_.at(chunk->origin());
+        auto& state = source_states_[chunk->origin()];
         state.chunks.push_back(std::move(chunk));
     }
 }
