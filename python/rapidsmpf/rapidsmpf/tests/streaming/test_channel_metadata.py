@@ -291,7 +291,7 @@ def test_get_boundaries_table_after_spill(context: Context) -> None:
         partitioning=Partitioning(order_scheme, "inherit"),
     )
 
-    sm = SpillableMessages()
+    sm = SpillableMessages(context.br())
     mid = sm.insert(Message(0, m))
     spilled = sm.spill(mid=mid, br=context.br())
     assert spilled > 0, "nothing was spilled — check exclusive_view=True"
