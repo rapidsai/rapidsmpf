@@ -19,6 +19,7 @@
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 #include "utils/random_data.hpp"
@@ -147,13 +148,14 @@ void run_chunked_pack(
                     static_cast<std::uint8_t*>(bounce_buffer.data()), bounce_buffer_size
                 )
             );
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                static_cast<std::uint8_t*>(destination.data()) + offset,
-                bounce_buffer.data(),
-                bytes_copied,
-                cudaMemcpyDefault,
-                stream.value()
-            ));
+            RAPIDSMPF_CUDA_TRY(
+                rapidsmpf::cuda_memcpy_async(
+                    static_cast<std::uint8_t*>(destination.data()) + offset,
+                    bounce_buffer.data(),
+                    bytes_copied,
+                    stream
+                )
+            );
             offset += bytes_copied;
         }
     };

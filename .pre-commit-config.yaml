@@ -48,6 +48,17 @@ repos:
         language: system
         pass_filenames: false
         verbose: true
+      - id: use-rapidsmpf-cuda-memcpy-async
+        name: use-rapidsmpf-cuda-memcpy-async
+        description: 'Enforce that rapidsmpf::cuda_memcpy_async is used instead of cudaMemcpyAsync directly (see cpp/include/rapidsmpf/memory/cuda_memcpy_async.hpp)'
+        entry: 'cudaMemcpyAsync'
+        language: pygrep
+        types_or: [c, c++, cuda]
+        files: '^cpp/'
+        exclude: |
+          (?x)^(
+            cpp/include/rapidsmpf/memory/cuda_memcpy_async\.hpp
+          )$
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 9b1e9a33f1b33f6ecc2fdbb8d7cc894e951106e4  # frozen: v0.14.13
     hooks:

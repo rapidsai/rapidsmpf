@@ -16,6 +16,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
@@ -76,12 +77,8 @@ TEST_P(StreamingAllGather, basic) {
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
         buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                buf_data,
-                data.data(),
-                data.size() * sizeof(int),
-                cudaMemcpyDefault,
-                stream
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+                buf_data, data.data(), data.size() * sizeof(int), stream
             ));
         });
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
@@ -106,12 +103,8 @@ TEST_P(StreamingAllGather, basic) {
             int msize;
             std::memcpy(&msize, pd.metadata->data(), sizeof(int));
             RAPIDSMPF_EXPECTS(msize == size, "Corrupted metadata value");
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                result.data() + offset,
-                pd.data->data(),
-                pd.data->size,
-                cudaMemcpyDefault,
-                pd.data->stream()
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+                result.data() + offset, pd.data->data(), pd.data->size, pd.data->stream()
             ));
             offset += msize;
             pd.data->stream().synchronize();
@@ -155,12 +148,8 @@ TEST_P(StreamingAllGather, streaming_actor) {
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
         buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                buf_data,
-                data.data(),
-                data.size() * sizeof(int),
-                cudaMemcpyDefault,
-                stream
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+                buf_data, data.data(), data.size() * sizeof(int), stream
             ));
         });
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
@@ -194,12 +183,8 @@ TEST_P(StreamingAllGather, streaming_actor) {
         int msize;
         std::memcpy(&msize, pd.metadata->data(), sizeof(int));
         RAPIDSMPF_EXPECTS(msize == size, "Corrupted metadata value");
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            actual.data() + offset,
-            pd.data->data(),
-            pd.data->size,
-            cudaMemcpyDefault,
-            pd.stream()
+        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+            actual.data() + offset, pd.data->data(), pd.data->size, pd.stream()
         ));
         offset += msize;
         pd.stream().synchronize();

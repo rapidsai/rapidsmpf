@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,8 @@
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
+
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 
 #include "random_data.hpp"
 
@@ -78,9 +80,11 @@ void random_fill(rapidsmpf::Buffer& buffer, rmm::device_async_resource_ref mr) {
             );
             buffer.write_access([&](std::byte* buffer_data,
                                     rmm::cuda_stream_view stream) {
-                RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                    buffer_data, vec.data(), buffer.size, cudaMemcpyDefault, stream
-                ));
+                RAPIDSMPF_CUDA_TRY(
+                    rapidsmpf::cuda_memcpy_async(
+                        buffer_data, vec.data(), buffer.size, stream
+                    )
+                );
             });
             break;
         }

@@ -161,9 +161,9 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     // 2. The chunk is available and the data is a generic cudf table that is
     //    not already packed. In this case, the table data must first be packed
     //    before copying it to host or pinned memory.
-    //    a. reservaiton in pinned memory - Use cudf::pack to directly copy the table
+    //    a. reservation in pinned memory - Use cudf::pack to directly copy the table
     //    data to pinned memory.
-    //    b. reservaiton in host memory - Use cudf::pack to copy the table data to
+    //    b. reservation in host memory - Use cudf::pack to copy the table data to
     //    intermediate device memory and then copy to host memory.
     //
     // 3. The chunk data is already packed (packed_data_ != nullptr).
