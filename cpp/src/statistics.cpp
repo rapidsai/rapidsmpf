@@ -37,9 +37,24 @@ struct Names {
 using NamesArray = std::array<Names, MEMORY_TYPES.size()>;
 using Names2DArray = std::array<NamesArray, MEMORY_TYPES.size()>;
 
-// Predefined render functions indexed by `Statistics::Formatter`. Per-entry
-// rendering description lives on the enum in statistics.hpp.
+// Predefined render functions.
 using FormatterFn = void (*)(std::ostream&, std::vector<Statistics::Stat> const&);
+
+// Shared by the `MemCopy` and `MemAlloc` formatters, both render identically.
+constexpr FormatterFn MemCopyAllocFormatter = [](std::ostream& os,
+                                                 std::vector<Statistics::Stat> const& s) {
+    RAPIDSMPF_EXPECTS(
+        s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
+        "memory copy and allocation formatters expect the record counters to match"
+    );
+    os << format_nbytes(s.at(0).value()) << " | " << format_duration(s.at(1).value())
+       << " | " << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
+       << " | avg-stream-delay "
+       << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
+};
+
+// Formatters indexed by `Statistics::Formatter`. Per-entry rendering description lives on
+// the enum `Statistics::Formatter` in statistics.hpp.
 constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter::_Count)>
     FORMATTERS = {{
         // Implement `Statistics::Formatter::Default`
@@ -72,29 +87,9 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
             os << s.at(0).value() << "/" << s.at(0).count() << " (hits/lookups)";
         },
         // Implement `Statistics::Formatter:MemCopy`
-        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
-            RAPIDSMPF_EXPECTS(
-                s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
-                "MemCopy formatter expects the record counters to match"
-            );
-            os << format_nbytes(s.at(0).value()) << " | "
-               << format_duration(s.at(1).value()) << " | "
-               << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
-               << " | avg-stream-delay "
-               << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
-        },
+        MemCopyAllocFormatter,
         // Implement `Statistics::Formatter:MemAlloc`
-        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
-            RAPIDSMPF_EXPECTS(
-                s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
-                "MemAlloc formatter expects the record counters to match"
-            );
-            os << format_nbytes(s.at(0).value()) << " | "
-               << format_duration(s.at(1).value()) << " | "
-               << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
-               << " | avg-stream-delay "
-               << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
-        },
+        MemCopyAllocFormatter,
     }};
 
 }  // namespace
