@@ -67,10 +67,10 @@ TEST_F(StatisticsTest, Communication) {
 
 TEST_F(StatisticsTest, AddReportEntryArityMismatchThrowsOnRender) {
     rapidsmpf::Statistics stats;
-    // MemCopy expects 3 stats; passing one is accepted at registration but
+    // MemoryThroughput expects 3 stats; passing one is accepted at registration but
     // fails when report() tries to render the entry.
     stats.add_report_entry(
-        "bad", {"only-one"}, rapidsmpf::Statistics::Formatter::MemCopy
+        "bad", {"only-one"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
     stats.add_stat("only-one", 1.0);
     EXPECT_THROW(std::ignore = stats.report(), std::out_of_range);
@@ -105,11 +105,11 @@ TEST_F(StatisticsTest, AddReportEntryFirstWins) {
 
 TEST_F(StatisticsTest, MultiStatReportEntry) {
     rapidsmpf::Statistics stats;
-    // Build a MemCopy-style 3-stat report entry.
+    // Build a MemoryThroughput-style 3-stat report entry.
     stats.add_report_entry(
         "copy-summary",
         {"copy-summary-bytes", "copy-summary-time", "copy-summary-stream-delay"},
-        rapidsmpf::Statistics::Formatter::MemCopy
+        rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
     stats.add_stat("copy-summary-bytes", 1024 * 1024);
     stats.add_stat("copy-summary-time", 0.001);
@@ -128,7 +128,7 @@ TEST_F(StatisticsTest, ReportNoDataCollected) {
     stats.add_report_entry(
         "spill-summary",
         {"spill-bytes", "spill-time", "spill-delay"},
-        rapidsmpf::Statistics::Formatter::MemCopy
+        rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
     // No stats recorded — entry should still appear with "No data collected".
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-summary"));
@@ -487,7 +487,7 @@ TEST_F(StatisticsTest, SerializeRoundTripWithReportEntries) {
     stats.add_report_entry(
         "copy",
         {"copy-bytes", "copy-time", "copy-delay"},
-        rapidsmpf::Statistics::Formatter::MemCopy
+        rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
     stats.add_stat("copy-bytes", 1024.0 * 1024.0);
     stats.add_stat("copy-time", 0.002);
@@ -665,12 +665,12 @@ TEST_F(StatisticsTest, MergeEnabledFlagPropagates) {
 TEST_F(StatisticsTest, MergeRejectsConflictingStatNames) {
     auto a = std::make_shared<rapidsmpf::Statistics>();
     a->add_report_entry(
-        "copy", {"b1", "t1", "d1"}, rapidsmpf::Statistics::Formatter::MemCopy
+        "copy", {"b1", "t1", "d1"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
 
     auto b = std::make_shared<rapidsmpf::Statistics>();
     b->add_report_entry(
-        "copy", {"b2", "t2", "d2"}, rapidsmpf::Statistics::Formatter::MemCopy
+        "copy", {"b2", "t2", "d2"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, b};

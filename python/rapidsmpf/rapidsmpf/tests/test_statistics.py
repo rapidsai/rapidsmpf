@@ -251,10 +251,10 @@ def test_merge_rejects_conflicting_formatter() -> None:
 
 def test_merge_rejects_conflicting_stat_names() -> None:
     a = Statistics(enable=True)
-    a.add_report_entry("copy", ["b1", "t1", "d1"], Formatter.MemCopy)
+    a.add_report_entry("copy", ["b1", "t1", "d1"], Formatter.MemoryThroughput)
 
     b = Statistics(enable=True)
-    b.add_report_entry("copy", ["b2", "t2", "d2"], Formatter.MemCopy)
+    b.add_report_entry("copy", ["b2", "t2", "d2"], Formatter.MemoryThroughput)
 
     with pytest.raises(ValueError):
         Statistics.merge([a, b])
@@ -288,7 +288,7 @@ def test_add_report_entry_memcopy() -> None:
     stats.add_stat("copy-time", 0.002)
     stats.add_stat("copy-delay", 0.00001)
     stats.add_report_entry(
-        "copy", ["copy-bytes", "copy-time", "copy-delay"], Formatter.MemCopy
+        "copy", ["copy-bytes", "copy-time", "copy-delay"], Formatter.MemoryThroughput
     )
     assert "1 MiB" in stats.report()
 
@@ -312,7 +312,7 @@ def test_pickle_roundtrip() -> None:
     stats.add_report_entry(
         "copy",
         ["copy-bytes", "copy-time", "copy-delay"],
-        Formatter.MemCopy,
+        Formatter.MemoryThroughput,
     )
     stats.add_stat("copy-bytes", 1024 * 1024)
     stats.add_stat("copy-time", 0.002)

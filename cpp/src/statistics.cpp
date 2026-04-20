@@ -40,19 +40,6 @@ using Names2DArray = std::array<NamesArray, MEMORY_TYPES.size()>;
 // Predefined render functions.
 using FormatterFn = void (*)(std::ostream&, std::vector<Statistics::Stat> const&);
 
-// Shared by the `MemCopy` and `MemAlloc` formatters, both render identically.
-constexpr FormatterFn MemCopyAllocFormatter = [](std::ostream& os,
-                                                 std::vector<Statistics::Stat> const& s) {
-    RAPIDSMPF_EXPECTS(
-        s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
-        "memory copy and allocation formatters expect the record counters to match"
-    );
-    os << format_nbytes(s.at(0).value()) << " | " << format_duration(s.at(1).value())
-       << " | " << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
-       << " | avg-stream-delay "
-       << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
-};
-
 // Formatters indexed by `Statistics::Formatter`. Per-entry rendering description lives on
 // the enum `Statistics::Formatter` in statistics.hpp.
 constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter::_Count)>
@@ -64,7 +51,7 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
                 os << " (count " << s.at(0).count() << ")";
             }
         },
-        // Implement `Statistics::Formatter:Bytes`
+        // Implement `Statistics::Formatter::Bytes`
         [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
             auto const val = s.at(0).value();
             auto const count = s.at(0).count();
@@ -73,7 +60,7 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
                 os << " | avg " << format_nbytes(val / static_cast<double>(count));
             }
         },
-        // Implement `Statistics::Formatter:Duration`
+        // Implement `Statistics::Formatter::Duration`
         [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
             auto const val = s.at(0).value();
             auto const count = s.at(0).count();
@@ -82,14 +69,22 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
                 os << " | avg " << format_duration(val / static_cast<double>(count));
             }
         },
-        // Implement `Statistics::Formatter:HitRate`
+        // Implement `Statistics::Formatter::HitRate`
         [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
             os << s.at(0).value() << "/" << s.at(0).count() << " (hits/lookups)";
         },
-        // Implement `Statistics::Formatter:MemCopy`
-        MemCopyAllocFormatter,
-        // Implement `Statistics::Formatter:MemAlloc`
-        MemCopyAllocFormatter,
+        // Implement `Statistics::Formatter::MemoryThroughput`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            RAPIDSMPF_EXPECTS(
+                s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
+                "MemoryThroughput formatter expects the record counters to match"
+            );
+            os << format_nbytes(s.at(0).value()) << " | "
+               << format_duration(s.at(1).value()) << " | "
+               << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
+               << " | avg-stream-delay "
+               << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
+        },
     }};
 
 }  // namespace
@@ -719,7 +714,9 @@ void Statistics::record_copy(
     timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, static_cast<double>(nbytes));
     add_report_entry(
-        names.base, {names.nbytes, names.time, names.stream_delay}, Formatter::MemCopy
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        Formatter::MemoryThroughput
     );
 }
 
@@ -745,7 +742,9 @@ void Statistics::record_alloc(
 
     timing.stop_and_record(n.time, n.stream_delay);
     add_stat(n.nbytes, static_cast<double>(nbytes));
-    add_report_entry(n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemAlloc);
+    add_report_entry(
+        n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemoryThroughput
+    );
 }
 
 }  // namespace rapidsmpf

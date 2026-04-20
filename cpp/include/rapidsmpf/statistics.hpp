@@ -57,7 +57,7 @@ class StreamOrderedTiming;
  *     {"copy-device-to-host-bytes",
  *      "copy-device-to-host-time",
  *      "copy-device-to-host-stream-delay"},
- *     Statistics::Formatter::MemCopy
+ *     Statistics::Formatter::MemoryThroughput
  * );
  *
  * stats.add_bytes_stat("spill-bytes", 1024);    // helper: registers Bytes entry
@@ -89,11 +89,9 @@ class Statistics {
      * - HitRate (1 stat):
      *   "42/100 (hits/lookups)"
      *
-     * - MemCopy (3 stats: bytes, time, delay):
+     * - MemoryThroughput (3 stats: bytes, time, stream-delay), where `stream-delay` is
+     *   the wall-clock gap between CPU submission and GPU execution of the operation:
      *   "1.2 GiB | 2.5 ms | 480 GiB/s | avg-stream-delay 10 us"
-     *
-     * - MemAlloc (3 stats: bytes, time, delay):
-     *   "512 MiB | 1.0 ms | 512 GiB/s | avg-stream-delay 5 us"
      *
      * `_Count` is an internal sentinel — always keep it last.
      */
@@ -102,8 +100,7 @@ class Statistics {
         Bytes,
         Duration,
         HitRate,
-        MemCopy,
-        MemAlloc,
+        MemoryThroughput,
         _Count,  ///< Sentinel; must remain last.
     };
 

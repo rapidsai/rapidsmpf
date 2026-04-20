@@ -21,8 +21,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         Bytes
         Duration
         HitRate
-        MemCopy
-        MemAlloc
+        MemoryThroughput
         # `_Count` sentinel from the C++ enum is intentionally omitted —
         # it's an internal implementation detail not meant for Python callers.
 
