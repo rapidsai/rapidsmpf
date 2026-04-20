@@ -42,7 +42,7 @@ using Names2DArray = std::array<NamesArray, MEMORY_TYPES.size()>;
 using FormatterFn = void (*)(std::ostream&, std::vector<Statistics::Stat> const&);
 constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter::_Count)>
     FORMATTERS = {{
-        // Implement `Statistics::Formatter:Default`
+        // Implement `Statistics::Formatter::Default`
         [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
             os << s.at(0).value();
             if (s.at(0).count() > 1) {

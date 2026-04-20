@@ -119,7 +119,7 @@ TEST_F(StatisticsTest, MultiStatReportEntry) {
     // Component stats are consumed by the report entry and don't emit
     // their own lines.
     EXPECT_THAT(
-        stats.report(), ::testing::Not(::testing::HasSubstr("copy-summary-bytes:"))
+        stats.report(), ::testing::Not(::testing::HasSubstr("copy-summary-bytes"))
     );
 }
 
