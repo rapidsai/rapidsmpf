@@ -18,7 +18,6 @@
  * values. Otherwise, just reports current configuration.
  */
 
-#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -29,12 +28,9 @@
 #include <string>
 #include <vector>
 
-#include <cuda_runtime.h>
-
 #include <cucascade/memory/topology_discovery.hpp>
 
-#include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/system_info.hpp>
+#include <rrun/rrun.hpp>
 
 namespace {
 
@@ -49,45 +45,6 @@ struct Arguments {
 };
 
 /**
- * @brief Actual binding configuration collected from the system.
- */
-struct ActualBinding {
-    int rank = -1;  ///< Process rank (-1 if not available).
-    int gpu_id = -1;  ///< GPU device ID (-1 if not available).
-    std::string gpu_pci_bus_id;  ///< GPU PCI bus ID.
-    std::string cpu_affinity;  ///< CPU affinity string.
-    std::vector<int> numa_nodes;  ///< NUMA node IDs.
-    std::string ucx_net_devices;  ///< UCX_NET_DEVICES environment variable.
-};
-
-/**
- * @brief Expected binding configuration for validation.
- */
-struct ExpectedBinding {
-    std::string cpu_affinity;  ///< Expected CPU affinity.
-    std::vector<int> memory_binding;  ///< Expected NUMA nodes for memory binding.
-    std::vector<std::string> network_devices;  ///< Expected network devices.
-};
-
-/**
- * @brief Results of validation checks.
- */
-struct ValidationResult {
-    bool cpu_ok = true;  ///< CPU affinity check passed.
-    bool numa_ok = true;  ///< NUMA binding check passed.
-    bool ucx_ok = true;  ///< UCX network devices check passed.
-    std::string
-        expected_ucx_devices;  ///< Expected UCX devices as comma-separated string.
-
-    /**
-     * @brief Check if all validations passed.
-     */
-    [[nodiscard]] bool all_passed() const {
-        return cpu_ok && numa_ok && ucx_ok;
-    }
-};
-
-/**
  * @brief Simple JSON string value extractor using a regex.
  *
  * Matches patterns of the form:
@@ -97,12 +54,10 @@ struct ValidationResult {
  * flat key–value pairs without escaped quotes.
  */
 std::string extract_json_string_value(std::string const& json, std::string const& key) {
-    // Regex: "key" <optional spaces> : <optional spaces> "value"
     std::string pattern = "\\\"" + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"";
     std::regex re(pattern);
     std::smatch match;
     if (std::regex_search(json, match, re)) {
-        // match[1] is the captured value
         return match[1].str();
     }
     return "";
@@ -112,11 +67,7 @@ std::string extract_json_string_value(std::string const& json, std::string const
  * @brief Extract GPU info from JSON for a specific GPU ID.
  */
 bool extract_gpu_info_from_json(
-    std::string const& json_file,
-    int gpu_id,
-    std::string& cpu_affinity,
-    std::vector<int>& memory_binding,
-    std::vector<std::string>& network_devices
+    std::string const& json_file, int gpu_id, rapidsmpf::rrun::expected_binding& expected
 ) {
     std::ifstream file(json_file);
     if (!file.is_open()) {
@@ -128,7 +79,6 @@ bool extract_gpu_info_from_json(
         (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()
     );
 
-    // Find the GPU with matching ID
     std::string gpu_id_str = "\"id\": " + std::to_string(gpu_id);
     std::size_t gpu_pos = json_content.find(gpu_id_str);
     if (gpu_pos == std::string::npos) {
@@ -136,24 +86,19 @@ bool extract_gpu_info_from_json(
         return false;
     }
 
-    // Find the start of this GPU object
     std::size_t gpu_start = json_content.rfind('{', gpu_pos);
     if (gpu_start == std::string::npos) {
         return false;
     }
 
-    // Find the end of this GPU object by matching braces
-    // (accounting for nested objects like cpu_affinity)
     int brace_count = 0;
     std::size_t gpu_end = gpu_start;
     bool in_string = false;
     for (std::size_t i = gpu_start; i < json_content.length(); ++i) {
         char c = json_content[i];
         if (c == '"') {
-            // Check if this quote is escaped
             bool escaped = false;
             if (i > 0) {
-                // Count backslashes - odd number means escaped
                 std::size_t backslash_count = 0;
                 for (std::size_t j = i - 1; j >= gpu_start && json_content[j] == '\\';
                      --j)
@@ -183,10 +128,8 @@ bool extract_gpu_info_from_json(
 
     std::string gpu_json = json_content.substr(gpu_start, gpu_end - gpu_start + 1);
 
-    // Extract cpu_affinity.cpulist
-    cpu_affinity = extract_json_string_value(gpu_json, "cpulist");
+    expected.cpu_affinity = extract_json_string_value(gpu_json, "cpulist");
 
-    // Extract memory_binding array (simplified - just get first value)
     std::size_t membind_pos = gpu_json.find("\"memory_binding\"");
     if (membind_pos != std::string::npos) {
         std::size_t array_start = gpu_json.find('[', membind_pos);
@@ -199,16 +142,14 @@ bool extract_gpu_info_from_json(
                 std::string item;
                 while (std::getline(iss, item, ',')) {
                     try {
-                        memory_binding.push_back(std::stoi(item));
+                        expected.memory_binding.push_back(std::stoi(item));
                     } catch (...) {
-                        // Ignore parse errors
                     }
                 }
             }
         }
     }
 
-    // Extract network_devices array
     std::size_t netdev_pos = gpu_json.find("\"network_devices\"");
     if (netdev_pos != std::string::npos) {
         std::size_t array_start = gpu_json.find('[', netdev_pos);
@@ -217,7 +158,6 @@ bool extract_gpu_info_from_json(
             if (array_end != std::string::npos) {
                 std::string array_str =
                     gpu_json.substr(array_start + 1, array_end - array_start - 1);
-                // Trim whitespace
                 while (!array_str.empty() && array_str[0] == ' ') {
                     array_str.erase(0, 1);
                 }
@@ -228,19 +168,17 @@ bool extract_gpu_info_from_json(
                     std::istringstream iss(array_str);
                     std::string item;
                     while (std::getline(iss, item, ',')) {
-                        // Remove quotes and whitespace
                         while (!item.empty() && item[0] == ' ') {
                             item.erase(0, 1);
                         }
                         while (!item.empty() && item.back() == ' ') {
                             item.pop_back();
                         }
-                        // Remove surrounding quotes if present
                         if (item.size() >= 2 && item[0] == '"' && item.back() == '"') {
                             item = item.substr(1, item.size() - 2);
                         }
                         if (!item.empty()) {
-                            network_devices.push_back(item);
+                            expected.network_devices.push_back(item);
                         }
                     }
                 }
@@ -249,30 +187,6 @@ bool extract_gpu_info_from_json(
     }
 
     return true;
-}
-
-/**
- * @brief Get PCI bus ID for the current CUDA device.
- *
- * When CUDA_VISIBLE_DEVICES is set (as done by rrun), CUDA only sees
- * the assigned GPU as logical device 0, regardless of the physical GPU ID.
- * This function queries the PCI bus ID of the current CUDA device.
- *
- * @return PCI bus ID string, or "(unknown)" on error.
- */
-std::string get_gpu_pci_bus_id() {
-    int device = 0;
-    cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) {
-        return "(unknown)";
-    }
-    std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-    err = cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), device);
-    if (err != cudaSuccess) {
-        return "(unknown)";
-    }
-    // Trim to actual string length
-    return pci_bus_id.substr(0, pci_bus_id.find('\0'));
 }
 
 /**
@@ -341,33 +255,6 @@ void print_help(char const* program_name) {
 }
 
 /**
- * @brief Collect actual binding configuration from the system.
- *
- * This function performs potentially slow operations like querying CPU affinity,
- * NUMA nodes, and GPU PCI bus ID (which may trigger CUDA initialization).
- *
- * @param gpu_id_hint GPU ID hint from command line (-1 to auto-detect).
- * @return Collected binding information.
- */
-ActualBinding collect_actual_binding(int gpu_id_hint) {
-    ActualBinding binding;
-
-    binding.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
-    binding.numa_nodes = rapidsmpf::get_current_numa_nodes();
-    binding.ucx_net_devices = rapidsmpf::bootstrap::get_ucx_net_devices();
-    binding.rank = rapidsmpf::bootstrap::get_rank();
-
-    binding.gpu_id =
-        (gpu_id_hint >= 0) ? gpu_id_hint : rapidsmpf::bootstrap::get_gpu_id();
-
-    if (binding.gpu_id >= 0) {
-        binding.gpu_pci_bus_id = get_gpu_pci_bus_id();
-    }
-
-    return binding;
-}
-
-/**
  * @brief Collect expected binding configuration for validation.
  *
  * Reads expected values from either a JSON file or uses TopologyDiscovery API.
@@ -376,106 +263,35 @@ ActualBinding collect_actual_binding(int gpu_id_hint) {
  * @param gpu_id GPU ID to look up in the topology.
  * @return Expected binding if successful, std::nullopt on error.
  */
-std::optional<ExpectedBinding> collect_expected_binding(
+std::optional<rapidsmpf::rrun::expected_binding> collect_expected_binding(
     std::string const& json_file, int gpu_id
 ) {
-    ExpectedBinding expected;
-
     if (!json_file.empty()) {
-        if (!extract_gpu_info_from_json(
-                json_file,
-                gpu_id,
-                expected.cpu_affinity,
-                expected.memory_binding,
-                expected.network_devices
-            ))
-        {
+        rapidsmpf::rrun::expected_binding expected;
+        if (!extract_gpu_info_from_json(json_file, gpu_id, expected)) {
             return std::nullopt;
         }
-    } else if (gpu_id >= 0) {
+        return expected;
+    }
+
+    if (gpu_id >= 0) {
         cucascade::memory::topology_discovery discovery;
         if (!discovery.discover()) {
             std::cerr << "Error: Failed to discover topology" << std::endl;
             return std::nullopt;
         }
 
-        auto const& topology = discovery.get_topology();
-        auto it = std::find_if(
-            topology.gpus.begin(),
-            topology.gpus.end(),
-            [gpu_id](cucascade::memory::gpu_topology_info const& gpu) {
-                return static_cast<int>(gpu.id) == gpu_id;
-            }
-        );
-
-        if (it == topology.gpus.end()) {
+        auto result =
+            rapidsmpf::rrun::get_expected_binding(discovery.get_topology(), gpu_id);
+        if (!result) {
             std::cerr << "Error: GPU ID " << gpu_id << " not found in topology"
                       << std::endl;
-            return std::nullopt;
         }
-
-        expected.cpu_affinity = it->cpu_affinity_list;
-        expected.memory_binding = it->memory_binding;
-        expected.network_devices = it->network_devices;
-    } else {
-        std::cerr << "Error: Must provide --json or --gpu-id for validation" << std::endl;
-        return std::nullopt;
+        return result;
     }
 
-    return expected;
-}
-
-/**
- * @brief Validate actual binding against expected values.
- *
- * @param actual Actual binding configuration.
- * @param expected Expected binding configuration.
- * @return Validation results.
- */
-ValidationResult validate_binding(
-    ActualBinding const& actual, ExpectedBinding const& expected
-) {
-    ValidationResult result;
-
-    // Check CPU affinity
-    result.cpu_ok = rapidsmpf::bootstrap::compare_cpu_affinity(
-        actual.cpu_affinity, expected.cpu_affinity
-    );
-
-    // Check NUMA binding (check if any actual node is in expected list)
-    if (!expected.memory_binding.empty()) {
-        if (actual.numa_nodes.empty()) {
-            result.numa_ok = false;
-        } else {
-            bool found = false;
-            for (int actual_node : actual.numa_nodes) {
-                if (std::find(
-                        expected.memory_binding.begin(),
-                        expected.memory_binding.end(),
-                        actual_node
-                    )
-                    != expected.memory_binding.end())
-                {
-                    found = true;
-                    break;
-                }
-            }
-            result.numa_ok = found;
-        }
-    }
-
-    // Build expected UCX devices string and check
-    for (std::size_t i = 0; i < expected.network_devices.size(); ++i) {
-        if (i > 0) {
-            result.expected_ucx_devices += ",";
-        }
-        result.expected_ucx_devices += expected.network_devices[i];
-    }
-    result.ucx_ok = rapidsmpf::bootstrap::compare_device_lists(
-        actual.ucx_net_devices, result.expected_ucx_devices
-    );
-
-    return result;
+    std::cerr << "Error: Must provide --json or --gpu-id for validation" << std::endl;
+    return std::nullopt;
 }
 
 /**
@@ -490,13 +306,12 @@ ValidationResult validate_binding(
  * @return Formatted output string.
  */
 std::string format_output(
-    ActualBinding const& actual,
-    ExpectedBinding const* expected,
-    ValidationResult const* validation
+    rapidsmpf::rrun::resource_binding const& actual,
+    rapidsmpf::rrun::expected_binding const* expected,
+    rapidsmpf::rrun::binding_validation const* validation
 ) {
     std::ostringstream output;
 
-    // Output current configuration
     output << "=== Topology Binding Test ===" << std::endl;
     if (actual.rank >= 0) {
         output << "Rank: " << actual.rank << std::endl;
@@ -523,7 +338,6 @@ std::string format_output(
            << (actual.ucx_net_devices.empty() ? "(not set)" : actual.ucx_net_devices)
            << std::endl;
 
-    // Output validation results if available
     if (expected != nullptr && validation != nullptr) {
         output << "\n=== Validation ===" << std::endl;
 
@@ -580,7 +394,6 @@ std::string format_output(
  * See top of this file for more details.
  */
 int main(int argc, char* argv[]) {
-    // Parse command line arguments
     Arguments args = parse_arguments(argc, argv);
 
     if (args.show_help) {
@@ -588,17 +401,17 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    ActualBinding actual = collect_actual_binding(args.gpu_id);
+    auto actual = rapidsmpf::rrun::check_binding(args.gpu_id);
 
-    std::optional<ExpectedBinding> expected;
-    std::optional<ValidationResult> validation;
+    std::optional<rapidsmpf::rrun::expected_binding> expected;
+    std::optional<rapidsmpf::rrun::binding_validation> validation;
 
     if (args.validate) {
         expected = collect_expected_binding(args.json_file, actual.gpu_id);
         if (!expected) {
             return 1;
         }
-        validation = validate_binding(actual, *expected);
+        validation = rapidsmpf::rrun::validate_binding(actual, *expected);
     }
 
     std::string output = format_output(

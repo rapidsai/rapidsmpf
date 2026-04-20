@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import pathlib
+import pickle
 from typing import TYPE_CHECKING
 
 import pytest
 
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.statistics import Statistics
+from rapidsmpf.statistics import Formatter, Statistics
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -194,7 +195,7 @@ def test_merge_overlapping() -> None:
     b = Statistics(enable=True)
     b.add_stat("x", 7.0)
 
-    merged = a.merge([b])
+    merged = Statistics.merge([a, b])
     s = merged.get_stat("x")
     assert s["count"] == 3
     assert s["value"] == 20.0
@@ -208,7 +209,7 @@ def test_merge_disjoint() -> None:
     b = Statistics(enable=True)
     b.add_stat("y", 2.0)
 
-    merged = a.merge([b])
+    merged = Statistics.merge([a, b])
     assert len(merged.list_stat_names()) == 2
     assert merged.get_stat("x") == a.get_stat("x")
     assert merged.get_stat("y") == b.get_stat("y")
@@ -224,15 +225,117 @@ def test_merge_multiple() -> None:
     c = Statistics(enable=True)
     c.add_stat("y", 10.0)
 
-    merged = a.merge([b, c])
+    merged = Statistics.merge([a, b, c])
     assert len(merged.list_stat_names()) == 2
     assert merged.get_stat("x")["value"] == 3.0
     assert merged.get_stat("y")["value"] == 10.0
 
 
-def test_merge_empty() -> None:
-    a = Statistics(enable=True)
-    a.add_stat("x", 5.0)
+def test_merge_rejects_empty() -> None:
+    with pytest.raises(ValueError):
+        Statistics.merge([])
 
-    merged = a.merge([])
-    assert merged.get_stat("x") == a.get_stat("x")
+
+def test_merge_rejects_conflicting_formatter() -> None:
+    a = Statistics(enable=True)
+    a.add_report_entry("x", ["x"], Formatter.Bytes)
+    a.add_stat("x", 1.0)
+
+    b = Statistics(enable=True)
+    b.add_report_entry("x", ["x"], Formatter.Duration)
+    b.add_stat("x", 2.0)
+
+    with pytest.raises(ValueError):
+        Statistics.merge([a, b])
+
+
+def test_merge_rejects_conflicting_stat_names() -> None:
+    a = Statistics(enable=True)
+    a.add_report_entry("copy", ["b1", "t1", "d1"], Formatter.MemoryThroughput)
+
+    b = Statistics(enable=True)
+    b.add_report_entry("copy", ["b2", "t2", "d2"], Formatter.MemoryThroughput)
+
+    with pytest.raises(ValueError):
+        Statistics.merge([a, b])
+
+
+def test_merge_preserves_report_entry_formatter() -> None:
+    # Both sides declare the same Bytes report entry; the merged report
+    # renders with the Bytes formatter.
+    a = Statistics(enable=True)
+    a.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    a.add_stat("payload", 1024.0)
+
+    b = Statistics(enable=True)
+    b.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    b.add_stat("payload", 1024.0)
+
+    merged = Statistics.merge([a, b])
+    assert "2 KiB" in merged.report()
+
+
+def test_add_report_entry_bytes() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("payload", 1024.0)
+    stats.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    assert "1 KiB" in stats.report()
+
+
+def test_add_report_entry_memcopy() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("copy-bytes", 1024 * 1024)
+    stats.add_stat("copy-time", 0.002)
+    stats.add_stat("copy-delay", 0.00001)
+    stats.add_report_entry(
+        "copy", ["copy-bytes", "copy-time", "copy-delay"], Formatter.MemoryThroughput
+    )
+    assert "1 MiB" in stats.report()
+
+
+def test_json_has_no_formatter_info() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("alpha", 1024.0)
+    stats.add_report_entry("alpha", ["alpha"], Formatter.Bytes)
+
+    data = json.loads(stats.write_json_string())
+    # JSON carries numeric data only — no formatter/report-entry metadata.
+    assert "report_entries" not in data
+    assert "formatter" not in data
+
+
+def test_pickle_roundtrip() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("payload", 2048.0)
+    stats.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    stats.add_stat("plain", 7.0)
+    stats.add_report_entry(
+        "copy",
+        ["copy-bytes", "copy-time", "copy-delay"],
+        Formatter.MemoryThroughput,
+    )
+    stats.add_stat("copy-bytes", 1024 * 1024)
+    stats.add_stat("copy-time", 0.002)
+    stats.add_stat("copy-delay", 0.00001)
+
+    unpickled = pickle.loads(pickle.dumps(stats))
+    assert isinstance(unpickled, Statistics)
+    # Stats round-trip numerically.
+    assert unpickled.get_stat("payload") == stats.get_stat("payload")
+    assert unpickled.get_stat("plain") == stats.get_stat("plain")
+    # Formatter metadata round-trips — the report is identical.
+    assert unpickled.report() == stats.report()
+
+
+def test_pickle_empty() -> None:
+    stats = Statistics(enable=True)
+    unpickled = pickle.loads(pickle.dumps(stats))
+    assert unpickled.enabled
+    assert unpickled.list_stat_names() == []
+
+
+def test_pickle_preserves_disabled_flag() -> None:
+    stats = Statistics(enable=False)
+    assert not stats.enabled
+    unpickled = pickle.loads(pickle.dumps(stats))
+    assert not unpickled.enabled

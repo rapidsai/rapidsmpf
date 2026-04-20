@@ -179,7 +179,6 @@ streaming::Message semi_join_chunk(
     auto joiner = cudf::filtered_join(
         right_chunk.table_view().select(right_on),
         cudf::null_equality::UNEQUAL,
-        cudf::set_as_build_table::RIGHT,
         chunk_stream
     );
 
