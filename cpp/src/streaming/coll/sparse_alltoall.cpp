@@ -36,7 +36,7 @@ SparseAlltoall::~SparseAlltoall() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
         event_.is_set(),
         "~SparseAlltoall: not all notification tasks complete, did you forget to await "
-        "this->wait() or to call this->insert_finished()?"
+        "this->insert_finished()?"
     );
 }
 
