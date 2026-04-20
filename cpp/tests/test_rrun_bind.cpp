@@ -31,48 +31,12 @@
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
+#include <rrun/scoped_env_var.hpp>
 
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/system_info.hpp>
 
-/**
- * @brief RAII guard that sets or unsets an environment variable and restores
- * the original state on destruction.
- *
- * @param name  Name of the environment variable.
- * @param value Value to set, or `nullptr` to unset the variable.
- */
-class ScopedEnvVar {
-  public:
-    ScopedEnvVar(char const* name, char const* value) : name_(name) {
-        char const* old = std::getenv(name);
-        if (old != nullptr) {
-            had_value_ = true;
-            old_value_ = old;
-        }
-        if (value != nullptr) {
-            setenv(name, value, 1);
-        } else {
-            unsetenv(name);
-        }
-    }
-
-    ~ScopedEnvVar() {
-        if (had_value_) {
-            setenv(name_.c_str(), old_value_.c_str(), 1);
-        } else {
-            unsetenv(name_.c_str());
-        }
-    }
-
-    ScopedEnvVar(ScopedEnvVar const&) = delete;
-    ScopedEnvVar& operator=(ScopedEnvVar const&) = delete;
-
-  private:
-    std::string name_;
-    std::string old_value_;
-    bool had_value_{false};
-};
+using rapidsmpf::rrun::ScopedEnvVar;
 
 /**
  * @brief Build a minimal synthetic topology containing a single GPU.
@@ -449,4 +413,207 @@ TEST_F(RrunBindLive, AutoDiscoveryOverload) {
             )
         ) << "CPU affinity mismatch (auto-discovery overload)";
     }
+}
+
+class RrunValidateBinding : public ::testing::Test {};
+
+TEST_F(RrunValidateBinding, AllPassWhenMatching) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.cpu_affinity = "0-3";
+    actual.numa_nodes = {0};
+    actual.ucx_net_devices = "mlx5_0";
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.cpu_affinity = "0-3";
+    expected.memory_binding = {0};
+    expected.network_devices = {"mlx5_0"};
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_TRUE(result.cpu_ok);
+    EXPECT_TRUE(result.numa_ok);
+    EXPECT_TRUE(result.ucx_ok);
+    EXPECT_TRUE(result.all_passed());
+}
+
+TEST_F(RrunValidateBinding, CpuMismatchDetected) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.cpu_affinity = "4-7";
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.cpu_affinity = "0-3";
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_FALSE(result.cpu_ok);
+    EXPECT_FALSE(result.all_passed());
+}
+
+TEST_F(RrunValidateBinding, NumaMismatchDetected) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.numa_nodes = {1};
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.memory_binding = {0};
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_FALSE(result.numa_ok);
+    EXPECT_FALSE(result.all_passed());
+}
+
+TEST_F(RrunValidateBinding, NumaPassesWhenAnyNodeMatches) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.numa_nodes = {1, 0};
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.memory_binding = {0};
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_TRUE(result.numa_ok);
+}
+
+TEST_F(RrunValidateBinding, NumaEmptyExpectedIsPass) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.numa_nodes = {3};
+
+    rapidsmpf::rrun::expected_binding expected;
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_TRUE(result.numa_ok);
+    EXPECT_TRUE(result.all_passed());
+}
+
+TEST_F(RrunValidateBinding, UcxMismatchDetected) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.ucx_net_devices = "mlx5_1";
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.network_devices = {"mlx5_0"};
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_FALSE(result.ucx_ok);
+    EXPECT_EQ(result.expected_ucx_devices, "mlx5_0");
+    EXPECT_FALSE(result.all_passed());
+}
+
+TEST_F(RrunValidateBinding, UcxOrderIndependent) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.ucx_net_devices = "mlx5_1,mlx5_0";
+
+    rapidsmpf::rrun::expected_binding expected;
+    expected.network_devices = {"mlx5_0", "mlx5_1"};
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_TRUE(result.ucx_ok);
+}
+
+TEST_F(RrunValidateBinding, EmptyExpectedIsAllPass) {
+    rapidsmpf::rrun::resource_binding actual;
+    actual.cpu_affinity = "0-7";
+    actual.numa_nodes = {0};
+    actual.ucx_net_devices = "mlx5_0";
+
+    rapidsmpf::rrun::expected_binding expected;
+
+    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
+    EXPECT_TRUE(result.all_passed());
+}
+
+class RrunGetExpectedBinding : public ::testing::Test {};
+
+TEST_F(RrunGetExpectedBinding, ReturnsBindingForKnownGpu) {
+    auto topo = make_single_gpu_topology(3, "8-15", {1}, {"mlx5_2"});
+
+    auto result = rapidsmpf::rrun::get_expected_binding(topo, 3);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->cpu_affinity, "8-15");
+    ASSERT_EQ(result->memory_binding.size(), 1u);
+    EXPECT_EQ(result->memory_binding[0], 1);
+    ASSERT_EQ(result->network_devices.size(), 1u);
+    EXPECT_EQ(result->network_devices[0], "mlx5_2");
+}
+
+TEST_F(RrunGetExpectedBinding, ReturnsNulloptForUnknownGpu) {
+    auto topo = make_single_gpu_topology(0);
+
+    auto result = rapidsmpf::rrun::get_expected_binding(topo, 99);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(RrunGetExpectedBinding, ReturnsEmptyFieldsWhenTopologyLacks) {
+    cucascade::memory::gpu_topology_info gpu;
+    gpu.id = 0;
+    gpu.name = "TestGPU";
+
+    cucascade::memory::system_topology_info topo;
+    topo.hostname = "test-host";
+    topo.num_gpus = 1;
+    topo.num_numa_nodes = 0;
+    topo.num_network_devices = 0;
+    topo.gpus.push_back(gpu);
+
+    auto result = rapidsmpf::rrun::get_expected_binding(topo, 0);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->cpu_affinity.empty());
+    EXPECT_TRUE(result->memory_binding.empty());
+    EXPECT_TRUE(result->network_devices.empty());
+}
+
+class RrunCheckBindingLive : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        int env_gpu = rapidsmpf::bootstrap::get_gpu_id();
+        if (env_gpu < 0) {
+            GTEST_SKIP() << "No GPU ID available (CUDA_VISIBLE_DEVICES not set)";
+        }
+        gpu_id_ = env_gpu;
+    }
+
+    int gpu_id_{-1};
+};
+
+TEST_F(RrunCheckBindingLive, ReturnsPopulatedBinding) {
+    auto binding = rapidsmpf::rrun::check_binding(gpu_id_);
+
+    EXPECT_EQ(binding.gpu_id, gpu_id_);
+    EXPECT_FALSE(binding.cpu_affinity.empty());
+    EXPECT_FALSE(binding.numa_nodes.empty());
+}
+
+TEST_F(RrunCheckBindingLive, GpuIdHintIsStored) {
+    auto binding = rapidsmpf::rrun::check_binding(42);
+    EXPECT_EQ(binding.gpu_id, 42);
+}
+
+TEST_F(RrunCheckBindingLive, NegativeHintFallsToCvd) {
+    ScopedEnvVar env("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id_).c_str());
+    auto binding = rapidsmpf::rrun::check_binding(-1);
+    EXPECT_EQ(binding.gpu_id, gpu_id_);
+}
+
+TEST_F(RrunCheckBindingLive, BindThenCheckMatchesExpected) {
+    cucascade::memory::topology_discovery discovery;
+    {
+        ScopedEnvVar wide_view("CUDA_VISIBLE_DEVICES", nullptr);
+        if (!discovery.discover()) {
+            GTEST_SKIP() << "Topology discovery unavailable";
+        }
+    }
+
+    auto expected_opt =
+        rapidsmpf::rrun::get_expected_binding(discovery.get_topology(), gpu_id_);
+    if (!expected_opt) {
+        GTEST_SKIP() << "GPU " << gpu_id_ << " not found in topology";
+    }
+
+    rapidsmpf::rrun::bind(
+        discovery.get_topology(),
+        static_cast<unsigned int>(gpu_id_),
+        {.cpu = true, .memory = true, .network = true, .verify = false}
+    );
+
+    auto actual = rapidsmpf::rrun::check_binding(gpu_id_);
+    auto validation = rapidsmpf::rrun::validate_binding(actual, *expected_opt);
+
+    EXPECT_TRUE(validation.all_passed())
+        << "cpu_ok=" << validation.cpu_ok << " numa_ok=" << validation.numa_ok
+        << " ucx_ok=" << validation.ucx_ok;
 }

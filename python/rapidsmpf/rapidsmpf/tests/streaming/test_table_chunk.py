@@ -150,7 +150,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     df1 = random_table(1024)
     df2 = random_table(2048)
 
-    sm = SpillableMessages()
+    sm = SpillableMessages(context.br())
     sm.insert(
         Message(
             seq,

@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
@@ -16,26 +17,77 @@
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+namespace rapidsmpf {
 namespace {
+
 bool has_json_unsafe_chars(std::string_view s) {
     return std::ranges::any_of(s, [](unsigned char c) {
         return c == '"' || c == '\\' || c < 0x20;
     });
 }
 
-// For pre-computed names.
+// Pre-computed stat names for record_copy / record_alloc.
 struct Names {
-    std::string base;  // a string like "alloc-{memtype}" or "copy-<src>-to-<dst>"
+    std::string base;  // "alloc-{memtype}" or "copy-{src}-to-{dst}"
     std::string nbytes;  // "{base}-bytes"
     std::string time;  // "{base}-time"
     std::string stream_delay;  // "{base}-stream-delay"
 };
 
-using NamesArray = std::array<Names, rapidsmpf::MEMORY_TYPES.size()>;
-using Names2DArray = std::array<NamesArray, rapidsmpf::MEMORY_TYPES.size()>;
-}  // namespace
+using NamesArray = std::array<Names, MEMORY_TYPES.size()>;
+using Names2DArray = std::array<NamesArray, MEMORY_TYPES.size()>;
 
-namespace rapidsmpf {
+// Predefined render functions.
+using FormatterFn = void (*)(std::ostream&, std::vector<Statistics::Stat> const&);
+
+// Formatters indexed by `Statistics::Formatter`. Per-entry rendering description lives on
+// the enum `Statistics::Formatter` in statistics.hpp.
+constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter::_Count)>
+    FORMATTERS = {{
+        // Implement `Statistics::Formatter::Default`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            os << s.at(0).value();
+            if (s.at(0).count() > 1) {
+                os << " (count " << s.at(0).count() << ")";
+            }
+        },
+        // Implement `Statistics::Formatter::Bytes`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            auto const val = s.at(0).value();
+            auto const count = s.at(0).count();
+            os << format_nbytes(val);
+            if (count > 1) {
+                os << " | avg " << format_nbytes(val / static_cast<double>(count));
+            }
+        },
+        // Implement `Statistics::Formatter::Duration`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            auto const val = s.at(0).value();
+            auto const count = s.at(0).count();
+            os << format_duration(val);
+            if (count > 1) {
+                os << " | avg " << format_duration(val / static_cast<double>(count));
+            }
+        },
+        // Implement `Statistics::Formatter::HitRate`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            os << s.at(0).value() << "/" << s.at(0).count() << " (hits/lookups)";
+        },
+        // Implement `Statistics::Formatter::MemoryThroughput`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            RAPIDSMPF_EXPECTS(
+                s.at(0).count() == s.at(1).count() && s.at(1).count() == s.at(2).count(),
+                "MemoryThroughput formatter expects the record counters to match"
+            );
+            os << format_nbytes(s.at(0).value()) << " | "
+               << format_duration(s.at(1).value()) << " | "
+               << format_nbytes(s.at(0).value() / s.at(1).value()) << "/s"
+               << " | avg-stream-delay "
+               << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
+        },
+    }};
+
+}  // namespace
 
 // -- Stat --------------------------------------------------------------------
 
@@ -147,56 +199,51 @@ void Statistics::add_stat(std::string const& name, double value) {
     it->second.add(value);
 }
 
-bool Statistics::exist_report_entry_name(std::string const& name) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return formatters_.contains(name);
-}
-
-void Statistics::register_formatter(std::string const& name, Formatter formatter) {
-    if (!enabled() || exist_report_entry_name(name)) {
-        return;
-    }
-    register_formatter(name, {name}, std::move(formatter));
-}
-
-void Statistics::register_formatter(
+void Statistics::add_report_entry(
     std::string const& report_entry_name,
-    std::vector<std::string> const& stat_names,
+    std::initializer_list<std::string_view> stat_names,
     Formatter formatter
 ) {
-    if (!enabled() || exist_report_entry_name(report_entry_name)) {
+    if (!enabled()) {
         return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    formatters_.try_emplace(report_entry_name, stat_names, std::move(formatter));
+    if (report_entries_.contains(report_entry_name)) {
+        return;
+    }
+    std::vector<std::string> names(stat_names.begin(), stat_names.end());
+    report_entries_.try_emplace(
+        report_entry_name,
+        ReportEntry{.stat_names = std::move(names), .formatter = formatter}
+    );
+}
+
+void Statistics::add_report_entry(
+    std::string const& report_entry_name,
+    std::vector<std::string> stat_names,
+    Formatter formatter
+) {
+    if (!enabled()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (report_entries_.contains(report_entry_name)) {
+        return;
+    }
+    report_entries_.try_emplace(
+        report_entry_name,
+        ReportEntry{.stat_names = std::move(stat_names), .formatter = formatter}
+    );
 }
 
 void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
-    if (!exist_report_entry_name(name)) {
-        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
-            auto const val = stats[0].value();
-            auto const count = stats[0].count();
-            os << format_nbytes(val);
-            if (count > 1) {
-                os << " | avg " << format_nbytes(val / count);
-            }
-        });
-    }
     add_stat(name, static_cast<double>(nbytes));
+    add_report_entry(name, {name}, Formatter::Bytes);
 }
 
 void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
-    if (!exist_report_entry_name(name)) {
-        register_formatter(name, [](std::ostream& os, std::vector<Stat> const& stats) {
-            auto const val = stats[0].value();
-            auto const count = stats[0].count();
-            os << format_duration(val);
-            if (count > 1) {
-                os << " | avg " << format_duration(val / count);
-            }
-        });
-    }
     add_stat(name, seconds.count());
+    add_report_entry(name, {name}, Formatter::Duration);
 }
 
 std::vector<std::string> Statistics::list_stat_names() const {
@@ -261,56 +308,46 @@ std::string Statistics::report(std::string const& header) const {
 
     // Reporting strategy:
     //
-    // Each registered formatter claims one or more stat names and renders them into a
-    // single labelled entry line using a custom function.  Any stat that is not claimed
-    // by any formatter is rendered with a plain numeric default entry line.  All entry
-    // lines are then sorted alphabetically by their label and printed together.
+    // Each report entry claims one or more stat names and renders them into
+    // a single labelled line using the formatter selected by its
+    // `Formatter`. Any stat that is not claimed by a report entry is
+    // rendered with `Formatter::Default`. All entry lines are sorted
+    // alphabetically and printed together.
 
     using EntryLine = std::pair<std::string, std::string>;
 
     std::vector<EntryLine> lines;
     std::unordered_set<std::string> consumed;
 
-    // Returns true only if every stat name required by a formatter has been recorded.
-    // If false, the entry is rendered as "No data collected".
     auto has_all_stats = [&](auto const& names) {
         return std::ranges::all_of(names, [&](auto const& sname) {
             return stats_.contains(sname);
         });
     };
 
-    // Formatter-based lines. Emit "No data collected" if any required stats are missing.
-    for (auto const& [report_entry_name, entry] : formatters_) {
+    for (auto const& [report_entry_name, entry] : report_entries_) {
         if (!has_all_stats(entry.stat_names)) {
             lines.emplace_back(report_entry_name, "No data collected");
             continue;
         }
-
-        std::vector<Stat> stat_vec;
-        stat_vec.reserve(entry.stat_names.size());
+        std::vector<Stat> args;
+        args.reserve(entry.stat_names.size());
         for (auto const& sname : entry.stat_names) {
-            stat_vec.push_back(stats_.at(sname));
-        }
-
-        for (auto const& sname : entry.stat_names) {
+            args.push_back(stats_.at(sname));
             consumed.insert(sname);
         }
-
         std::ostringstream line;
-        entry.fn(line, stat_vec);
+        FORMATTERS.at(static_cast<std::size_t>(entry.formatter))(line, args);
         lines.emplace_back(report_entry_name, std::move(line).str());
     }
 
-    // Uncovered stats get a default raw-value format.
+    // Stats not covered by any report entry fall back to Formatter::Default.
     for (auto const& [name, stat] : stats_) {
         if (consumed.contains(name)) {
             continue;
         }
         std::ostringstream line;
-        line << stat.value();
-        if (stat.count() > 1) {
-            line << " (count " << stat.count() << ")";
-        }
+        FORMATTERS.at(static_cast<std::size_t>(Formatter::Default))(line, {stat});
         lines.emplace_back(name, std::move(line).str());
     }
 
@@ -322,8 +359,8 @@ std::string Statistics::report(std::string const& header) const {
 
     ss << "\n";
     for (auto const& [name, text] : lines) {
-        ss << " - " << std::setw(max_length + 3) << std::left << name + ": " << text
-           << "\n";
+        ss << " - " << std::setw(safe_cast<int>(max_length) + 3) << std::left
+           << name + ": " << text << "\n";
     }
     ss << "\n";
 
@@ -393,20 +430,20 @@ std::string Statistics::report(std::string const& header) const {
 void Statistics::write_json(std::ostream& os) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    for (auto const& [name, _] : stats_) {
+    auto const check_name = [](std::string_view name, char const* context) {
         RAPIDSMPF_EXPECTS(
             !has_json_unsafe_chars(name),
-            "stat name cannot contains characters that require JSON escaping: " + name,
+            std::string(context)
+                + " cannot contain characters that require JSON escaping: "
+                + std::string(name),
             std::invalid_argument
         );
+    };
+    for (auto const& [name, _] : stats_) {
+        check_name(name, "stat name");
     }
     for (auto const& [name, _] : memory_records_) {
-        RAPIDSMPF_EXPECTS(
-            !has_json_unsafe_chars(name),
-            "memory record name cannot contains characters that require JSON escaping: "
-                + name,
-            std::invalid_argument
-        );
+        check_name(name, "memory record name");
     }
 
     os << "{\n";
@@ -456,101 +493,196 @@ std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
     ret->stats_ = stats_;
-    ret->formatters_ = formatters_;
+    ret->report_entries_ = report_entries_;
     return ret;
 }
+
+namespace {
+// POD writer/reader helpers shared by serialize/deserialize.
+void write_pod(std::uint8_t*& ptr, auto const& val) {
+    std::memcpy(ptr, &val, sizeof(val));
+    ptr += sizeof(val);
+}
+
+template <typename T>
+std::span<std::uint8_t const> read_pod(std::span<std::uint8_t const> buf, T& val) {
+    RAPIDSMPF_EXPECTS(
+        buf.size() >= sizeof(T),
+        "truncated Statistics serialization data",
+        std::invalid_argument
+    );
+    std::memcpy(&val, buf.data(), sizeof(T));
+    return buf.subspan(sizeof(T));
+}
+}  // namespace
 
 std::vector<std::uint8_t> Statistics::serialize() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     // Binary layout:
+    //   [enabled: uint8]
     //   [num_stats: uint64]
-    //   Per stat (sorted by name):
-    //     [name_length: uint64] [name: char[]] [Stat::serialized_size() bytes]
-    std::size_t total = sizeof(std::uint64_t);  // num_stats
+    //   Per stat (sorted by name): [name_len: uint64] [name] [Stat payload]
+    //   [num_entries: uint64]
+    //   Per entry (sorted by name): [name_len: uint64] [name]
+    //                               [formatter: uint8]
+    //                               [num_stat_names: uint64]
+    //                               Per stat_name: [len: uint64] [bytes]
+    std::size_t total = sizeof(std::uint8_t);  // enabled flag
+    total += sizeof(std::uint64_t);
     for (auto const& [name, stat] : stats_) {
         total += sizeof(std::uint64_t) + name.size() + Stat::serialized_size();
+    }
+    total += sizeof(std::uint64_t);
+    for (auto const& [name, entry] : report_entries_) {
+        total += sizeof(std::uint64_t) + name.size();
+        total += sizeof(std::uint8_t);
+        total += sizeof(std::uint64_t);
+        for (auto const& sn : entry.stat_names) {
+            total += sizeof(std::uint64_t) + sn.size();
+        }
     }
 
     std::vector<std::uint8_t> buf(total);
     std::uint8_t* ptr = buf.data();
 
-    auto const write = [&ptr](auto const& val) {
-        std::memcpy(ptr, &val, sizeof(val));
-        ptr += sizeof(val);
-    };
-
-    write(static_cast<std::uint64_t>(stats_.size()));
-
+    write_pod(ptr, static_cast<std::uint8_t>(enabled_.load(std::memory_order_acquire)));
+    write_pod(ptr, static_cast<std::uint64_t>(stats_.size()));
     for (auto const& [name, stat] : stats_) {
-        write(static_cast<std::uint64_t>(name.size()));
+        write_pod(ptr, static_cast<std::uint64_t>(name.size()));
         std::memcpy(ptr, name.data(), name.size());
         ptr += name.size();
         ptr = stat.serialize(ptr);
+    }
+
+    write_pod(ptr, static_cast<std::uint64_t>(report_entries_.size()));
+    for (auto const& [name, entry] : report_entries_) {
+        write_pod(ptr, static_cast<std::uint64_t>(name.size()));
+        std::memcpy(ptr, name.data(), name.size());
+        ptr += name.size();
+        write_pod(ptr, static_cast<std::uint8_t>(entry.formatter));
+        write_pod(ptr, static_cast<std::uint64_t>(entry.stat_names.size()));
+        for (auto const& sn : entry.stat_names) {
+            write_pod(ptr, static_cast<std::uint64_t>(sn.size()));
+            std::memcpy(ptr, sn.data(), sn.size());
+            ptr += sn.size();
+        }
     }
     return buf;
 }
 
 std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const> data) {
-    // Read a POD value from the front of `buf` and return the remainder.
-    auto const read = []<typename T>(std::span<std::uint8_t const> buf, T& val) {
+    auto const read_string = [&](std::uint64_t len) {
         RAPIDSMPF_EXPECTS(
-            buf.size() >= sizeof(T),
+            data.size() >= len,
             "truncated Statistics serialization data",
             std::invalid_argument
         );
-        std::memcpy(&val, buf.data(), sizeof(T));
-        return buf.subspan(sizeof(T));
+        std::string s(reinterpret_cast<char const*>(data.data()), len);
+        data = data.subspan(len);
+        return s;
     };
 
-    auto ret = std::make_shared<Statistics>();
+    std::uint8_t enabled{};
+    data = read_pod(data, enabled);
+    auto ret = std::make_shared<Statistics>(enabled != 0);
 
     std::uint64_t num_stats{};
-    data = read(data, num_stats);
-
+    data = read_pod(data, num_stats);
     for (std::uint64_t i = 0; i < num_stats; ++i) {
         std::uint64_t name_len{};
-        data = read(data, name_len);
-        RAPIDSMPF_EXPECTS(
-            data.size() >= name_len,
-            "truncated Statistics serialization data",
-            std::invalid_argument
-        );
-        std::string name(reinterpret_cast<char const*>(data.data()), name_len);
-        data = data.subspan(name_len);
-
+        data = read_pod(data, name_len);
+        auto name = read_string(name_len);
         auto [stat, remaining] = Stat::deserialize(data);
         data = remaining;
         ret->stats_.emplace(std::move(name), std::move(stat));
     }
-    return ret;
-}
 
-std::shared_ptr<Statistics> Statistics::merge(
-    std::shared_ptr<Statistics> const& other
-) const {
-    RAPIDSMPF_EXPECTS(other != nullptr, "Statistics pointer must not be null");
-    std::scoped_lock lock(mutex_, other->mutex_);
+    std::uint64_t num_entries{};
+    data = read_pod(data, num_entries);
+    for (std::uint64_t i = 0; i < num_entries; ++i) {
+        std::uint64_t name_len{};
+        data = read_pod(data, name_len);
+        auto name = read_string(name_len);
 
-    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
-    ret->stats_ = stats_;
-    ret->formatters_ = formatters_;
+        std::uint8_t fmt{};
+        data = read_pod(data, fmt);
+        RAPIDSMPF_EXPECTS(
+            fmt < static_cast<std::uint8_t>(Formatter::_Count),
+            "Statistics::deserialize: Formatter value out of range",
+            std::invalid_argument
+        );
+        auto const formatter = static_cast<Formatter>(fmt);
 
-    for (auto const& [name, stat] : other->stats_) {
-        auto [it, inserted] = ret->stats_.try_emplace(name, stat);
-        if (!inserted) {
-            it->second = it->second.merge(stat);
+        std::uint64_t num_stat_names{};
+        data = read_pod(data, num_stat_names);
+        std::vector<std::string> stat_names;
+        stat_names.reserve(num_stat_names);
+        for (std::uint64_t j = 0; j < num_stat_names; ++j) {
+            std::uint64_t sn_len{};
+            data = read_pod(data, sn_len);
+            stat_names.push_back(read_string(sn_len));
         }
+        ret->report_entries_.emplace(
+            std::move(name),
+            ReportEntry{.stat_names = std::move(stat_names), .formatter = formatter}
+        );
     }
     return ret;
 }
 
 std::shared_ptr<Statistics> Statistics::merge(
-    std::span<std::shared_ptr<Statistics> const> others
-) const {
-    auto ret = copy();
-    for (auto const& other : others) {
-        ret = ret->merge(other);
+    std::span<std::shared_ptr<Statistics> const> stats
+) {
+    RAPIDSMPF_EXPECTS(
+        !stats.empty(),
+        "Statistics::merge: input span must not be empty",
+        std::invalid_argument
+    );
+
+    // Snapshot each input under its own mutex. Folding the snapshots
+    // afterwards avoids having to hold multiple mutexes at once.
+    struct Snapshot {
+        std::map<std::string, Stat> stats;
+        std::map<std::string, ReportEntry> entries;
+        bool enabled;
+    };
+
+    std::vector<Snapshot> snapshots;
+    snapshots.reserve(stats.size());
+    for (auto const& s : stats) {
+        RAPIDSMPF_EXPECTS(
+            s != nullptr,
+            "Statistics::merge: pointer must not be null",
+            std::invalid_argument
+        );
+        std::lock_guard lock(s->mutex_);
+        snapshots.push_back({s->stats_, s->report_entries_, s->enabled()});
+    }
+
+    bool const any_enabled =
+        std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
+    auto ret = std::make_shared<Statistics>(any_enabled);
+
+    for (auto const& snap : snapshots) {
+        for (auto const& [name, stat] : snap.stats) {
+            auto [it, inserted] = ret->stats_.try_emplace(name, stat);
+            if (!inserted) {
+                it->second = it->second.merge(stat);
+            }
+        }
+        for (auto const& [name, entry] : snap.entries) {
+            auto [it, inserted] = ret->report_entries_.try_emplace(name, entry);
+            if (!inserted) {
+                RAPIDSMPF_EXPECTS(
+                    it->second.formatter == entry.formatter
+                        && it->second.stat_names == entry.stat_names,
+                    "Statistics::merge: report entry '" + name
+                        + "' has conflicting formatter or stat_names",
+                    std::invalid_argument
+                );
+            }
+        }
     }
     return ret;
 }
@@ -580,33 +712,11 @@ void Statistics::record_copy(
         name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
 
     timing.stop_and_record(names.time, names.stream_delay);
-    add_stat(names.nbytes, nbytes);
-
-    if (exist_report_entry_name(names.base)) {
-        return;  // exit early to limit overhead.
-    }
-
-    register_formatter(
+    add_stat(names.nbytes, static_cast<double>(nbytes));
+    add_report_entry(
         names.base,
         {names.nbytes, names.time, names.stream_delay},
-        [](std::ostream& os, std::vector<Stat> const& stats) {
-            auto const nbytes = stats.at(0);
-            auto const time = stats.at(1);
-            auto const stream_delay = stats.at(2);
-
-            RAPIDSMPF_EXPECTS(
-                nbytes.count() == time.count() && time.count() == stream_delay.count(),
-                "record_copy() expects the record counters to match"
-            );
-
-            os << format_nbytes(nbytes.value());
-            os << " | " << format_duration(time.value());
-            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
-            os << " | avg-stream-delay "
-               << format_duration(
-                      stream_delay.value() / static_cast<double>(time.count())
-                  );
-        }
+        Formatter::MemoryThroughput
     );
 }
 
@@ -631,33 +741,9 @@ void Statistics::record_alloc(
     auto const& n = names[static_cast<std::size_t>(mem_type)];
 
     timing.stop_and_record(n.time, n.stream_delay);
-    add_stat(n.nbytes, nbytes);
-
-    if (exist_report_entry_name(n.base)) {
-        return;  // exit early to limit overhead.
-    }
-
-    register_formatter(
-        n.base,
-        {n.nbytes, n.time, n.stream_delay},
-        [](std::ostream& os, std::vector<Stat> const& stats) {
-            auto const nbytes = stats.at(0);
-            auto const time = stats.at(1);
-            auto const stream_delay = stats.at(2);
-
-            RAPIDSMPF_EXPECTS(
-                nbytes.count() == time.count() && time.count() == stream_delay.count(),
-                "record_alloc() expects the record counters to match"
-            );
-
-            os << format_nbytes(nbytes.value());
-            os << " | " << format_duration(time.value());
-            os << " | " << format_nbytes(nbytes.value() / time.value()) << "/s";
-            os << " | avg-stream-delay "
-               << format_duration(
-                      stream_delay.value() / static_cast<double>(time.count())
-                  );
-        }
+    add_stat(n.nbytes, static_cast<double>(nbytes));
+    add_report_entry(
+        n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemoryThroughput
     );
 }
 

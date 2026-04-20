@@ -9,6 +9,7 @@ add_executable(
   rrun
   "rrun.cpp"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
   "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>>"
 )
@@ -75,7 +76,9 @@ install(
 
 add_executable(
   check_resource_binding
-  "check_resource_binding.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
+  "check_resource_binding.cpp"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp>"
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp>"
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/system_info.cpp>"
 )
 set_target_properties(

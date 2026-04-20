@@ -6,7 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <filesystem>
-#include <functional>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <memory>
@@ -14,6 +14,7 @@
 #include <ostream>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -34,29 +35,33 @@ class StreamOrderedTiming;
  *
  * - **Stat name**: identifies an individual `Stat` accumulator, as passed to
  *   `add_stat()`, `get_stat()`, `add_bytes_stat()`, and `add_duration_stat()`.
- *   Stats can be accumulated and retrieved without registering a formatter.
+ *   Stats are pure numeric accumulators with no associated rendering
+ *   information.
  *   Examples: `"spill-time"`, `"spill-bytes"`.
  *
- * - **Report entry name**: the label of a formatted line in `report()`, passed
- *   to `register_formatter()`. An entry may aggregate one or more stats. For
- *   the single-stat overload of `register_formatter()`, the report entry name
- *   and stat name are identical.
+ * - **Report entry name**: the label of a formatted line in `report()`,
+ *   passed to `add_report_entry()`. An entry names one or more stats and
+ *   a `Formatter` that selects how those stats are rendered. When the
+ *   entry covers a single stat, the report entry name and stat name are
+ *   typically identical.
  *   Example: `"spill"` (aggregating `"spill-bytes"` and `"spill-time"`).
+ *
+ * Formatters are a fixed, predefined set (see `Statistics::Formatter`).
  *
  * @code{.cpp}
  * Statistics stats;
  *
- * // Register a multi-stat formatter under a single report entry name.
- * stats.register_formatter(
- *     "spill",                              // report entry name
- *     {"spill-bytes", "spill-time"},        // stat names
- *     [](std::ostream& os, auto const& s) {
- *         os << format_nbytes(s[0].value()) << " in " << format_duration(s[1].value());
- *     }
+ * // Associate two stats with a predefined multi-stat formatter.
+ * stats.add_report_entry(
+ *     "copy-device-to-host",                // report entry name
+ *     {"copy-device-to-host-bytes",
+ *      "copy-device-to-host-time",
+ *      "copy-device-to-host-stream-delay"},
+ *     Statistics::Formatter::MemoryThroughput
  * );
  *
- * stats.add_bytes_stat("spill-bytes", 1024);
- * stats.add_duration_stat("spill-time", 0.5);
+ * stats.add_bytes_stat("spill-bytes", 1024);    // helper: registers Bytes entry
+ * stats.add_duration_stat("spill-time", 0.5s);  // helper: registers Duration entry
  *
  * auto s = stats.get_stat("spill-bytes");  // retrieve without formatter
  * std::cout << stats.report();
@@ -64,6 +69,41 @@ class StreamOrderedTiming;
  */
 class Statistics {
   public:
+    /**
+     * @brief Identifies a predefined formatter used by `report()`.
+     *
+     * Each formatter consumes a fixed number of `Stat` entries and renders them
+     * into a human-readable string.
+     *
+     * Available formatters (examples):
+     *
+     * - Default (1 stat):
+     *   "123"
+     *
+     * - Bytes (1 stat):
+     *   "1.2 GiB | avg 300 MiB"
+     *
+     * - Duration (1 stat):
+     *   "2.5 ms | avg 600 us"
+     *
+     * - HitRate (1 stat):
+     *   "42/100 (hits/lookups)"
+     *
+     * - MemoryThroughput (3 stats: bytes, time, stream-delay), where `stream-delay` is
+     *   the wall-clock gap between CPU submission and GPU execution of the operation:
+     *   "1.2 GiB | 2.5 ms | 480 GiB/s | avg-stream-delay 10 us"
+     *
+     * `_Count` is an internal sentinel — always keep it last.
+     */
+    enum class Formatter : std::uint8_t {
+        Default = 0,
+        Bytes,
+        Duration,
+        HitRate,
+        MemoryThroughput,
+        _Count,  ///< Sentinel; must remain last.
+    };
+
     /**
      * @brief Constructs a Statistics object without memory profiling.
      *
@@ -107,8 +147,13 @@ class Statistics {
     );
 
     ~Statistics() noexcept;
+
+    // `Statistics` is owned exclusively through `std::shared_ptr` (see `disabled()` and
+    // `from_options()`).
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
+    Statistics(Statistics&&) = delete;
+    Statistics& operator=(Statistics&&) = delete;
 
     /**
      * @brief Returns a shared pointer to a disabled (no-op) Statistics instance.
@@ -119,29 +164,6 @@ class Statistics {
      * @return A shared pointer to a Statistics instance with tracking disabled.
      */
     static std::shared_ptr<Statistics> disabled();
-
-    /**
-     * @brief Move constructor.
-     *
-     * @param o The Statistics object to move from.
-     */
-    Statistics(Statistics&& o) noexcept
-        : enabled_(o.enabled()),
-          stats_{std::move(o.stats_)},
-          formatters_{std::move(o.formatters_)} {}
-
-    /**
-     * @brief Move assignment operator.
-     *
-     * @param o The Statistics object to move from.
-     * @return Reference to this updated instance.
-     */
-    Statistics& operator=(Statistics&& o) noexcept {
-        enabled_ = o.enabled();
-        stats_ = std::move(o.stats_);
-        formatters_ = std::move(o.formatters_);
-        return *this;
-    }
 
     /**
      * @brief Checks if statistics tracking is enabled.
@@ -169,10 +191,12 @@ class Statistics {
     /**
      * @brief Generates a formatted report of all collected statistics.
      *
-     * Every registered formatter always produces an entry. If all its required
-     * statistics have been recorded the formatter renders the values; otherwise the
-     * entry reads "No data collected". Statistics not covered by any formatter are
-     * shown as plain numeric values. All entries are sorted alphabetically.
+     * Every registered report entry always produces a line. If all the stats
+     * it references have been recorded, the entry's `Formatter` renders
+     * the values; otherwise the line reads "No data collected". Statistics
+     * not covered by any report entry are shown with `Formatter::Default`
+     * (raw numeric value, optionally annotated with the count). All entries
+     * are sorted alphabetically.
      *
      * @note If any statistics are collected via stream-ordered timing (e.g. through
      * `record_copy()`), all relevant CUDA streams must be synchronized before calling
@@ -187,15 +211,14 @@ class Statistics {
     /**
      * @brief Writes a JSON representation of all collected statistics to a stream.
      *
-     * Values are written as raw numbers (count, sum, max). Registered formatters,
-     * which produce human-readable strings such as "1.0 KiB" or "3.5 ms" in the
-     * text report, are not applied so that the output remains machine-parseable
-     * with consistent numeric types.
+     * Values are written as raw numbers (count, sum, max). Formatter
+     * metadata is not emitted — use `report()` for the human-readable
+     * rendering.
      *
      * @param os Output stream to write to.
-     * @throws std::invalid_argument If any stat name or memory record name contains
-     * characters that require JSON escaping (double quotes, backslashes, or ASCII
-     * control characters 0x00–0x1F).
+     * @throws std::invalid_argument If any stat name or memory record name
+     * contains characters that require JSON escaping (double quotes,
+     * backslashes, or ASCII control characters 0x00–0x1F).
      */
     void write_json(std::ostream& os) const;
 
@@ -217,9 +240,9 @@ class Statistics {
     [[nodiscard]] std::shared_ptr<Statistics> copy() const;
 
     /**
-     * @brief Serializes the stats to a binary byte vector.
+     * @brief Serializes the stats and report entries to a binary byte vector.
      *
-     * @note Memory records and formatters are not serialized.
+     * @note Memory records are not serialized.
      *
      * @return A vector of bytes containing the serialized statistics.
      */
@@ -228,7 +251,7 @@ class Statistics {
     /**
      * @brief Deserializes a Statistics object from a binary byte vector.
      *
-     * @note The resulting object has no memory records or formatters.
+     * @note The resulting object has no memory records.
      *
      * @param data The serialized statistics data.
      * @return A shared pointer to the reconstructed Statistics object.
@@ -239,34 +262,29 @@ class Statistics {
     );
 
     /**
-     * @brief Merges this Statistics with another, returning a new Statistics.
+     * @brief Merge a set of Statistics into a new instance.
      *
-     * For each stat name present in either object, the result has the summed
-     * count, summed value, and the maximum of the two maxima. Formatters are
-     * taken from `*this`.
+     * For each stat name present across the inputs, the result contains the
+     * summed count, summed value, and the maximum of the recorded maxima.
+     * The result's `enabled()` is true if any input is enabled. Memory
+     * records are not merged.
      *
-     * @note Memory records are not merged.
+     * Report entries are unified by name. If multiple inputs contain the
+     * same report-entry name, their `Formatter` and `stat_names` must match;
+     * otherwise, this function throws `std::invalid_argument` to prevent
+     * silent rendering inconsistencies (especially across
+     * serialize/deserialize boundaries).
      *
-     * @param other The Statistics to merge with. Must not be null.
-     * @return A shared pointer to a new Statistics containing the merged stats.
+     * @param stats Non-empty span of non-null `Statistics` instances to merge.
+     * @return A new `Statistics` instance containing the merged data.
+     *
+     * @throws std::invalid_argument If @p stats is empty, contains a null
+     * pointer, or if inputs disagree on the formatter or stat-name set for
+     * a shared report entry.
      */
-    [[nodiscard]] std::shared_ptr<Statistics> merge(
-        std::shared_ptr<Statistics> const& other
-    ) const;
-
-    /**
-     * @brief Merges this Statistics with multiple others.
-     *
-     * Equivalent to calling `merge()` repeatedly. Formatters are taken from `*this`.
-     *
-     * @note Memory records are not merged.
-     *
-     * @param others The Statistics objects to merge with. No element may be null.
-     * @return A shared pointer to a new Statistics containing the merged stats.
-     */
-    [[nodiscard]] std::shared_ptr<Statistics> merge(
-        std::span<std::shared_ptr<Statistics> const> others
-    ) const;
+    [[nodiscard]] static std::shared_ptr<Statistics> merge(
+        std::span<std::shared_ptr<Statistics> const> stats
+    );
 
     /**
      * @brief Represents a single tracked statistic.
@@ -379,13 +397,6 @@ class Statistics {
     };
 
     /**
-     * @brief Type alias for a statistics formatting function.
-     *
-     * The formatter receives all the named stats it declared interest in as a vector.
-     */
-    using Formatter = std::function<void(std::ostream&, std::vector<Stat> const&)>;
-
-    /**
      * @brief Retrieves a statistic by name.
      *
      * @param name Name of the statistic.
@@ -396,7 +407,9 @@ class Statistics {
     /**
      * @brief Adds a numeric value to the named statistic.
      *
-     * Creates the statistic if it doesn't exist.
+     * Creates the statistic if it doesn't exist. Does not associate any
+     * formatter with the stat — use `add_report_entry()` (or a helper like
+     * `add_bytes_stat()`) for that.
      *
      * @param name Name of the statistic.
      * @param value Value to add.
@@ -404,57 +417,46 @@ class Statistics {
     void add_stat(std::string const& name, double value);
 
     /**
-     * @brief Check whether a report entry name already has a formatter registered.
+     * @brief Associate a formatter with one or more named statistics for
+     * report rendering.
      *
-     * Intended as a cheap pre-check before constructing arguments to
-     * `register_formatter()`.
-     *
-     * @note The result may be outdated by the time it is acted upon. This method
-     * should only be used as an optimization hint to avoid unnecessary work, never
-     * for correctness decisions. Once this method returns `true` for a given name it
-     * will never return `false` again, because formatters cannot be unregistered.
-     *
-     * @param name Report entry name to look up.
-     * @return True if a formatter is registered under @p name, otherwise false.
-     */
-    bool exist_report_entry_name(std::string const& name) const;
-
-    /**
-     * @brief Register a formatter for a single named statistic.
-     *
-     * If a formatter is already registered under @p name, this call has no effect.
-     * The formatter is only invoked during `report()` if the named statistic has
-     * been recorded.
-     *
-     * @param name Report entry name (also used as the stat name to collect).
-     * @param formatter Function used to format this statistic when reporting.
-     */
-    void register_formatter(std::string const& name, Formatter formatter);
-
-    /**
-     * @brief Register a formatter that takes multiple named statistics.
-     *
-     * If a formatter is already registered under @p report_entry_name, this call has
-     * no effect. The formatter is invoked during `report()` only if all stats in
-     * @p stat_names have been recorded; if any are missing the entry reads
-     * "No data collected".
+     * First-wins: if a report entry is already registered under
+     * @p report_entry_name, this call has no effect. The entry appears in
+     * `report()` as a single line; if any stat it references is missing,
+     * the line reads "No data collected".
      *
      * @param report_entry_name Report entry name.
-     * @param stat_names Names of the stats to collect and pass to the formatter.
-     * @param formatter Function called with all collected stats during reporting.
+     * @param stat_names Names of the stats this entry aggregates. Caller is
+     * responsible for passing the number of stats the chosen @p formatter
+     * expects; a mismatch surfaces as `std::out_of_range` when `report()`
+     * renders the entry.
+     * @param formatter Predefined formatter to render the entry with.
      */
-    void register_formatter(
+    void add_report_entry(
         std::string const& report_entry_name,
-        std::vector<std::string> const& stat_names,
+        std::initializer_list<std::string_view> stat_names,
+        Formatter formatter
+    );
+
+    // clang-format off
+    /**
+     * @copydoc add_report_entry(std::string const&,std::initializer_list<std::string_view>, Formatter)
+     *
+     * Overload for callers whose stat names come from a runtime container (e.g. the Python bindings).
+     */
+    // clang-format on
+    void add_report_entry(
+        std::string const& report_entry_name,
+        std::vector<std::string> stat_names,
         Formatter formatter
     );
 
     /**
      * @brief Adds a byte count to the named statistic.
      *
-     * Registers a formatter that formats values as human-readable byte sizes if no
-     * formatter is already registered for @p name, then adds @p nbytes to the
-     * named statistic.
+     * Registers a `Formatter::Bytes` report entry named @p name if no
+     * report entry already exists under that name, then adds @p nbytes to
+     * the named statistic.
      *
      * @param name Name of the statistic.
      * @param nbytes Number of bytes to add.
@@ -464,9 +466,9 @@ class Statistics {
     /**
      * @brief Adds a duration to the named statistic.
      *
-     * Registers a formatter that formats values as time durations in seconds if no
-     * formatter is already registered for @p name, then adds @p seconds to the
-     * named statistic.
+     * Registers a `Formatter::Duration` report entry named @p name if no
+     * report entry already exists under that name, then adds @p seconds to
+     * the named statistic.
      *
      * @param name Name of the statistic.
      * @param seconds Duration in seconds to add.
@@ -528,7 +530,7 @@ class Statistics {
     /**
      * @brief Clears all statistics.
      *
-     * @note Memory profiling records and registered formatters are not cleared.
+     * @note Memory profiling records and report entries are not cleared.
      */
     void clear();
 
@@ -607,17 +609,17 @@ class Statistics {
 
   private:
     /**
-     * @brief Associates a display name with a formatter and the stats it aggregates.
+     * @brief A report entry describing which stats to aggregate and how to render them.
      */
-    struct FormatterEntry {
-        std::vector<std::string> stat_names;  ///< Stats to collect and pass to fn.
-        Formatter fn;
+    struct ReportEntry {
+        std::vector<std::string> stat_names;
+        Formatter formatter;
     };
 
     mutable std::mutex mutex_;
     std::atomic<bool> enabled_;
     std::map<std::string, Stat> stats_;
-    std::map<std::string, FormatterEntry> formatters_;
+    std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     RmmResourceAdaptor* mr_;
     std::shared_ptr<PinnedMemoryResource>

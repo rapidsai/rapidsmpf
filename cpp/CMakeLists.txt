@@ -182,7 +182,6 @@ add_library(
   rapidsmpf
   src/coll/allgather.cpp
   src/coll/allreduce.cpp
-  src/coll/gather_statistics.cpp
   src/coll/utils.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
