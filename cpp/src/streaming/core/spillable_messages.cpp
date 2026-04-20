@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -109,6 +109,12 @@ ContentDescription rapidsmpf::streaming::SpillableMessages::get_content_descript
         std::out_of_range
     );
     return it->second;
+}
+
+void SpillableMessages::clear() {
+    std::lock_guard global_lock(global_mutex_);
+    items_.clear();
+    content_descriptions_.clear();
 }
 
 }  // namespace rapidsmpf::streaming
