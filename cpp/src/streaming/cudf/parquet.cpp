@@ -107,13 +107,11 @@ class FileCache {
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
         auto& stats = *ctx->statistics();
 
-        if (!stats.has_report_entry("unbounded_file_read_cache hits")) {
-            stats.add_report_entry(
-                "unbounded_file_read_cache hits",
-                {"unbounded_file_read_cache hits"},
-                Statistics::Formatter::HitRate
-            );
-        }
+        stats.add_report_entry(
+            "unbounded_file_read_cache hits",
+            {"unbounded_file_read_cache hits"},
+            Statistics::Formatter::HitRate
+        );
 
         SpillableMessages::MessageId mid;
         {

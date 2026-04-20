@@ -211,35 +211,49 @@ void Statistics::add_stat(std::string const& name, double value) {
 
 void Statistics::add_report_entry(
     std::string const& report_entry_name,
-    std::vector<std::string> const& stat_names,
+    std::initializer_list<std::string_view> stat_names,
     Formatter formatter
 ) {
     if (!enabled()) {
         return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    if (report_entries_.contains(report_entry_name)) {
+        return;
+    }
+    std::vector<std::string> names(stat_names.begin(), stat_names.end());
     report_entries_.try_emplace(
-        report_entry_name, ReportEntry{.stat_names = stat_names, .formatter = formatter}
+        report_entry_name,
+        ReportEntry{.stat_names = std::move(names), .formatter = formatter}
     );
 }
 
-bool Statistics::has_report_entry(std::string const& name) const {
+void Statistics::add_report_entry(
+    std::string const& report_entry_name,
+    std::vector<std::string> stat_names,
+    Formatter formatter
+) {
+    if (!enabled()) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
-    return report_entries_.contains(name);
+    if (report_entries_.contains(report_entry_name)) {
+        return;
+    }
+    report_entries_.try_emplace(
+        report_entry_name,
+        ReportEntry{.stat_names = std::move(stat_names), .formatter = formatter}
+    );
 }
 
 void Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
     add_stat(name, static_cast<double>(nbytes));
-    if (!has_report_entry(name)) {
-        add_report_entry(name, {name}, Formatter::Bytes);
-    }
+    add_report_entry(name, {name}, Formatter::Bytes);
 }
 
 void Statistics::add_duration_stat(std::string const& name, Duration seconds) {
     add_stat(name, seconds.count());
-    if (!has_report_entry(name)) {
-        add_report_entry(name, {name}, Formatter::Duration);
-    }
+    add_report_entry(name, {name}, Formatter::Duration);
 }
 
 std::vector<std::string> Statistics::list_stat_names() const {
@@ -709,11 +723,9 @@ void Statistics::record_copy(
 
     timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, static_cast<double>(nbytes));
-    if (!has_report_entry(names.base)) {
-        add_report_entry(
-            names.base, {names.nbytes, names.time, names.stream_delay}, Formatter::MemCopy
-        );
-    }
+    add_report_entry(
+        names.base, {names.nbytes, names.time, names.stream_delay}, Formatter::MemCopy
+    );
 }
 
 void Statistics::record_alloc(
@@ -738,9 +750,7 @@ void Statistics::record_alloc(
 
     timing.stop_and_record(n.time, n.stream_delay);
     add_stat(n.nbytes, static_cast<double>(nbytes));
-    if (!has_report_entry(n.base)) {
-        add_report_entry(n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemAlloc);
-    }
+    add_report_entry(n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemAlloc);
 }
 
 }  // namespace rapidsmpf

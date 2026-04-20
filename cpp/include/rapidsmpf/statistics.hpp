@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <filesystem>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <memory>
@@ -13,6 +14,7 @@
 #include <ostream>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -435,25 +437,22 @@ class Statistics {
      */
     void add_report_entry(
         std::string const& report_entry_name,
-        std::vector<std::string> const& stat_names,
+        std::initializer_list<std::string_view> stat_names,
         Formatter formatter
     );
 
+    // clang-format off
     /**
-     * @brief Check whether a report entry is already registered under @p name.
+     * @copydoc add_report_entry(std::string const&,std::initializer_list<std::string_view>, Formatter)
      *
-     * Intended as a cheap pre-check so hot-path callers can skip building
-     * the `stat_names` vector when the entry is already present.
-     *
-     * @note The result may be stale by the time it is acted upon. It must
-     * only be used as an optimization hint. Because report entries cannot
-     * be removed, once this returns `true` for a given @p name it will
-     * never return `false` again.
-     *
-     * @param name Report entry name to look up.
-     * @return True if a report entry is registered under @p name.
+     * Overload for callers whose stat names come from a runtime container (e.g. the Python bindings).
      */
-    [[nodiscard]] bool has_report_entry(std::string const& name) const;
+    // clang-format on
+    void add_report_entry(
+        std::string const& report_entry_name,
+        std::vector<std::string> stat_names,
+        Formatter formatter
+    );
 
     /**
      * @brief Adds a byte count to the named statistic.
