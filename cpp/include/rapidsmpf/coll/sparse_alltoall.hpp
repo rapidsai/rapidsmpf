@@ -93,8 +93,10 @@ class SparseAlltoall {
      * caller must establish a total order of the insertions, otherwise the reconstruction
      * order on the receive side is unspecified.
      *
-     * @note Concurrent insertion by multiple threads is supported, the caller must ensure
-     * that `insert_finished()` is called _after_ all `insert()` calls have completed.
+     * @note Concurrent insertion by multiple threads is supported.
+     *
+     * @note the caller must ensure that `insert_finished()` is called _after_ all
+     * `insert()` calls have completed.
      *
      * @param dst Destination rank. Must be present in the constructor's `dsts`.
      * @param packed_data Packed payload and metadata to send.
@@ -129,6 +131,9 @@ class SparseAlltoall {
      * @param src Source rank. Must be present in the constructor's `srcs`.
      * @return All messages received from `src`.
      *
+     * @note Concurrent extraction is supported, behaviour is undefined if two threads
+     * attempt to extract data from the same source.
+     *
      * @throws std::logic_error If extracting before the collective is complete.
      */
     [[nodiscard]] std::vector<PackedData> extract(Rank src);
@@ -144,11 +149,17 @@ class SparseAlltoall {
         }
     };
 
+    /// @brief Send all ready messages.
     void send_ready_messages();
+    /// @brief Post receives for any outstanding metadata messages.
     void receive_metadata_messages();
+    /// @brief Post receives for expected data messages.
     void receive_data_messages();
+    /// @brief Complete receives for data messages.
     void complete_data_messages();
+    /// @brief @return true if all internal containers are empty.
     [[nodiscard]] bool containers_empty() const;
+    /// @brief @return Progress the communication state and return the progress state.
     [[nodiscard]] ProgressThread::ProgressState event_loop();
 
     std::shared_ptr<Communicator> comm_;
