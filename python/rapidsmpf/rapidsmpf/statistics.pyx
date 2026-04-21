@@ -457,11 +457,17 @@ cdef class Statistics:
             result = cpp_write_json_string(deref(self._handle))
         return result.decode("utf-8")
 
-    def __getstate__(self):
-        """Serialize stats and report entries for pickling.
+    def serialize(self) -> bytes:
+        """
+        Serialize the stats and report entries to a binary buffer.
 
         Memory records and the memory-profiling resource pointer are not
-        included — matching the C++ ``Statistics::serialize()`` contract.
+        included.
+
+        Returns
+        -------
+        A ``bytes`` object containing the serialized binary representation
+        of the Statistics.
         """
         cdef vector[uint8_t] vec
         with nogil:
@@ -471,17 +477,39 @@ cdef class Statistics:
             vec.size()
         )
 
-    def __setstate__(self, bytes state not None):
-        """Restore stats and report entries from a pickled bytes buffer."""
-        cdef Py_ssize_t size = len(state)
-        cdef const char* src = <const char*>state
+    @staticmethod
+    def deserialize(bytes buf not None):
+        """
+        Deserialize a binary buffer into a Statistics object.
+
+        Reconstructs a Statistics instance from a byte buffer produced by
+        :meth:`serialize`. The resulting object has no memory records and
+        no associated memory-profiling resource.
+
+        Parameters
+        ----------
+        buf
+            A buffer containing serialized statistics.
+
+        Returns
+        -------
+        A reconstructed :class:`Statistics` instance.
+
+        Raises
+        ------
+        ValueError
+            If the input buffer is malformed or truncated.
+        """
+        cdef Py_ssize_t size = len(buf)
+        cdef const char* src = <const char*>buf
         cdef vector[uint8_t] vec
+        cdef Statistics ret = Statistics.__new__(Statistics)
         with nogil:
             vec.resize(size)
             memcpy(<void*>vec.data(), src, size)
-            self._handle = cpp_deserialize_statistics(vec)
-        # Memory-profiling state is not serialized.
-        self._mr = None
+            ret._handle = cpp_deserialize_statistics(vec)
+        ret._mr = None
+        return ret
 
 
 @dataclass
