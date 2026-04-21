@@ -17,8 +17,7 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
 
-from pylibcudf.types import NullOrder as PyNullOrder
-from pylibcudf.types import Order as PyOrder
+import pylibcudf.types as plc_types
 
 
 cdef class HashScheme:
@@ -78,11 +77,11 @@ cdef class OrderKey:
 
     @property
     def order(self):
-        return PyOrder(<int>self._key.order)
+        return plc_types.Order(<int>self._key.order)
 
     @property
     def null_order(self):
-        return PyNullOrder(<int>self._key.null_order)
+        return plc_types.NullOrder(<int>self._key.null_order)
 
     def __eq__(self, other):
         if not isinstance(other, OrderKey):
