@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <tuple>
@@ -331,6 +334,60 @@ TEST_F(SparseAlltoallTest, ordered_by_sender_insertion_with_stream_reordering) {
     EXPECT_EQ(decode_payload(received[0]), src * 100);
     EXPECT_EQ(decode_metadata(received[1]), src * 10 + 1);
     EXPECT_EQ(decode_payload(received[1]), src * 100 + 1);
+}
+
+TEST_F(SparseAlltoallTest, concurrent_insertions) {
+    auto const& comm = GlobalEnvironment->comm_;
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "requires at least 2 ranks";
+    }
+
+    auto [srcs, dsts] = ring_peers(comm);
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
+
+    constexpr int num_threads = 4;
+    constexpr int messages_per_thread = 16;
+    constexpr int total_messages = num_threads * messages_per_thread;
+
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+
+    auto const dst = dsts.front();
+    for (int thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
+        threads.emplace_back([&, thread_idx]() {
+            for (int i = 0; i < messages_per_thread; ++i) {
+                auto const sequence = thread_idx * messages_per_thread + i;
+                exchange.insert(
+                    dst,
+                    make_payload(
+                        sequence,
+                        comm->rank() * total_messages + sequence,
+                        rapidsmpf::MemoryType::HOST,
+                        stream,
+                        *br
+                    )
+                );
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+
+    auto received = exchange.extract(srcs.front());
+    ASSERT_EQ(received.size(), total_messages);
+
+    std::ranges::sort(received, std::less{}, &decode_metadata);
+
+    auto const src = srcs.front();
+    for (int i = 0; i < total_messages; ++i) {
+        EXPECT_EQ(decode_metadata(received[i]), i);
+        EXPECT_EQ(decode_payload(received[i]), src * total_messages + i);
+    }
 }
 
 TEST_F(SparseAlltoallTest, invalid_usage) {
