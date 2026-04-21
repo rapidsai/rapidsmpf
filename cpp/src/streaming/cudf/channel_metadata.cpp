@@ -70,23 +70,47 @@ ChannelMetadata ChannelMetadata::clone(MemoryReservation& reservation) const {
     return ChannelMetadata{local_count, partitioning.clone(reservation), duplicated};
 }
 
-ContentDescription content_description_for(ChannelMetadata const& m) {
-    ContentDescription cd{ContentDescription::Spillable::YES};
-    auto add_spec = [&](PartitioningSpec const& spec) {
-        if (spec.type == PartitioningSpec::Type::ORDER && spec.order->boundaries) {
-            for (auto mem_type : MEMORY_TYPES) {
-                cd.content_size(mem_type) +=
-                    spec.order->boundaries->data_alloc_size(mem_type);
+std::unique_ptr<ChannelMetadata> make_channel_metadata(
+    std::uint64_t local_count, Partitioning& partitioning, bool duplicated
+) {
+    auto clone_spec = [](PartitioningSpec& spec) -> PartitioningSpec {
+        using T = PartitioningSpec::Type;
+        switch (spec.type) {
+        case T::NONE:
+            return PartitioningSpec::none();
+        case T::INHERIT:
+            return PartitioningSpec::inherit();
+        case T::HASH:
+            return PartitioningSpec::from_hash(*spec.hash);
+        case T::ORDER:
+            {
+                OrderScheme o{
+                    .keys = spec.order->keys,
+                    .boundaries = std::move(spec.order->boundaries),
+                    .strict_boundary = spec.order->strict_boundary,
+                };
+                return PartitioningSpec::from_order(std::move(o));
             }
         }
+        return PartitioningSpec::none();
     };
-    add_spec(m.partitioning.inter_rank);
-    add_spec(m.partitioning.local);
-    return cd;
+    Partitioning part{
+        .inter_rank = clone_spec(partitioning.inter_rank),
+        .local = clone_spec(partitioning.local),
+    };
+    return std::make_unique<ChannelMetadata>(local_count, std::move(part), duplicated);
+}
+
+std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg) {
+    return std::make_unique<ChannelMetadata>(msg.release<ChannelMetadata>());
+}
+
+ContentDescription get_content_description(ChannelMetadata const& /*m*/) {
+    return ContentDescription{ContentDescription::Spillable::NO};
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadata> m) {
-    auto cd = content_description_for(*m);
+    auto cd = get_content_description(*m);
     return Message{
         sequence_number,
         std::move(m),
@@ -95,7 +119,7 @@ Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadat
             auto copy = std::make_unique<ChannelMetadata>(
                 msg.get<ChannelMetadata>().clone(reservation)
             );
-            auto copy_cd = content_description_for(*copy);
+            auto copy_cd = get_content_description(*copy);
             return Message{
                 msg.sequence_number(), std::move(copy), copy_cd, msg.copy_cb()
             };

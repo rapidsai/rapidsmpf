@@ -4,7 +4,6 @@
 
 from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
-from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
@@ -15,9 +14,6 @@ from pylibcudf.libcudf.types cimport order as cpp_order
 from pylibcudf.table cimport Table
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.memory.buffer_resource cimport BufferResource
-from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
-                                                  cpp_MemoryReservation)
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
 
@@ -86,73 +82,6 @@ cdef extern from * nogil:
     ) noexcept {
         return s->boundaries->shape().first;
     }
-
-    std::size_t _boundaries_make_available_cost(
-        const rapidsmpf::streaming::OrderScheme* s
-    ) noexcept {
-        return s->boundaries->make_available_cost();
-    }
-
-    // Unspills boundaries in-place (no-op if already available).
-    void _ensure_boundaries_available(
-        rapidsmpf::streaming::OrderScheme* s,
-        rapidsmpf::MemoryReservation& res
-    ) {
-        if (!s->boundaries->is_available()) {
-            s->boundaries = std::make_unique<rapidsmpf::streaming::TableChunk>(
-                s->boundaries->make_available(res)
-            );
-        }
-    }
-
-    std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
-    cpp_channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
-        return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
-            msg.release<rapidsmpf::streaming::ChannelMetadata>()
-        );
-    }
-
-    // Construct ChannelMetadata by shallow-cloning a Partitioning:
-    // copies hash specs and vectors; moves any ORDER boundaries (source loses them).
-    std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
-    _make_channel_metadata(
-        uint64_t local_count,
-        rapidsmpf::streaming::Partitioning& p,
-        bool duplicated
-    ) {
-        auto clone_spec = [](rapidsmpf::streaming::PartitioningSpec& spec)
-            -> rapidsmpf::streaming::PartitioningSpec
-        {
-            using T = rapidsmpf::streaming::PartitioningSpec::Type;
-            switch (spec.type) {
-                case T::NONE:
-                    return rapidsmpf::streaming::PartitioningSpec::none();
-                case T::INHERIT:
-                    return rapidsmpf::streaming::PartitioningSpec::inherit();
-                case T::HASH:
-                    return rapidsmpf::streaming::PartitioningSpec::from_hash(
-                        *spec.hash
-                    );
-                case T::ORDER: {
-                    rapidsmpf::streaming::OrderScheme o{
-                        .keys            = spec.order->keys,
-                        .boundaries      = std::move(spec.order->boundaries),
-                        .strict_boundary = spec.order->strict_boundary,
-                    };
-                    return rapidsmpf::streaming::PartitioningSpec::from_order(
-                        std::move(o)
-                    );
-                }
-            }
-            return rapidsmpf::streaming::PartitioningSpec::none();
-        };
-        rapidsmpf::streaming::Partitioning part{
-            clone_spec(p.inter_rank), clone_spec(p.local)
-        };
-        return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
-            local_count, std::move(part), duplicated
-        );
-    }
     }
     """
     void _spec_set_none(cpp_PartitioningSpec&) noexcept
@@ -164,14 +93,6 @@ cdef extern from * nogil:
     cpp_OrderScheme* _spec_order_ptr(cpp_PartitioningSpec&) noexcept
     bint _boundaries_available(cpp_OrderScheme*) noexcept
     int _boundaries_num_rows(cpp_OrderScheme*) noexcept
-    size_t _boundaries_make_available_cost(cpp_OrderScheme*) noexcept
-    void _ensure_boundaries_available(cpp_OrderScheme*, cpp_MemoryReservation&) except +
-    unique_ptr[cpp_ChannelMetadata] cpp_channel_metadata_from_message(
-        cpp_Message
-    ) except +
-    unique_ptr[cpp_ChannelMetadata] _make_channel_metadata(
-        uint64_t, cpp_Partitioning&, bint
-    ) except +
 
 
 cdef class HashScheme:
@@ -206,43 +127,18 @@ cdef class HashScheme:
         return f"HashScheme({self.column_indices!r}, {self.modulus})"
 
 
-cdef cpp_order _object_to_cpp_order(object o) except *:
-    """Map pylibcudf.types.Order (int-valued enum) to libcudf order."""
-    cdef int v = int(o)
-    if v == <int>cpp_order.ASCENDING:
-        return cpp_order.ASCENDING
-    if v == <int>cpp_order.DESCENDING:
-        return cpp_order.DESCENDING
-    raise ValueError(
-        f"Invalid order: {o!r}; use pylibcudf.types.Order.ASCENDING or Order.DESCENDING"
-    )
-
-
-cdef cpp_null_order _object_to_cpp_null_order(object o) except *:
-    """Map pylibcudf.types.NullOrder (int-valued enum) to libcudf null_order."""
-    cdef int v = int(o)
-    if v == <int>cpp_null_order.BEFORE:
-        return cpp_null_order.BEFORE
-    if v == <int>cpp_null_order.AFTER:
-        return cpp_null_order.AFTER
-    raise ValueError(
-        f"Invalid null order: {o!r}; use pylibcudf.types.NullOrder.BEFORE or "
-        f"NullOrder.AFTER (libcudf names; BEFORE/AFTER null placement in sort)"
-    )
-
-
 cdef class OrderKey:
     """A single sort key: column index, sort direction, and null placement."""
 
     def __init__(
         self,
         int column_index,
-        object order,
-        object null_order,
+        cpp_order order,
+        cpp_null_order null_order,
     ):
         self._key.column_index = column_index
-        self._key.order = _object_to_cpp_order(order)
-        self._key.null_order = _object_to_cpp_null_order(null_order)
+        self._key.order = order
+        self._key.null_order = null_order
 
     @staticmethod
     cdef OrderKey from_cpp(cpp_OrderKey key):
@@ -288,13 +184,17 @@ cdef class OrderScheme:
     boundaries
         Optional ``TableChunk`` of N-1 boundary rows for N partitions.
     strict_boundary
-        If True, sort keys do not span partition interiors. Default False.
+        If True, each chunk's keys lie in one partition's range (no interior overlap).
+        Default False.
 
     Notes
     -----
     Passing this object to ``Partitioning(...)`` transfers ownership of any
     ``boundaries`` into the partitioning.  The source retains its keys but
     ``get_boundaries_table()`` will return ``None`` afterward.
+
+    ``get_boundaries_table()`` requires boundaries to be device-available; spilled
+    boundary chunks are not supported on this path yet.
     """
 
     def __cinit__(self):
@@ -352,33 +252,23 @@ cdef class OrderScheme:
 
     @property
     def num_boundaries(self):
-        """Number of boundary rows, or ``None`` if no boundaries. Spill-safe."""
+        """Number of boundary rows, or ``None`` if no boundaries (shape-based)."""
         if self._get().boundaries == NULL:
             return None
         return _boundaries_num_rows(self._get())
 
-    def get_boundaries_table(self, BufferResource br=None):
+    def get_boundaries_table(self):
         """Return boundary rows as ``pylibcudf.Table``, or ``None``.
 
-        If boundaries have been spilled, pass a ``BufferResource`` to unspill
-        them; the required device-memory reservation is computed internally from
-        ``make_available_cost()``.  Raises ``ValueError`` if boundaries are
-        spilled and no ``br`` is given.
+        Requires the boundary ``TableChunk`` to be device-available (not packed /
+        spilled to host).  Unspilling from metadata is not implemented yet.
         """
-        cdef size_t cost
         if self._get().boundaries == NULL:
             return None
         if not _boundaries_available(self._get()):
-            if br is None:
-                raise ValueError(
-                    "boundaries have been spilled; pass a BufferResource to unspill"
-                )
-            cost = _boundaries_make_available_cost(self._get())
-            reservation = br.reserve_device_memory_and_spill(
-                cost, allow_overbooking=True
-            )
-            _ensure_boundaries_available(
-                self._get(), deref((<MemoryReservation>reservation)._handle)
+            raise ValueError(
+                "ORDER boundaries are not device-available (e.g. spilled); "
+                "unspilling from OrderScheme is not supported in this release."
             )
         cdef cpp_table_view view = _order_scheme_boundaries_view(self._get())
         cdef cudaStream_t stream = _order_scheme_boundaries_stream(self._get())
@@ -525,11 +415,11 @@ cdef class ChannelMetadata:
         if partitioning is not None:
             # Shallow-clone: copies hash specs and vectors, moves ORDER boundaries.
             # The source Partitioning retains its vectors but loses boundary ownership.
-            self._handle = _make_channel_metadata(
+            self._handle = make_channel_metadata(
                 local_count, deref((<Partitioning>partitioning)._get()), duplicated
             )
         else:
-            self._handle = _make_channel_metadata(local_count, empty_part, duplicated)
+            self._handle = make_channel_metadata(local_count, empty_part, duplicated)
 
     def __dealloc__(self):
         with nogil:
@@ -545,7 +435,7 @@ cdef class ChannelMetadata:
     def from_message(Message message not None):
         """Construct by consuming a Message (message becomes empty)."""
         return ChannelMetadata.from_handle(
-            cpp_channel_metadata_from_message(move(message._handle))
+            channel_metadata_from_message(move(message._handle))
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):

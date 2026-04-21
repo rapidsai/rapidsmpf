@@ -1,6 +1,6 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
- * reserved. SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
@@ -68,7 +68,9 @@ struct OrderKey {
 struct OrderScheme {
     std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
     std::unique_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
-    bool strict_boundary{false};  ///< Sort keys disjoint across chunks.
+    /// If true, each chunk's sort keys lie in one partition's range (no interior
+    /// overlap).
+    bool strict_boundary{false};
 
     /**
      * @brief Deep-copy this scheme into a new one.
@@ -253,17 +255,39 @@ struct ChannelMetadata {
 };
 
 /**
- * @brief Compute a `ContentDescription` for a `ChannelMetadata`.
+ * @brief Shallow-clone `partitioning` into a new `ChannelMetadata`.
  *
- * Walks `m.partitioning.inter_rank` and `m.partitioning.local` and accumulates
- * per-memory-type sizes from any ORDER boundary `TableChunk`. Spillability is
- * set to `Spillable::YES`; the copy callback in `to_message` handles both
- * device-to-device and device-to-host (spill) paths via `clone(reservation)`.
+ * Hash specs are copied; ORDER specs copy keys and move boundary `TableChunk`
+ * ownership out of `partitioning` (source ORDER specs lose boundaries).
  *
- * @param m The metadata to describe.
- * @return A `ContentDescription` reflecting boundary device bytes.
+ * @param local_count Local chunk count for the new metadata.
+ * @param partitioning Partitioning to shallow-clone (ORDER boundaries may be moved out).
+ * @param duplicated Whether data is duplicated across workers.
+ * @return Newly allocated `ChannelMetadata` owning the cloned partitioning.
  */
-ContentDescription content_description_for(ChannelMetadata const& m);
+[[nodiscard]] std::unique_ptr<ChannelMetadata> make_channel_metadata(
+    std::uint64_t local_count, Partitioning& partitioning, bool duplicated
+);
+
+/**
+ * @brief Consume a `Message` and return its `ChannelMetadata` payload.
+ *
+ * @param msg Message holding `ChannelMetadata`; consumed / emptied by `release`.
+ * @return Newly allocated `ChannelMetadata` moved from the message payload.
+ */
+[[nodiscard]] std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg);
+
+/**
+ * @brief `ContentDescription` for a `ChannelMetadata` message payload.
+ *
+ * For now this is non-spillable with zero tracked sizes: ORDER boundaries are
+ * expected to stay device-resident on metadata paths. Spill accounting for
+ * embedded boundaries can be added later without changing the Python API.
+ *
+ * @param m Channel metadata to describe.
+ * @return Content description with spillability off and zero-sized content.
+ */
+ContentDescription get_content_description(ChannelMetadata const& m);
 
 /**
  * @brief Wrap a `ChannelMetadata` into a `Message`.
