@@ -147,6 +147,7 @@ struct Config {
         BindToState::NotSpecified
     };  // State of --bind-to specification
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
+    bool no_bootstrap{false};  // Skip PMIx address pre-exchange (--no-bootstrap)
     std::optional<SlurmEnv> slurm;  // Set when slurm_mode is true
 };
 
@@ -257,6 +258,9 @@ void print_usage(std::string_view prog_name) {
         << "                     Not applicable in Slurm mode\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
         << "                     Not applicable in Slurm mode\n"
+        << "  --no-bootstrap     Skip PMIx address pre-exchange in Slurm hybrid\n"
+        << "                     mode. Use for applications that do not initialise\n"
+        << "                     UCXX communication (e.g. diagnostic tools).\n"
         << "  --bind-to <type>   Bind to topology resources (default: all)\n"
         << "                     Can be specified multiple times\n"
         << "                     Options: cpu, memory, network, all, none\n"
@@ -456,6 +460,8 @@ Config parse_args(int argc, char* argv[]) {
             cfg.cleanup = false;
         } else if (arg == "--slurm") {
             cfg.slurm_mode = true;
+        } else if (arg == "--no-bootstrap") {
+            cfg.no_bootstrap = true;
         } else if (arg == "--") {
             // Everything after -- is the application and its arguments
             if (i + 1 < argc) {
@@ -776,6 +782,24 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         );
     }
 
+    int total_ranks = cfg.slurm->ntasks * cfg.nranks;
+    int rank_offset = cfg.slurm->global_rank * cfg.nranks;
+    std::string coord_hint = "slurm_" + std::to_string(cfg.slurm->job_id);
+
+    // When --no-bootstrap is set, skip the PMIx address pre-exchange and
+    // launch all ranks directly (like single-node mode).  This is needed
+    // for applications that never initialise UCXX communication.
+    if (cfg.no_bootstrap) {
+        if (cfg.verbose) {
+            std::cout << "[rrun] Slurm hybrid mode (--no-bootstrap): task "
+                      << cfg.slurm->global_rank << " launching " << cfg.nranks
+                      << " ranks without address coordination" << std::endl;
+        }
+        return setup_launch_and_cleanup(
+            cfg, rank_offset, cfg.nranks, total_ranks, std::nullopt, coord_hint
+        );
+    }
+
     if (cfg.verbose) {
         std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm->global_rank
                   << " launching " << cfg.nranks << " ranks per task" << std::endl;
@@ -793,7 +817,6 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     bool is_root_parent = (cfg.slurm->global_rank == 0);
 
     // Coordinate root address with other nodes via PMIx
-    int total_ranks = cfg.slurm->ntasks * cfg.nranks;
     std::string encoded_root_address, coordinated_root_address;
 
     std::optional<LaunchedProcess> pre_launched_process;
@@ -815,15 +838,12 @@ int execute_slurm_hybrid_mode(Config& cfg) {
 
     unsetenv("RRUN_ROOT_ADDRESS_FILE");
 
-    int rank_offset = cfg.slurm->global_rank * cfg.nranks;
-
     if (cfg.verbose) {
         std::cout << "[rrun] Task " << cfg.slurm->global_rank << " launching ranks "
                   << rank_offset << "-" << (rank_offset + cfg.nranks - 1)
                   << " (total: " << total_ranks << " ranks)" << std::endl;
     }
 
-    std::string coord_hint = "slurm_" + std::to_string(cfg.slurm->job_id);
     int exit_status = setup_launch_and_cleanup(
         cfg,
         rank_offset,
