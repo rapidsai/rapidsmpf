@@ -71,7 +71,7 @@ static void BM_PartitionAndPack(benchmark::State& state) {
     for (auto _ : state) {
         auto pack_partitions = rapidsmpf::partition_and_pack(
             *table,
-            std::move(columns_to_hash),
+            columns_to_hash,
             num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
@@ -123,7 +123,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
         for (int i = 0; i < num_partitions; i++) {
             auto pack_partitions = rapidsmpf::partition_and_pack(
                 *table,
-                std::move(columns_to_hash),
+                columns_to_hash,
                 total_npartitions,
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
