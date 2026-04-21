@@ -167,26 +167,23 @@ def test_non_participating_ranks(
         )
 
 
-@pytest.mark.parametrize("invalid_srcs", [True, False])
 def test_invalid_peers_raise(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
-    invalid_srcs: bool,  # noqa: FBT001
 ) -> None:
+    rank = comm.rank
+    size = comm.nranks
     br = BufferResource(device_mr)
-    valid_other = (comm.rank + 1) % comm.nranks
-    valid_peers = [] if valid_other == comm.rank else [valid_other]
-    invalid_peers = [comm.rank]
-    srcs = invalid_peers if invalid_srcs else valid_peers
-    dsts = valid_peers if invalid_srcs else invalid_peers
-
-    with pytest.raises(
-        RuntimeError, match=r"SparseAlltoall invalid (source|destination) rank"
-    ):
-        SparseAlltoall(
-            comm=comm,
-            op_id=2,
-            br=br,
-            srcs=srcs,
-            dsts=dsts,
-        )
+    for src, dst in [([], [rank]), ([rank], []), ([], [size]), ([size], [])]:
+        with pytest.raises(
+            IndexError, match=r"SparseAlltoall invalid (source|destination) rank"
+        ):
+            SparseAlltoall(comm, 1, br=br, srcs=src, dsts=dst)
+    if size > 1:
+        peer = (rank + 1) % size
+        for src, dst in [([], [peer, peer]), ([peer, peer], [])]:
+            with pytest.raises(
+                ValueError,
+                match=r"SparseAlltoall (source|destination) rank list must be unique",
+            ):
+                SparseAlltoall(comm, 1, br=br, srcs=src, dsts=dst)

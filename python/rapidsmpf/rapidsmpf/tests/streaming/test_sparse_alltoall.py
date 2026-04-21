@@ -82,22 +82,3 @@ def test_sparse_alltoall_non_participating_ranks(
                 [plc.Column.from_array(np.array([29], dtype=np.int32), stream=stream)]
             ),
         )
-
-
-def test_sparse_alltoall_invalid_constructor(
-    context: Context, comm: Communicator
-) -> None:
-    rank = comm.rank
-    size = comm.nranks
-    for src, dst in [([], [rank]), ([rank], []), ([], [size]), ([size], [])]:
-        with pytest.raises(
-            RuntimeError, match=r"SparseAlltoall invalid (source|destination) rank"
-        ):
-            SparseAlltoall(context, comm, 1, src, dst)
-    if size > 1:
-        for src, dst in [([], [(rank + 1) % size]), ([(rank + 1) % size], [])]:
-            with pytest.raises(
-                RuntimeError,
-                match=r"SparseAlltoall (source|destination) rank list must be unique",
-            ):
-                SparseAlltoall(context, comm, 1, src, dst)
