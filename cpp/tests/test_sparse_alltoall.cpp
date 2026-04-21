@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 #include <utility>
@@ -106,57 +107,39 @@ class SparseAlltoallTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
-class SparseAlltoallValidateConstructorTest
-    : public SparseAlltoallTest,
-      public ::testing::WithParamInterface<
-          std::tuple<bool, std::vector<rapidsmpf::Rank>>> {};
-
-auto sparse_alltoall_validate_constructor_name(
-    ::testing::TestParamInfo<std::tuple<bool, std::vector<rapidsmpf::Rank>>> const& info
-) -> std::string {
-    auto const [invalid_srcs, invalid_peers] = info.param;
-    auto const which = invalid_srcs ? "srcs" : "dsts";
-    auto const peer = invalid_peers.front();
-    auto const shape = invalid_peers.size() > 1 ? "duplicate"
-                       : peer < 0               ? "negative"
-                       : peer == 0              ? "self"
-                                                : "out_of_range";
-    return std::string{which} + "_" + shape;
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    SparseAlltoall,
-    SparseAlltoallValidateConstructorTest,
-    ::testing::Values(
-        std::make_tuple(true, std::vector<rapidsmpf::Rank>{0}),
-        std::make_tuple(false, std::vector<rapidsmpf::Rank>{0}),
-        std::make_tuple(true, std::vector<rapidsmpf::Rank>{0, 0}),
-        std::make_tuple(false, std::vector<rapidsmpf::Rank>{0, 0}),
-        std::make_tuple(true, std::vector<rapidsmpf::Rank>{-1}),
-        std::make_tuple(false, std::vector<rapidsmpf::Rank>{-1}),
-        std::make_tuple(true, std::vector<rapidsmpf::Rank>{1 << 20}),
-        std::make_tuple(false, std::vector<rapidsmpf::Rank>{1 << 20})
-    ),
-    sparse_alltoall_validate_constructor_name
-);
-
-TEST_P(SparseAlltoallValidateConstructorTest, validate_constructor) {
+TEST_F(SparseAlltoallTest, validate_constructor) {
     auto const& comm = GlobalEnvironment->comm_;
-    auto const [invalid_srcs, invalid_peers] = GetParam();
     auto const self = comm->rank();
-    auto invalid = invalid_peers;
-    if (invalid.size() == 1 && invalid.front() == 0) {
-        invalid.front() = self;
-    }
-    auto const valid_other = (self + 1) % comm->nranks();
-    auto const valid = self == valid_other ? std::vector<rapidsmpf::Rank>{}
-                                           : std::vector<rapidsmpf::Rank>{valid_other};
-    auto const srcs = invalid_srcs ? invalid : valid;
-    auto const dsts = invalid_srcs ? valid : invalid;
+    auto const size = comm->nranks();
     EXPECT_THROW(
-        std::ignore = rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), srcs, dsts),
-        std::logic_error
+        std::ignore = rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {self}, {}),
+        std::out_of_range
     );
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {size}, {}),
+        std::out_of_range
+    );
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {}, {self}),
+        std::out_of_range
+    );
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {}, {size}),
+        std::out_of_range
+    );
+    if (comm->nranks() > 1) {
+        auto peer = (self + 1) % size;
+        EXPECT_THROW(
+            std::ignore =
+                rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {peer, peer}, {}),
+            std::invalid_argument
+        );
+        EXPECT_THROW(
+            std::ignore =
+                rapidsmpf::coll::SparseAlltoall(comm, 0, br.get(), {}, {peer, peer}),
+            std::invalid_argument
+        );
+    }
 }
 
 class SparseAlltoallMemoryTest
@@ -230,7 +213,6 @@ TEST_F(SparseAlltoallTest, zero_message_edge_and_callback) {
         cv.notify_one();
     });
     exchange.insert_finished();
-
     {
         std::unique_lock lk{mutex};
         cv.wait_for(lk, std::chrono::seconds{30}, [&]() { return callback_count > 0; });
@@ -284,6 +266,14 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
     }
 
     exchange.insert_finished();
+    if (!dsts.empty()) {
+        EXPECT_THROW(
+            exchange.insert(
+                dsts.front(), make_payload(1, 1, rapidsmpf::MemoryType::HOST, stream, *br)
+            ),
+            std::logic_error
+        );
+    }
     exchange.wait(std::chrono::seconds{30});
 
     for (auto src : srcs) {
@@ -292,6 +282,7 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
         EXPECT_EQ(decode_metadata(received.front()), src * 10 + comm->rank());
         EXPECT_EQ(decode_payload(received.front()), src * 100 + comm->rank());
     }
+    EXPECT_THROW(std::ignore = exchange.extract(comm->rank()), std::logic_error);
 }
 
 TEST_F(SparseAlltoallTest, ordered_by_sender_insertion_with_stream_reordering) {
