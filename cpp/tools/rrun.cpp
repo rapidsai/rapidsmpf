@@ -41,7 +41,6 @@
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
-#include <rrun/scoped_env_var.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <pmix.h>
@@ -177,44 +176,15 @@ std::string generate_session_id() {
 }
 
 /**
- * @brief Parse CUDA_VISIBLE_DEVICES into a vector of physical GPU indices.
+ * @brief Detect available GPUs on the system.
  *
- * Under Slurm, CUDA_VISIBLE_DEVICES is pre-set with the physical GPU indices
- * allocated to the task (e.g. "4,5,6,7").  Parsing them directly gives the
- * correct allocation without querying the driver.
+ * Currently using nvidia-smi to detect GPUs. This may be replaced with NVML in the
+ * future.
  *
- * Non-integer entries (e.g. GPU UUIDs) are silently skipped.
- *
- * @return Physical GPU indices from the environment, or empty if the variable
- *         is unset or contains no valid integer entries.
- */
-std::vector<int> parse_cuda_visible_devices() {
-    char const* env = std::getenv("CUDA_VISIBLE_DEVICES");
-    if (!env || env[0] == '\0') {
-        return {};
-    }
-
-    std::vector<int> gpus;
-    std::istringstream iss(env);
-    std::string token;
-    while (std::getline(iss, token, ',')) {
-        try {
-            int id = std::stoi(token);
-            if (id >= 0) {
-                gpus.push_back(id);
-            }
-        } catch (...) {
-        }
-    }
-    return gpus;
-}
-
-/**
- * @brief Detect available GPUs on the system via nvidia-smi.
- *
- * @return Vector of physical GPU indices.
+ * @return Vector of monotonically increasing GPU indices, as observed in nvidia-smi.
  */
 std::vector<int> detect_gpus() {
+    // Use nvidia-smi to detect GPUs
     FILE* pipe =
         popen("nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null", "r");
     if (!pipe) {
@@ -535,17 +505,9 @@ Config parse_args(int argc, char* argv[]) {
         }
     }
 
-    // Auto-detect GPUs if not specified.
-    // Under Slurm, CUDA_VISIBLE_DEVICES contains exactly the physical GPU
-    // indices allocated to this task, so parsing it is both faster and more
-    // correct than nvidia-smi (which returns *all* node GPUs).
+    // Auto-detect GPUs if not specified
     if (cfg.gpus.empty()) {
-        if (cfg.slurm_mode) {
-            cfg.gpus = parse_cuda_visible_devices();
-        }
-        if (cfg.gpus.empty()) {
-            cfg.gpus = detect_gpus();
-        }
+        cfg.gpus = detect_gpus();
         if (cfg.gpus.empty()) {
             std::cerr << "[rrun] Warning: No GPUs detected. CUDA_VISIBLE_DEVICES will "
                          "not be set."
@@ -916,16 +878,9 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    // Discover topology with CUDA_VISIBLE_DEVICES temporarily cleared.
-    // The topology_discovery layer reads this variable and remaps GPU IDs
-    // to 0..N-1 for the visible subset.  Clearing it makes the topology
-    // contain physical GPU IDs that match cfg.gpus and the bind() lookup.
+    // Discover topology BEFORE narrowing CUDA_VISIBLE_DEVICES.
     cucascade::memory::topology_discovery discovery;
-    bool have_topology = false;
-    {
-        rapidsmpf::rrun::ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
-        have_topology = discovery.discover();
-    }
+    bool const have_topology = discovery.discover();
 
     // Set rrun coordination environment variables so the application knows
     // it's being launched by rrun and should use bootstrap mode
@@ -1356,17 +1311,11 @@ pid_t launch_rank_local(
         out_fd_stderr,
         /*combine_stderr*/ false,
         [&cfg, global_rank, local_rank, total_ranks, root_address]() {
-            // Discover topology with CUDA_VISIBLE_DEVICES temporarily
-            // cleared.  The topology_discovery layer reads this variable
-            // and remaps GPU IDs to 0..N-1 for the visible subset.
-            // Clearing it makes the topology contain physical GPU IDs
-            // that match cfg.gpus and the bind() lookup.
+            // Discover topology BEFORE narrowing CUDA_VISIBLE_DEVICES to a
+            // single GPU, otherwise the discovery layer only sees the one
+            // device and GPU-ID lookup by physical ID will fail.
             cucascade::memory::topology_discovery discovery;
-            bool have_topology = false;
-            {
-                rapidsmpf::rrun::ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
-                have_topology = discovery.discover();
-            }
+            bool const have_topology = discovery.discover();
 
             // Set custom environment variables first (can be overridden by specific vars)
             for (auto const& env_pair : cfg.env_vars) {
