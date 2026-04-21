@@ -47,6 +47,12 @@ class SparseAlltoall {
      * should only be used to signal a thread to do the actual work of extraction. Note in
      * particular that the callback should not extract any data.
      *
+     * @throws std::out_of_range If either `srcs` or `dsts` have invalid values. All
+     * source and destination ranks must be in `[0, ..., comm->nranks())`, and not equal
+     * to the current rank.
+     * @throws std::invalid_argument If the rank lists are not unique.
+     * @throws std::logic_error If the communicator or buffer resource pointers are null.
+     *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally or the `finished_callback` has been invoked.
      *

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -38,22 +39,27 @@ SparseAlltoall::SparseAlltoall(
     source_states_.reserve(srcs_.size());
     for (auto src : srcs_) {
         RAPIDSMPF_EXPECTS(
-            src >= 0 && src < size && src != self, "SparseAlltoall invalid source rank."
+            src >= 0 && src < size && src != self,
+            "SparseAlltoall invalid source rank.",
+            std::out_of_range
         );
         RAPIDSMPF_EXPECTS(
             source_states_.emplace(src, SourceState{}).second,
-            "SparseAlltoall source rank list must be unique"
+            "SparseAlltoall source rank list must be unique",
+            std::invalid_argument
         );
     }
     next_ordinal_per_dst_.reserve(dsts_.size());
     for (auto dst : dsts_) {
         RAPIDSMPF_EXPECTS(
             dst >= 0 && dst < size && dst != self,
-            "SparseAlltoall invalid destination rank."
+            "SparseAlltoall invalid destination rank.",
+            std::out_of_range
         );
         RAPIDSMPF_EXPECTS(
             next_ordinal_per_dst_.emplace(dst, 0).second,
-            "SparseAlltoall destination rank list must be unique"
+            "SparseAlltoall destination rank list must be unique",
+            std::invalid_argument
         );
     }
     function_id_ =
