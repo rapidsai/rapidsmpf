@@ -394,8 +394,6 @@ std::string format_output(
  * See top of this file for more details.
  */
 int main(int argc, char* argv[]) {
-    rapidsmpf::rrun::no_bootstrap();
-
     Arguments args = parse_arguments(argc, argv);
 
     if (args.show_help) {

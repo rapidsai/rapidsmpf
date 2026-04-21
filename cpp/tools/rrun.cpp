@@ -50,10 +50,6 @@
 
 namespace {
 
-/// Sentinel value written by `rapidsmpf::rrun::no_bootstrap()` and recognised
-/// by the launcher to skip the PMIx address pre-exchange.
-constexpr char const* kNoBootstrapSentinel = "RRUN_NO_BOOTSTRAP";
-
 // Forward declarations of mode execution functions (defined later, outside namespace)
 struct Config;
 [[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg);
@@ -67,29 +63,9 @@ struct LaunchedProcess {
 };
 #ifdef RAPIDSMPF_HAVE_SLURM
 int execute_slurm_hybrid_mode(Config& cfg);
-
-/** Return type when we launch one process and also obtain an address (e.g. rank 0). */
-struct AddressAndProcess {
-    std::string encoded_address;
-    LaunchedProcess process;
-};
-
-AddressAndProcess launch_rank0_and_get_address(
-    Config const& cfg, std::string const& address_file, int total_ranks
-);
-std::string coordinate_root_address_via_pmix(
-    Config const& cfg,
-    std::optional<std::string> const& root_address_to_publish,
-    bool verbose
-);
 #endif
 int launch_ranks_fork_based(
-    Config const& cfg,
-    int rank_offset,
-    int ranks_per_task,
-    int total_ranks,
-    std::optional<std::string> const& root_address,
-    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
+    Config const& cfg, int rank_offset, int ranks_per_task, int total_ranks
 );
 [[noreturn]] void exec_application(Config const& cfg);
 pid_t launch_rank_local(
@@ -97,7 +73,6 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
-    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 );
@@ -150,7 +125,6 @@ struct Config {
         BindToState::NotSpecified
     };  // State of --bind-to specification
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
-    bool no_bootstrap{false};  // Skip PMIx address pre-exchange (--no-bootstrap)
     std::optional<SlurmEnv> slurm;  // Set when slurm_mode is true
 };
 
@@ -232,12 +206,6 @@ void print_usage(std::string_view prog_name) {
         << "                     Not applicable in Slurm mode\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
         << "                     Not applicable in Slurm mode\n"
-        << "  --no-bootstrap     Skip PMIx address pre-exchange in Slurm hybrid\n"
-        << "                     mode. Use for applications that do not initialise\n"
-        << "                     UCXX communication (e.g. diagnostic tools).\n"
-        << "                     Applications can also signal this at runtime by\n"
-        << "                     calling rapidsmpf::rrun::no_bootstrap() early in\n"
-        << "                     main() (see <rrun/rrun.hpp>).\n"
         << "  --bind-to <type>   Bind to topology resources (default: all)\n"
         << "                     Can be specified multiple times\n"
         << "                     Options: cpu, memory, network, all, none\n"
@@ -437,8 +405,6 @@ Config parse_args(int argc, char* argv[]) {
             cfg.cleanup = false;
         } else if (arg == "--slurm") {
             cfg.slurm_mode = true;
-        } else if (arg == "--no-bootstrap") {
-            cfg.no_bootstrap = true;
         } else if (arg == "--") {
             // Everything after -- is the application and its arguments
             if (i + 1 < argc) {
@@ -645,11 +611,7 @@ pid_t fork_with_piped_stdio(
  * @param rank_offset Starting global rank for this task.
  * @param ranks_per_task Number of ranks to launch locally.
  * @param total_ranks Total ranks across all tasks.
- * @param root_address Pre-coordinated root address (empty for FILE backend).
  * @param coord_dir_hint Hint for coordination directory name (e.g., job ID).
- * @param pre_launched_process If set, one process was already launched; its pid
- *                              and forwarders are included so we wait and forward
- * signals.
  * @return Exit status (0 for success).
  */
 int setup_launch_and_cleanup(
@@ -657,9 +619,7 @@ int setup_launch_and_cleanup(
     int rank_offset,
     int ranks_per_task,
     int total_ranks,
-    std::optional<std::string> const& root_address,
-    std::string const& coord_dir_hint = "",
-    std::optional<LaunchedProcess> pre_launched_process = std::nullopt
+    std::string const& coord_dir_hint = ""
 ) {
     // Set up coordination directory
     if (cfg.coord_dir.empty()) {
@@ -672,14 +632,8 @@ int setup_launch_and_cleanup(
     std::filesystem::create_directories(cfg.coord_dir);
 
     // Launch ranks and wait for completion
-    int exit_status = launch_ranks_fork_based(
-        cfg,
-        rank_offset,
-        ranks_per_task,
-        total_ranks,
-        root_address,
-        std::move(pre_launched_process)
-    );
+    int exit_status =
+        launch_ranks_fork_based(cfg, rank_offset, ranks_per_task, total_ranks);
 
     if (cfg.cleanup) {
         if (cfg.verbose) {
@@ -732,11 +686,188 @@ int setup_launch_and_cleanup(
 }
 
 #ifdef RAPIDSMPF_HAVE_SLURM
+
+/**
+ * @brief Write a value into the FileBackend key-value store.
+ *
+ * Mirrors the atomic write-then-rename pattern used by FileBackend::write_file
+ * so that the children's `get()` call never sees partial content.
+ *
+ * @param coord_dir Local coordination directory (RRUN_COORD_DIR).
+ * @param key       Key name (e.g. "ucxx_root_address").
+ * @param value     Binary-safe value to store.
+ */
+void write_kv_for_children(
+    std::string const& coord_dir, std::string const& key, std::string_view value
+) {
+    std::string kv_dir = coord_dir + "/kv";
+    std::filesystem::create_directories(kv_dir);
+
+    std::string path = kv_dir + "/" + key;
+    std::string tmp_path = path + ".tmp." + std::to_string(getpid());
+
+    std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
+    if (!ofs) {
+        throw std::runtime_error("Failed to open temporary file: " + tmp_path);
+    }
+    ofs.write(value.data(), static_cast<std::streamsize>(value.size()));
+    ofs.close();
+
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, path, ec);
+    if (ec) {
+        std::error_code rm_ec;
+        std::filesystem::remove(tmp_path, rm_ec);
+        throw std::runtime_error(
+            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message()
+        );
+    }
+}
+
+/**
+ * @brief Relay the root UCXX address from rank 0 to all Slurm tasks.
+ *
+ * Called in a background thread after all ranks have been launched.  The root
+ * parent (SLURM_PROCID==0) polls the address file that rank 0 writes when it
+ * initialises UCXX.  Once available it publishes the address via PMIx so that
+ * non-root parents can retrieve it.  Every parent then writes the address into
+ * its local FileBackend kv store so that the children can pick it up with
+ * `get("ucxx_root_address")`.
+ *
+ * If rank 0 never writes the address (e.g. diagnostic tools that don't use
+ * UCXX) the thread simply waits until @p stop becomes true (set by the caller
+ * after all children have exited) and returns without doing anything.
+ *
+ * @param cfg           Configuration.
+ * @param address_file  Path to the file rank 0 writes its address to.
+ * @param stop          Atomic flag set by the main thread once children exit.
+ */
+void relay_root_address(
+    Config const& cfg, std::string const& address_file, std::atomic<bool> const& stop
+) {
+    bool is_root_parent = (cfg.slurm->global_rank == 0);
+    std::string encoded_address;
+
+    if (is_root_parent) {
+        // Poll for the address file from rank 0.
+        while (!stop.load(std::memory_order_relaxed)) {
+            if (std::filesystem::exists(address_file)) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        if (stop.load(std::memory_order_relaxed)
+            && !std::filesystem::exists(address_file))
+        {
+            // Children exited without rank 0 writing the address; nothing to relay.
+            return;
+        }
+
+        std::ifstream addr_stream(address_file);
+        if (!addr_stream) {
+            std::cerr << "[rrun] Warning: failed to open root address file: "
+                      << address_file << std::endl;
+            return;
+        }
+        std::getline(addr_stream, encoded_address);
+        addr_stream.close();
+        std::filesystem::remove(address_file);
+
+        if (encoded_address.empty()) {
+            std::cerr << "[rrun] Warning: root address file was empty" << std::endl;
+            return;
+        }
+
+        if (cfg.verbose) {
+            std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
+                      << encoded_address.size() << " chars)" << std::endl;
+        }
+    }
+
+    // PMIx coordination between parents.
+    int parent_rank = cfg.slurm->global_rank;
+    int parent_nranks = cfg.slurm->ntasks;
+
+    rapidsmpf::bootstrap::Context parent_ctx{
+        parent_rank,
+        parent_nranks,
+        rapidsmpf::bootstrap::BackendType::SLURM,
+        std::nullopt,
+        nullptr
+    };
+
+    auto backend =
+        std::make_shared<rapidsmpf::bootstrap::detail::SlurmBackend>(parent_ctx);
+
+    if (is_root_parent) {
+        if (cfg.verbose) {
+            std::cout << "[rrun] Publishing root address via PMIx (hex-encoded, "
+                      << encoded_address.size() << " chars)" << std::endl;
+        }
+        backend->put("rapidsmpf_root_address", encoded_address);
+    }
+
+    backend->sync();
+
+    if (!is_root_parent) {
+        encoded_address =
+            backend->get("rapidsmpf_root_address", std::chrono::seconds{30});
+        if (cfg.verbose) {
+            std::cout << "[rrun] Retrieved root address via PMIx (hex-encoded, "
+                      << encoded_address.size() << " chars)" << std::endl;
+        }
+    }
+
+    // Write into the local FileBackend kv store so children can get() it.
+    // The raw address from UCXX is hex-encoded, but the FileBackend stores
+    // opaque bytes.  The UCXX bootstrap Path 3 stores the *raw* address via
+    // put(), so we must hex-decode before writing here.
+    //
+    // However, the UCXX bootstrap Path 4 retrieves the value as a raw string
+    // and passes it directly to createAddressFromString.  Path 3's put() writes
+    // the raw string_view from the UCXX address.  So the FileBackend kv entry
+    // must contain the *raw* (binary) address, not the hex-encoded one.
+    //
+    // The hex encoding is only used for the address file and PMIx transport
+    // (which may not be binary-safe).  Decode before writing to the kv store.
+
+    // Inline hex decode (same as in ucxx.cpp).
+    auto hex_decode = [](std::string_view const& input) -> std::string {
+        std::string result;
+        result.reserve(input.size() / 2);
+        for (std::size_t i = 0; i + 1 < input.size(); i += 2) {
+            auto high = static_cast<unsigned char>(
+                (input[i] >= 'a') ? (input[i] - 'a' + 10) : (input[i] - '0')
+            );
+            auto low = static_cast<unsigned char>(
+                (input[i + 1] >= 'a') ? (input[i + 1] - 'a' + 10) : (input[i + 1] - '0')
+            );
+            result.push_back(static_cast<char>((high << 4) | low));
+        }
+        return result;
+    };
+
+    std::string raw_address = hex_decode(encoded_address);
+    write_kv_for_children(cfg.coord_dir, "ucxx_root_address", raw_address);
+
+    if (cfg.verbose) {
+        std::cout << "[rrun] Wrote root address to local kv store for children"
+                  << std::endl;
+    }
+}
+
 /**
  * @brief Execute application in Slurm hybrid mode with PMIx coordination.
  *
- * Root parent launches rank 0 first to get address, coordinates via PMIx, then parents
- * on all nodes launch their remaining ranks. Uses fork-based execution.
+ * All ranks are launched simultaneously.  A background thread relays the root
+ * UCXX address (if any) between the parents via PMIx and writes it into each
+ * parent's local FileBackend kv store so that the children can retrieve it
+ * through the normal bootstrap Path 3/4 (put/get).
+ *
+ * Applications that never initialise UCXX communication work transparently:
+ * the relay thread detects that all children have exited without producing an
+ * address and returns without action.
  *
  * @param cfg Configuration.
  * @return Exit status (0 for success).
@@ -755,86 +886,46 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     int rank_offset = cfg.slurm->global_rank * cfg.nranks;
     std::string coord_hint = "slurm_" + std::to_string(cfg.slurm->job_id);
 
-    // When --no-bootstrap is set, skip the PMIx address pre-exchange and
-    // launch all ranks directly (like single-node mode).  This is needed
-    // for applications that never initialise UCXX communication.
-    if (cfg.no_bootstrap) {
-        if (cfg.verbose) {
-            std::cout << "[rrun] Slurm hybrid mode (--no-bootstrap): task "
-                      << cfg.slurm->global_rank << " launching " << cfg.nranks
-                      << " ranks without address coordination" << std::endl;
-        }
-        return setup_launch_and_cleanup(
-            cfg, rank_offset, cfg.nranks, total_ranks, std::nullopt, coord_hint
-        );
-    }
-
     if (cfg.verbose) {
         std::cout << "[rrun] Slurm hybrid mode: task " << cfg.slurm->global_rank
                   << " launching " << cfg.nranks << " ranks per task" << std::endl;
-        std::cout << "[rrun] Using PMIx for parent coordination (no file I/O)"
-                  << std::endl;
     }
 
-    // Set up coordination directory FIRST (needed by rank 0 when it's launched early)
+    // Set up coordination directory before launching so children can use it.
     if (cfg.coord_dir.empty()) {
         cfg.coord_dir = "/tmp/rrun_slurm_" + std::to_string(cfg.slurm->job_id);
     }
     std::filesystem::create_directories(cfg.coord_dir);
 
-    // Root parent needs to launch rank 0 first to get address
+    // Set RRUN_ROOT_ADDRESS_FILE for rank 0 (only on the root parent).
+    // Rank 0's UCXX bootstrap (Path 1) writes its listener address here.
+    std::string address_file =
+        "/tmp/rapidsmpf_root_address_" + std::to_string(cfg.slurm->job_id);
     bool is_root_parent = (cfg.slurm->global_rank == 0);
-
-    // Coordinate root address with other nodes via PMIx
-    std::string encoded_root_address, coordinated_root_address;
-
-    std::optional<LaunchedProcess> pre_launched_process;
     if (is_root_parent) {
-        // Root parent: Launch rank 0, get address, coordinate via PMIx
-        std::string address_file =
-            "/tmp/rapidsmpf_root_address_" + std::to_string(cfg.slurm->job_id);
-        AddressAndProcess rank0_result =
-            launch_rank0_and_get_address(cfg, address_file, total_ranks);
-        encoded_root_address = std::move(rank0_result.encoded_address);
-        pre_launched_process = std::move(rank0_result.process);
-        coordinated_root_address =
-            coordinate_root_address_via_pmix(cfg, encoded_root_address, cfg.verbose);
-    } else {
-        // Non-root parent: Get address from root via PMIx
-        coordinated_root_address =
-            coordinate_root_address_via_pmix(cfg, std::nullopt, cfg.verbose);
+        setenv("RRUN_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
     }
+
+    // Launch all ranks (including rank 0) simultaneously.
+    // The ranks use FileBackend (Path 3/4) for UCXX bootstrap coordination.
+    // The relay thread below will populate the local kv store with the root
+    // address once it becomes available.
+    std::atomic<bool> relay_stop{false};
+    std::thread relay_thread(
+        relay_root_address, std::cref(cfg), std::cref(address_file), std::cref(relay_stop)
+    );
+
+    int exit_status =
+        setup_launch_and_cleanup(cfg, rank_offset, cfg.nranks, total_ranks, coord_hint);
+
+    // Children have exited; tell the relay thread to stop if it hasn't already.
+    relay_stop.store(true, std::memory_order_relaxed);
 
     unsetenv("RRUN_ROOT_ADDRESS_FILE");
 
-    // If the application signalled no-bootstrap via the sentinel, treat it
-    // the same as --no-bootstrap: launch remaining ranks without an address.
-    std::optional<std::string> root_address_opt;
-    if (coordinated_root_address == kNoBootstrapSentinel) {
-        if (cfg.verbose) {
-            std::cout << "[rrun] Application signalled no-bootstrap; skipping "
-                         "address distribution"
-                      << std::endl;
-        }
-    } else {
-        root_address_opt = coordinated_root_address;
+    if (relay_thread.joinable()) {
+        relay_thread.join();
     }
-
-    if (cfg.verbose) {
-        std::cout << "[rrun] Task " << cfg.slurm->global_rank << " launching ranks "
-                  << rank_offset << "-" << (rank_offset + cfg.nranks - 1)
-                  << " (total: " << total_ranks << " ranks)" << std::endl;
-    }
-
-    int exit_status = setup_launch_and_cleanup(
-        cfg,
-        rank_offset,
-        cfg.nranks,
-        total_ranks,
-        root_address_opt,
-        coord_hint,
-        std::move(pre_launched_process)
-    );
 
     return exit_status;
 }
@@ -854,7 +945,7 @@ int execute_single_node_mode(Config& cfg) {
                   << std::endl;
     }
 
-    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks, std::nullopt);
+    return setup_launch_and_cleanup(cfg, 0, cfg.nranks, cfg.nranks);
 }
 
 /**
@@ -928,200 +1019,6 @@ int execute_single_node_mode(Config& cfg) {
     exec_application(cfg);
 }
 
-#ifdef RAPIDSMPF_HAVE_SLURM
-/**
- * @brief Launch rank 0 first to obtain its UCXX root address.
- *
- * @param cfg Configuration.
- * @param address_file Path to file where rank 0 will write its address.
- * @param total_ranks Total number of ranks across all tasks.
- * @return Encoded root address and the launched process handle.
- *
- * @throws std::runtime_error on timeout or launch failure.
- */
-AddressAndProcess launch_rank0_and_get_address(
-    Config const& cfg, std::string const& address_file, int total_ranks
-) {
-    if (cfg.verbose) {
-        std::cout << "[rrun] Root parent: launching rank 0 first to get address"
-                  << std::endl;
-    }
-
-    setenv("RRUN_ROOT_ADDRESS_FILE", address_file.c_str(), 1);
-
-    int fd_out = -1, fd_err = -1;
-    pid_t rank0_pid =
-        launch_rank_local(cfg, 0, 0, total_ranks, std::nullopt, &fd_out, &fd_err);
-
-    // Start forwarders for rank 0 output
-    std::thread rank0_stdout_forwarder;
-    std::thread rank0_stderr_forwarder;
-    auto suppress = std::make_shared<std::atomic<bool>>(false);
-
-    if (fd_out >= 0) {
-        rank0_stdout_forwarder = std::thread([fd_out, suppress]() {
-            FILE* stream = fdopen(fd_out, "r");
-            if (!stream) {
-                close(fd_out);
-                return;
-            }
-            char buffer[4096];
-            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                if (suppress->load())
-                    continue;
-                std::lock_guard<std::mutex> lock(output_mutex);
-                fputs(buffer, stdout);
-                fflush(stdout);
-            }
-            fclose(stream);
-        });
-    }
-
-    if (fd_err >= 0) {
-        rank0_stderr_forwarder = std::thread([fd_err, suppress]() {
-            FILE* stream = fdopen(fd_err, "r");
-            if (!stream) {
-                close(fd_err);
-                return;
-            }
-            char buffer[4096];
-            while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                if (suppress->load())
-                    continue;
-                std::lock_guard<std::mutex> lock(output_mutex);
-                fputs(buffer, stderr);
-                fflush(stderr);
-            }
-            fclose(stream);
-        });
-    }
-
-    // Wait for rank 0 to write the address file (with timeout)
-    auto start = std::chrono::steady_clock::now();
-    while (!std::filesystem::exists(address_file)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        auto elapsed = std::chrono::steady_clock::now() - start;
-        if (elapsed > std::chrono::seconds(30)) {
-            suppress->store(true);
-            kill(rank0_pid, SIGKILL);
-            waitpid(rank0_pid, nullptr, 0);
-            if (rank0_stdout_forwarder.joinable())
-                rank0_stdout_forwarder.join();
-            if (rank0_stderr_forwarder.joinable())
-                rank0_stderr_forwarder.join();
-            throw std::runtime_error("Timeout waiting for rank 0 to write root address");
-        }
-    }
-
-    // Read the hex-encoded address and remove file
-    std::string encoded_address;
-    std::ifstream addr_stream(address_file);
-    if (!addr_stream) {
-        throw std::runtime_error("Failed to open root address file: " + address_file);
-    }
-    std::getline(addr_stream, encoded_address);
-    addr_stream.close();
-    if (encoded_address.empty()) {
-        throw std::runtime_error(
-            "Root address file is empty or invalid: " + address_file
-        );
-    }
-    std::filesystem::remove(address_file);
-
-    if (cfg.verbose) {
-        std::cout << "[rrun] Got root address from rank 0 (hex-encoded, "
-                  << encoded_address.size() << " chars)" << std::endl;
-    }
-
-    // Return rank 0's pid and forwarders so the parent can wait for it and
-    // forward signals (same as other ranks).
-    return AddressAndProcess{
-        std::move(encoded_address),
-        LaunchedProcess{
-            rank0_pid,
-            std::move(rank0_stdout_forwarder),
-            std::move(rank0_stderr_forwarder)
-        }
-    };
-}
-
-/**
- * @brief Coordinate root address between parent processes using SlurmBackend.
- *
- * This function is called by parent rrun processes in Slurm hybrid mode.
- * The root parent (SLURM_PROCID=0) publishes the root address, and non-root
- * parents retrieve it.
- *
- * @param cfg Configuration (must have slurm with valid global_rank and ntasks).
- * @param root_address_to_publish Root address to publish. If set (has_value()), this is
- *                                the root parent and it will publish. If empty (nullopt),
- *                                this is a non-root parent and it will retrieve.
- * @param verbose Whether to print debug messages.
- * @return Root address (either published or retrieved).
- *
- * @throws std::runtime_error on coordination errors or missing or corrupt Slurm
- * environment variables.
- */
-std::string coordinate_root_address_via_pmix(
-    Config const& cfg,
-    std::optional<std::string> const& root_address_to_publish,
-    bool verbose
-) {
-    if (!cfg.slurm || cfg.slurm->global_rank < 0 || cfg.slurm->ntasks <= 0) {
-        throw std::runtime_error(
-            "SLURM_PROCID and SLURM_NTASKS must be set for parent coordination"
-        );
-    }
-
-    int parent_rank = cfg.slurm->global_rank;
-    int parent_nranks = cfg.slurm->ntasks;
-
-    // Create SlurmBackend for parent-level coordination
-    rapidsmpf::bootstrap::Context parent_ctx{
-        parent_rank,
-        parent_nranks,
-        rapidsmpf::bootstrap::BackendType::SLURM,
-        std::nullopt,
-        nullptr
-    };
-
-    auto backend =
-        std::make_shared<rapidsmpf::bootstrap::detail::SlurmBackend>(parent_ctx);
-
-    if (verbose) {
-        std::cout << "[rrun] Parent coordination initialized: rank " << parent_rank
-                  << " of " << parent_nranks << std::endl;
-    }
-
-    std::string root_address;
-
-    if (root_address_to_publish.has_value()) {
-        // Root parent publishes the address (already hex-encoded for binary safety)
-        if (verbose) {
-            std::cout << "[rrun] Publishing root address via SlurmBackend (hex-encoded, "
-                      << root_address_to_publish.value().size() << " chars)" << std::endl;
-        }
-
-        backend->put("rapidsmpf_root_address", root_address_to_publish.value());
-        root_address = root_address_to_publish.value();
-    }
-
-    backend->sync();
-
-    if (!root_address_to_publish.has_value()) {
-        // Non-root parents retrieve the address
-        root_address = backend->get("rapidsmpf_root_address", std::chrono::seconds{30});
-
-        if (verbose) {
-            std::cout << "[rrun] Retrieved root address via SlurmBackend (hex-encoded, "
-                      << root_address.size() << " chars)" << std::endl;
-        }
-    }
-
-    return root_address;
-}
-#endif  // RAPIDSMPF_HAVE_SLURM
-
 /**
  * @brief Launch multiple ranks locally using fork.
  *
@@ -1132,17 +1029,10 @@ std::string coordinate_root_address_via_pmix(
  * @param rank_offset Starting global rank for this task.
  * @param ranks_per_task Number of ranks to launch.
  * @param total_ranks Total ranks across all tasks.
- * @param root_address Pre-coordinated root address (empty for FILE backend).
- * @param pre_launched_process If set, one process was already launched; include it.
  * @return Exit status (0 for success).
  */
 int launch_ranks_fork_based(
-    Config const& cfg,
-    int rank_offset,
-    int ranks_per_task,
-    int total_ranks,
-    std::optional<std::string> const& root_address,
-    std::optional<LaunchedProcess> pre_launched_process
+    Config const& cfg, int rank_offset, int ranks_per_task, int total_ranks
 ) {
     std::vector<LaunchedProcess> processes;
     processes.reserve(static_cast<std::size_t>(ranks_per_task));
@@ -1188,20 +1078,12 @@ int launch_ranks_fork_based(
         });
     };
 
-    // Skip rank 0 when we already have it in pre_launched_process (e.g. Slurm hybrid).
-    int start_local_rank = pre_launched_process.has_value() ? 1 : 0;
-
-    // Include pre-launched process first.
-    if (pre_launched_process) {
-        processes.insert(processes.begin(), std::move(*pre_launched_process));
-    }
-
-    for (int local_rank = start_local_rank; local_rank < ranks_per_task; ++local_rank) {
+    for (int local_rank = 0; local_rank < ranks_per_task; ++local_rank) {
         int global_rank = rank_offset + local_rank;
         int fd_out = -1;
         int fd_err = -1;
         pid_t pid = launch_rank_local(
-            cfg, global_rank, local_rank, total_ranks, root_address, &fd_out, &fd_err
+            cfg, global_rank, local_rank, total_ranks, &fd_out, &fd_err
         );
 
         if (cfg.verbose) {
@@ -1243,13 +1125,11 @@ int launch_ranks_fork_based(
     std::cout << "\n[rrun] All ranks launched. Waiting for completion...\n" << std::endl;
 
     // Wait for all processes
-    bool have_pre_launched = pre_launched_process.has_value();
     int exit_status = 0;
     for (std::size_t i = 0; i < processes.size(); ++i) {
         LaunchedProcess& proc = processes[i];
         int status = 0;
-        int global_rank =
-            have_pre_launched ? static_cast<int>(i) : (rank_offset + static_cast<int>(i));
+        int global_rank = rank_offset + static_cast<int>(i);
         if (waitpid(proc.pid, &status, 0) < 0) {
             std::cerr << "[rrun] Failed to wait for rank " << global_rank << " (PID "
                       << proc.pid << "): " << std::strerror(errno) << std::endl;
@@ -1292,7 +1172,6 @@ int launch_ranks_fork_based(
  * @param global_rank Global rank number (used for RRUN_RANK).
  * @param local_rank Local rank for GPU assignment (defaults to global_rank).
  * @param total_ranks Total number of ranks across all tasks (used for RRUN_NRANKS).
- * @param root_address Optional pre-coordinated root address (for hybrid mode).
  * @param out_fd_stdout Output file descriptor for stdout.
  * @param out_fd_stderr Output file descriptor for stderr.
  * @return Child process PID.
@@ -1302,7 +1181,6 @@ pid_t launch_rank_local(
     int global_rank,
     int local_rank,
     int total_ranks,
-    std::optional<std::string> const& root_address,
     int* out_fd_stdout,
     int* out_fd_stderr
 ) {
@@ -1310,7 +1188,7 @@ pid_t launch_rank_local(
         out_fd_stdout,
         out_fd_stderr,
         /*combine_stderr*/ false,
-        [&cfg, global_rank, local_rank, total_ranks, root_address]() {
+        [&cfg, global_rank, local_rank, total_ranks]() {
             // Discover topology BEFORE narrowing CUDA_VISIBLE_DEVICES to a
             // single GPU, otherwise the discovery layer only sees the one
             // device and GPU-ID lookup by physical ID will fail.
@@ -1325,16 +1203,8 @@ pid_t launch_rank_local(
             setenv("RRUN_RANK", std::to_string(global_rank).c_str(), 1);
             setenv("RRUN_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
-            // Always set coord_dir for bootstrap initialization
-            // (needed even if using RRUN_ROOT_ADDRESS for coordination)
             if (!cfg.coord_dir.empty()) {
                 setenv("RRUN_COORD_DIR", cfg.coord_dir.c_str(), 1);
-            }
-
-            // If root address was pre-coordinated by parent, set it (already hex-encoded)
-            // This allows children to skip bootstrap coordination entirely
-            if (root_address.has_value()) {
-                setenv("RRUN_ROOT_ADDRESS", root_address->c_str(), 1);
             }
 
             // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion

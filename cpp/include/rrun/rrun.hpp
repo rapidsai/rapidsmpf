@@ -186,26 +186,4 @@ void bind(
     bind_options const& options = {}
 );
 
-/**
- * @brief Notify `rrun` that this application does not perform inter-rank
- *        communication and does not need the PMIx address pre-exchange in
- *        Slurm hybrid mode.
- *
- * Call this function early in `main()` (before any long work) in applications
- * that will never initialise UCXX communication.  When launched by `rrun` in
- * Slurm hybrid mode the function writes a sentinel to the coordination file
- * so the parent can skip the address exchange and immediately launch the
- * remaining ranks.  When not launched by `rrun` (or outside Slurm hybrid
- * mode) it is a harmless no-op.
- *
- * @code
- * #include <rrun/rrun.hpp>
- * int main() {
- *     rapidsmpf::rrun::no_bootstrap();
- *     // ... application logic ...
- * }
- * @endcode
- */
-void no_bootstrap();
-
 }  // namespace rapidsmpf::rrun
