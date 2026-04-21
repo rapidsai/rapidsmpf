@@ -15,6 +15,7 @@
 #include <coro/latch.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
@@ -51,9 +52,11 @@ PackedData make_payload(
 
     auto data = br->allocate(stream, br->reserve_or_fail(sizeof(int), mem_type));
     data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            ptr, &payload_value, sizeof(payload_value), cudaMemcpyDefault, op_stream
-        ));
+        RAPIDSMPF_CUDA_TRY(
+            rapidsmpf::cuda_memcpy_async(
+                ptr, &payload_value, sizeof(payload_value), op_stream
+            )
+        );
     });
     return {std::move(metadata), std::move(data)};
 }
@@ -66,13 +69,14 @@ int decode_metadata(PackedData const& packed_data) {
 
 int decode_payload(PackedData const& packed_data) {
     int result = -1;
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        &result,
-        packed_data.data->data(),
-        sizeof(result),
-        cudaMemcpyDefault,
-        packed_data.stream().value()
-    ));
+    RAPIDSMPF_CUDA_TRY(
+        rapidsmpf::cuda_memcpy_async(
+            &result,
+            packed_data.data->data(),
+            sizeof(result),
+            packed_data.stream().value()
+        )
+    );
     packed_data.stream().synchronize();
     return result;
 }

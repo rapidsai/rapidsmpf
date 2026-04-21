@@ -21,6 +21,7 @@
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 #include "environment.hpp"
@@ -62,9 +63,11 @@ rapidsmpf::PackedData make_payload(
     auto data = br.allocate(stream, br.reserve_or_fail(sizeof(int), mem_type));
     data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
         if (mem_type == rapidsmpf::MemoryType::DEVICE) {
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                ptr, &payload_value, sizeof(payload_value), cudaMemcpyDefault, op_stream
-            ));
+            RAPIDSMPF_CUDA_TRY(
+                rapidsmpf::cuda_memcpy_async(
+                    ptr, &payload_value, sizeof(payload_value), op_stream
+                )
+            );
         } else {
             std::memcpy(ptr, &payload_value, sizeof(payload_value));
         }
@@ -81,13 +84,14 @@ int decode_metadata(rapidsmpf::PackedData const& packed_data) {
 int decode_payload(rapidsmpf::PackedData const& packed_data) {
     int result = -1;
     if (packed_data.data->mem_type() == rapidsmpf::MemoryType::DEVICE) {
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            &result,
-            packed_data.data->data(),
-            sizeof(result),
-            cudaMemcpyDefault,
-            packed_data.data->stream()
-        ));
+        RAPIDSMPF_CUDA_TRY(
+            rapidsmpf::cuda_memcpy_async(
+                &result,
+                packed_data.data->data(),
+                sizeof(result),
+                packed_data.data->stream()
+            )
+        );
         packed_data.data->stream().synchronize();
     } else {
         std::memcpy(&result, packed_data.data->data(), sizeof(result));
