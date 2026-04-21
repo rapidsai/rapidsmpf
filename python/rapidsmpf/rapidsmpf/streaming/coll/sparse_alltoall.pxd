@@ -8,6 +8,7 @@ from libcpp.vector cimport vector
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport (Communicator, Rank,
                                                   cpp_Communicator)
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.streaming.core.context cimport cpp_Context
 
@@ -23,9 +24,11 @@ cdef extern from "<rapidsmpf/streaming/coll/sparse_alltoall.hpp>" nogil:
         ) except +ex_handler
         void insert(Rank dst, cpp_PackedData) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
+        const shared_ptr[cpp_Context]& ctx() except +ex_handler
         vector[cpp_PackedData] extract(Rank src) except +ex_handler
 
 
 cdef class SparseAlltoall:
     cdef unique_ptr[cpp_SparseAlltoall] _handle
+    cdef BufferResource _br
     cdef Communicator _comm

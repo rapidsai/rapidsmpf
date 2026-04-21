@@ -85,6 +85,7 @@ cdef class SparseAlltoall:
         dsts,
     ):
         self._comm = comm
+        self._br = ctx.br()
         cdef vector[Rank] c_srcs = list(srcs)
         cdef vector[Rank] c_dsts = list(dsts)
         with nogil:
@@ -165,4 +166,4 @@ cdef class SparseAlltoall:
         cdef vector[cpp_PackedData] c_ret
         with nogil:
             c_ret = deref(self._handle).extract(src)
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(c_ret), self._br)

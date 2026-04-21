@@ -156,4 +156,4 @@ cdef class SparseAlltoall:
         cdef vector[cpp_PackedData] c_ret
         with nogil:
             c_ret = deref(self._handle).extract(src)
-        return packed_data_vector_to_list(move(c_ret))
+        return packed_data_vector_to_list(move(c_ret), self._br)
