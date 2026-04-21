@@ -10,6 +10,8 @@
 #include <optional>
 #include <vector>
 
+#include <cuda_runtime_api.h>
+
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/memory/content_description.hpp>
@@ -64,12 +66,15 @@ struct OrderKey {
  *
  * When `boundaries` is set, its columns must align with `keys`
  * (same count and compatible dtypes). Mismatched dtypes are a usage error.
+ *
+ * `strict_boundary`: when true, every row in a chunk belongs to a single partition's
+ * half-open key range (partition keys do not straddle chunk interiors). When false,
+ * a chunk may contain keys spanning multiple partitions (e.g. before a shuffle).
  */
 struct OrderScheme {
     std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
     std::unique_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
-    /// If true, each chunk's sort keys lie in one partition's range (no interior
-    /// overlap).
+    /// See struct-level note on `strict_boundary` semantics.
     bool strict_boundary{false};
 
     /**
@@ -253,6 +258,77 @@ struct ChannelMetadata {
      */
     bool operator==(ChannelMetadata const&) const = default;
 };
+
+/**
+ * @brief Construct an `OrderScheme` in one step (e.g. from Python bindings).
+ *
+ * @param keys Sort keys (must be non-empty).
+ * @param boundaries Optional boundary rows; may be null.
+ * @param strict_boundary See `OrderScheme::strict_boundary`.
+ * @return A fully initialized `OrderScheme`.
+ */
+[[nodiscard]] OrderScheme make_order_scheme(
+    std::vector<OrderKey> keys,
+    std::unique_ptr<TableChunk> boundaries,
+    bool strict_boundary
+);
+
+/**
+ * @brief Set `spec` to `PartitioningSpec::none()`.
+ * @param spec Target spec.
+ */
+void partitioning_spec_set_none(PartitioningSpec& spec);
+
+/**
+ * @brief Set `spec` to `PartitioningSpec::inherit()`.
+ * @param spec Target spec.
+ */
+void partitioning_spec_set_inherit(PartitioningSpec& spec);
+
+/**
+ * @brief Set `spec` to hash partitioning, moving `hash_scheme` into place.
+ * @param spec Target spec.
+ * @param hash_scheme Hash scheme to move into `spec`.
+ */
+void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme);
+
+/**
+ * @brief Set `spec` to ORDER partitioning, moving boundaries out of `src`.
+ * @param spec Target spec.
+ * @param src Source order scheme (keys copied, boundaries moved).
+ */
+void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme& src);
+
+/**
+ * @brief Non-null pointer to the `OrderScheme` inside an ORDER spec.
+ * @param spec Spec whose `type` must be `ORDER`.
+ * @return Address of the stored `OrderScheme`.
+ */
+[[nodiscard]] OrderScheme* partitioning_spec_order_scheme_ptr(PartitioningSpec& spec);
+
+/**
+ * @brief Row count of boundary table from `shape()` (works even when not
+ * device-available).
+ * @param scheme Scheme whose `boundaries` must be non-null.
+ * @return Number of boundary rows.
+ */
+[[nodiscard]] cudf::size_type order_scheme_boundary_row_count(OrderScheme const* scheme);
+
+/**
+ * @brief Device `table_view` of boundary rows; `boundaries` must be device-resident.
+ * @param scheme Scheme with non-null, available `boundaries`.
+ * @return View over boundary columns.
+ */
+[[nodiscard]] cudf::table_view order_scheme_boundaries_table_view(
+    OrderScheme const* scheme
+);
+
+/**
+ * @brief CUDA stream for boundary `TableChunk`; `boundaries` must be device-resident.
+ * @param scheme Scheme with non-null, available `boundaries`.
+ * @return Raw stream handle for the boundary table.
+ */
+[[nodiscard]] cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme);
 
 /**
  * @brief Shallow-clone `partitioning` into a new `ChannelMetadata`.

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
@@ -17,6 +18,80 @@ PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
         !o.keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
     );
     return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
+}
+
+OrderScheme make_order_scheme(
+    std::vector<OrderKey> keys,
+    std::unique_ptr<TableChunk> boundaries,
+    bool strict_boundary
+) {
+    RAPIDSMPF_EXPECTS(
+        !keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
+    );
+    return OrderScheme{
+        .keys = std::move(keys),
+        .boundaries = std::move(boundaries),
+        .strict_boundary = strict_boundary,
+    };
+}
+
+void partitioning_spec_set_none(PartitioningSpec& spec) {
+    spec = PartitioningSpec::none();
+}
+
+void partitioning_spec_set_inherit(PartitioningSpec& spec) {
+    spec = PartitioningSpec::inherit();
+}
+
+void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme) {
+    spec = PartitioningSpec::from_hash(std::move(hash_scheme));
+}
+
+void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme& src) {
+    OrderScheme o{
+        .keys = src.keys,
+        .boundaries = std::move(src.boundaries),
+        .strict_boundary = src.strict_boundary,
+    };
+    spec = PartitioningSpec::from_order(std::move(o));
+}
+
+OrderScheme* partitioning_spec_order_scheme_ptr(PartitioningSpec& spec) {
+    RAPIDSMPF_EXPECTS(
+        spec.type == PartitioningSpec::Type::ORDER,
+        "partitioning_spec_order_scheme_ptr: spec must be ORDER",
+        std::logic_error
+    );
+    return &spec.order.value();
+}
+
+cudf::size_type order_scheme_boundary_row_count(OrderScheme const* scheme) {
+    RAPIDSMPF_EXPECTS(
+        scheme != nullptr && scheme->boundaries != nullptr,
+        "order_scheme_boundary_row_count: boundaries must be set",
+        std::logic_error
+    );
+    return scheme->boundaries->shape().first;
+}
+
+cudf::table_view order_scheme_boundaries_table_view(OrderScheme const* scheme) {
+    RAPIDSMPF_EXPECTS(
+        scheme != nullptr && scheme->boundaries != nullptr
+            && scheme->boundaries->is_available(),
+        "ORDER boundaries must be device-resident (metadata does not unspill them)",
+        std::runtime_error
+    );
+    return scheme->boundaries->table_view();
+}
+
+cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme) {
+    RAPIDSMPF_EXPECTS(
+        scheme != nullptr && scheme->boundaries != nullptr
+            && scheme->boundaries->is_available(),
+        "ORDER boundaries must be device-resident (metadata does not unspill them)",
+        std::runtime_error
+    );
+    return scheme->boundaries->stream().value();
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {

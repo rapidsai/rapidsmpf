@@ -21,80 +21,6 @@ from pylibcudf.types import NullOrder as PyNullOrder
 from pylibcudf.types import Order as PyOrder
 
 
-cdef extern from * nogil:
-    """
-    #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-    #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
-    #include <memory>
-    namespace {
-
-    // In-place spec setters — use move-assignment to avoid copy of move-only types.
-    void _spec_set_none(rapidsmpf::streaming::PartitioningSpec& s) {
-        s = rapidsmpf::streaming::PartitioningSpec::none();
-    }
-    void _spec_set_inherit(rapidsmpf::streaming::PartitioningSpec& s) {
-        s = rapidsmpf::streaming::PartitioningSpec::inherit();
-    }
-    void _spec_set_hash(rapidsmpf::streaming::PartitioningSpec& s,
-                        rapidsmpf::streaming::HashScheme h) {
-        s = rapidsmpf::streaming::PartitioningSpec::from_hash(std::move(h));
-    }
-    // Copies keys vector, moves boundaries (source keeps keys, loses ownership).
-    void _spec_set_order(rapidsmpf::streaming::PartitioningSpec& s,
-                         rapidsmpf::streaming::OrderScheme& src) {
-        rapidsmpf::streaming::OrderScheme o{
-            .keys            = src.keys,
-            .boundaries      = std::move(src.boundaries),
-            .strict_boundary = src.strict_boundary,
-        };
-        s = rapidsmpf::streaming::PartitioningSpec::from_order(std::move(o));
-    }
-
-    // Return a table_view from the raw OrderScheme pointer.
-    cudf::table_view _order_scheme_boundaries_view(
-        const rapidsmpf::streaming::OrderScheme* p
-    ) {
-        return p->boundaries->table_view();
-    }
-
-    // Return the cuda stream from the raw OrderScheme pointer.
-    cudaStream_t _order_scheme_boundaries_stream(
-        const rapidsmpf::streaming::OrderScheme* p
-    ) {
-        return p->boundaries->stream().value();
-    }
-
-    // Retrieve a raw pointer to the OrderScheme inside an ORDER PartitioningSpec.
-    rapidsmpf::streaming::OrderScheme* _spec_order_ptr(
-        rapidsmpf::streaming::PartitioningSpec& spec
-    ) {
-        return &spec.order.value();
-    }
-
-    bool _boundaries_available(
-        const rapidsmpf::streaming::OrderScheme* s
-    ) noexcept {
-        return s->boundaries->is_available();
-    }
-
-    cudf::size_type _boundaries_num_rows(
-        const rapidsmpf::streaming::OrderScheme* s
-    ) noexcept {
-        return s->boundaries->shape().first;
-    }
-    }
-    """
-    void _spec_set_none(cpp_PartitioningSpec&) noexcept
-    void _spec_set_inherit(cpp_PartitioningSpec&) noexcept
-    void _spec_set_hash(cpp_PartitioningSpec&, cpp_HashScheme) noexcept
-    void _spec_set_order(cpp_PartitioningSpec&, cpp_OrderScheme&) except +
-    cpp_table_view _order_scheme_boundaries_view(cpp_OrderScheme*) except +
-    cudaStream_t _order_scheme_boundaries_stream(cpp_OrderScheme*) noexcept
-    cpp_OrderScheme* _spec_order_ptr(cpp_PartitioningSpec&) noexcept
-    bint _boundaries_available(cpp_OrderScheme*) noexcept
-    int _boundaries_num_rows(cpp_OrderScheme*) noexcept
-
-
 cdef class HashScheme:
     """Hash partitioning scheme: rows distributed by hash(column_indices) % modulus."""
 
@@ -184,8 +110,9 @@ cdef class OrderScheme:
     boundaries
         Optional ``TableChunk`` of N-1 boundary rows for N partitions.
     strict_boundary
-        If True, each chunk's keys lie in one partition's range (no interior overlap).
-        Default False.
+        When true, every row in a chunk falls in a single partition's half-open key
+        range (keys do not straddle chunk interiors). See the C++ ``OrderScheme`` docs.
+        Default false.
 
     Notes
     -----
@@ -193,12 +120,13 @@ cdef class OrderScheme:
     ``boundaries`` into the partitioning.  The source retains its keys but
     ``get_boundaries_table()`` will return ``None`` afterward.
 
-    ``get_boundaries_table()`` requires boundaries to be device-available; spilled
-    boundary chunks are not supported on this path yet.
+    Metadata paths keep boundary ``TableChunk`` objects device-resident; if
+    boundaries are packed or spilled, ``get_boundaries_table()`` raises (there is no
+    unspill hook).
     """
 
     def __cinit__(self):
-        self._view = NULL
+        self._ptr = &self._storage
         self._owner = None
 
     def __init__(
@@ -209,6 +137,7 @@ cdef class OrderScheme:
         bint strict_boundary = False,
     ):
         cdef vector[cpp_OrderKey] cpp_keys
+        cdef unique_ptr[cpp_TableChunk] bd_ptr
         for key in keys:
             if not isinstance(key, OrderKey):
                 raise TypeError(
@@ -217,27 +146,32 @@ cdef class OrderScheme:
             cpp_keys.push_back((<OrderKey>key)._key)
         if cpp_keys.empty():
             raise ValueError("OrderScheme: keys must not be empty")
-        self._get().keys = move(cpp_keys)
         if boundaries is not None:
-            self._get().boundaries = move(boundaries.release_handle())
-        self._get().strict_boundary = strict_boundary
+            bd_ptr = move(boundaries.release_handle())
+        self._storage = move(
+            make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundary)
+        )
+        self._ptr = &self._storage
+        self._owner = None
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
-        ret._scheme = move(scheme)
+        ret._storage = move(scheme)
+        ret._ptr = &ret._storage
+        ret._owner = None
         return ret
 
     @staticmethod
     cdef OrderScheme view_of(cpp_OrderScheme* ptr, object owner):
-        """Return a non-owning OrderScheme backed by *ptr; owner kept alive."""
+        """Non-owning view of ``ptr``; ``owner`` keeps the backing C++ storage alive."""
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
-        ret._view = ptr
+        ret._ptr = ptr
         ret._owner = owner
         return ret
 
     cdef cpp_OrderScheme* _get(self):
-        return self._view if self._view != NULL else &self._scheme
+        return self._ptr
 
     @property
     def keys(self) -> tuple:
@@ -247,7 +181,7 @@ cdef class OrderScheme:
 
     @property
     def strict_boundary(self) -> bool:
-        """True if sort keys do not span partition interiors (strict ranges)."""
+        """Same semantics as the C++ ``OrderScheme::strict_boundary`` field."""
         return self._get().strict_boundary
 
     @property
@@ -255,23 +189,18 @@ cdef class OrderScheme:
         """Number of boundary rows, or ``None`` if no boundaries (shape-based)."""
         if self._get().boundaries == NULL:
             return None
-        return _boundaries_num_rows(self._get())
+        return order_scheme_boundary_row_count(self._get())
 
     def get_boundaries_table(self):
         """Return boundary rows as ``pylibcudf.Table``, or ``None``.
 
-        Requires the boundary ``TableChunk`` to be device-available (not packed /
-        spilled to host).  Unspilling from metadata is not implemented yet.
+        Raises if ``boundaries`` is set but not device-resident (metadata does not
+        unspill boundary tables).
         """
         if self._get().boundaries == NULL:
             return None
-        if not _boundaries_available(self._get()):
-            raise ValueError(
-                "ORDER boundaries are not device-available (e.g. spilled); "
-                "unspilling from OrderScheme is not supported in this release."
-            )
-        cdef cpp_table_view view = _order_scheme_boundaries_view(self._get())
-        cdef cudaStream_t stream = _order_scheme_boundaries_stream(self._get())
+        cdef cpp_table_view view = order_scheme_boundaries_table_view(self._get())
+        cdef cudaStream_t stream = order_scheme_boundaries_cuda_stream(self._get())
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )
@@ -292,16 +221,16 @@ cdef class OrderScheme:
 cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
     """Set *spec* in-place from a Python object (avoids copying move-only types)."""
     if obj is None:
-        _spec_set_none(spec)
+        partitioning_spec_set_none(spec)
     elif obj == "inherit":
-        _spec_set_inherit(spec)
+        partitioning_spec_set_inherit(spec)
     elif isinstance(obj, HashScheme):
-        _spec_set_hash(spec, (<HashScheme>obj)._scheme)
+        partitioning_spec_set_hash(spec, (<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
         # Copies keys; moves boundaries unique_ptr (source loses boundary ownership).
         # Use _get() for view-mode OrderSchemes (e.g. metadata.partitioning.inter_rank)
         # so we target the live cpp_OrderScheme, not the wrapper's empty owning slot.
-        _spec_set_order(spec, deref((<OrderScheme>obj)._get()))
+        partitioning_spec_set_order(spec, deref((<OrderScheme>obj)._get()))
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -321,7 +250,7 @@ cdef object _from_spec(cpp_PartitioningSpec& spec, object owner):
     elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     elif spec.type == cpp_PartitioningSpec.cpp_Type.ORDER:
-        return OrderScheme.view_of(_spec_order_ptr(spec), owner)
+        return OrderScheme.view_of(partitioning_spec_order_scheme_ptr(spec), owner)
     else:
         raise ValueError("Unknown PartitioningSpec.Type")
 

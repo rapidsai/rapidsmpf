@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
 from libcpp.optional cimport optional
 from libcpp.vector cimport vector
+from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
 
@@ -89,6 +91,23 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         cpp_Message
     ) except +
 
+    cpp_OrderScheme make_order_scheme(
+        vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
+    ) except +
+
+    void partitioning_spec_set_none(cpp_PartitioningSpec&) noexcept
+    void partitioning_spec_set_inherit(cpp_PartitioningSpec&) noexcept
+    void partitioning_spec_set_hash(cpp_PartitioningSpec&, cpp_HashScheme) noexcept
+    void partitioning_spec_set_order(cpp_PartitioningSpec&, cpp_OrderScheme&) except +
+
+    cpp_OrderScheme* partitioning_spec_order_scheme_ptr(
+        cpp_PartitioningSpec&
+    ) except +
+
+    int order_scheme_boundary_row_count(cpp_OrderScheme*) except +
+    cpp_table_view order_scheme_boundaries_table_view(cpp_OrderScheme*) except +
+    cudaStream_t order_scheme_boundaries_cuda_stream(cpp_OrderScheme*) except +
+
 
 cdef class HashScheme:
     cdef cpp_HashScheme _scheme
@@ -105,9 +124,11 @@ cdef class OrderKey:
 
 
 cdef class OrderScheme:
-    cdef cpp_OrderScheme _scheme       # owning (used when _view is NULL)
-    cdef cpp_OrderScheme* _view        # non-owning (used when non-NULL)
-    cdef object _owner                 # keepalive for non-owning mode
+    # When ``_owner`` is None, ``_ptr == &_storage`` (Python-owned scheme). Otherwise
+    # ``_ptr`` aliases storage inside ``_owner`` (e.g. ``ChannelMetadata``).
+    cdef cpp_OrderScheme _storage
+    cdef cpp_OrderScheme* _ptr
+    cdef object _owner
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme)
@@ -119,9 +140,11 @@ cdef class OrderScheme:
 
 
 cdef class Partitioning:
-    cdef unique_ptr[cpp_Partitioning] _handle  # owning (used when _ptr is NULL)
-    cdef cpp_Partitioning* _ptr                # non-owning (used when non-NULL)
-    cdef object _owner                         # keepalive for non-owning mode
+    # When ``_owner`` is None, ``_ptr == _handle.get()`` (Python-owned partitioning).
+    # Otherwise ``_ptr`` aliases storage inside ``_owner`` (e.g. ``ChannelMetadata``).
+    cdef unique_ptr[cpp_Partitioning] _handle
+    cdef cpp_Partitioning* _ptr
+    cdef object _owner
 
     @staticmethod
     cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)

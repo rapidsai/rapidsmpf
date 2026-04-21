@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal, Self
 
 import pylibcudf as plc
@@ -21,21 +22,13 @@ class HashScheme:
     def __eq__(self, other: object) -> bool: ...
     def __repr__(self) -> str: ...
 
+@dataclass(frozen=True, slots=True)
 class OrderKey:
-    def __init__(
-        self,
-        column_index: int,
-        order: plc.types.Order,
-        null_order: plc.types.NullOrder,
-    ) -> None: ...
-    @property
-    def column_index(self) -> int: ...
-    @property
-    def order(self) -> plc.types.Order: ...
-    @property
-    def null_order(self) -> plc.types.NullOrder: ...
-    def __eq__(self, other: object) -> bool: ...
-    def __repr__(self) -> str: ...
+    """Sort key: column index, direction, and null ordering (``pylibcudf`` enums)."""
+
+    column_index: int
+    order: plc.types.Order
+    null_order: plc.types.NullOrder
 
 class OrderScheme:
     def __init__(
