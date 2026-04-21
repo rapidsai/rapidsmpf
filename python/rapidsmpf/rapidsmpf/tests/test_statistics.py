@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import copy
 import json
 import pathlib
 from typing import TYPE_CHECKING
@@ -345,3 +346,29 @@ def test_serialize_preserves_disabled_flag() -> None:
 def test_deserialize_malformed() -> None:
     with pytest.raises(ValueError):
         Statistics.deserialize(b"not-a-valid-buffer")
+
+
+def test_deepcopy_roundtrip() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("payload", 2048.0)
+    stats.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    stats.add_stat("plain", 7.0)
+
+    copied = copy.deepcopy(stats)
+    assert isinstance(copied, Statistics)
+    assert copied.get_stat("payload") == stats.get_stat("payload")
+    assert copied.get_stat("plain") == stats.get_stat("plain")
+    assert copied.report() == stats.report()
+
+
+def test_deepcopy_empty() -> None:
+    stats = Statistics(enable=True)
+    copied = copy.deepcopy(stats)
+    assert copied.enabled
+    assert copied.list_stat_names() == []
+
+
+def test_deepcopy_preserves_disabled_flag() -> None:
+    stats = Statistics(enable=False)
+    copied = copy.deepcopy(stats)
+    assert not copied.enabled

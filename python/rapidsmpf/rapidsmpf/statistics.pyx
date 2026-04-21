@@ -511,6 +511,14 @@ cdef class Statistics:
         ret._mr = None
         return ret
 
+    def __getstate__(self):
+        return self.serialize()
+
+    def __setstate__(self, bytes state not None):
+        cdef Statistics restored = Statistics.deserialize(state)
+        self._handle = restored._handle
+        self._mr = None
+
 
 @dataclass
 class MemoryRecord:
