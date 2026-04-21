@@ -45,7 +45,7 @@ SparseAlltoall::SparseAlltoall(
             "SparseAlltoall source rank list must be unique"
         );
     }
-    next_ordinal_per_dst_.reserve(srcs_.size());
+    next_ordinal_per_dst_.reserve(dsts_.size());
     for (auto dst : dsts_) {
         RAPIDSMPF_EXPECTS(
             dst >= 0 && dst < size && dst != self,
