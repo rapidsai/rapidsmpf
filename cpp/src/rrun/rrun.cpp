@@ -4,7 +4,9 @@
  */
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -436,6 +438,27 @@ binding_validation validate_binding(
     }
 
     return result;
+}
+
+void no_bootstrap() {
+    char const* address_file = std::getenv("RRUN_ROOT_ADDRESS_FILE");
+    if (!address_file) {
+        return;
+    }
+
+    // Write sentinel value, then atomically rename so the parent never
+    // reads a partial file (mirrors the pattern in bootstrap/ucxx.cpp).
+    std::string const path{address_file};
+    std::string const temp_path = path + ".tmp";
+    std::ofstream ofs(temp_path);
+    if (ofs) {
+        ofs << "RRUN_NO_BOOTSTRAP" << std::endl;
+        ofs.close();
+        std::rename(temp_path.c_str(), path.c_str());
+    }
+
+    // Clear the variable so nothing else tries to act on it.
+    unsetenv("RRUN_ROOT_ADDRESS_FILE");
 }
 
 }  // namespace rapidsmpf::rrun

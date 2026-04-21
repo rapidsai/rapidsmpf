@@ -51,6 +51,10 @@
 
 namespace {
 
+/// Sentinel value written by `rapidsmpf::rrun::no_bootstrap()` and recognised
+/// by the launcher to skip the PMIx address pre-exchange.
+constexpr char const* kNoBootstrapSentinel = "RRUN_NO_BOOTSTRAP";
+
 // Forward declarations of mode execution functions (defined later, outside namespace)
 struct Config;
 [[noreturn]] void execute_slurm_passthrough_mode(Config const& cfg);
@@ -261,6 +265,9 @@ void print_usage(std::string_view prog_name) {
         << "  --no-bootstrap     Skip PMIx address pre-exchange in Slurm hybrid\n"
         << "                     mode. Use for applications that do not initialise\n"
         << "                     UCXX communication (e.g. diagnostic tools).\n"
+        << "                     Applications can also signal this at runtime by\n"
+        << "                     calling rapidsmpf::rrun::no_bootstrap() early in\n"
+        << "                     main() (see <rrun/rrun.hpp>).\n"
         << "  --bind-to <type>   Bind to topology resources (default: all)\n"
         << "                     Can be specified multiple times\n"
         << "                     Options: cpu, memory, network, all, none\n"
@@ -838,6 +845,19 @@ int execute_slurm_hybrid_mode(Config& cfg) {
 
     unsetenv("RRUN_ROOT_ADDRESS_FILE");
 
+    // If the application signalled no-bootstrap via the sentinel, treat it
+    // the same as --no-bootstrap: launch remaining ranks without an address.
+    std::optional<std::string> root_address_opt;
+    if (coordinated_root_address == kNoBootstrapSentinel) {
+        if (cfg.verbose) {
+            std::cout << "[rrun] Application signalled no-bootstrap; skipping "
+                         "address distribution"
+                      << std::endl;
+        }
+    } else {
+        root_address_opt = coordinated_root_address;
+    }
+
     if (cfg.verbose) {
         std::cout << "[rrun] Task " << cfg.slurm->global_rank << " launching ranks "
                   << rank_offset << "-" << (rank_offset + cfg.nranks - 1)
@@ -849,7 +869,7 @@ int execute_slurm_hybrid_mode(Config& cfg) {
         rank_offset,
         cfg.nranks,
         total_ranks,
-        coordinated_root_address,
+        root_address_opt,
         coord_hint,
         std::move(pre_launched_process)
     );
