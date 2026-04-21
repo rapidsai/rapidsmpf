@@ -86,7 +86,8 @@ struct OrderScheme {
      *
      * Returns true when `keys` and `strict_boundary` match, and boundary tables
      * are consistent in the weak sense: both absent, or both present with the
-     * same `(num_rows, num_columns)`.
+     * same shape from `TableChunk::shape()` (not `table_view()`, which requires an
+     * available device table).
      * Cell values inside `boundaries` are intentionally not compared (that would
      * require a device comparison API with stream and memory resource). Do not
      * use `operator==` to assert that two schemes have identical range boundaries.

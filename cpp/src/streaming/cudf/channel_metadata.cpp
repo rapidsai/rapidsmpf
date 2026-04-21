@@ -13,9 +13,9 @@
 namespace rapidsmpf::streaming {
 
 PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
-    if (o.keys.empty()) {
-        throw std::invalid_argument("OrderScheme: keys must not be empty");
-    }
+    RAPIDSMPF_EXPECTS(
+        !o.keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
+    );
     return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
 }
 
@@ -32,9 +32,7 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
         return true;
     }
     // Both have boundaries: shape only (see doc in header).
-    auto tv = boundaries->table_view();
-    auto ov = other.boundaries->table_view();
-    return tv.num_rows() == ov.num_rows() && tv.num_columns() == ov.num_columns();
+    return boundaries->shape() == other.boundaries->shape();
 }
 
 OrderScheme OrderScheme::clone(MemoryReservation& reservation) const {
