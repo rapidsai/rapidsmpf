@@ -20,6 +20,7 @@
 #include <cuda/memory_resource>
 
 #include <rmm/aligned.hpp>
+#include <rmm/cuda_stream.hpp>
 #include <rmm/error.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -261,8 +262,8 @@ class RmmResourceAdaptorImpl {
     void* allocate_sync(
         std::size_t bytes, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) {
-        auto* ptr = allocate(cuda::stream_ref{cudaStream_t{nullptr}}, bytes, alignment);
-        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(cudaStream_t{nullptr}));
+        auto* ptr = allocate(sync_stream_, bytes, alignment);
+        sync_stream_.synchronize();
         return ptr;
     }
 
@@ -278,7 +279,7 @@ class RmmResourceAdaptorImpl {
         std::size_t bytes,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) noexcept {
-        deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, ptr, bytes, alignment);
+        deallocate(sync_stream_, ptr, bytes, alignment);
     }
 
     /// @brief Tag this resource as device-accessible for the CCCL concept.
@@ -295,6 +296,10 @@ class RmmResourceAdaptorImpl {
     ScopedMemoryRecord main_record_;
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
     std::unordered_map<void*, std::thread::id> allocating_threads_;
+
+    rmm::cuda_stream sync_stream_{
+        rmm::cuda_stream::flags::non_blocking
+    };  ///< Custom stream for synchronous allocations and deallocations.
 };
 
 }  // namespace rapidsmpf::detail
