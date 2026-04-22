@@ -295,14 +295,12 @@ ProgramOptions parse_arguments(int argc, char** argv);
  * @brief Create a streaming execution context and communicator for a query.
  *
  * @param arguments Arguments to configure the context
- * @param mr Pointer to memory resource to use for all allocations
- * @warning The memory resource _must_ be kept alive until the final usage of the returned
- * Context is complete.
+ * @param mr The RMM resource adaptor to use for all allocations.
  *
  * @return Pair of shared pointer to new streaming context and communicator.
  */
 std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
-create_context(ProgramOptions& arguments, RmmResourceAdaptor* mr);
+create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr);
 
 /**
  * @brief Finalize MPI when going out of scope.

@@ -154,29 +154,23 @@ Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
 
-// Setting `mr_ = nullptr` disables memory profiling.
-Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
+// Leaving `mr_` as std::nullopt disables memory profiling.
+Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
 Statistics::Statistics(
-    RmmResourceAdaptor* mr, std::shared_ptr<PinnedMemoryResource> pinned_mr
+    RmmResourceAdaptor mr, std::shared_ptr<PinnedMemoryResource> pinned_mr
 )
-    : enabled_{true}, mr_{mr}, pinned_mr_{std::move(pinned_mr)} {
-    RAPIDSMPF_EXPECTS(
-        mr != nullptr,
-        "when enabling memory profiling, `mr` cannot be nullptr",
-        std::invalid_argument
-    );
-}
+    : enabled_{true}, mr_{std::move(mr)}, pinned_mr_{std::move(pinned_mr)} {}
 
 std::shared_ptr<Statistics> Statistics::from_options(
-    RmmResourceAdaptor* mr,
+    RmmResourceAdaptor mr,
     config::Options options,
     std::shared_ptr<PinnedMemoryResource> pinned_mr
 ) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-    return statistics ? std::make_shared<Statistics>(mr, std::move(pinned_mr))
+    return statistics ? std::make_shared<Statistics>(std::move(mr), std::move(pinned_mr))
                       : Statistics::disabled();
 }
 
@@ -258,15 +252,14 @@ void Statistics::clear() {
 }
 
 bool Statistics::is_memory_profiling_enabled() const {
-    return mr_ != nullptr;
+    return mr_.has_value();
 }
 
 Statistics::MemoryRecorder::MemoryRecorder(
-    Statistics* stats, RmmResourceAdaptor* mr, std::string name
+    Statistics* stats, RmmResourceAdaptor mr, std::string name
 )
-    : stats_{stats}, mr_{mr}, name_{std::move(name)} {
+    : stats_{stats}, mr_{std::move(mr)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
-    RAPIDSMPF_EXPECTS(mr != nullptr, "the memory resource cannot be null");
     mr_->begin_scoped_memory_record();
 }
 
@@ -284,10 +277,10 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
 }
 
 Statistics::MemoryRecorder Statistics::create_memory_recorder(std::string name) {
-    if (mr_ == nullptr) {
+    if (!mr_.has_value()) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, mr_, std::move(name)};
+    return MemoryRecorder{this, *mr_, std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -367,7 +360,7 @@ std::string Statistics::report(std::string const& header) const {
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    if (mr_ == nullptr) {
+    if (!mr_.has_value()) {
         ss << "Disabled";
         return ss.str();
     }

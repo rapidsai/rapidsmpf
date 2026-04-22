@@ -31,7 +31,7 @@
 #include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
-#include "../utils/rmm_stack.hpp"
+#include "../utils/rmm_utils.hpp"
 #include "data_generator.hpp"
 
 class ArgumentParser {
@@ -353,21 +353,21 @@ int main(int argc, char** argv) {
 
     RAPIDSMPF_EXPECTS(comm->nranks() == 1, "only single-rank runs are supported");
 
-    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+    set_current_rmm_resource(args.rmm_mr);
     auto stat_enabled_mr = set_device_mem_resource_with_stats();
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
     if (args.device_mem_limit_mb >= 0) {
         memory_available[rapidsmpf::MemoryType::DEVICE] = rapidsmpf::LimitAvailableMemory{
-            stat_enabled_mr.get(), args.device_mem_limit_mb << 20
+            stat_enabled_mr, args.device_mem_limit_mb << 20
         };
     }
 
     auto stats = args.enable_memory_profiler
-                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get())
+                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr)
                      : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stat_enabled_mr.get(),
+        stat_enabled_mr,
         args.pinned_mem_disable ? nullptr
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),
@@ -445,7 +445,7 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto record = stat_enabled_mr->get_main_record();
+            auto record = stat_enabled_mr.get_main_record();
             ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
                << rapidsmpf::format_nbytes(

@@ -12,6 +12,7 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/table_utilities.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -32,18 +33,15 @@ class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
     }
 
     void TearDown() override {
         br = nullptr;
-        mr = nullptr;
     }
 
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
 TEST_F(BaseAllGatherTest, timeout) {
@@ -290,22 +288,21 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     auto this_rank = comm->rank();
 
     // On rank 0, wrap the device MR with a delayed version.
-    std::unique_ptr<DelayedMemoryResource> delayed_mr;
     std::unique_ptr<rapidsmpf::BufferResource> delay_br;
     std::unique_ptr<AllGather> allgather;
     constexpr rapidsmpf::OpID op_id = 0;
     if (this_rank == 0) {
-        delayed_mr = std::make_unique<DelayedMemoryResource>(
-            mr.get(), std::chrono::milliseconds(500)
-        );
         // Recreate the buffer resource and allgather with the delayed MR.
-        delay_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
+        delay_br = std::make_unique<rapidsmpf::BufferResource>(
+            DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
+        );
         allgather =
             std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, delay_br.get());
     } else {
         allgather =
             std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, br.get());
     }
+
     for (int i = 0; i < n_inserts; i++) {
         allgather->insert(
             i, generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br)

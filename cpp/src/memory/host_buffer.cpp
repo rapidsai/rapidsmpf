@@ -18,7 +18,9 @@ HostBuffer::HostBuffer(
 )
     : stream_{stream}, mr_{std::move(mr)} {
     if (size > 0) {
-        auto* ptr = static_cast<std::byte*>(mr_.allocate(stream_, size));
+        auto* ptr = static_cast<std::byte*>(
+            mr_.allocate(stream_, size, alignof(::cuda::std::max_align_t))
+        );
         span_ = std::span<std::byte>{ptr, size};
     }
 }
@@ -40,7 +42,9 @@ void HostBuffer::deallocate_async() noexcept {
         if (owned_storage_) {
             owned_storage_.reset();
         } else {
-            mr_.deallocate(stream_, span_.data(), span_.size());
+            mr_.deallocate(
+                stream_, span_.data(), span_.size(), alignof(::cuda::std::max_align_t)
+            );
         }
     }
     span_ = {};

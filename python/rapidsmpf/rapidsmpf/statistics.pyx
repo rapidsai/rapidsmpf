@@ -27,7 +27,7 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor* mr,
+            cpp_RmmResourceAdaptor mr,
             cpp_Options options,
             shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
@@ -122,7 +122,7 @@ cdef class Statistics:
         if enable and mr is not None:
             mr_handle = mr.get_handle()
             with nogil:
-                self._handle = make_shared[cpp_Statistics](mr_handle)
+                self._handle = make_shared[cpp_Statistics](deref(mr_handle))
         else:
             with nogil:
                 self._handle = make_shared[cpp_Statistics](enable)
@@ -159,7 +159,8 @@ cdef class Statistics:
         else:
             cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
-            ret._handle = cpp_from_options(mr_handle, options._handle, cpp_pinned)
+            ret._handle = cpp_from_options(deref(mr_handle), options._handle,
+                                           cpp_pinned)
         ret._mr = mr
         return ret
 
@@ -457,11 +458,17 @@ cdef class Statistics:
             result = cpp_write_json_string(deref(self._handle))
         return result.decode("utf-8")
 
-    def __getstate__(self):
-        """Serialize stats and report entries for pickling.
+    def serialize(self) -> bytes:
+        """
+        Serialize the stats and report entries to a binary buffer.
 
         Memory records and the memory-profiling resource pointer are not
-        included — matching the C++ ``Statistics::serialize()`` contract.
+        included.
+
+        Returns
+        -------
+        A ``bytes`` object containing the serialized binary representation
+        of the Statistics.
         """
         cdef vector[uint8_t] vec
         with nogil:
@@ -471,16 +478,46 @@ cdef class Statistics:
             vec.size()
         )
 
-    def __setstate__(self, bytes state not None):
-        """Restore stats and report entries from a pickled bytes buffer."""
-        cdef Py_ssize_t size = len(state)
-        cdef const char* src = <const char*>state
+    @staticmethod
+    def deserialize(bytes buf not None):
+        """
+        Deserialize a binary buffer into a Statistics object.
+
+        Reconstructs a Statistics instance from a byte buffer produced by
+        :meth:`serialize`. The resulting object has no memory records and
+        no associated memory-profiling resource.
+
+        Parameters
+        ----------
+        buf
+            A buffer containing serialized statistics.
+
+        Returns
+        -------
+        A reconstructed :class:`Statistics` instance.
+
+        Raises
+        ------
+        ValueError
+            If the input buffer is malformed or truncated.
+        """
+        cdef Py_ssize_t size = len(buf)
+        cdef const char* src = <const char*>buf
         cdef vector[uint8_t] vec
+        cdef Statistics ret = Statistics.__new__(Statistics)
         with nogil:
             vec.resize(size)
             memcpy(<void*>vec.data(), src, size)
-            self._handle = cpp_deserialize_statistics(vec)
-        # Memory-profiling state is not serialized.
+            ret._handle = cpp_deserialize_statistics(vec)
+        ret._mr = None
+        return ret
+
+    def __getstate__(self):
+        return self.serialize()
+
+    def __setstate__(self, bytes state not None):
+        cdef Statistics restored = Statistics.deserialize(state)
+        self._handle = restored._handle
         self._mr = None
 
 
@@ -545,7 +582,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), mr, self._name
+                self._stats._handle.get(), deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

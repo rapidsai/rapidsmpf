@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import copy
 import json
 import pathlib
-import pickle
 from typing import TYPE_CHECKING
 
 import pytest
@@ -304,7 +304,7 @@ def test_json_has_no_formatter_info() -> None:
     assert "formatter" not in data
 
 
-def test_pickle_roundtrip() -> None:
+def test_serialize_deserialize_roundtrip() -> None:
     stats = Statistics(enable=True)
     stats.add_stat("payload", 2048.0)
     stats.add_report_entry("payload", ["payload"], Formatter.Bytes)
@@ -318,24 +318,57 @@ def test_pickle_roundtrip() -> None:
     stats.add_stat("copy-time", 0.002)
     stats.add_stat("copy-delay", 0.00001)
 
-    unpickled = pickle.loads(pickle.dumps(stats))
-    assert isinstance(unpickled, Statistics)
+    buf = stats.serialize()
+    assert isinstance(buf, bytes)
+
+    restored = Statistics.deserialize(buf)
+    assert isinstance(restored, Statistics)
     # Stats round-trip numerically.
-    assert unpickled.get_stat("payload") == stats.get_stat("payload")
-    assert unpickled.get_stat("plain") == stats.get_stat("plain")
+    assert restored.get_stat("payload") == stats.get_stat("payload")
+    assert restored.get_stat("plain") == stats.get_stat("plain")
     # Formatter metadata round-trips — the report is identical.
-    assert unpickled.report() == stats.report()
+    assert restored.report() == stats.report()
 
 
-def test_pickle_empty() -> None:
+def test_serialize_empty() -> None:
     stats = Statistics(enable=True)
-    unpickled = pickle.loads(pickle.dumps(stats))
-    assert unpickled.enabled
-    assert unpickled.list_stat_names() == []
+    restored = Statistics.deserialize(stats.serialize())
+    assert restored.enabled
+    assert restored.list_stat_names() == []
 
 
-def test_pickle_preserves_disabled_flag() -> None:
+def test_serialize_preserves_disabled_flag() -> None:
     stats = Statistics(enable=False)
-    assert not stats.enabled
-    unpickled = pickle.loads(pickle.dumps(stats))
-    assert not unpickled.enabled
+    restored = Statistics.deserialize(stats.serialize())
+    assert not restored.enabled
+
+
+def test_deserialize_malformed() -> None:
+    with pytest.raises(ValueError):
+        Statistics.deserialize(b"not-a-valid-buffer")
+
+
+def test_deepcopy_roundtrip() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("payload", 2048.0)
+    stats.add_report_entry("payload", ["payload"], Formatter.Bytes)
+    stats.add_stat("plain", 7.0)
+
+    copied = copy.deepcopy(stats)
+    assert isinstance(copied, Statistics)
+    assert copied.get_stat("payload") == stats.get_stat("payload")
+    assert copied.get_stat("plain") == stats.get_stat("plain")
+    assert copied.report() == stats.report()
+
+
+def test_deepcopy_empty() -> None:
+    stats = Statistics(enable=True)
+    copied = copy.deepcopy(stats)
+    assert copied.enabled
+    assert copied.list_stat_names() == []
+
+
+def test_deepcopy_preserves_disabled_flag() -> None:
+    stats = Statistics(enable=False)
+    copied = copy.deepcopy(stats)
+    assert not copied.enabled
