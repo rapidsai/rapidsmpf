@@ -125,7 +125,6 @@ class PinnedMemoryResource final
      */
     static std::optional<PinnedMemoryResource> from_options(config::Options options);
 
-
     /**
      * @brief Allocates pinned host memory associated with a CUDA stream.
      *
