@@ -362,9 +362,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 //
 // With chunks [20, 80, 90] and a request for 100 bytes: the first iteration spills 90
 // (the largest chunk, since none covers 100 alone). The second must search for a chunk
-// >= 10 and pick the 20-byte chunk, totalling 110. The bug passed 100 to lower_bound on
-// every iteration, found nothing >= 100, and fell back to the 80-byte chunk instead,
-// totalling 170.
+// >= 10 and pick the 20-byte chunk, totalling 110.
 TEST(PostBox, spill_uses_remaining_amount) {
     auto stream = cudf::get_default_stream();
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
@@ -389,6 +387,5 @@ TEST(PostBox, spill_uses_remaining_amount) {
     postbox.insert(make_chunk(80));
     postbox.insert(make_chunk(90));
 
-    // Correct: 90+20=110. Bug: 90+80=170.
     EXPECT_EQ(postbox.spill(br.get(), 100), 110UL);
 }
