@@ -98,7 +98,7 @@ cdef class OrderScheme:
     Data is partitioned by value ranges based on predetermined boundaries.
     For N partitions, there are N-1 boundary rows.
 
-    Equality (``==``) matches the C++ definition: same keys and strict_boundary,
+    Equality (``==``) matches the C++ definition: same keys and strict_boundaries,
     and boundary tables with the same shape if present; boundary *cell values*
     are not compared.
 
@@ -108,32 +108,18 @@ cdef class OrderScheme:
         Sequence of ``OrderKey`` objects (one per sort column).
     boundaries
         Optional ``TableChunk`` of N-1 boundary rows for N partitions.
-    strict_boundary
+    strict_boundaries
         When true, every row in a chunk falls in a single partition's half-open key
         range (keys do not straddle chunk interiors). See the C++ ``OrderScheme`` docs.
         Default false.
-
-    Notes
-    -----
-    Passing this object to ``Partitioning(...)`` transfers ownership of any
-    ``boundaries`` into the partitioning.  The source retains its keys but
-    ``get_boundaries_table()`` will return ``None`` afterward.
-
-    Metadata paths keep boundary ``TableChunk`` objects device-resident; if
-    boundaries are packed or spilled, ``get_boundaries_table()`` raises (there is no
-    unspill hook).
     """
-
-    def __cinit__(self):
-        self._ptr = &self._storage
-        self._owner = None
 
     def __init__(
         self,
         object keys,
         TableChunk boundaries = None,
         *,
-        bint strict_boundary = False,
+        bint strict_boundaries = False,
     ):
         cdef vector[cpp_OrderKey] cpp_keys
         cdef unique_ptr[cpp_TableChunk] bd_ptr
@@ -148,58 +134,42 @@ cdef class OrderScheme:
         if boundaries is not None:
             bd_ptr = move(boundaries.release_handle())
         self._storage = move(
-            make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundary)
+            make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundaries)
         )
-        self._ptr = &self._storage
-        self._owner = None
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
         ret._storage = move(scheme)
-        ret._ptr = &ret._storage
-        ret._owner = None
         return ret
-
-    @staticmethod
-    cdef OrderScheme view_of(cpp_OrderScheme* ptr, object owner):
-        """Non-owning view of ``ptr``; ``owner`` keeps the backing C++ storage alive."""
-        cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
-        ret._ptr = ptr
-        ret._owner = owner
-        return ret
-
-    cdef cpp_OrderScheme* _get(self):
-        return self._ptr
 
     @property
     def keys(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._get().keys.size()
-        return tuple(OrderKey.from_cpp(self._get().keys[i]) for i in range(n))
+        cdef int n = <int>self._storage.keys.size()
+        return tuple(OrderKey.from_cpp(self._storage.keys[i]) for i in range(n))
 
     @property
-    def strict_boundary(self) -> bool:
-        """Same semantics as the C++ ``OrderScheme::strict_boundary`` field."""
-        return self._get().strict_boundary
+    def strict_boundaries(self) -> bool:
+        """Same semantics as the C++ ``OrderScheme::strict_boundaries`` field."""
+        return self._storage.strict_boundaries
 
     @property
     def num_boundaries(self):
-        """Number of boundary rows, or ``None`` if no boundaries (shape-based)."""
-        if self._get().boundaries == NULL:
+        """Number of boundary rows, or ``None`` if no boundaries."""
+        if self._storage.boundaries.get() == NULL:
             return None
-        return order_scheme_boundary_row_count(self._get())
+        return order_scheme_boundary_row_count(&self._storage)
 
     def get_boundaries_table(self):
         """Return boundary rows as ``pylibcudf.Table``, or ``None``.
 
-        Raises if ``boundaries`` is set but not device-resident (metadata does not
-        unspill boundary tables).
+        Raises if ``boundaries`` is set but not device-resident.
         """
-        if self._get().boundaries == NULL:
+        if self._storage.boundaries.get() == NULL:
             return None
-        cdef cpp_table_view view = order_scheme_boundaries_table_view(self._get())
-        cdef cudaStream_t stream = order_scheme_boundaries_cuda_stream(self._get())
+        cdef cpp_table_view view = order_scheme_boundaries_table_view(&self._storage)
+        cdef cudaStream_t stream = order_scheme_boundaries_cuda_stream(&self._storage)
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )
@@ -207,13 +177,13 @@ cdef class OrderScheme:
     def __eq__(self, other):
         if not isinstance(other, OrderScheme):
             return NotImplemented
-        return deref(self._get()) == deref((<OrderScheme>other)._get())
+        return self._storage == (<OrderScheme>other)._storage
 
     def __repr__(self):
-        has_b = self._get().boundaries != NULL
+        has_b = self._storage.boundaries.get() != NULL
         return (
             f"OrderScheme({self.keys!r}, has_boundaries={has_b}, "
-            f"strict_boundary={self.strict_boundary})"
+            f"strict_boundaries={self.strict_boundaries})"
         )
 
 
@@ -226,10 +196,7 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
     elif isinstance(obj, HashScheme):
         partitioning_spec_set_hash(spec, (<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        # Copies keys; moves boundaries unique_ptr (source loses boundary ownership).
-        # Use _get() for view-mode OrderSchemes (e.g. metadata.partitioning.inter_rank)
-        # so we target the live cpp_OrderScheme, not the wrapper's empty owning slot.
-        partitioning_spec_set_order(spec, deref((<OrderScheme>obj)._get()))
+        partitioning_spec_set_order(spec, (<OrderScheme>obj)._storage)
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -238,10 +205,7 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
 
 
 cdef object _from_spec(cpp_PartitioningSpec& spec, object owner):
-    """Convert PartitioningSpec (by reference) to Python object.
-
-    For ORDER specs, returns a non-owning OrderScheme view backed by *owner*.
-    """
+    """Convert PartitioningSpec (by reference) to a Python object."""
     if spec.type == cpp_PartitioningSpec.cpp_Type.NONE:
         return None
     elif spec.type == cpp_PartitioningSpec.cpp_Type.INHERIT:
@@ -249,7 +213,7 @@ cdef object _from_spec(cpp_PartitioningSpec& spec, object owner):
     elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     elif spec.type == cpp_PartitioningSpec.cpp_Type.ORDER:
-        return OrderScheme.view_of(partitioning_spec_order_scheme_ptr(spec), owner)
+        return OrderScheme.from_cpp(deref(spec.order))
     else:
         raise ValueError("Unknown PartitioningSpec.Type")
 
@@ -341,8 +305,6 @@ cdef class ChannelMetadata:
 
         cdef cpp_Partitioning empty_part
         if partitioning is not None:
-            # Shallow-clone: copies hash specs and vectors, moves ORDER boundaries.
-            # The source Partitioning retains its vectors but loses boundary ownership.
             self._handle = make_channel_metadata(
                 local_count, deref((<Partitioning>partitioning)._get()), duplicated
             )

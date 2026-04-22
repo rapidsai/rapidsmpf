@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
@@ -23,7 +24,7 @@ PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
 OrderScheme make_order_scheme(
     std::vector<OrderKey> keys,
     std::unique_ptr<TableChunk> boundaries,
-    bool strict_boundary
+    bool strict_boundaries
 ) {
     RAPIDSMPF_EXPECTS(
         !keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
@@ -31,7 +32,7 @@ OrderScheme make_order_scheme(
     return OrderScheme{
         .keys = std::move(keys),
         .boundaries = std::move(boundaries),
-        .strict_boundary = strict_boundary,
+        .strict_boundaries = strict_boundaries,
     };
 }
 
@@ -47,22 +48,8 @@ void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme) 
     spec = PartitioningSpec::from_hash(std::move(hash_scheme));
 }
 
-void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme& src) {
-    OrderScheme o{
-        .keys = src.keys,
-        .boundaries = std::move(src.boundaries),
-        .strict_boundary = src.strict_boundary,
-    };
-    spec = PartitioningSpec::from_order(std::move(o));
-}
-
-OrderScheme* partitioning_spec_order_scheme_ptr(PartitioningSpec& spec) {
-    RAPIDSMPF_EXPECTS(
-        spec.type == PartitioningSpec::Type::ORDER,
-        "partitioning_spec_order_scheme_ptr: spec must be ORDER",
-        std::logic_error
-    );
-    return &spec.order.value();
+void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme const& src) {
+    spec = PartitioningSpec::from_order(src);
 }
 
 cudf::size_type order_scheme_boundary_row_count(OrderScheme const* scheme) {
@@ -95,7 +82,7 @@ cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme) {
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
-    if (keys != other.keys || strict_boundary != other.strict_boundary) {
+    if (keys != other.keys || strict_boundaries != other.strict_boundaries) {
         return false;
     }
     bool this_has = boundaries != nullptr;
@@ -110,70 +97,10 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
     return boundaries->shape() == other.boundaries->shape();
 }
 
-OrderScheme OrderScheme::clone(MemoryReservation& reservation) const {
-    return OrderScheme{
-        .keys = keys,
-        .boundaries = boundaries
-                          ? std::make_unique<TableChunk>(boundaries->copy(reservation))
-                          : nullptr,
-        .strict_boundary = strict_boundary,
-    };
-}
-
-PartitioningSpec PartitioningSpec::clone(MemoryReservation& reservation) const {
-    switch (type) {
-    case Type::NONE:
-        return none();
-    case Type::INHERIT:
-        return inherit();
-    case Type::HASH:
-        return from_hash(*hash);
-    case Type::ORDER:
-        return from_order(order->clone(reservation));
-    }
-    return none();  // unreachable
-}
-
-Partitioning Partitioning::clone(MemoryReservation& reservation) const {
-    return Partitioning{
-        .inter_rank = inter_rank.clone(reservation),
-        .local = local.clone(reservation),
-    };
-}
-
-ChannelMetadata ChannelMetadata::clone(MemoryReservation& reservation) const {
-    return ChannelMetadata{local_count, partitioning.clone(reservation), duplicated};
-}
-
 std::unique_ptr<ChannelMetadata> make_channel_metadata(
-    std::uint64_t local_count, Partitioning& partitioning, bool duplicated
+    std::uint64_t local_count, Partitioning const& partitioning, bool duplicated
 ) {
-    auto clone_spec = [](PartitioningSpec& spec) -> PartitioningSpec {
-        using T = PartitioningSpec::Type;
-        switch (spec.type) {
-        case T::NONE:
-            return PartitioningSpec::none();
-        case T::INHERIT:
-            return PartitioningSpec::inherit();
-        case T::HASH:
-            return PartitioningSpec::from_hash(*spec.hash);
-        case T::ORDER:
-            {
-                OrderScheme o{
-                    .keys = spec.order->keys,
-                    .boundaries = std::move(spec.order->boundaries),
-                    .strict_boundary = spec.order->strict_boundary,
-                };
-                return PartitioningSpec::from_order(std::move(o));
-            }
-        }
-        return PartitioningSpec::none();
-    };
-    Partitioning part{
-        .inter_rank = clone_spec(partitioning.inter_rank),
-        .local = clone_spec(partitioning.local),
-    };
-    return std::make_unique<ChannelMetadata>(local_count, std::move(part), duplicated);
+    return std::make_unique<ChannelMetadata>(local_count, partitioning, duplicated);
 }
 
 std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg) {
@@ -190,10 +117,8 @@ Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadat
         sequence_number,
         std::move(m),
         cd,
-        [](Message const& msg, MemoryReservation& reservation) -> Message {
-            auto copy = std::make_unique<ChannelMetadata>(
-                msg.get<ChannelMetadata>().clone(reservation)
-            );
+        [](Message const& msg, MemoryReservation& /*reservation*/) -> Message {
+            auto copy = std::make_unique<ChannelMetadata>(msg.get<ChannelMetadata>());
             auto copy_cd = get_content_description(*copy);
             return Message{
                 msg.sequence_number(), std::move(copy), copy_cd, msg.copy_cb()

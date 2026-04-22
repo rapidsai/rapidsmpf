@@ -15,7 +15,6 @@
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/memory/content_description.hpp>
-#include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -67,38 +66,26 @@ struct OrderKey {
  * When `boundaries` is set, its columns must align with `keys`
  * (same count and compatible dtypes). Mismatched dtypes are a usage error.
  *
- * `strict_boundary`: when true, every row in a chunk belongs to a single partition's
+ * `strict_boundaries`: when true, every row in a chunk belongs to a single partition's
  * half-open key range (partition keys do not straddle chunk interiors). When false,
  * a chunk may contain keys spanning multiple partitions (e.g. before a shuffle).
  */
 struct OrderScheme {
     std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
-    std::unique_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
-    /// See struct-level note on `strict_boundary` semantics.
-    bool strict_boundary{false};
-
-    /**
-     * @brief Deep-copy this scheme into a new one.
-     *
-     * Copies vectors and `strict_boundary`. If `boundaries` is non-null, copies
-     * the underlying `TableChunk` via `TableChunk::copy(reservation)`.
-     *
-     * @param reservation Memory reservation for the boundary copy.
-     * @return A new independent `OrderScheme`.
-     */
-    [[nodiscard]] OrderScheme clone(MemoryReservation& reservation) const;
+    std::shared_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
+    /// See struct-level note on `strict_boundaries` semantics.
+    bool strict_boundaries{false};
 
     /**
      * @brief Shallow metadata equality (not semantic boundary value equality).
      *
-     * Returns true when `keys` and `strict_boundary` match, and boundary tables
+     * Returns true when `keys` and `strict_boundaries` match, and boundary tables
      * are consistent in the weak sense: both absent, or both present with the
      * same shape from `TableChunk::shape()` (not `table_view()`, which requires an
      * available device table).
      * Cell values inside `boundaries` are intentionally not compared (that would
      * require a device comparison API with stream and memory resource). Do not
      * use `operator==` to assert that two schemes have identical range boundaries.
-     * A future API may add deep boundary comparison with explicit stream and MR.
      *
      * @param other The OrderScheme to compare against.
      * @return True under the shallow rules above.
@@ -166,17 +153,6 @@ struct PartitioningSpec {
     static PartitioningSpec from_order(OrderScheme o);
 
     /**
-     * @brief Deep-copy this spec, cloning any ORDER boundaries via `reservation`.
-     *
-     * NONE/INHERIT/HASH arms are trivially cheap; ORDER delegates to
-     * `OrderScheme::clone(reservation)`.
-     *
-     * @param reservation Memory reservation forwarded to `OrderScheme::clone`.
-     * @return A new independent `PartitioningSpec`.
-     */
-    [[nodiscard]] PartitioningSpec clone(MemoryReservation& reservation) const;
-
-    /**
      * @brief Equality comparison.
      * @return True if both specs are equal.
      */
@@ -202,13 +178,6 @@ struct Partitioning {
     PartitioningSpec inter_rank;
     /// Distribution within a rank (corresponds to local/single communicator).
     PartitioningSpec local;
-
-    /**
-     * @brief Deep-copy, cloning any ORDER boundaries via `reservation`.
-     * @param reservation Memory reservation forwarded through the clone chain.
-     * @return A new independent `Partitioning`.
-     */
-    [[nodiscard]] Partitioning clone(MemoryReservation& reservation) const;
 
     /**
      * @brief Equality comparison.
@@ -246,13 +215,6 @@ struct ChannelMetadata {
           duplicated(duplicated) {}
 
     /**
-     * @brief Deep-copy, cloning any ORDER boundaries via `reservation`.
-     * @param reservation Memory reservation forwarded through the clone chain.
-     * @return A new independent `ChannelMetadata`.
-     */
-    [[nodiscard]] ChannelMetadata clone(MemoryReservation& reservation) const;
-
-    /**
      * @brief Equality comparison.
      * @return True if both metadata objects are equal.
      */
@@ -263,14 +225,14 @@ struct ChannelMetadata {
  * @brief Construct an `OrderScheme` in one step (e.g. from Python bindings).
  *
  * @param keys Sort keys (must be non-empty).
- * @param boundaries Optional boundary rows; may be null.
- * @param strict_boundary See `OrderScheme::strict_boundary`.
+ * @param boundaries Optional boundary rows; ownership transferred via unique_ptr.
+ * @param strict_boundaries See `OrderScheme::strict_boundaries`.
  * @return A fully initialized `OrderScheme`.
  */
 [[nodiscard]] OrderScheme make_order_scheme(
     std::vector<OrderKey> keys,
     std::unique_ptr<TableChunk> boundaries,
-    bool strict_boundary
+    bool strict_boundaries
 );
 
 /**
@@ -293,18 +255,11 @@ void partitioning_spec_set_inherit(PartitioningSpec& spec);
 void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme);
 
 /**
- * @brief Set `spec` to ORDER partitioning, moving boundaries out of `src`.
+ * @brief Set `spec` to ORDER partitioning, copying `src`.
  * @param spec Target spec.
- * @param src Source order scheme (keys copied, boundaries moved).
+ * @param src Source order scheme (copied; shared_ptr boundaries are ref-counted).
  */
-void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme& src);
-
-/**
- * @brief Non-null pointer to the `OrderScheme` inside an ORDER spec.
- * @param spec Spec whose `type` must be `ORDER`.
- * @return Address of the stored `OrderScheme`.
- */
-[[nodiscard]] OrderScheme* partitioning_spec_order_scheme_ptr(PartitioningSpec& spec);
+void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme const& src);
 
 /**
  * @brief Row count of boundary table from `shape()` (works even when not
@@ -331,18 +286,15 @@ void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme& src);
 [[nodiscard]] cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme);
 
 /**
- * @brief Shallow-clone `partitioning` into a new `ChannelMetadata`.
- *
- * Hash specs are copied; ORDER specs copy keys and move boundary `TableChunk`
- * ownership out of `partitioning` (source ORDER specs lose boundaries).
+ * @brief Construct a heap-allocated `ChannelMetadata` from a partitioning reference.
  *
  * @param local_count Local chunk count for the new metadata.
- * @param partitioning Partitioning to shallow-clone (ORDER boundaries may be moved out).
+ * @param partitioning Partitioning to copy (shared_ptr boundaries are ref-counted).
  * @param duplicated Whether data is duplicated across workers.
- * @return Newly allocated `ChannelMetadata` owning the cloned partitioning.
+ * @return Newly allocated `ChannelMetadata`.
  */
 [[nodiscard]] std::unique_ptr<ChannelMetadata> make_channel_metadata(
-    std::uint64_t local_count, Partitioning& partitioning, bool duplicated
+    std::uint64_t local_count, Partitioning const& partitioning, bool duplicated
 );
 
 /**

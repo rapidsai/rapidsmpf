@@ -41,13 +41,13 @@ def test_hash_scheme() -> None:
     assert h1 != HashScheme((2,), 16)
 
 
-def _two_key_order_scheme(*, strict_boundary: bool = False) -> OrderScheme:
+def _two_key_order_scheme(*, strict_boundaries: bool = False) -> OrderScheme:
     return OrderScheme(
         [
             OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
             OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
         ],
-        strict_boundary=strict_boundary,
+        strict_boundaries=strict_boundaries,
     )
 
 
@@ -68,7 +68,7 @@ def test_order_scheme() -> None:
         OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
         OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     )
-    assert o1.strict_boundary is False
+    assert o1.strict_boundaries is False
     assert o1.get_boundaries_table() is None
     assert "OrderScheme" in repr(o1)
 
@@ -81,10 +81,10 @@ def test_order_scheme() -> None:
         [OrderKey(2, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE)]
     )
 
-    o_strict = _two_key_order_scheme(strict_boundary=True)
-    assert o_strict.strict_boundary is True
+    o_strict = _two_key_order_scheme(strict_boundaries=True)
+    assert o_strict.strict_boundaries is True
     assert o1 != o_strict
-    assert o_strict == _two_key_order_scheme(strict_boundary=True)
+    assert o_strict == _two_key_order_scheme(strict_boundaries=True)
 
     with pytest.raises(TypeError, match="OrderKey"):
         OrderScheme(
@@ -235,7 +235,7 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
             OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
         ],
         boundaries=boundaries,
-        strict_boundary=True,
+        strict_boundaries=True,
     )
     m = ChannelMetadata(
         local_count=8,
@@ -253,7 +253,7 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
         OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     )
     assert got_m.partitioning.local == "inherit"
-    assert got_m.partitioning.inter_rank.strict_boundary is True
+    assert got_m.partitioning.inter_rank.strict_boundaries is True
     assert got_m.partitioning.inter_rank.num_boundaries == 2
     tbl = got_m.partitioning.inter_rank.get_boundaries_table()
     assert tbl is not None
@@ -262,19 +262,16 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     assert msg_m.empty()
 
 
-def test_order_scheme_view_roundtrip() -> None:
-    """Re-feeding a view OrderScheme (from metadata.partitioning.inter_rank) into
-    Partitioning must use the live cpp_OrderScheme, not the wrapper's empty slot."""
+def test_order_scheme_roundtrip_from_metadata() -> None:
+    """An OrderScheme read back from ChannelMetadata can be re-used in a new Partitioning."""
     src = ChannelMetadata(
         local_count=1,
         partitioning=Partitioning(_two_key_order_scheme(), "inherit"),
     )
-    # inter_rank is a non-owning view into src's storage
-    view_scheme = src.partitioning.inter_rank
-    assert isinstance(view_scheme, OrderScheme)
+    scheme = src.partitioning.inter_rank
+    assert isinstance(scheme, OrderScheme)
 
-    # Round-trip the view through a new Partitioning
-    p2 = Partitioning(view_scheme, None)
+    p2 = Partitioning(scheme, None)
     assert p2.inter_rank == _two_key_order_scheme()
 
 

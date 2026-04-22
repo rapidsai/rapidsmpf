@@ -13,12 +13,12 @@ using namespace rapidsmpf::streaming;
 
 namespace {
 
-OrderScheme make_order_scheme_two_key(bool strict_boundary) {
+OrderScheme make_order_scheme_two_key(bool strict_boundaries) {
     return OrderScheme{
         {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
          {1, cudf::order::DESCENDING, cudf::null_order::AFTER}},
         nullptr,
-        strict_boundary,
+        strict_boundaries,
     };
 }
 
@@ -53,7 +53,7 @@ TEST_F(StreamingChannelMetadata, OrderScheme) {
     EXPECT_EQ(o.keys[1].order, cudf::order::DESCENDING);
     EXPECT_EQ(o.keys[1].null_order, cudf::null_order::AFTER);
     EXPECT_EQ(o.boundaries, nullptr);
-    EXPECT_FALSE(o.strict_boundary);
+    EXPECT_FALSE(o.strict_boundaries);
 
     OrderScheme o_strict{
         {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
@@ -62,7 +62,7 @@ TEST_F(StreamingChannelMetadata, OrderScheme) {
         true,
     };
     EXPECT_NE(o, o_strict);
-    EXPECT_TRUE(o_strict.strict_boundary);
+    EXPECT_TRUE(o_strict.strict_boundaries);
 
     OrderScheme o_same{
         {{0, cudf::order::ASCENDING, cudf::null_order::BEFORE},
@@ -274,12 +274,12 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderScheme) {
         cudf::null_order::AFTER
     );
     EXPECT_EQ(released.partitioning.local.type, PartitioningSpec::Type::INHERIT);
-    EXPECT_FALSE(released.partitioning.inter_rank.order->strict_boundary);
+    EXPECT_FALSE(released.partitioning.inter_rank.order->strict_boundaries);
     EXPECT_TRUE(msg_m.empty());
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderSchemeStrictBoundary) {
-    // Only strict_boundary + Message path; full OrderScheme field checks are above.
+    // Only strict_boundaries + Message path; full OrderScheme field checks are above.
     Partitioning part{
         PartitioningSpec::from_order(make_order_scheme_two_key(true)),
         PartitioningSpec::inherit()
@@ -287,5 +287,5 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderSchemeStrictBoundary) 
     auto m = std::make_unique<ChannelMetadata>(8, std::move(part), false);
     auto msg_m = to_message(43, std::move(m));
     auto released = msg_m.release<ChannelMetadata>();
-    EXPECT_TRUE(released.partitioning.inter_rank.order->strict_boundary);
+    EXPECT_TRUE(released.partitioning.inter_rank.order->strict_boundaries);
 }

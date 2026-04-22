@@ -4,7 +4,7 @@
 from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
@@ -33,8 +33,8 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
     cdef cppclass cpp_OrderScheme "rapidsmpf::streaming::OrderScheme":
         vector[cpp_OrderKey] keys
-        unique_ptr[cpp_TableChunk] boundaries
-        bool_t strict_boundary
+        shared_ptr[cpp_TableChunk] boundaries
+        bool_t strict_boundaries
         cpp_OrderScheme() except +
         bool_t operator==(const cpp_OrderScheme&)
 
@@ -98,10 +98,8 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
     void partitioning_spec_set_none(cpp_PartitioningSpec&) noexcept
     void partitioning_spec_set_inherit(cpp_PartitioningSpec&) noexcept
     void partitioning_spec_set_hash(cpp_PartitioningSpec&, cpp_HashScheme) noexcept
-    void partitioning_spec_set_order(cpp_PartitioningSpec&, cpp_OrderScheme&) except +
-
-    cpp_OrderScheme* partitioning_spec_order_scheme_ptr(
-        cpp_PartitioningSpec&
+    void partitioning_spec_set_order(
+        cpp_PartitioningSpec&, const cpp_OrderScheme&
     ) except +
 
     int order_scheme_boundary_row_count(cpp_OrderScheme*) except +
@@ -124,19 +122,10 @@ cdef class OrderKey:
 
 
 cdef class OrderScheme:
-    # When ``_owner`` is None, ``_ptr == &_storage`` (Python-owned scheme). Otherwise
-    # ``_ptr`` aliases storage inside ``_owner`` (e.g. ``ChannelMetadata``).
     cdef cpp_OrderScheme _storage
-    cdef cpp_OrderScheme* _ptr
-    cdef object _owner
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme)
-
-    @staticmethod
-    cdef OrderScheme view_of(cpp_OrderScheme* ptr, object owner)
-
-    cdef cpp_OrderScheme* _get(self)
 
 
 cdef class Partitioning:
