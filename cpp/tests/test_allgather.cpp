@@ -378,7 +378,9 @@ TEST(PostBox, spill_uses_remaining_amount) {
         auto res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DEVICE);
         auto data = br->allocate(size, stream, res);
         return rapidsmpf::coll::detail::Chunk::from_packed_data(
-            0, 0, rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
             rapidsmpf::PackedData{std::move(metadata), std::move(data)}
         );
     };
