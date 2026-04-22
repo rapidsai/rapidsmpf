@@ -129,11 +129,10 @@ TEST_P(HostMemoryResource, from_uint8_vector) {
 class PinnedResource : public ::testing::TestWithParam<std::size_t> {
   protected:
     void SetUp() override {
-        if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-            GTEST_SKIP() << "HostBuffer is not supported for CUDA versions "
-                            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
+        mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+        if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+            GTEST_SKIP() << "PinnedMemoryResource is not supported";
         }
-        mr.emplace();
     }
 
     void TearDown() override {
@@ -212,15 +211,15 @@ namespace {
 std::size_t discover_pinned_pool_actual_size(
     rmm::cuda_stream_view stream, std::size_t requested_max_pool_size = 1_MiB
 ) {
-    rapidsmpf::PinnedMemoryResource pinned_mr{
+    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available(
         rapidsmpf::get_current_numa_node(),
         rapidsmpf::PinnedPoolProperties{.max_pool_size = requested_max_pool_size}
-    };
+    );
 
     auto can_allocate = [&](size_t size) -> bool {
         try {
-            void* ptr = pinned_mr.allocate(stream, size);
-            pinned_mr.deallocate(stream, ptr, size);
+            void* ptr = pinned_mr->allocate(stream, size);
+            pinned_mr->deallocate(stream, ptr, size);
             return true;
         } catch (cuda::cuda_error const&) {
             return false;
@@ -256,24 +255,23 @@ std::size_t discover_pinned_pool_actual_size(
 }  // namespace
 
 TEST(PinnedResourceMaxSize, max_pool_size_limit) {
-    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-        GTEST_SKIP() << "PinnedMemoryResource is not supported";
-    }
-
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
     auto stream = cudf::get_default_stream();
 
     // Create a PinnedMemoryResource with max pool size of 1 MiB; driver may round up.
-    rapidsmpf::PinnedMemoryResource pinned_mr{
+    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available(
         rapidsmpf::get_current_numa_node(),
         rapidsmpf::PinnedPoolProperties{.initial_pool_size = 0, .max_pool_size = 1_MiB}
-    };
+    );
+    if (pinned_mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
 
     auto alloc_and_dealloc = [&](std::size_t size) {
-        void* ptr = pinned_mr.allocate(stream, size);
+        void* ptr = pinned_mr->allocate(stream, size);
         EXPECT_NE(nullptr, ptr);
-        pinned_mr.deallocate(stream, ptr, size);
+        pinned_mr->deallocate(stream, ptr, size);
     };
 
     alloc_and_dealloc(512_KiB);

@@ -101,23 +101,6 @@ class PinnedMemoryResource final
     static constexpr std::nullopt_t Disabled = std::nullopt;
 
     /**
-     * @brief Construct a pinned (page-locked) host memory resource.
-     *
-     * The pool has no maximum size. To restrict its growth, use
-     * `BufferResource::LimitAvailableMemory` or a similar mechanism.
-     *
-     * @param numa_id NUMA node from which memory should be allocated. By default,
-     * the resource uses the NUMA node of the calling thread.
-     * @param pool_properties Properties for configuring the pinned memory pool.
-     *
-     * @throws rapidsmpf::cuda_error If pinned host memory pools are not supported by
-     * the current CUDA version or if CUDA initialization fails.
-     */
-    PinnedMemoryResource(
-        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
-    );
-
-    /**
      * @brief Create a pinned memory resource if the system supports pinned memory.
      *
      * @param numa_id The NUMA node to associate with the resource. Defaults to the
@@ -225,6 +208,20 @@ class PinnedMemoryResource final
     ) noexcept {}
 
   private:
+    /**
+     * @brief Construct a pinned (page-locked) host memory resource.
+     *
+     * Private — use `make_if_available` or `from_options` to obtain an instance.
+     *
+     * @param numa_id NUMA node from which memory should be allocated.
+     * @param pool_properties Properties for configuring the pinned memory pool.
+     *
+     * @throws std::invalid_argument If pinned host memory pools are not supported.
+     */
+    PinnedMemoryResource(
+        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
+    );
+
     PinnedPoolProperties pool_properties_;  ///< properties used to configure the pool
 };
 

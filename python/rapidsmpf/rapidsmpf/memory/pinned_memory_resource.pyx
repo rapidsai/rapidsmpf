@@ -2,15 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.optional cimport optional
-from cython.operator cimport dereference as deref
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+
+from rapidsmpf.utils.system_info import get_current_numa_node
 
 
 cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
     cdef bool_t cpp_is_pinned_memory_resources_supported \
         "rapidsmpf::is_pinned_memory_resources_supported"(...) except +ex_handler
+
+    cdef optional[cpp_PinnedMemoryResource] cpp_make_if_available \
+        "rapidsmpf::PinnedMemoryResource::make_if_available"(
+            int numa_id
+        ) except +ex_handler
 
     cdef optional[cpp_PinnedMemoryResource] cpp_from_options \
         "rapidsmpf::PinnedMemoryResource::from_options"(
@@ -54,10 +60,18 @@ cdef class PinnedMemoryResource:
         version.
     """
     def __init__(self, numa_id = None):
-        if numa_id is None:
-            self._handle = cpp_PinnedMemoryResource()
-        else:
-            self._handle = cpp_PinnedMemoryResource(<int?>numa_id)
+        cdef optional[cpp_PinnedMemoryResource] opt
+        cdef int c_numa_id = get_current_numa_node() if numa_id is None \
+            else <int?>numa_id
+        with nogil:
+            opt = cpp_make_if_available(c_numa_id)
+        if not opt.has_value():
+            raise RuntimeError(
+                "Pinned host memory is not supported on this system. "
+                "CUDA v12.6 is one of the requirements, but additional platform "
+                "or driver constraints may apply."
+            )
+        self._handle = opt
 
     def __dealloc__(self):
         with nogil:

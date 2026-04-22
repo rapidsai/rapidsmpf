@@ -45,7 +45,15 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     case ResourceType::HOST_MEMORY_RESOURCE:
         return rapidsmpf::HostMemoryResource{};
     case ResourceType::PINNED_MEMORY_RESOURCE:
-        return rapidsmpf::PinnedMemoryResource{};
+        {
+            auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+            RAPIDSMPF_EXPECTS(
+                mr.has_value(),
+                "pinned memory is not supported on this system",
+                std::runtime_error
+            );
+            return *mr;
+        }
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
     }
@@ -369,7 +377,7 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 
     for (auto _ : state) {
         state.PauseTiming();
-        auto mr = std::make_unique<rapidsmpf::PinnedMemoryResource>(
+        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
             rapidsmpf::get_current_numa_node(), props
         );
         state.ResumeTiming();
