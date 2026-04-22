@@ -36,7 +36,7 @@ auto add_missing_availability_functions(
 
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-    std::shared_ptr<PinnedMemoryResource> pinned_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,

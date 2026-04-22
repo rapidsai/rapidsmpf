@@ -61,18 +61,16 @@ PinnedMemoryResource::PinnedMemoryResource(
       }()),
       pool_properties_{std::move(pool_properties)} {}
 
-std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
+std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
 ) {
     if (is_pinned_memory_resources_supported()) {
-        return std::make_shared<rapidsmpf::PinnedMemoryResource>(
-            numa_id, std::move(pool_properties)
-        );
+        return PinnedMemoryResource{numa_id, std::move(pool_properties)};
     }
     return PinnedMemoryResource::Disabled;
 }
 
-std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
+std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
@@ -94,9 +92,7 @@ std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 }
             )
         };
-        return PinnedMemoryResource::make_if_available(
-            get_current_numa_node(), std::move(pool_properties)
-        );
+        return PinnedMemoryResource{get_current_numa_node(), std::move(pool_properties)};
     }
     return PinnedMemoryResource::Disabled;
 }

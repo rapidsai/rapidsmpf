@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr
+from libcpp.optional cimport optional
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 
@@ -15,4 +15,4 @@ cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
 cpdef bool_t is_pinned_memory_resources_supported()
 
 cdef class PinnedMemoryResource:
-    cdef shared_ptr[cpp_PinnedMemoryResource] _handle
+    cdef optional[cpp_PinnedMemoryResource] _handle

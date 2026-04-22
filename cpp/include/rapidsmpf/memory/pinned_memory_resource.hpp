@@ -97,8 +97,8 @@ class PinnedMemoryResource final
         detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>;
 
   public:
-    /// @brief Sentinel value used to disable pinned host memory.
-    static constexpr auto Disabled = nullptr;
+    /// @brief Sentinel value indicating that pinned host memory is disabled.
+    static constexpr std::nullopt_t Disabled = std::nullopt;
 
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
@@ -124,12 +124,11 @@ class PinnedMemoryResource final
      * current NUMA node.
      * @param pool_properties Properties for configuring the pinned memory pool.
      *
-     * @return A shared pointer to a new `PinnedMemoryResource` when supported,
-     * otherwise `PinnedMemoryResource::Disabled`.
+     * @return A `PinnedMemoryResource` when supported, otherwise `std::nullopt`.
      *
      * @see PinnedMemoryResource::PinnedMemoryResource
      */
-    static std::shared_ptr<PinnedMemoryResource> make_if_available(
+    static std::optional<PinnedMemoryResource> make_if_available(
         int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
     );
 
@@ -138,9 +137,10 @@ class PinnedMemoryResource final
      *
      * @param options Configuration options.
      *
-     * @return A shared pointer to the constructed PinnedMemoryResource instance.
+     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported,
+     * otherwise `std::nullopt`.
      */
-    static std::shared_ptr<PinnedMemoryResource> from_options(config::Options options);
+    static std::optional<PinnedMemoryResource> from_options(config::Options options);
 
     ~PinnedMemoryResource();
 

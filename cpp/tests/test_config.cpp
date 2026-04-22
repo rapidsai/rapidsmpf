@@ -493,13 +493,13 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledWhenSetToTrue) {
 
     auto pmr = PinnedMemoryResource::from_options(opts);
 
-    // Should be enabled if system supports it, or Disabled (nullptr) if not
+    // Should be enabled if system supports it, or Disabled (nullopt) if not
     if (is_pinned_memory_resources_supported()) {
         EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_NE(pmr, nullptr);
+        EXPECT_TRUE(pmr.has_value());
     } else {
         EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_EQ(pmr, nullptr);
+        EXPECT_FALSE(pmr.has_value());
     }
 }
 
@@ -510,7 +510,7 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledWhenSetToFalse) {
     auto pmr = PinnedMemoryResource::from_options(opts);
 
     EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-    EXPECT_EQ(pmr, nullptr);
+    EXPECT_FALSE(pmr.has_value());
 }
 
 TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledByDefault) {
@@ -520,10 +520,10 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledByDefault) {
 
     if (is_pinned_memory_resources_supported()) {
         EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_NE(pmr, nullptr);
+        EXPECT_TRUE(pmr.has_value());
     } else {
         EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_EQ(pmr, nullptr);
+        EXPECT_FALSE(pmr.has_value());
     }
 }
 

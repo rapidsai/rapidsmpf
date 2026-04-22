@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libcpp.memory cimport make_shared
+from libcpp.optional cimport optional
+from cython.operator cimport dereference as deref
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
@@ -11,7 +12,7 @@ cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
     cdef bool_t cpp_is_pinned_memory_resources_supported \
         "rapidsmpf::is_pinned_memory_resources_supported"(...) except +ex_handler
 
-    cdef shared_ptr[cpp_PinnedMemoryResource] cpp_from_options \
+    cdef optional[cpp_PinnedMemoryResource] cpp_from_options \
         "rapidsmpf::PinnedMemoryResource::from_options"(
             cpp_Options options
         ) except +ex_handler
@@ -54,9 +55,9 @@ cdef class PinnedMemoryResource:
     """
     def __init__(self, numa_id = None):
         if numa_id is None:
-            self._handle = make_shared[cpp_PinnedMemoryResource]()
+            self._handle = cpp_PinnedMemoryResource()
         else:
-            self._handle = make_shared[cpp_PinnedMemoryResource](<int?>numa_id)
+            self._handle = cpp_PinnedMemoryResource(<int?>numa_id)
 
     def __dealloc__(self):
         with nogil:
@@ -68,7 +69,7 @@ cdef class PinnedMemoryResource:
         Check if pinned memory resource is enabled. ie. if pinned memory is supported
         by the system and a valid instance is created.
         """
-        return True if self._handle else False
+        return self._handle.has_value()
 
     @staticmethod
     def make_if_available(numa_id = None):
@@ -104,11 +105,11 @@ cdef class PinnedMemoryResource:
         The constructed PinnedMemoryResource instance if pinned memory is enabled
         and supported by the system, otherwise ``None``.
         """
-        cdef shared_ptr[cpp_PinnedMemoryResource] handle
+        cdef optional[cpp_PinnedMemoryResource] opt_handle
         with nogil:
-            handle = cpp_from_options(options._handle)
-        if not handle:
+            opt_handle = cpp_from_options(options._handle)
+        if not opt_handle.has_value():
             return None
         cdef PinnedMemoryResource ret = cls.__new__(cls)
-        ret._handle = handle
+        ret._handle = opt_handle
         return ret
