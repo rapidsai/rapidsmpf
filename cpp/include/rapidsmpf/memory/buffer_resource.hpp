@@ -19,6 +19,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -395,7 +396,7 @@ class BufferResource {
     std::mutex mutex_;
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
     std::shared_ptr<PinnedMemoryResource> pinned_mr_;
-    cuda::mr::any_resource<cuda::mr::host_accessible> host_mr_;
+    HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
