@@ -62,17 +62,23 @@ pytestmark = pytest.mark.skipif(
 
 def _worker_comm_nranks() -> int:
     """Return comm.nranks from the calling worker's context."""
-    return get_worker_context().comm.nranks
+    comm = get_worker_context().comm
+    assert comm is not None
+    return comm.nranks
 
 
 def _worker_comm_rank() -> int:
     """Return comm.rank from the calling worker's context."""
-    return get_worker_context().comm.rank
+    comm = get_worker_context().comm
+    assert comm is not None
+    return comm.rank
 
 
 def _worker_comm_str() -> str:
     """Return comm.get_str() from the calling worker's context."""
-    return get_worker_context().comm.get_str()
+    comm = get_worker_context().comm
+    assert comm is not None
+    return comm.get_str()
 
 
 def _worker_check_binding() -> ResourceBinding:
@@ -87,7 +93,9 @@ def _worker_raise() -> None:
 
 def _worker_raise_on_even_ranks() -> None:
     """Raise on even-numbered ranks — used to test partial error propagation."""
-    rank = get_worker_context().comm.rank
+    comm = get_worker_context().comm
+    assert comm is not None
+    rank = comm.rank
     if rank % 2 == 0:
         raise ValueError(f"deliberate error on rank {rank}")
 
@@ -101,6 +109,7 @@ def _worker_run_shuffle(total_num_partitions: int, num_rows: int) -> int:
     """Run a distributed shuffle on this worker and return the extracted row count."""
     ctx = get_worker_context()
     comm = ctx.comm
+    assert comm is not None
     br = ctx.br
 
     np.random.seed(42)
@@ -145,6 +154,7 @@ def _worker_allgather_and_verify(run_id: int, rows_per_rank: int) -> None:
     """Each rank contributes a unique table; allgather; verify all N tables in-worker."""
     ctx = get_worker_context()
     comm = ctx.comm
+    assert comm is not None
     br = ctx.br
 
     # Each rank creates a table whose "rank" column identifies the source.
@@ -197,7 +207,9 @@ def _worker_allgather_and_verify(run_id: int, rows_per_rank: int) -> None:
     params=[1, 2, 4],
     ids=["nranks=1", "nranks=2", "nranks=4"],
 )
-def mp_pool(request: pytest.FixtureRequest) -> Generator[MultiprocessingPool, None, None]:
+def mp_pool(
+    request: pytest.FixtureRequest,
+) -> Generator[MultiprocessingPool, None, None]:
     """Yield a live MultiprocessingPool for the parametrised worker count."""
     nranks: int = request.param
     with MultiprocessingPool(nranks=nranks, bind_verify=False) as pool:
@@ -280,7 +292,9 @@ def test_mp_pool_resource_binding(mp_pool: MultiprocessingPool) -> None:
 
 
 @pytest.mark.parametrize("total_num_partitions", [1, 10])
-def test_mp_pool_shuffle(mp_pool: MultiprocessingPool, total_num_partitions: int) -> None:
+def test_mp_pool_shuffle(
+    mp_pool: MultiprocessingPool, total_num_partitions: int
+) -> None:
     """Distributed shuffle via the pool preserves all rows across all partitions."""
     num_rows = 100
     row_counts = mp_pool.run(_worker_run_shuffle, total_num_partitions, num_rows)

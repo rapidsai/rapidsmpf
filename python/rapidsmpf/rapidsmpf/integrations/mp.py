@@ -343,7 +343,7 @@ class MultiprocessingPool:
         mp_ctx = _mp.get_context("spawn")
         self._work_queues: list[Any] = [mp_ctx.Queue() for _ in range(nranks)]
         self._result_queues: list[Any] = [mp_ctx.Queue() for _ in range(nranks)]
-        self._procs: list[_mp.Process] = []
+        self._procs: list[_mp.context.SpawnProcess] = []
 
         options_as_dict = options.get_strings()
 
@@ -401,17 +401,13 @@ class MultiprocessingPool:
         try:
             raw = self._result_queues[0].get(timeout=timeout)
         except Exception as exc:
-            raise RuntimeError(
-                "Timed out waiting for rank-0 worker to start."
-            ) from exc
+            raise RuntimeError("Timed out waiting for rank-0 worker to start.") from exc
 
         msg_type, payload = cloudpickle.loads(raw)
         if msg_type == "setup_error":
             raise RuntimeError("Rank-0 worker failed during boot.") from payload
         if msg_type != "root_addr":
-            raise RuntimeError(
-                f"Unexpected message from rank-0 worker: {msg_type!r}"
-            )
+            raise RuntimeError(f"Unexpected message from rank-0 worker: {msg_type!r}")
 
         root_addr_bytes: bytes = payload
 
