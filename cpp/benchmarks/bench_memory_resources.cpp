@@ -10,7 +10,6 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/mr/system_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
@@ -35,13 +34,55 @@ std::array<std::string, 3> const ResourceTypeStr{
     "SystemMemoryResource", "HostMemoryResource", "PinnedMemoryResource"
 };
 
+class NewDelete {
+  public:
+    void* allocate_sync(
+        std::size_t size, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        return ::operator new(size, std::align_val_t{alignment});
+    }
+
+    void deallocate_sync(
+        void* ptr, std::size_t, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        ::operator delete(ptr, std::align_val_t{alignment});
+    }
+
+    void* allocate(
+        rmm::cuda_stream_view,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        return allocate_sync(size, alignment);
+    }
+
+    void deallocate(
+        rmm::cuda_stream_view,
+        void* ptr,
+        std::size_t,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        deallocate_sync(ptr, alignment);
+    }
+
+    bool operator==(NewDelete const&) const noexcept {
+        return true;
+    }
+
+    bool operator!=(NewDelete const&) const noexcept {
+        return false;
+    }
+
+    friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
+};
+
 // Helper function to create a type-erased host memory resource.
 cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     ResourceType const& resource_type
 ) {
     switch (resource_type) {
     case ResourceType::NEW_DELETE:
-        return rmm::mr::system_memory_resource{};
+        return NewDelete{};
     case ResourceType::HOST_MEMORY_RESOURCE:
         return rapidsmpf::HostMemoryResource{};
     case ResourceType::PINNED_MEMORY_RESOURCE:
