@@ -184,7 +184,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @return The total number of currently allocated bytes.
      */
     [[nodiscard]] std::int64_t current_allocated() const noexcept {
-        return pool_tracker_->current_allocated();
+        return pool_tracker_.current_allocated();
     }
 
     /**
@@ -193,7 +193,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      * @return The main memory record for the pinned pool.
      */
     [[nodiscard]] ScopedMemoryRecord get_main_memory_record() const {
-        return pool_tracker_->get_main_record();
+        return pool_tracker_.get_main_record();
     }
 
     /**
@@ -226,14 +226,13 @@ class PinnedMemoryResource final : public HostMemoryResource {
   private:
     PinnedPoolProperties pool_properties_;  ///< properties used to configure the pool
 
-    // cuda::pinned_memory_pool and RmmResourceAdaptor are non-copyable, so both are
-    // wrapped in shared_resource to give PinnedMemoryResource value semantics: copies
-    // share the same underlying pool and the same adaptor state (memory statistics,
-    // fallback allocations). Copies are equal iff they share the same pool (is_equal
-    // compares pool_).
-    cuda::mr::shared_resource<cuda::pinned_memory_pool> pool_;
-    cuda::mr::shared_resource<RmmResourceAdaptor>
-        pool_tracker_;  ///< track the memory usage of the pool
+    // The cuda::pinned_memory_pool is moved into the RmmResourceAdaptor's primary_mr
+    // (an any_resource<device_accessible>), which keeps it alive. RmmResourceAdaptor is
+    // itself a shared_resource<RmmResourceAdaptorImpl>, so copies of PinnedMemoryResource
+    // share the same underlying pool and adaptor state (memory statistics). Copies are
+    // equal iff they share the same RmmResourceAdaptorImpl (is_equal compares
+    // pool_tracker_).
+    RmmResourceAdaptor pool_tracker_;  ///< wraps and tracks memory usage of the pool
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);

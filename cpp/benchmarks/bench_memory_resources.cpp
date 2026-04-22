@@ -151,7 +151,7 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
     // Allocate device memory
-    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    auto src = rmm::device_buffer(transfer_size, stream, *device_mr);
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
     stream.synchronize();
@@ -216,7 +216,7 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
     auto host_mr = create_host_memory_resource(resource_type);
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
-    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    auto src = rmm::device_buffer(transfer_size, stream, *device_mr);
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
 
@@ -252,7 +252,7 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
     memset(host_ptr, 0, transfer_size);
 
     // Allocate device memory and copy from host
-    auto src = rmm::device_buffer(transfer_size, stream, device_mr.get());
+    auto src = rmm::device_buffer(transfer_size, stream, *device_mr);
 
     bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
@@ -303,7 +303,7 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     // Device MR, independent of host resource type
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
-    rmm::device_buffer src(transfer_size, stream, device_mr.get());
+    rmm::device_buffer src(transfer_size, stream, *device_mr);
 
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));

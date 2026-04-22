@@ -79,8 +79,7 @@ class Context {
      * @note The current CUDA device must be set prior to calling this function.
      * Options that depend on device memory availability query the current device.
      *
-     * @param mr Device memory resource adaptor used by RapidsMPF. The adaptor must
-     * outlive the returned Context.
+     * @param mr Device memory resource adaptor used by RapidsMPF.
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
@@ -101,7 +100,7 @@ class Context {
      * thread.
      */
     static std::shared_ptr<Context> from_options(
-        RmmResourceAdaptor* mr,
+        RmmResourceAdaptor mr,
         std::shared_ptr<Communicator::Logger> logger,
         config::Options options
     );

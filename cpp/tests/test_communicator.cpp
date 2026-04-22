@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -24,17 +23,15 @@ class BaseCommunicatorTest : public ::testing::Test {
   protected:
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
-        mr = std::unique_ptr<rmm::mr::device_memory_resource>(
-            new rmm::mr::cuda_memory_resource{}
-        );
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
         stream = rmm::cuda_stream_default;
     }
 
     void TearDown() override {}
 
     rapidsmpf::Communicator* comm;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
