@@ -81,7 +81,6 @@ target_sources(
           test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp
-          test_gather_statistics.cpp
           test_host_buffer.cpp
           test_metadata_payload_exchange.cpp
           test_misc.cpp

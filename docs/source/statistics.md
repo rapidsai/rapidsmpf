@@ -41,10 +41,10 @@ Statistics:
 
 ### JSON (`write_json()`)
 
-JSON output contains raw numeric values for all statistics. Registered
-formatters (which produce human-readable strings such as "1.0 KiB" or "3.5 ms"
-in the text report) are not applied — values remain as plain numbers to keep
-the output machine-parseable. For example, a bytes statistic that reads
+JSON output contains raw numeric values for all statistics. Formatters
+(which produce human-readable strings such as "1.0 KiB" or "3.5 ms" in the
+text report) are not applied — values remain as plain numbers to keep the
+output machine-parseable. For example, a bytes statistic that reads
 `"2.9957e+09"` is roughly three billion bytes; the text report would show `"2.79 GiB"`
 for the same figure.
 

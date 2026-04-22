@@ -20,6 +20,7 @@
 #include <cuda/std/functional>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -206,7 +207,7 @@ class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
         comm = GlobalEnvironment->comm_.get();
     }
 
@@ -217,7 +218,7 @@ class BaseAllReduceTest : public ::testing::Test {
 
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rapidsmpf::BufferResource> br;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
 };
 
 TEST_F(BaseAllReduceTest, timeout_interleaved) {

@@ -60,8 +60,7 @@ PinnedMemoryResource::PinnedMemoryResource(
     int numa_id, PinnedPoolProperties pool_properties
 )
     : pool_properties_{std::move(pool_properties)},
-      pool_{make_pinned_memory_pool(numa_id, pool_properties_)},
-      pool_tracker_{cuda::mr::make_shared_resource<RmmResourceAdaptor>(pool_)} {}
+      pool_tracker_{make_pinned_memory_pool(numa_id, pool_properties_)} {}
 
 std::shared_ptr<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
     int numa_id, PinnedPoolProperties pool_properties
@@ -121,7 +120,7 @@ std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() co
     auto const max_pool_size = pool_properties_.max_pool_size.value_or(0);
     if (max_pool_size > 0) {
         return LimitAvailableMemory{
-            &pool_tracker_.get(), safe_cast<std::int64_t>(max_pool_size)
+            pool_tracker_, safe_cast<std::int64_t>(max_pool_size)
         };
     }
     return std::numeric_limits<std::int64_t>::max;
@@ -129,7 +128,7 @@ std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() co
 
 bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
     auto const* o = dynamic_cast<PinnedMemoryResource const*>(&other);
-    return o != nullptr && pool_ == o->pool_;
+    return o != nullptr && pool_tracker_ == o->pool_tracker_;
 }
 
 }  // namespace rapidsmpf
