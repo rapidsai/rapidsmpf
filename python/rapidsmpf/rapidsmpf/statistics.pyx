@@ -27,7 +27,7 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor* mr,
+            cpp_RmmResourceAdaptor mr,
             cpp_Options options,
             shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
@@ -122,7 +122,7 @@ cdef class Statistics:
         if enable and mr is not None:
             mr_handle = mr.get_handle()
             with nogil:
-                self._handle = make_shared[cpp_Statistics](mr_handle)
+                self._handle = make_shared[cpp_Statistics](deref(mr_handle))
         else:
             with nogil:
                 self._handle = make_shared[cpp_Statistics](enable)
@@ -159,7 +159,8 @@ cdef class Statistics:
         else:
             cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
-            ret._handle = cpp_from_options(mr_handle, options._handle, cpp_pinned)
+            ret._handle = cpp_from_options(deref(mr_handle), options._handle,
+                                           cpp_pinned)
         ret._mr = mr
         return ret
 
@@ -581,7 +582,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), mr, self._name
+                self._stats._handle.get(), deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

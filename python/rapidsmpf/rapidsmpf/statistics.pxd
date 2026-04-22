@@ -51,7 +51,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_MemoryRecorder "rapidsmpf::Statistics::MemoryRecorder":
         cpp_MemoryRecorder(
             cpp_Statistics* stats,
-            cpp_RmmResourceAdaptor* mr,
+            cpp_RmmResourceAdaptor mr,
             string name
         ) except +ex_handler
 

@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <span>
 #include <string>
@@ -117,23 +118,19 @@ class Statistics {
      *
      * Automatically enables both statistics and memory profiling.
      *
-     * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
-     * for the lifetime of the returned object.
+     * @param mr The RMM resource adaptor used for memory profiling.
      * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
      * `PinnedMemoryResource::Disabled`.
-     *
-     * @throws std::invalid_argument If `mr` is the nullptr.
      */
     Statistics(
-        RmmResourceAdaptor* mr,
+        RmmResourceAdaptor mr,
         std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
     );
 
     /**
      * @brief Construct from configuration options.
      *
-     * @param mr Pointer to a memory resource used for memory profiling. Must remain valid
-     * for the lifetime of the returned object.
+     * @param mr The RMM resource adaptor used for memory profiling.
      * @param options Configuration options.
      * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
      * `PinnedMemoryResource::Disabled`.
@@ -141,7 +138,7 @@ class Statistics {
      * @return A shared pointer to the constructed Statistics instance.
      */
     static std::shared_ptr<Statistics> from_options(
-        RmmResourceAdaptor* mr,
+        RmmResourceAdaptor mr,
         config::Options options,
         std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
     );
@@ -566,10 +563,10 @@ class Statistics {
          * @brief Constructs an active MemoryRecorder.
          *
          * @param stats Pointer to Statistics object that will store the result.
-         * @param mr Memory resource that provides the scoped memory statistics.
+         * @param mr The RMM resource adaptor providing scoped memory statistics.
          * @param name Name of the scope.
          */
-        MemoryRecorder(Statistics* stats, RmmResourceAdaptor* mr, std::string name);
+        MemoryRecorder(Statistics* stats, RmmResourceAdaptor mr, std::string name);
 
         /**
          * @brief Destructor.
@@ -586,7 +583,7 @@ class Statistics {
 
       private:
         Statistics* stats_{nullptr};
-        RmmResourceAdaptor* mr_{nullptr};
+        std::optional<RmmResourceAdaptor> mr_;
         std::string name_;
     };
 
@@ -621,7 +618,7 @@ class Statistics {
     std::map<std::string, Stat> stats_;
     std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
-    RmmResourceAdaptor* mr_;
+    std::optional<RmmResourceAdaptor> mr_;
     std::shared_ptr<PinnedMemoryResource>
         pinned_mr_;  ///< optional; not used by MemoryRecorder
 };

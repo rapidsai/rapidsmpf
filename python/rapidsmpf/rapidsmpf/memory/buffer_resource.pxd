@@ -54,7 +54,7 @@ cdef class BufferResource:
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
-            cpp_RmmResourceAdaptor *mr, int64_t limit
+            cpp_RmmResourceAdaptor mr, int64_t limit
         ) except +ex_handler
         int64_t operator()() except +ex_handler
 

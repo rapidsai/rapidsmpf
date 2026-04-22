@@ -176,7 +176,7 @@ TEST_F(StatisticsTest, ReportSorting) {
 TEST_F(StatisticsTest, MemoryProfiler) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
-    rapidsmpf::Statistics stats(&mr, pinned_mr);
+    rapidsmpf::Statistics stats(mr, pinned_mr);
     auto stream = cudf::get_default_stream();
 
     // Outer scope
@@ -294,7 +294,7 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
 
 TEST_F(StatisticsTest, MemoryProfilerMacro) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(&mr);
+    rapidsmpf::Statistics stats(mr);
     {
         RAPIDSMPF_MEMORY_PROFILE(stats);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
@@ -349,7 +349,7 @@ TEST_F(StatisticsTest, InvalidStatNames) {
 
 TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(&mr);
+    rapidsmpf::Statistics stats(mr);
     std::ignore = stats.create_memory_recorder("bad\"name");
     std::ostringstream ss;
     EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
@@ -357,7 +357,7 @@ TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(&mr);
+    rapidsmpf::Statistics stats(mr);
     {
         auto rec = stats.create_memory_recorder("alloc");
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
