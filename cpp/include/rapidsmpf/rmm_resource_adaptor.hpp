@@ -29,8 +29,11 @@ namespace rapidsmpf {
  * `cuda::mr::shared_resource`.
  */
 class RmmResourceAdaptor
-    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl> {
-    using shared_base = cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl>;
+    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
+          cuda::mr::any_resource<cuda::mr::device_accessible>>> {
+    using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
+    using shared_base =
+        cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
 
   public:
     /// @brief Tag this resource as device-accessible for the CCCL concept.

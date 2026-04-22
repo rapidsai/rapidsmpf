@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -117,12 +117,16 @@ class HostMemoryResource {
      * @param other The resource to compare with.
      * @return true
      */
-    [[nodiscard]] bool operator==([[maybe_unused]] HostMemoryResource const& other) const noexcept {
+    [[nodiscard]] bool operator==(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
         return true;
     }
 
     /// @copydoc operator==
-    [[nodiscard]] bool operator!=([[maybe_unused]] HostMemoryResource const& other) const noexcept {
+    [[nodiscard]] bool operator!=(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
         return false;
     }
 

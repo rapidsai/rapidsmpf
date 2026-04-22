@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 using rapidsmpf::safe_cast;

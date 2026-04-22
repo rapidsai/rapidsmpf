@@ -19,8 +19,8 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -81,11 +81,21 @@ struct PinnedPoolProperties {
 /**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
  *
+ * Inherits from
+ * `cuda::mr::shared_resource<RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>`, which
+ * holds the pool directly inside the shared control block — no extra heap allocation for
+ * the pool itself. Copies share the same underlying pool and memory statistics.
+ *
  * This resource allocates and deallocates pinned host memory asynchronously through
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
  */
-class PinnedMemoryResource final {
+class PinnedMemoryResource final
+    : public cuda::mr::shared_resource<
+          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>> {
+    using shared_base = cuda::mr::shared_resource<
+        detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>;
+
   public:
     /// @brief Sentinel value used to disable pinned host memory.
     static constexpr auto Disabled = nullptr;
@@ -145,11 +155,14 @@ class PinnedMemoryResource final {
      * @throw std::bad_alloc If the allocation fails.
      * @throw std::invalid_argument If @p alignment is not a valid alignment.
      */
-    void* allocate(
-        rmm::cuda_stream_view stream,
+
+    [[nodiscard]] void* allocate(
+        cuda::stream_ref stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    );
+    ) {
+        return get().allocate(stream, size, alignment);
+    }
 
     /**
      * @brief Deallocates pinned host memory associated with a CUDA stream.
@@ -160,49 +173,13 @@ class PinnedMemoryResource final {
      * @param alignment Alignment originally used for the allocation.
      */
     void deallocate(
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         void* ptr,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept;
-
-    /**
-     * @brief Allocates pinned host memory synchronously.
-     *
-     * @param size Number of bytes to allocate.
-     * @param alignment Required alignment.
-     * @return Pointer to the allocated memory.
-     */
-    [[nodiscard]] void* allocate_sync(
-        std::size_t size, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    );
-
-    /**
-     * @brief Deallocates pinned host memory synchronously.
-     *
-     * @param ptr Pointer to the memory to deallocate.
-     * @param size Number of bytes previously allocated at @p ptr.
-     * @param alignment Alignment originally used for the allocation.
-     */
-    void deallocate_sync(
-        void* ptr,
-        std::size_t size,
-        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept;
-
-    /**
-     * @brief Compares two resources for equality.
-     *
-     * Two resources are equal if they share the same underlying pool (i.e. memory
-     * allocated by one may be deallocated by the other).
-     *
-     * @param other The resource to compare with.
-     * @return True if both resources share the same pool.
-     */
-    [[nodiscard]] bool operator==(PinnedMemoryResource const& other) const noexcept;
-
-    /// @copydoc operator==
-    [[nodiscard]] bool operator!=(PinnedMemoryResource const& other) const noexcept;
+    ) noexcept {
+        get().deallocate(stream, ptr, size, alignment);
+    }
 
     /**
      * @brief Returns the total number of currently allocated bytes.
@@ -210,7 +187,7 @@ class PinnedMemoryResource final {
      * @return The total number of currently allocated bytes.
      */
     [[nodiscard]] std::int64_t current_allocated() const noexcept {
-        return pool_tracker_.current_allocated();
+        return get().current_allocated();
     }
 
     /**
@@ -219,7 +196,7 @@ class PinnedMemoryResource final {
      * @return The main memory record for the pinned pool.
      */
     [[nodiscard]] ScopedMemoryRecord get_main_memory_record() const {
-        return pool_tracker_.get_main_record();
+        return get().get_main_record();
     }
 
     /**
@@ -240,26 +217,15 @@ class PinnedMemoryResource final {
      */
     [[nodiscard]] std::function<std::int64_t()> get_memory_available_cb() const;
 
-    /// @brief Declares that this resource provides host-accessible memory.
+    /**
+     * @brief Enables the `cuda::mr::host_accessible` property.
+     */
     friend void get_property(
         PinnedMemoryResource const&, cuda::mr::host_accessible
     ) noexcept {}
 
-    /// @brief Declares that this resource provides device-accessible memory.
-    friend void get_property(
-        PinnedMemoryResource const&, cuda::mr::device_accessible
-    ) noexcept {}
-
   private:
     PinnedPoolProperties pool_properties_;  ///< properties used to configure the pool
-
-    // The cuda::pinned_memory_pool is moved into the RmmResourceAdaptor's primary_mr
-    // (an any_resource<device_accessible>), which keeps it alive. RmmResourceAdaptor is
-    // itself a shared_resource<RmmResourceAdaptorImpl>, so copies of PinnedMemoryResource
-    // share the same underlying pool and adaptor state (memory statistics). Copies are
-    // equal iff they share the same RmmResourceAdaptorImpl (is_equal compares
-    // pool_tracker_).
-    RmmResourceAdaptor pool_tracker_;  ///< wraps and tracks memory usage of the pool
 };
 
 static_assert(cuda::mr::resource<PinnedMemoryResource>);
