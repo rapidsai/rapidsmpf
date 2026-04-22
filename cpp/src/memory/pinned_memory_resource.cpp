@@ -116,6 +116,16 @@ void PinnedMemoryResource::deallocate(
     pool_tracker_->deallocate(stream, ptr, bytes, alignment);
 }
 
+void* PinnedMemoryResource::allocate_sync(std::size_t bytes, std::size_t alignment) {
+    return pool_tracker_->allocate_sync(bytes, alignment);
+}
+
+void PinnedMemoryResource::deallocate_sync(
+    void* ptr, std::size_t bytes, std::size_t alignment
+) noexcept {
+    pool_tracker_->deallocate_sync(ptr, bytes, alignment);
+}
+
 std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() const {
     auto const max_pool_size = pool_properties_.max_pool_size.value_or(0);
     if (max_pool_size > 0) {
@@ -126,9 +136,12 @@ std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() co
     return std::numeric_limits<std::int64_t>::max;
 }
 
-bool PinnedMemoryResource::is_equal(HostMemoryResource const& other) const noexcept {
-    auto const* o = dynamic_cast<PinnedMemoryResource const*>(&other);
-    return o != nullptr && pool_tracker_ == o->pool_tracker_;
+bool PinnedMemoryResource::operator==(PinnedMemoryResource const& other) const noexcept {
+    return pool_tracker_ == other.pool_tracker_;
+}
+
+bool PinnedMemoryResource::operator!=(PinnedMemoryResource const& other) const noexcept {
+    return !(*this == other);
 }
 
 }  // namespace rapidsmpf

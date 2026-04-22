@@ -20,7 +20,6 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -86,7 +85,7 @@ struct PinnedPoolProperties {
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
  */
-class PinnedMemoryResource final : public HostMemoryResource {
+class PinnedMemoryResource final {
   public:
     /// @brief Sentinel value used to disable pinned host memory.
     static constexpr auto Disabled = nullptr;
@@ -133,7 +132,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
      */
     static std::shared_ptr<PinnedMemoryResource> from_options(config::Options options);
 
-    ~PinnedMemoryResource() override;
+    ~PinnedMemoryResource();
 
     /**
      * @brief Allocates pinned host memory associated with a CUDA stream.
@@ -150,7 +149,7 @@ class PinnedMemoryResource final : public HostMemoryResource {
         rmm::cuda_stream_view stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) override;
+    );
 
     /**
      * @brief Deallocates pinned host memory associated with a CUDA stream.
@@ -165,18 +164,45 @@ class PinnedMemoryResource final : public HostMemoryResource {
         void* ptr,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept override;
+    ) noexcept;
 
     /**
-     * @brief Compares this resource to another resource.
+     * @brief Allocates pinned host memory synchronously.
      *
-     * Two resources are considered equal if memory allocated by one may be
-     * deallocated by the other.
+     * @param size Number of bytes to allocate.
+     * @param alignment Required alignment.
+     * @return Pointer to the allocated memory.
+     */
+    [[nodiscard]] void* allocate_sync(
+        std::size_t size, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    );
+
+    /**
+     * @brief Deallocates pinned host memory synchronously.
+     *
+     * @param ptr Pointer to the memory to deallocate.
+     * @param size Number of bytes previously allocated at @p ptr.
+     * @param alignment Alignment originally used for the allocation.
+     */
+    void deallocate_sync(
+        void* ptr,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept;
+
+    /**
+     * @brief Compares two resources for equality.
+     *
+     * Two resources are equal if they share the same underlying pool (i.e. memory
+     * allocated by one may be deallocated by the other).
      *
      * @param other The resource to compare with.
-     * @return true because all instances of this base class are considered equal.
+     * @return True if both resources share the same pool.
      */
-    [[nodiscard]] bool is_equal(HostMemoryResource const& other) const noexcept override;
+    [[nodiscard]] bool operator==(PinnedMemoryResource const& other) const noexcept;
+
+    /// @copydoc operator==
+    [[nodiscard]] bool operator!=(PinnedMemoryResource const& other) const noexcept;
 
     /**
      * @brief Returns the total number of currently allocated bytes.
@@ -214,11 +240,12 @@ class PinnedMemoryResource final : public HostMemoryResource {
      */
     [[nodiscard]] std::function<std::int64_t()> get_memory_available_cb() const;
 
-    /**
-     * @brief Enables the `cuda::mr::host_accessible` property.
-     *
-     * This property declares that a `HostMemoryResource` provides host accessible memory.
-     */
+    /// @brief Declares that this resource provides host-accessible memory.
+    friend void get_property(
+        PinnedMemoryResource const&, cuda::mr::host_accessible
+    ) noexcept {}
+
+    /// @brief Declares that this resource provides device-accessible memory.
     friend void get_property(
         PinnedMemoryResource const&, cuda::mr::device_accessible
     ) noexcept {}
