@@ -7,11 +7,8 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
-
-#include <rmm/error.hpp>
-#include <rmm/mr/device_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 namespace rapidsmpf {
 

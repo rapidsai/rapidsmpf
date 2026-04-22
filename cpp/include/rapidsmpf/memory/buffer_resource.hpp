@@ -68,8 +68,8 @@ class BufferResource {
     /**
      * @brief Constructs a buffer resource.
      *
-     * @param device_mr Reference to the RMM device memory resource used for device
-     * allocations.
+     * @param device_mr The RMM device memory resource used for device allocations.
+     * Ownership is transferred to the BufferResource.
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
      * allocations. If null, pinned host allocations are disabled. In that case, any
      * attempt to allocate pinned memory will fail regardless of what @p memory_available
@@ -87,7 +87,7 @@ class BufferResource {
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
-        rmm::device_async_resource_ref device_mr,
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
@@ -102,15 +102,14 @@ class BufferResource {
      * This factory method creates a BufferResource using configuration options to
      * initialize all components.
      *
-     * @param mr Pointer to the RMM resource adaptor, which must outlive the
-     * returned BufferResource.
+     * @param mr The RMM resource adaptor.
      * @param options Configuration options.
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        RmmResourceAdaptor* mr, config::Options options
+        RmmResourceAdaptor mr, config::Options options
     );
 
     ~BufferResource() noexcept = default;
@@ -395,7 +394,7 @@ class BufferResource {
 
   private:
     std::mutex mutex_;
-    rmm::device_async_resource_ref device_mr_;
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
     std::shared_ptr<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
@@ -426,13 +425,12 @@ class LimitAvailableMemory {
     /**
      * @brief Constructs a `LimitAvailableMemory` instance.
      *
-     * @param mr A pointer to an RMM resource adaptor. The underlying resource
-     * adaptor must outlive this instance.
+     * @param mr The RMM resource adaptor.
      * @param limit The maximum memory available (in bytes). Used to calculate the
      * remaining memory.
      */
-    constexpr LimitAvailableMemory(RmmResourceAdaptor const* mr, std::int64_t limit)
-        : limit{limit}, mr_{mr} {}
+    LimitAvailableMemory(RmmResourceAdaptor mr, std::int64_t limit)
+        : limit{limit}, mr_{std::move(mr)} {}
 
     /**
      * @brief Returns the remaining available memory within the defined limit.
@@ -444,26 +442,26 @@ class LimitAvailableMemory {
      * @return The remaining memory in bytes.
      */
     std::int64_t operator()() const {
-        return limit - mr_->current_allocated();
+        return limit - mr_.current_allocated();
     }
 
   public:
     std::int64_t const limit;  ///< The memory limit.
 
   private:
-    RmmResourceAdaptor const* mr_;
+    RmmResourceAdaptor const mr_;
 };
 
 /**
  * @brief Construct a map of memory-available functions from configuration options.
  *
- * @param mr Pointer to a memory resource adaptor.
+ * @param mr The RMM resource adaptor.
  * @param options Configuration options.
  *
  * @return The map of memory-available functions.
  */
 std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
-memory_available_from_options(RmmResourceAdaptor* mr, config::Options options);
+memory_available_from_options(RmmResourceAdaptor mr, config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.
