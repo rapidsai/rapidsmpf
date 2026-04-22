@@ -214,7 +214,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         RAPIDSMPF_EXPECTS(
             pinned_mr_ != PinnedMemoryResource::Disabled,
             "pinned memory resource is not available",
-            std::invalid_argument
+            std::runtime_error
         );
 
         auto pinned_host_buffer = std::make_unique<HostBuffer>(
