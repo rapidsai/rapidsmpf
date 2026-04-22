@@ -16,7 +16,8 @@
 
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/default_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/error.hpp>
@@ -54,12 +55,12 @@ rapidsmpf::PackedData make_payload(
     int metadata_value,
     int payload_value,
     rapidsmpf::MemoryType mem_type,
-    rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource& br
 ) {
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
+    auto const stream = br.stream_pool().get_stream();
     auto data = br.allocate(stream, br.reserve_or_fail(sizeof(int), mem_type));
     data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
         if (mem_type == rapidsmpf::MemoryType::DEVICE) {
@@ -104,14 +105,10 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
 class SparseAlltoallTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        stream = cudf::get_default_stream();
-        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
     }
 
-    rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
 TEST_F(SparseAlltoallTest, validate_constructor) {
@@ -182,9 +179,7 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
         for (int i = 0; i < 3; ++i) {
             exchange.insert(
                 dst,
-                make_payload(
-                    comm->rank() * 10 + i, comm->rank() * 100 + i, mem_type, stream, *br
-                )
+                make_payload(comm->rank() * 10 + i, comm->rank() * 100 + i, mem_type, *br)
             );
         }
     }
@@ -266,7 +261,6 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
                 comm->rank() * 10 + dst,
                 comm->rank() * 100 + dst,
                 rapidsmpf::MemoryType::DEVICE,
-                stream,
                 *br
             )
         );
@@ -276,7 +270,7 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
     if (!dsts.empty()) {
         EXPECT_THROW(
             exchange.insert(
-                dsts.front(), make_payload(1, 1, rapidsmpf::MemoryType::HOST, stream, *br)
+                dsts.front(), make_payload(1, 1, rapidsmpf::MemoryType::HOST, *br)
             ),
             std::logic_error
         );
@@ -367,7 +361,6 @@ TEST_F(SparseAlltoallTest, concurrent_insertions) {
                         sequence,
                         comm->rank() * total_messages + sequence,
                         rapidsmpf::MemoryType::HOST,
-                        stream,
                         *br
                     )
                 );
@@ -401,7 +394,7 @@ TEST_F(SparseAlltoallTest, invalid_usage) {
 
     EXPECT_THROW(
         exchange.insert(
-            comm->rank(), make_payload(1, 2, rapidsmpf::MemoryType::DEVICE, stream, *br)
+            comm->rank(), make_payload(1, 2, rapidsmpf::MemoryType::DEVICE, *br)
         ),
         std::logic_error
     );
@@ -431,7 +424,6 @@ TEST_F(SparseAlltoallTest, tag_reuse_after_wait) {
                     iteration,
                     comm->rank() * 1000 + iteration,
                     rapidsmpf::MemoryType::DEVICE,
-                    stream,
                     *br
                 )
             );
@@ -466,7 +458,6 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     100 + i,
                     comm->rank() * 1000 + 100 + i,
                     rapidsmpf::MemoryType::DEVICE,
-                    stream,
                     *br
                 )
             );
@@ -476,7 +467,6 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     200 + i,
                     comm->rank() * 1000 + 200 + i,
                     rapidsmpf::MemoryType::DEVICE,
-                    stream,
                     *br
                 )
             );
