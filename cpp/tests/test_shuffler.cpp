@@ -915,7 +915,7 @@ TEST(Shuffler, opid_reuse) {
     constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
-    auto br = std::make_unique<rapidsmpf::BufferResource>(&mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
     // On rank 0, wrap the device MR with a delayed version for the shuffler.
     std::unique_ptr<DelayedMemoryResource> delayed_mr;
@@ -923,7 +923,7 @@ TEST(Shuffler, opid_reuse) {
     rapidsmpf::BufferResource* shuffler_br = br.get();
     if (comm->rank() == 0) {
         delayed_mr =
-            std::make_unique<DelayedMemoryResource>(&mr, std::chrono::milliseconds(500));
+            std::make_unique<DelayedMemoryResource>(mr, std::chrono::milliseconds(500));
         delayed_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
         shuffler_br = delayed_br.get();
     }
@@ -1022,7 +1022,7 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
-    auto br = std::make_unique<rapidsmpf::BufferResource>(&mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
     // On rank 0, wrap the device MR with a delayed version for the shuffler.
     std::unique_ptr<DelayedMemoryResource> delayed_mr;
@@ -1030,7 +1030,7 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     rapidsmpf::BufferResource* shuffler_br = br.get();
     if (comm->rank() == 0) {
         delayed_mr =
-            std::make_unique<DelayedMemoryResource>(&mr, std::chrono::milliseconds(500));
+            std::make_unique<DelayedMemoryResource>(mr, std::chrono::milliseconds(500));
         delayed_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
         shuffler_br = delayed_br.get();
     }

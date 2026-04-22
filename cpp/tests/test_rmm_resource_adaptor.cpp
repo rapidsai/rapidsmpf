@@ -12,6 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
@@ -24,34 +26,87 @@
 using namespace rapidsmpf;
 
 template <typename ExceptionType>
-struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
-    throw_at_limit_resource(std::size_t limit) : limit{limit} {}
+struct throw_at_limit_resource_impl {
+    explicit throw_at_limit_resource_impl(std::size_t limit) : limit{limit} {}
 
-    void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override {
+    throw_at_limit_resource_impl(throw_at_limit_resource_impl const&) = delete;
+    throw_at_limit_resource_impl& operator=(throw_at_limit_resource_impl const&) = delete;
+    throw_at_limit_resource_impl(throw_at_limit_resource_impl&&) = delete;
+    throw_at_limit_resource_impl& operator=(throw_at_limit_resource_impl&&) = delete;
+
+    void* allocate(
+        cuda::stream_ref stream,
+        std::size_t bytes,
+        std::size_t /*alignment*/ = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
         if (bytes > limit) {
             throw ExceptionType{"foo"};
         }
         void* ptr{nullptr};
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream));
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream.get()));
         allocs.insert(ptr);
         return ptr;
     }
 
-    void do_deallocate(
-        void* ptr, std::size_t, rmm::cuda_stream_view stream
-    ) noexcept override {
-        RAPIDSMPF_CUDA_TRY_FATAL(cudaFreeAsync(ptr, stream.value()));
+    void deallocate(
+        cuda::stream_ref stream,
+        void* ptr,
+        std::size_t /*bytes*/,
+        std::size_t /*alignment*/ = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaFreeAsync(ptr, stream.get()));
         allocs.erase(ptr);
     }
 
-    [[nodiscard]] bool do_is_equal(
-        rmm::mr::device_memory_resource const& other
-    ) const noexcept override {
+    [[nodiscard]] bool operator==(
+        throw_at_limit_resource_impl const& other
+    ) const noexcept {
         return this == &other;
     }
 
-    const std::size_t limit;
+    void* allocate_sync(
+        std::size_t bytes, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        auto stream = cudaStream_t{nullptr};
+        auto ptr = allocate(cuda::stream_ref{stream}, bytes, alignment);
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaStreamSynchronize(stream));
+        return ptr;
+    }
+
+    void deallocate_sync(
+        void* ptr,
+        std::size_t bytes,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        auto stream = cudaStream_t{nullptr};
+        deallocate(cuda::stream_ref{stream}, ptr, bytes, alignment);
+        RAPIDSMPF_CUDA_TRY_FATAL(cudaStreamSynchronize(stream));
+    }
+
+    friend void get_property(
+        throw_at_limit_resource_impl const&, cuda::mr::device_accessible
+    ) noexcept {}
+
+    std::size_t limit;
     std::unordered_set<void*> allocs{};
+};
+
+template <typename ExceptionType>
+struct throw_at_limit_resource
+    : public cuda::mr::shared_resource<throw_at_limit_resource_impl<ExceptionType>> {
+    using impl_type = throw_at_limit_resource_impl<ExceptionType>;
+    using shared_base = cuda::mr::shared_resource<impl_type>;
+
+    explicit throw_at_limit_resource(std::size_t limit)
+        : shared_base(cuda::mr::make_shared_resource<impl_type>(limit)) {}
+
+    friend void get_property(
+        throw_at_limit_resource const&, cuda::mr::device_accessible
+    ) noexcept {}
+
+    [[nodiscard]] std::unordered_set<void*> const& allocs() const {
+        return this->get().allocs;
+    }
 };
 
 TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
@@ -62,21 +117,21 @@ TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
     EXPECT_EQ(mr.current_allocated(), 0);
 
     void* p1 = mr.allocate_sync(1_MiB);
-    EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{p1});
-    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_EQ(primary_mr.allocs(), std::unordered_set<void*>{p1});
+    EXPECT_TRUE(fallback_mr.allocs().empty());
     EXPECT_EQ(mr.current_allocated(), 1_MiB);
 
     mr.deallocate_sync(p1, 1_MiB);
-    EXPECT_TRUE(primary_mr.allocs.empty());
+    EXPECT_TRUE(primary_mr.allocs().empty());
     EXPECT_EQ(mr.current_allocated(), 0);
 
     void* p2 = mr.allocate_sync(2_MiB);
-    EXPECT_TRUE(primary_mr.allocs.empty());
-    EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{p2});
+    EXPECT_TRUE(primary_mr.allocs().empty());
+    EXPECT_EQ(fallback_mr.allocs(), std::unordered_set<void*>{p2});
     EXPECT_EQ(mr.current_allocated(), 2_MiB);
 
     mr.deallocate_sync(p2, 2_MiB);
-    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_TRUE(fallback_mr.allocs().empty());
     EXPECT_EQ(mr.current_allocated(), 0);
 }
 
@@ -86,8 +141,8 @@ TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
     void* ptr = mr.allocate_sync(1_MiB);
-    EXPECT_EQ(primary_mr.allocs.count(ptr), 1);
-    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_EQ(primary_mr.allocs().count(ptr), 1);
+    EXPECT_TRUE(fallback_mr.allocs().empty());
 
     mr.deallocate_sync(ptr, 1_MiB);
 }
@@ -96,7 +151,7 @@ TEST(RmmResourceAdaptor, NoFallbackProvidedThrowsOnOOM) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
     RmmResourceAdaptor mr{primary_mr};
 
-    EXPECT_THROW(mr.allocate_sync(8_MiB), rmm::out_of_memory);
+    EXPECT_THROW((void)mr.allocate_sync(8_MiB), rmm::out_of_memory);
 }
 
 TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
@@ -104,8 +159,8 @@ TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    EXPECT_THROW(mr.allocate_sync(2_MiB), std::logic_error);
-    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_THROW(std::ignore = mr.allocate_sync(2_MiB), std::logic_error);
+    EXPECT_TRUE(fallback_mr.allocs().empty());
 }
 
 TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
