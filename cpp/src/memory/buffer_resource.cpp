@@ -11,6 +11,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -43,6 +44,7 @@ BufferResource::BufferResource(
 )
     : device_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
+      host_mr_{rapidsmpf::HostMemoryResource{}},
       memory_available_{add_missing_availability_functions(
           std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
       )},
