@@ -56,6 +56,18 @@ class RmmResourceAdaptor
     ~RmmResourceAdaptor() = default;
 
     /**
+     * @brief Equality comparison.
+     *
+     * Two adaptors are equal if they share the same shared base.
+     *
+     * @param other The other adaptor to compare.
+     * @return True if the two adaptors share the same shared base.
+     */
+    [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
+        return static_cast<shared_base const&>(*this) == static_cast<shared_base const&>(other);
+    }
+
+    /**
      * @brief Get a reference to the primary upstream resource.
      *
      * @return Reference to the RMM memory resource.
@@ -69,8 +81,8 @@ class RmmResourceAdaptor
      *
      * @return Optional reference to the fallback RMM memory resource.
      */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_resource() const noexcept;
+    [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
+    ) const noexcept;
 
     /**
      * @brief Returns a copy of the main memory record.

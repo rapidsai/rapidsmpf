@@ -92,21 +92,11 @@ class RmmResourceAdaptorImpl {
     /**
      * @brief Equality comparison.
      *
-     * Two instances are equal if they hold equal primary and fallback resources.
-     *
      * @param other The other impl to compare.
-     * @return True if both primary and fallback resources compare equal.
+     * @return True if the two instances are the same.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptorImpl const& other) const noexcept {
-        if (this == &other)
-            return true;
-        // Manual fallback comparison to avoid CCCL 3.2 constraint recursion:
-        // optional::operator== triggers infinite concept checking when the wrapped
-        // type inherits from a CCCL resource_ref.
-        bool fallbacks_equal =
-            (fallback_mr_.has_value() == other.fallback_mr_.has_value())
-            && (!fallback_mr_.has_value() || (*fallback_mr_ == *other.fallback_mr_));
-        return primary_mr_ == other.primary_mr_ && fallbacks_equal;
+        return this == std::addressof(other);
     }
 
     /**
@@ -122,8 +112,8 @@ class RmmResourceAdaptorImpl {
      * @return Const reference to the optional fallback resource, or `std::nullopt` if
      * no fallback is configured.
      */
-    [[nodiscard]] std::optional<FallbackMR> const&
-    get_fallback_resource() const noexcept {
+    [[nodiscard]] std::optional<FallbackMR> const& get_fallback_resource(
+    ) const noexcept {
         return fallback_mr_;
     }
 
@@ -297,8 +287,7 @@ class RmmResourceAdaptorImpl {
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
     std::unordered_map<void*, std::thread::id> allocating_threads_;
 
-    rmm::cuda_stream sync_stream_{
-        rmm::cuda_stream::flags::non_blocking
+    rmm::cuda_stream sync_stream_{rmm::cuda_stream::flags::non_blocking
     };  ///< Custom stream for synchronous allocations and deallocations.
 };
 
