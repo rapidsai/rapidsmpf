@@ -88,6 +88,7 @@ target_sources(
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
+          test_sparse_alltoall.cpp
           test_shuffler_many_streams.cpp
           test_shuffler.cpp
           test_spill_manager.cpp
@@ -114,6 +115,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_channel_metadata.cpp
             streaming/test_read_parquet.cpp
             streaming/test_shuffler.cpp
+            streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
             streaming/test_table_chunk.cpp
   )

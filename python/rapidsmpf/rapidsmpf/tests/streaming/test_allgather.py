@@ -142,6 +142,9 @@ async def allgather_and_concat(
 def test_allgather_object_interface(
     context: Context, comm: Communicator, py_executor: ThreadPoolExecutor
 ) -> None:
+    if comm.nranks != 1:
+        pytest.skip("Only support single-rank runs")
+
     ch_in: Channel[PackedDataChunk] = context.create_channel()
     ch_out: Channel[TableChunk] = context.create_channel()
     actors: list[CppActor | Awaitable[None]] = []

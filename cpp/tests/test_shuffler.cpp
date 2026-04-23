@@ -47,6 +47,31 @@ TEST(ReceivedChunks, spill_skips_control_messages) {
     EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), 0UL);
 }
 
+TEST(ReceivedChunks, spill_respects_amount) {
+    auto mr = cudf::get_current_device_resource_ref();
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto stream = cudf::get_default_stream();
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    constexpr std::size_t chunk_size = 100;
+
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < 2; ++pid) {
+        auto metadata =
+            std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+        auto res = br->reserve_or_fail(chunk_size, rapidsmpf::MemoryType::DEVICE);
+        auto data = br->allocate(chunk_size, stream, res);
+        received.insert(
+            rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+                0, pid, rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+            )
+        );
+    }
+
+    // Two partitions, one 100-byte chunk each. spill() must stop after the first
+    // partition satisfies the request; the outer loop must not continue into partition 1.
+    EXPECT_EQ(received.spill(br.get(), chunk_size), chunk_size);
+}
+
 TEST(MetadataMessage, round_trip) {
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
