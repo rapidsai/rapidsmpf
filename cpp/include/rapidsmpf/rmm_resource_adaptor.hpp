@@ -58,13 +58,13 @@ class RmmResourceAdaptor
     /**
      * @brief Equality comparison.
      *
-     * Two adaptors are equal if they share the same shared base.
+     * Two adaptors are equal if and only if they share the same underlying shared state.
      *
      * @param other The other adaptor to compare.
-     * @return True if the two adaptors share the same shared base.
+     * @return True if both adaptors refer to the same shared resource instance.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
-        return static_cast<shared_base const&>(*this) == static_cast<shared_base const&>(other);
+        return get() == other.get();
     }
 
     /**

@@ -482,10 +482,10 @@ TEST(RmmResourceAdaptor, EqualityWithCudaMemoryResource) {
     RmmResourceAdaptor adaptor_a{cuda_mr};
     RmmResourceAdaptor adaptor_b{cuda_mr};
 
-    // Both wrap equivalent cuda_memory_resource instances -> equal.
-    EXPECT_EQ(adaptor_a, adaptor_b);
+    // Both wrap same resouce but have difference shared states
+    EXPECT_NE(adaptor_a, adaptor_b);
 
-    // A copy shares the same control block -> still equal.
+    // A copy shares the same control block -> equal.
     RmmResourceAdaptor adaptor_a_copy = adaptor_a;
     EXPECT_EQ(adaptor_a, adaptor_a_copy);
 }
