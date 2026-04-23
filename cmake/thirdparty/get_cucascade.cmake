@@ -26,14 +26,13 @@ function(find_and_configure_cucascade)
     set_target_properties(kvikio::kvikio PROPERTIES IMPORTED_GLOBAL TRUE)
   endif()
 
-  # We pin to a commit of cuCascade from https://github.com/NVIDIA/cuCascade/pull/98 until the RMM
-  # CCCL memory resource migration is complete.
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade
     CPM_ARGS
     GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
-    GIT_TAG e2fa1cf30ca8ab622b86952d32a80eb69a0a6851
+    GIT_TAG main
+    GIT_SHALLOW TRUE
     OPTIONS "CUCASCADE_BUILD_TESTS OFF"
             "CUCASCADE_BUILD_BENCHMARKS OFF"
             "CUCASCADE_BUILD_SHARED_LIBS OFF"
