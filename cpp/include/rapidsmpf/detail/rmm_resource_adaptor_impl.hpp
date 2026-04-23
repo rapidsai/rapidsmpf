@@ -289,7 +289,7 @@ class RmmResourceAdaptorImpl {
 
     rmm::cuda_stream sync_stream_{
         rmm::cuda_stream::flags::non_blocking
-    };  ///< Custom stream for synchronous allocations and deallocations.
+    };  ///< Stream for synchronous allocations and deallocations.
 };
 
 }  // namespace rapidsmpf::detail
