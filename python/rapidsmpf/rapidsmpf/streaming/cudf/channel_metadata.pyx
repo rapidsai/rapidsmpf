@@ -206,7 +206,7 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
         )
 
 
-cdef object _from_spec(cpp_PartitioningSpec& spec, object owner):
+cdef object _from_spec(cpp_PartitioningSpec& spec):
     """Convert PartitioningSpec (by reference) to a Python object."""
     if spec.type == cpp_PartitioningSpec.cpp_Type.NONE:
         return None
@@ -234,48 +234,28 @@ cdef class Partitioning:
         or 'inherit'.
     """
 
-    def __cinit__(self):
-        self._ptr = NULL
-        self._owner = None
-
     def __init__(self, inter_rank=None, local=None):
-        self._handle = make_unique[cpp_Partitioning]()
-        _apply_spec(deref(self._handle).inter_rank, inter_rank)
-        _apply_spec(deref(self._handle).local, local)
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
+        _apply_spec(self._data.inter_rank, inter_rank)
+        _apply_spec(self._data.local, local)
 
     @staticmethod
-    cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle):
+    cdef Partitioning from_cpp(cpp_Partitioning data):
         cdef Partitioning ret = Partitioning.__new__(Partitioning)
-        ret._handle = move(handle)
+        ret._data = move(data)
         return ret
-
-    @staticmethod
-    cdef Partitioning view_of(cpp_Partitioning* ptr, object owner):
-        """Return a non-owning Partitioning backed by *ptr; owner kept alive."""
-        cdef Partitioning ret = Partitioning.__new__(Partitioning)
-        ret._ptr = ptr
-        ret._owner = owner
-        return ret
-
-    cdef cpp_Partitioning* _get(self):
-        return self._ptr if self._ptr != NULL else self._handle.get()
 
     @property
     def inter_rank(self):
-        return _from_spec(self._get().inter_rank, self)
+        return _from_spec(self._data.inter_rank)
 
     @property
     def local(self):
-        return _from_spec(self._get().local, self)
+        return _from_spec(self._data.local)
 
     def __eq__(self, other):
         if not isinstance(other, Partitioning):
             return NotImplemented
-        return deref(self._get()) == deref((<Partitioning>other)._get())
+        return self._data == (<Partitioning>other)._data
 
     def __repr__(self):
         return f"Partitioning(inter_rank={self.inter_rank!r}, local={self.local!r})"
@@ -305,14 +285,13 @@ cdef class ChannelMetadata:
         if local_count < 0:
             raise ValueError(f"local_count must be non-negative, got {local_count}")
 
-        cdef cpp_Partitioning empty_part
         if partitioning is not None:
             self._handle = make_unique[cpp_ChannelMetadata](
-                local_count, deref((<Partitioning>partitioning)._get()), duplicated
+                local_count, (<Partitioning>partitioning)._data, duplicated
             )
         else:
             self._handle = make_unique[cpp_ChannelMetadata](
-                local_count, empty_part, duplicated
+                local_count, cpp_Partitioning(), duplicated
             )
 
     def __dealloc__(self):
@@ -354,8 +333,7 @@ cdef class ChannelMetadata:
     def partitioning(self) -> Partitioning:
         if not self._handle:
             raise ValueError("ChannelMetadata is uninitialized, has it been released?")
-        # Non-owning view backed by this object (keeps self alive).
-        return Partitioning.view_of(&self._handle.get().partitioning, self)
+        return Partitioning.from_cpp(self._handle.get().partitioning)
 
     @property
     def duplicated(self) -> bool:

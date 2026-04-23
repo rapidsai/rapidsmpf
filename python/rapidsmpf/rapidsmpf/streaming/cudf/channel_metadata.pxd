@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int32_t, int64_t, uint64_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
@@ -66,6 +66,8 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
     cdef cppclass cpp_Partitioning "rapidsmpf::streaming::Partitioning":
         cpp_PartitioningSpec inter_rank
         cpp_PartitioningSpec local
+        cpp_Partitioning() except +
+        cpp_Partitioning(const cpp_Partitioning&) except +
         bool_t operator==(const cpp_Partitioning&)
 
     cdef cppclass cpp_ChannelMetadata "rapidsmpf::streaming::ChannelMetadata":
@@ -114,19 +116,10 @@ cdef class OrderScheme:
 
 
 cdef class Partitioning:
-    # When ``_owner`` is None, ``_ptr == _handle.get()`` (Python-owned partitioning).
-    # Otherwise ``_ptr`` aliases storage inside ``_owner`` (e.g. ``ChannelMetadata``).
-    cdef unique_ptr[cpp_Partitioning] _handle
-    cdef cpp_Partitioning* _ptr
-    cdef object _owner
+    cdef cpp_Partitioning _data
 
     @staticmethod
-    cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)
-
-    @staticmethod
-    cdef Partitioning view_of(cpp_Partitioning* ptr, object owner)
-
-    cdef cpp_Partitioning* _get(self)
+    cdef Partitioning from_cpp(cpp_Partitioning data)
 
 
 cdef class ChannelMetadata:
