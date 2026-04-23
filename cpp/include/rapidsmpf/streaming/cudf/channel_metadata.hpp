@@ -236,68 +236,6 @@ struct ChannelMetadata {
 );
 
 /**
- * @brief Set `spec` to `PartitioningSpec::none()`.
- * @param spec Target spec.
- */
-void partitioning_spec_set_none(PartitioningSpec& spec);
-
-/**
- * @brief Set `spec` to `PartitioningSpec::inherit()`.
- * @param spec Target spec.
- */
-void partitioning_spec_set_inherit(PartitioningSpec& spec);
-
-/**
- * @brief Set `spec` to hash partitioning, moving `hash_scheme` into place.
- * @param spec Target spec.
- * @param hash_scheme Hash scheme to move into `spec`.
- */
-void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme);
-
-/**
- * @brief Set `spec` to ORDER partitioning, copying `src`.
- * @param spec Target spec.
- * @param src Source order scheme (copied; shared_ptr boundaries are ref-counted).
- */
-void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme const& src);
-
-/**
- * @brief Row count of boundary table from `shape()` (works even when not
- * device-available).
- * @param scheme Scheme whose `boundaries` must be non-null.
- * @return Number of boundary rows.
- */
-[[nodiscard]] cudf::size_type order_scheme_boundary_row_count(OrderScheme const* scheme);
-
-/**
- * @brief Device `table_view` of boundary rows; `boundaries` must be device-resident.
- * @param scheme Scheme with non-null, available `boundaries`.
- * @return View over boundary columns.
- */
-[[nodiscard]] cudf::table_view order_scheme_boundaries_table_view(
-    OrderScheme const* scheme
-);
-
-/**
- * @brief CUDA stream for boundary `TableChunk`; `boundaries` must be device-resident.
- * @param scheme Scheme with non-null, available `boundaries`.
- * @return Raw stream handle for the boundary table.
- */
-[[nodiscard]] cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme);
-
-/**
- * @brief Construct a heap-allocated `ChannelMetadata` from a partitioning reference.
- *
- * @param local_count Local chunk count for the new metadata.
- * @param partitioning Partitioning to copy (shared_ptr boundaries are ref-counted).
- * @param duplicated Whether data is duplicated across workers.
- * @return Newly allocated `ChannelMetadata`.
- */
-[[nodiscard]] std::unique_ptr<ChannelMetadata> make_channel_metadata(
-    std::uint64_t local_count, Partitioning const& partitioning, bool duplicated
-);
-
-/**
  * @brief Consume a `Message` and return its `ChannelMetadata` payload.
  *
  * @param msg Message holding `ChannelMetadata`; consumed / emptied by `release`.

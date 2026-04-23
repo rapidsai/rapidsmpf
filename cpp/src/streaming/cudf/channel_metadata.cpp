@@ -9,7 +9,6 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
 namespace rapidsmpf::streaming {
@@ -36,51 +35,6 @@ OrderScheme make_order_scheme(
     };
 }
 
-void partitioning_spec_set_none(PartitioningSpec& spec) {
-    spec = PartitioningSpec::none();
-}
-
-void partitioning_spec_set_inherit(PartitioningSpec& spec) {
-    spec = PartitioningSpec::inherit();
-}
-
-void partitioning_spec_set_hash(PartitioningSpec& spec, HashScheme hash_scheme) {
-    spec = PartitioningSpec::from_hash(std::move(hash_scheme));
-}
-
-void partitioning_spec_set_order(PartitioningSpec& spec, OrderScheme const& src) {
-    spec = PartitioningSpec::from_order(src);
-}
-
-cudf::size_type order_scheme_boundary_row_count(OrderScheme const* scheme) {
-    RAPIDSMPF_EXPECTS(
-        scheme != nullptr && scheme->boundaries != nullptr,
-        "order_scheme_boundary_row_count: boundaries must be set",
-        std::logic_error
-    );
-    return scheme->boundaries->shape().first;
-}
-
-cudf::table_view order_scheme_boundaries_table_view(OrderScheme const* scheme) {
-    RAPIDSMPF_EXPECTS(
-        scheme != nullptr && scheme->boundaries != nullptr
-            && scheme->boundaries->is_available(),
-        "ORDER boundaries must be device-resident (metadata does not unspill them)",
-        std::runtime_error
-    );
-    return scheme->boundaries->table_view();
-}
-
-cudaStream_t order_scheme_boundaries_cuda_stream(OrderScheme const* scheme) {
-    RAPIDSMPF_EXPECTS(
-        scheme != nullptr && scheme->boundaries != nullptr
-            && scheme->boundaries->is_available(),
-        "ORDER boundaries must be device-resident (metadata does not unspill them)",
-        std::runtime_error
-    );
-    return scheme->boundaries->stream().value();
-}
-
 bool OrderScheme::operator==(OrderScheme const& other) const {
     if (keys != other.keys || strict_boundaries != other.strict_boundaries) {
         return false;
@@ -95,12 +49,6 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
     }
     // Both have boundaries: shape only (see doc in header).
     return boundaries->shape() == other.boundaries->shape();
-}
-
-std::unique_ptr<ChannelMetadata> make_channel_metadata(
-    std::uint64_t local_count, Partitioning const& partitioning, bool duplicated
-) {
-    return std::make_unique<ChannelMetadata>(local_count, partitioning, duplicated);
 }
 
 std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg) {

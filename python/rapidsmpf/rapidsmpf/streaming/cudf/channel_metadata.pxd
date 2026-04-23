@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
+from libcpp.utility cimport pair
 from libcpp.vector cimport vector
-from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
 from rapidsmpf.streaming.core.message cimport cpp_Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
@@ -83,10 +83,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         uint64_t, unique_ptr[cpp_ChannelMetadata]
     ) except +
 
-    unique_ptr[cpp_ChannelMetadata] make_channel_metadata(
-        uint64_t, cpp_Partitioning&, bool_t
-    ) except +
-
     unique_ptr[cpp_ChannelMetadata] channel_metadata_from_message(
         cpp_Message
     ) except +
@@ -94,17 +90,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
     cpp_OrderScheme make_order_scheme(
         vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
     ) except +
-
-    void partitioning_spec_set_none(cpp_PartitioningSpec&) noexcept
-    void partitioning_spec_set_inherit(cpp_PartitioningSpec&) noexcept
-    void partitioning_spec_set_hash(cpp_PartitioningSpec&, cpp_HashScheme) noexcept
-    void partitioning_spec_set_order(
-        cpp_PartitioningSpec&, const cpp_OrderScheme&
-    ) except +
-
-    int order_scheme_boundary_row_count(cpp_OrderScheme*) except +
-    cpp_table_view order_scheme_boundaries_table_view(cpp_OrderScheme*) except +
-    cudaStream_t order_scheme_boundaries_cuda_stream(cpp_OrderScheme*) except +
 
 
 cdef class HashScheme:

@@ -289,3 +289,16 @@ TEST_F(StreamingChannelMetadata, MessageRoundTripWithOrderSchemeStrictBoundary) 
     auto released = msg_m.release<ChannelMetadata>();
     EXPECT_TRUE(released.partitioning.inter_rank.order->strict_boundaries);
 }
+
+TEST_F(StreamingChannelMetadata, OrderSchemeCopySharesBoundaries) {
+    // Copying an OrderScheme shares the shared_ptr boundary object (not a deep copy).
+    OrderScheme original{make_order_scheme_two_key(false)};
+    OrderScheme copy = original;
+    EXPECT_EQ(copy, original);
+    EXPECT_EQ(
+        copy.boundaries, original.boundaries
+    );  // same shared_ptr (both nullptr here)
+    // Keys vector is independently owned; mutating the copy does not affect original.
+    copy.keys.clear();
+    EXPECT_FALSE(original.keys.empty());
+}

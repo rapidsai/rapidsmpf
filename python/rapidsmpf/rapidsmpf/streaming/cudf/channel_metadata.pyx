@@ -159,7 +159,7 @@ cdef class OrderScheme:
         """Number of boundary rows, or ``None`` if no boundaries."""
         if self._storage.boundaries.get() == NULL:
             return None
-        return order_scheme_boundary_row_count(&self._storage)
+        return self._storage.boundaries.get().shape().first
 
     def get_boundaries_table(self):
         """Return boundary rows as ``pylibcudf.Table``, or ``None``.
@@ -168,8 +168,10 @@ cdef class OrderScheme:
         """
         if self._storage.boundaries.get() == NULL:
             return None
-        cdef cpp_table_view view = order_scheme_boundaries_table_view(&self._storage)
-        cdef cudaStream_t stream = order_scheme_boundaries_cuda_stream(&self._storage)
+        if not self._storage.boundaries.get().is_available():
+            raise RuntimeError("ORDER boundaries must be device-resident")
+        cdef cpp_table_view view = self._storage.boundaries.get().table_view()
+        cdef cudaStream_t stream = self._storage.boundaries.get().stream().value()
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )
@@ -188,15 +190,15 @@ cdef class OrderScheme:
 
 
 cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
-    """Set *spec* in-place from a Python object (avoids copying move-only types)."""
+    """Set *spec* in-place from a Python value."""
     if obj is None:
-        partitioning_spec_set_none(spec)
+        spec = cpp_PartitioningSpec.none()
     elif obj == "inherit":
-        partitioning_spec_set_inherit(spec)
+        spec = cpp_PartitioningSpec.inherit()
     elif isinstance(obj, HashScheme):
-        partitioning_spec_set_hash(spec, (<HashScheme>obj)._scheme)
+        spec = cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        partitioning_spec_set_order(spec, (<OrderScheme>obj)._storage)
+        spec = cpp_PartitioningSpec.from_order((<OrderScheme>obj)._storage)
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -305,11 +307,13 @@ cdef class ChannelMetadata:
 
         cdef cpp_Partitioning empty_part
         if partitioning is not None:
-            self._handle = make_channel_metadata(
+            self._handle = make_unique[cpp_ChannelMetadata](
                 local_count, deref((<Partitioning>partitioning)._get()), duplicated
             )
         else:
-            self._handle = make_channel_metadata(local_count, empty_part, duplicated)
+            self._handle = make_unique[cpp_ChannelMetadata](
+                local_count, empty_part, duplicated
+            )
 
     def __dealloc__(self):
         with nogil:
