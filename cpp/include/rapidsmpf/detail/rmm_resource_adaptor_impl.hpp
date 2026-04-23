@@ -112,8 +112,8 @@ class RmmResourceAdaptorImpl {
      * @return Const reference to the optional fallback resource, or `std::nullopt` if
      * no fallback is configured.
      */
-    [[nodiscard]] std::optional<FallbackMR> const& get_fallback_resource(
-    ) const noexcept {
+    [[nodiscard]] std::optional<FallbackMR> const&
+    get_fallback_resource() const noexcept {
         return fallback_mr_;
     }
 
@@ -287,7 +287,8 @@ class RmmResourceAdaptorImpl {
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
     std::unordered_map<void*, std::thread::id> allocating_threads_;
 
-    rmm::cuda_stream sync_stream_{rmm::cuda_stream::flags::non_blocking
+    rmm::cuda_stream sync_stream_{
+        rmm::cuda_stream::flags::non_blocking
     };  ///< Custom stream for synchronous allocations and deallocations.
 };
 

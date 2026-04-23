@@ -81,8 +81,8 @@ class RmmResourceAdaptor
      *
      * @return Optional reference to the fallback RMM memory resource.
      */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
-    ) const noexcept;
+    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
+    get_fallback_resource() const noexcept;
 
     /**
      * @brief Returns a copy of the main memory record.
