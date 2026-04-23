@@ -93,7 +93,7 @@ def test_list_stat_names() -> None:
 
 
 @pytest.mark.parametrize("enable", [True, False])
-def test_to_dict_empty(enable: bool) -> None:
+def test_to_dict_empty(*, enable: bool) -> None:
     stats = Statistics(enable=enable)
     assert stats.to_dict() == {}
 
@@ -142,7 +142,7 @@ def test_write_json_string() -> None:
 
 
 @pytest.mark.parametrize("enable", [True, False])
-def test_write_json_string_empty(enable: bool) -> None:
+def test_write_json_string_empty(*, enable: bool) -> None:
     stats = Statistics(enable=enable)
     data = json.loads(stats.write_json_string())
     assert data == {"statistics": {}}
