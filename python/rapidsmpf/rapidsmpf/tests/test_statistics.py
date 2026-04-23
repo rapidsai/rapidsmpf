@@ -92,6 +92,31 @@ def test_list_stat_names() -> None:
     assert stats.list_stat_names() == ["stat1", "stat2"]
 
 
+@pytest.mark.parametrize("enable", [True, False])
+def test_to_dict_empty(*, enable: bool) -> None:
+    stats = Statistics(enable=enable)
+    assert stats.to_dict() == {}
+
+
+def test_to_dict() -> None:
+    stats = Statistics(enable=True)
+    stats.add_stat("stat1", 1.0)
+    stats.add_stat("stat1", 4.0)
+    stats.add_stat("stat2", 2.0)
+
+    d = stats.to_dict()
+    assert d == {
+        "stat1": {"count": 2, "value": 5.0, "max": 4.0},
+        "stat2": {"count": 1, "value": 2.0, "max": 2.0},
+    }
+
+    # Returned dict is detached: mutating it does not affect the Statistics.
+    d["stat1"]["count"] = 99
+    d["new"] = {"count": 0, "value": 0.0, "max": 0.0}
+    assert stats.get_stat("stat1") == {"count": 2, "value": 5.0, "max": 4.0}
+    assert "new" not in stats.list_stat_names()
+
+
 def test_clear() -> None:
     stats = Statistics(enable=True)
     stats.add_stat("stat1", 10.0)
@@ -114,6 +139,13 @@ def test_write_json_string() -> None:
     assert data["statistics"]["foo"]["value"] == 15.0
     assert data["statistics"]["foo"]["max"] == 10.0
     assert "memory_records" not in data
+
+
+@pytest.mark.parametrize("enable", [True, False])
+def test_write_json_string_empty(*, enable: bool) -> None:
+    stats = Statistics(enable=enable)
+    data = json.loads(stats.write_json_string())
+    assert data == {"statistics": {}}
 
 
 def test_write_json_string_matches_file(tmp_path: pathlib.Path) -> None:

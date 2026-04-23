@@ -196,6 +196,9 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     py_executor: ThreadPoolExecutor,
     num_partitions: int,
 ) -> None:
+    if comm.nranks != 1:
+        pytest.skip("Only support single-rank runs")
+
     actors: list[CppActor | Awaitable[None]] = []
 
     num_rows = 200
@@ -239,6 +242,8 @@ def test_shuffler_object_interface(
     comm: Communicator,
     py_executor: ThreadPoolExecutor,
 ) -> None:
+    if comm.nranks != 1:
+        pytest.skip("Only support single-rank runs")
     actors: list[CppActor | Awaitable[None]] = []
 
     num_partitions = 5
