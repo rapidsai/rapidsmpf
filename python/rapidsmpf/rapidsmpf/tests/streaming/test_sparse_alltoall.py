@@ -40,7 +40,7 @@ def test_sparse_alltoall_non_participating_ranks(
     context: Context,
     comm: Communicator,
 ) -> None:
-    if comm.nranks == 0:
+    if comm.nranks < 2:
         pytest.skip("Need at least two ranks")
     if comm.rank == 0:
         srcs = []
