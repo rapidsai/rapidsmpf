@@ -203,6 +203,17 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
+TEST(PinnedResource, equality) {
+    auto mr1 = rapidsmpf::PinnedMemoryResource::make_if_available();
+    if (mr1 == rapidsmpf::PinnedMemoryResource::Disabled) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    rapidsmpf::PinnedMemoryResource mr2 = *mr1;
+    EXPECT_EQ(*mr1, mr2);
+    auto mr3 = rapidsmpf::PinnedMemoryResource::make_if_available();
+    EXPECT_NE(mr1, mr3);
+}
+
 namespace {
 
 /// Discover the actual pool size the driver creates when a small max is requested.

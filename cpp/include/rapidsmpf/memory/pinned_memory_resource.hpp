@@ -163,6 +163,16 @@ class PinnedMemoryResource final
     }
 
     /**
+     * @brief Equality comparison.
+     *
+     * @param other The other resource to compare.
+     * @return True if the two resources share the same underlying shared state.
+     */
+    [[nodiscard]] bool operator==(PinnedMemoryResource const& other) const noexcept {
+        return get() == other.get();
+    }
+
+    /**
      * @brief Returns the total number of currently allocated bytes.
      *
      * @return The total number of currently allocated bytes.
