@@ -1,6 +1,6 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
@@ -68,7 +68,7 @@ struct OrderKey {
  *
  * `strict_boundaries`: when true, every row in a chunk belongs to a single partition's
  * half-open key range (partition keys do not straddle chunk interiors). When false,
- * a chunk may contain keys spanning multiple partitions (e.g. before a shuffle).
+ * a chunk may contain keys spanning multiple partitions.
  */
 struct OrderScheme {
     std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
@@ -77,12 +77,10 @@ struct OrderScheme {
     bool strict_boundaries{false};
 
     /**
-     * @brief Shallow metadata equality (not semantic boundary value equality).
+     * @brief Shallow metadata equality without comparing boundary values.
      *
      * Returns true when `keys` and `strict_boundaries` match, and boundary tables
-     * are consistent in the weak sense: both absent, or both present with the
-     * same shape from `TableChunk::shape()` (not `table_view()`, which requires an
-     * available device table).
+     * have the same shape.
      * Cell values inside `boundaries` are intentionally not compared (that would
      * require a device comparison API with stream and memory resource). Do not
      * use `operator==` to assert that two schemes have identical range boundaries.
