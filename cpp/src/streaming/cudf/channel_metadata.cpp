@@ -56,7 +56,7 @@ Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadat
         sequence_number,
         std::move(m),
         {},
-        [](Message const& msg, MemoryReservation& /*reservation*/) -> Message {
+        [](Message const& msg, MemoryReservation& /* reservation */) -> Message {
             auto copy = std::make_unique<ChannelMetadata>(msg.get<ChannelMetadata>());
             return Message{msg.sequence_number(), std::move(copy), {}, msg.copy_cb()};
         }
