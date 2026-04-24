@@ -46,7 +46,6 @@ PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
-    // boundaries is always non-null (enforced by constructor).
     return keys == other.keys && strict_boundaries == other.strict_boundaries
            && boundaries->shape() == other.boundaries->shape();
 }
@@ -56,7 +55,7 @@ Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadat
         sequence_number,
         std::move(m),
         {},
-        [](Message const& msg, MemoryReservation& /*reservation*/) -> Message {
+        [](Message const& msg, MemoryReservation& /* reservation */) -> Message {
             auto copy = std::make_unique<ChannelMetadata>(msg.get<ChannelMetadata>());
             return Message{msg.sequence_number(), std::move(copy), {}, msg.copy_cb()};
         }
