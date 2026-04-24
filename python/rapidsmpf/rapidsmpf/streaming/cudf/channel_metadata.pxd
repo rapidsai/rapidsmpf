@@ -36,6 +36,8 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         shared_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundaries
         bool_t operator==(const cpp_OrderScheme&)
+        cpp_OrderScheme replace_keys(vector[cpp_OrderKey]) except +
+        bool_t boundaries_aligned_with(const cpp_OrderScheme&) except +
 
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":

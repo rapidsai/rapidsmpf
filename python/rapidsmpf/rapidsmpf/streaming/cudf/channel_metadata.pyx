@@ -2,17 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Channel metadata types for streaming pipelines."""
 
-from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
 from libcpp.memory cimport make_shared, make_unique, shared_ptr, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
-from pylibcudf.table cimport Table
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
@@ -153,21 +149,28 @@ cdef class OrderScheme:
 
     @property
     def num_boundaries(self) -> int:
-        """Number of boundary rows."""
+        """Number of boundary rows (N-1 for N partitions)."""
         return self._handle.get().boundaries.get().shape().first
 
-    def get_boundaries_table(self):
-        """Return boundary rows as a ``pylibcudf.Table``.
+    def replace_keys(self, object new_keys) -> OrderScheme:
+        """Return a new ``OrderScheme`` with updated key column indices."""
+        cdef vector[cpp_OrderKey] cpp_keys
+        for key in new_keys:
+            if not isinstance(key, OrderKey):
+                raise TypeError(
+                    f"keys must contain OrderKey objects, got {type(key).__name__}"
+                )
+            cpp_keys.push_back((<OrderKey>key)._key)
+        return OrderScheme.from_cpp(self._handle.get().replace_keys(move(cpp_keys)))
 
-        Raises if ``boundaries`` is not device-resident.
+    def boundaries_aligned_with(self, OrderScheme other not None) -> bool:
+        """True when ``self`` and ``other`` share the same boundary values.
+
+        Checks ``strict_boundaries`` and boundary shape/values only;
+        key column indices and sort directions are ignored so schemes that
+        refer to different column positions can still be compared.
         """
-        if not self._handle.get().boundaries.get().is_available():
-            raise RuntimeError("ORDER boundaries must be device-resident")
-        cdef cpp_table_view view = self._handle.get().boundaries.get().table_view()
-        cdef cudaStream_t stream = self._handle.get().boundaries.get().stream().value()
-        return Table.from_table_view_of_arbitrary(
-            view, owner=self, stream=Stream._from_cudaStream_t(stream)
-        )
+        return self._handle.get().boundaries_aligned_with(deref(other._handle))
 
     def __eq__(self, other):
         if not isinstance(other, OrderScheme):
