@@ -5,7 +5,7 @@
 from cuda.bindings.cyruntime cimport cudaStream_t
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_unique, unique_ptr
+from libcpp.memory cimport make_shared, make_unique, shared_ptr, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
@@ -117,12 +117,11 @@ cdef class OrderScheme:
     def __init__(
         self,
         object keys,
-        TableChunk boundaries = None,
+        TableChunk boundaries not None,
         *,
         bint strict_boundaries = False,
     ):
         cdef vector[cpp_OrderKey] cpp_keys
-        cdef unique_ptr[cpp_TableChunk] bd_ptr
         for key in keys:
             if not isinstance(key, OrderKey):
                 raise TypeError(
@@ -131,47 +130,41 @@ cdef class OrderScheme:
             cpp_keys.push_back((<OrderKey>key)._key)
         if cpp_keys.empty():
             raise ValueError("OrderScheme: keys must not be empty")
-        if boundaries is not None:
-            bd_ptr = move(boundaries.release_handle())
-        self._storage = move(
-            _make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundaries)
+        self._handle = _make_order_scheme(
+            move(cpp_keys), move(boundaries.release_handle()), strict_boundaries
         )
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
-        ret._storage = move(scheme)
+        ret._handle = make_shared[cpp_OrderScheme](move(scheme))
         return ret
 
     @property
     def keys(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._storage.keys.size()
-        return tuple(OrderKey.from_cpp(self._storage.keys[i]) for i in range(n))
+        cdef int n = <int>self._handle.get().keys.size()
+        return tuple(OrderKey.from_cpp(self._handle.get().keys[i]) for i in range(n))
 
     @property
     def strict_boundaries(self) -> bool:
         """Same semantics as the C++ ``OrderScheme::strict_boundaries`` field."""
-        return self._storage.strict_boundaries
+        return self._handle.get().strict_boundaries
 
     @property
-    def num_boundaries(self):
-        """Number of boundary rows, or ``None`` if no boundaries."""
-        if self._storage.boundaries.get() == NULL:
-            return None
-        return self._storage.boundaries.get().shape().first
+    def num_boundaries(self) -> int:
+        """Number of boundary rows."""
+        return self._handle.get().boundaries.get().shape().first
 
     def get_boundaries_table(self):
-        """Return boundary rows as ``pylibcudf.Table``, or ``None``.
+        """Return boundary rows as a ``pylibcudf.Table``.
 
-        Raises if ``boundaries`` is set but not device-resident.
+        Raises if ``boundaries`` is not device-resident.
         """
-        if self._storage.boundaries.get() == NULL:
-            return None
-        if not self._storage.boundaries.get().is_available():
+        if not self._handle.get().boundaries.get().is_available():
             raise RuntimeError("ORDER boundaries must be device-resident")
-        cdef cpp_table_view view = self._storage.boundaries.get().table_view()
-        cdef cudaStream_t stream = self._storage.boundaries.get().stream().value()
+        cdef cpp_table_view view = self._handle.get().boundaries.get().table_view()
+        cdef cudaStream_t stream = self._handle.get().boundaries.get().stream().value()
         return Table.from_table_view_of_arbitrary(
             view, owner=self, stream=Stream._from_cudaStream_t(stream)
         )
@@ -179,12 +172,11 @@ cdef class OrderScheme:
     def __eq__(self, other):
         if not isinstance(other, OrderScheme):
             return NotImplemented
-        return self._storage == (<OrderScheme>other)._storage
+        return deref(self._handle) == deref((<OrderScheme>other)._handle)
 
     def __repr__(self):
-        has_b = self._storage.boundaries.get() != NULL
         return (
-            f"OrderScheme({self.keys!r}, has_boundaries={has_b}, "
+            f"OrderScheme({self.keys!r}, "
             f"strict_boundaries={self.strict_boundaries})"
         )
 
@@ -198,7 +190,7 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
     elif isinstance(obj, HashScheme):
         spec = cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        spec = cpp_PartitioningSpec.from_order((<OrderScheme>obj)._storage)
+        spec = cpp_PartitioningSpec.from_order(deref((<OrderScheme>obj)._handle))
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -215,7 +207,7 @@ cdef object _from_spec(cpp_PartitioningSpec& spec):
     elif spec.type == cpp_PartitioningSpec.cpp_Type.HASH:
         return HashScheme.from_cpp(deref(spec.hash))
     elif spec.type == cpp_PartitioningSpec.cpp_Type.ORDER:
-        return OrderScheme.from_cpp(deref(spec.order))
+        return OrderScheme.from_cpp(deref(spec.order))  # copies out of optional
     else:
         raise ValueError("Unknown PartitioningSpec.Type")
 
@@ -266,14 +258,15 @@ cdef extern from * nogil:
     #include <memory>
     #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
-    static rapidsmpf::streaming::OrderScheme _make_order_scheme(
+    static std::shared_ptr<rapidsmpf::streaming::OrderScheme>
+    _make_order_scheme(
         std::vector<rapidsmpf::streaming::OrderKey> keys,
         std::unique_ptr<rapidsmpf::streaming::TableChunk> boundaries,
         bool strict_boundaries
     ) {
-        return rapidsmpf::streaming::OrderScheme{
+        return std::make_shared<rapidsmpf::streaming::OrderScheme>(
             std::move(keys), std::move(boundaries), strict_boundaries
-        };
+        );
     }
 
     static std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
@@ -283,7 +276,7 @@ cdef extern from * nogil:
         );
     }
     """
-    cpp_OrderScheme _make_order_scheme(
+    shared_ptr[cpp_OrderScheme] _make_order_scheme(
         vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
     ) except +
     unique_ptr[cpp_ChannelMetadata] _channel_metadata_from_message(

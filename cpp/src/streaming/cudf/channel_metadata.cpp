@@ -13,10 +13,35 @@
 
 namespace rapidsmpf::streaming {
 
-PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
+OrderScheme::OrderScheme(
+    std::vector<OrderKey> keys,
+    std::shared_ptr<TableChunk> boundaries,
+    bool strict_boundaries
+) {
     RAPIDSMPF_EXPECTS(
-        !o.keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
+        !keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
     );
+    RAPIDSMPF_EXPECTS(
+        boundaries != nullptr,
+        "OrderScheme: boundaries must not be null",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        boundaries->is_available(),
+        "OrderScheme: boundaries must be device-resident",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        keys.size() == static_cast<std::size_t>(boundaries->shape().second),
+        "OrderScheme: number of keys must match number of boundary columns",
+        std::invalid_argument
+    );
+    this->keys = std::move(keys);
+    this->boundaries = std::move(boundaries);
+    this->strict_boundaries = strict_boundaries;
+}
+
+PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
     return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
 }
 

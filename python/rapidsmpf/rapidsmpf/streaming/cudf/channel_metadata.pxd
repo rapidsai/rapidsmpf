@@ -35,7 +35,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         vector[cpp_OrderKey] keys
         shared_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundaries
-        cpp_OrderScheme() except +
         bool_t operator==(const cpp_OrderScheme&)
 
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
@@ -101,7 +100,7 @@ cdef class OrderKey:
 
 
 cdef class OrderScheme:
-    cdef cpp_OrderScheme _storage
+    cdef shared_ptr[cpp_OrderScheme] _handle
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme)

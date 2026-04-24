@@ -77,6 +77,22 @@ struct OrderScheme {
     bool strict_boundaries{false};
 
     /**
+     * @brief Construct a validated OrderScheme.
+     *
+     * @param keys Non-empty sort keys; size must equal `boundaries->shape().second`.
+     * @param boundaries Non-null, device-resident boundary table (N-1 rows for N
+     * partitions). Accepts a `unique_ptr<TableChunk>` via implicit conversion.
+     * @param strict_boundaries See struct-level doc. Defaults to false.
+     * @throws std::invalid_argument if `keys` is empty, `boundaries` is null or not
+     * device-resident, or `keys.size() != boundaries->shape().second`.
+     */
+    OrderScheme(
+        std::vector<OrderKey> keys,
+        std::shared_ptr<TableChunk> boundaries,
+        bool strict_boundaries = false
+    );
+
+    /**
      * @brief Shallow metadata equality without comparing boundary values.
      *
      * Returns true when `keys` and `strict_boundaries` match, and boundary tables
