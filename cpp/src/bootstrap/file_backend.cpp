@@ -4,6 +4,7 @@
  */
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -224,8 +225,7 @@ void FileBackend::write_file(std::string const& path, std::string_view content) 
         if (written < 0) {
             int err = errno;
             ::close(fd);
-            std::error_code rm_ec;
-            std::filesystem::remove(tmp_path, rm_ec);
+            ::unlink(tmp_path.c_str());
             throw std::runtime_error(
                 "Failed to write to temporary file: " + tmp_path + ": "
                 + std::strerror(err)
@@ -236,14 +236,12 @@ void FileBackend::write_file(std::string const& path, std::string_view content) 
     }
     ::close(fd);
 
-    // Atomic rename
-    std::error_code ec;
-    std::filesystem::rename(tmp_path, path, ec);
-    if (ec) {
-        std::error_code rm_ec;
-        std::filesystem::remove(tmp_path, rm_ec);
+    // POSIX rename(2) guarantees atomic replacement of the destination.
+    if (::rename(tmp_path.c_str(), path.c_str()) != 0) {
+        int err = errno;
+        ::unlink(tmp_path.c_str());
         throw std::runtime_error(
-            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message()
+            "Failed to rename " + tmp_path + " to " + path + ": " + std::strerror(err)
         );
     }
 }
