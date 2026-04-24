@@ -134,7 +134,7 @@ cdef class OrderScheme:
         if boundaries is not None:
             bd_ptr = move(boundaries.release_handle())
         self._storage = move(
-            make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundaries)
+            _make_order_scheme(move(cpp_keys), move(bd_ptr), strict_boundaries)
         )
 
     @staticmethod
@@ -261,6 +261,36 @@ cdef class Partitioning:
         return f"Partitioning(inter_rank={self.inter_rank!r}, local={self.local!r})"
 
 
+cdef extern from * nogil:
+    """
+    #include <memory>
+    #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
+
+    static rapidsmpf::streaming::OrderScheme _make_order_scheme(
+        std::vector<rapidsmpf::streaming::OrderKey> keys,
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> boundaries,
+        bool strict_boundaries
+    ) {
+        return rapidsmpf::streaming::OrderScheme{
+            std::move(keys), std::move(boundaries), strict_boundaries
+        };
+    }
+
+    static std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
+    _channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
+        return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
+            msg.release<rapidsmpf::streaming::ChannelMetadata>()
+        );
+    }
+    """
+    cpp_OrderScheme _make_order_scheme(
+        vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
+    ) except +
+    unique_ptr[cpp_ChannelMetadata] _channel_metadata_from_message(
+        cpp_Message
+    ) except +
+
+
 cdef class ChannelMetadata:
     """
     Channel-level metadata describing a data stream.
@@ -308,7 +338,7 @@ cdef class ChannelMetadata:
     def from_message(Message message not None):
         """Construct by consuming a Message (message becomes empty)."""
         return ChannelMetadata.from_handle(
-            channel_metadata_from_message(move(message._handle))
+            _channel_metadata_from_message(move(message._handle))
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):

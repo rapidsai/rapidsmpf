@@ -220,40 +220,6 @@ struct ChannelMetadata {
 };
 
 /**
- * @brief Construct an `OrderScheme` in one step (e.g. from Python bindings).
- *
- * @param keys Sort keys (must be non-empty).
- * @param boundaries Optional boundary rows; ownership transferred via unique_ptr.
- * @param strict_boundaries See `OrderScheme::strict_boundaries`.
- * @return A fully initialized `OrderScheme`.
- */
-[[nodiscard]] OrderScheme make_order_scheme(
-    std::vector<OrderKey> keys,
-    std::unique_ptr<TableChunk> boundaries,
-    bool strict_boundaries
-);
-
-/**
- * @brief Consume a `Message` and return its `ChannelMetadata` payload.
- *
- * @param msg Message holding `ChannelMetadata`; consumed / emptied by `release`.
- * @return Newly allocated `ChannelMetadata` moved from the message payload.
- */
-[[nodiscard]] std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg);
-
-/**
- * @brief `ContentDescription` for a `ChannelMetadata` message payload.
- *
- * For now this is non-spillable with zero tracked sizes: ORDER boundaries are
- * expected to stay device-resident on metadata paths. Spill accounting for
- * embedded boundaries can be added later without changing the Python API.
- *
- * @param m Channel metadata to describe.
- * @return Content description with spillability off and zero-sized content.
- */
-ContentDescription get_content_description(ChannelMetadata const& m);
-
-/**
  * @brief Wrap a `ChannelMetadata` into a `Message`.
  *
  * @param sequence_number Ordering identifier for the message.

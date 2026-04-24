@@ -85,14 +85,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         uint64_t, unique_ptr[cpp_ChannelMetadata]
     ) except +
 
-    unique_ptr[cpp_ChannelMetadata] channel_metadata_from_message(
-        cpp_Message
-    ) except +
-
-    cpp_OrderScheme make_order_scheme(
-        vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
-    ) except +
-
 
 cdef class HashScheme:
     cdef cpp_HashScheme _scheme
