@@ -223,6 +223,9 @@ void FileBackend::write_file(std::string const& path, std::string_view content) 
     while (bytes_left > 0) {
         auto written = ::write(fd, ptr, bytes_left);
         if (written < 0) {
+            if (errno == EINTR)  {
+                continue;  // re-try on interrupt
+            }
             int err = errno;
             ::close(fd);
             ::unlink(tmp_path.c_str());
