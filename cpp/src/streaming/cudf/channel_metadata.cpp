@@ -46,19 +46,9 @@ PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
-    if (keys != other.keys || strict_boundaries != other.strict_boundaries) {
-        return false;
-    }
-    bool this_has = boundaries != nullptr;
-    bool other_has = other.boundaries != nullptr;
-    if (this_has != other_has) {
-        return false;
-    }
-    if (!this_has) {
-        return true;
-    }
-    // Both have boundaries: shape only (see doc in header).
-    return boundaries->shape() == other.boundaries->shape();
+    // boundaries is always non-null (enforced by constructor).
+    return keys == other.keys && strict_boundaries == other.strict_boundaries
+           && boundaries->shape() == other.boundaries->shape();
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadata> m) {
