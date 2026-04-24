@@ -7,6 +7,11 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cudf/aggregation.hpp>
+#include <cudf/binaryop.hpp>
+#include <cudf/reduction.hpp>
+#include <cudf/scalar/scalar.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
@@ -43,6 +48,44 @@ OrderScheme::OrderScheme(
 
 PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
     return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
+}
+
+OrderScheme OrderScheme::replace_keys(std::vector<OrderKey> new_keys) const {
+    return OrderScheme(std::move(new_keys), boundaries, strict_boundaries);
+}
+
+bool OrderScheme::boundaries_aligned_with(OrderScheme const& other) const {
+    if (strict_boundaries != other.strict_boundaries)
+        return false;
+    if (boundaries->shape() != other.boundaries->shape())
+        return false;
+    if (boundaries->shape().first == 0)
+        return true;
+    auto const lhs = boundaries->table_view();
+    auto const rhs = other.boundaries->table_view();
+    auto const stream = boundaries->stream();
+    // Ensure rhs data is visible on our stream before comparing
+    other.boundaries->stream().synchronize();
+    for (cudf::size_type i = 0; i < lhs.num_columns(); ++i) {
+        auto eq = cudf::binary_operation(
+            lhs.column(i),
+            rhs.column(i),
+            cudf::binary_operator::EQUAL,
+            cudf::data_type{cudf::type_id::BOOL8},
+            stream
+        );
+        auto result = cudf::reduce(
+            eq->view(),
+            *cudf::make_all_aggregation<cudf::reduce_aggregation>(),
+            cudf::data_type{cudf::type_id::BOOL8},
+            stream
+        );
+        auto& scalar = static_cast<cudf::numeric_scalar<bool>&>(*result);
+        if (!scalar.is_valid(stream) || !scalar.value(stream)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {

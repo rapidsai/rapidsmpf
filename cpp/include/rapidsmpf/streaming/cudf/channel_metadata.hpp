@@ -76,6 +76,9 @@ struct OrderScheme {
     /// See struct-level note on `strict_boundaries` semantics.
     bool strict_boundaries{false};
 
+    /// @brief Default constructor. Produces an invalid (empty) scheme.
+    OrderScheme() = default;
+
     /**
      * @brief Construct a validated OrderScheme.
      *
@@ -105,6 +108,35 @@ struct OrderScheme {
      * @return True under the shallow rules above.
      */
     bool operator==(OrderScheme const& other) const;
+
+    /**
+     * @brief Return a new OrderScheme with updated key column indices, sharing
+     * boundaries.
+     *
+     * The boundary `TableChunk` is shared via `shared_ptr`; no device copy is made.
+     * The new key count must match the existing boundary column count.
+     *
+     * @param new_keys Replacement sort keys; size must equal
+     * `boundaries->shape().second`.
+     * @return A new OrderScheme with `new_keys` and the same `boundaries` and
+     *         `strict_boundaries`.
+     * @throws std::invalid_argument if `new_keys` is empty or size mismatches boundaries.
+     */
+    [[nodiscard]] OrderScheme replace_keys(std::vector<OrderKey> new_keys) const;
+
+    /**
+     * @brief Check whether two schemes share the same boundary values.
+     *
+     * Checks `strict_boundaries` equality and boundary shape, then compares
+     * boundary cell values column-by-column on the device using the LHS stream.
+     * Key column indices and sort directions are intentionally ignored — two
+     * schemes can have compatible partition ranges even when the keys refer to
+     * different column positions (e.g., after a column projection).
+     *
+     * @param other The OrderScheme to compare against.
+     * @return True when `strict_boundaries`, shape, and all boundary values match.
+     */
+    [[nodiscard]] bool boundaries_aligned_with(OrderScheme const& other) const;
 };
 
 /**
