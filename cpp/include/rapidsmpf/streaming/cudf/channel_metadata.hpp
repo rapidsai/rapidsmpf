@@ -1,6 +1,6 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
@@ -68,7 +68,7 @@ struct OrderKey {
  *
  * `strict_boundaries`: when true, every row in a chunk belongs to a single partition's
  * half-open key range (partition keys do not straddle chunk interiors). When false,
- * a chunk may contain keys spanning multiple partitions (e.g. before a shuffle).
+ * a chunk may contain keys spanning multiple partitions.
  */
 struct OrderScheme {
     std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
@@ -77,12 +77,26 @@ struct OrderScheme {
     bool strict_boundaries{false};
 
     /**
-     * @brief Shallow metadata equality (not semantic boundary value equality).
+     * @brief Construct a validated OrderScheme.
+     *
+     * @param keys Non-empty sort keys; size must equal `boundaries->shape().second`.
+     * @param boundaries Non-null, device-resident boundary table (N-1 rows for N
+     * partitions). Accepts a `unique_ptr<TableChunk>` via implicit conversion.
+     * @param strict_boundaries See struct-level doc. Defaults to false.
+     * @throws std::invalid_argument if `keys` is empty, `boundaries` is null or not
+     * device-resident, or `keys.size() != boundaries->shape().second`.
+     */
+    OrderScheme(
+        std::vector<OrderKey> keys,
+        std::shared_ptr<TableChunk> boundaries,
+        bool strict_boundaries = false
+    );
+
+    /**
+     * @brief Shallow metadata equality without comparing boundary values.
      *
      * Returns true when `keys` and `strict_boundaries` match, and boundary tables
-     * are consistent in the weak sense: both absent, or both present with the
-     * same shape from `TableChunk::shape()` (not `table_view()`, which requires an
-     * available device table).
+     * have the same shape.
      * Cell values inside `boundaries` are intentionally not compared (that would
      * require a device comparison API with stream and memory resource). Do not
      * use `operator==` to assert that two schemes have identical range boundaries.
@@ -220,40 +234,6 @@ struct ChannelMetadata {
      */
     bool operator==(ChannelMetadata const&) const = default;
 };
-
-/**
- * @brief Construct an `OrderScheme` in one step (e.g. from Python bindings).
- *
- * @param keys Sort keys (must be non-empty).
- * @param boundaries Optional boundary rows; ownership transferred via unique_ptr.
- * @param strict_boundaries See `OrderScheme::strict_boundaries`.
- * @return A fully initialized `OrderScheme`.
- */
-[[nodiscard]] OrderScheme make_order_scheme(
-    std::vector<OrderKey> keys,
-    std::unique_ptr<TableChunk> boundaries,
-    bool strict_boundaries
-);
-
-/**
- * @brief Consume a `Message` and return its `ChannelMetadata` payload.
- *
- * @param msg Message holding `ChannelMetadata`; consumed / emptied by `release`.
- * @return Newly allocated `ChannelMetadata` moved from the message payload.
- */
-[[nodiscard]] std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg);
-
-/**
- * @brief `ContentDescription` for a `ChannelMetadata` message payload.
- *
- * For now this is non-spillable with zero tracked sizes: ORDER boundaries are
- * expected to stay device-resident on metadata paths. Spill accounting for
- * embedded boundaries can be added later without changing the Python API.
- *
- * @param m Channel metadata to describe.
- * @return Content description with spillability off and zero-sized content.
- */
-ContentDescription get_content_description(ChannelMetadata const& m);
 
 /**
  * @brief Wrap a `ChannelMetadata` into a `Message`.

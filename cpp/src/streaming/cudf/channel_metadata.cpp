@@ -13,26 +13,36 @@
 
 namespace rapidsmpf::streaming {
 
-PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
-    RAPIDSMPF_EXPECTS(
-        !o.keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
-    );
-    return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
-}
-
-OrderScheme make_order_scheme(
+OrderScheme::OrderScheme(
     std::vector<OrderKey> keys,
-    std::unique_ptr<TableChunk> boundaries,
+    std::shared_ptr<TableChunk> boundaries,
     bool strict_boundaries
 ) {
     RAPIDSMPF_EXPECTS(
         !keys.empty(), "OrderScheme: keys must not be empty", std::invalid_argument
     );
-    return OrderScheme{
-        .keys = std::move(keys),
-        .boundaries = std::move(boundaries),
-        .strict_boundaries = strict_boundaries,
-    };
+    RAPIDSMPF_EXPECTS(
+        boundaries != nullptr,
+        "OrderScheme: boundaries must not be null",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        boundaries->is_available(),
+        "OrderScheme: boundaries must be device-resident",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        keys.size() == static_cast<std::size_t>(boundaries->shape().second),
+        "OrderScheme: number of keys must match number of boundary columns",
+        std::invalid_argument
+    );
+    this->keys = std::move(keys);
+    this->boundaries = std::move(boundaries);
+    this->strict_boundaries = strict_boundaries;
+}
+
+PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
+    return {.type = Type::ORDER, .hash = std::nullopt, .order = std::move(o)};
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
@@ -51,26 +61,14 @@ bool OrderScheme::operator==(OrderScheme const& other) const {
     return boundaries->shape() == other.boundaries->shape();
 }
 
-std::unique_ptr<ChannelMetadata> channel_metadata_from_message(Message msg) {
-    return std::make_unique<ChannelMetadata>(msg.release<ChannelMetadata>());
-}
-
-ContentDescription get_content_description(ChannelMetadata const& /*m*/) {
-    return ContentDescription{ContentDescription::Spillable::NO};
-}
-
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadata> m) {
-    auto cd = get_content_description(*m);
     return Message{
         sequence_number,
         std::move(m),
-        cd,
+        {},
         [](Message const& msg, MemoryReservation& /*reservation*/) -> Message {
             auto copy = std::make_unique<ChannelMetadata>(msg.get<ChannelMetadata>());
-            auto copy_cd = get_content_description(*copy);
-            return Message{
-                msg.sequence_number(), std::move(copy), copy_cd, msg.copy_cb()
-            };
+            return Message{msg.sequence_number(), std::move(copy), {}, msg.copy_cb()};
         }
     };
 }
