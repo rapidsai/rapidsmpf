@@ -46,7 +46,6 @@ PartitioningSpec PartitioningSpec::from_order(OrderScheme o) {
 }
 
 bool OrderScheme::operator==(OrderScheme const& other) const {
-    // boundaries is always non-null (enforced by constructor).
     return keys == other.keys && strict_boundaries == other.strict_boundaries
            && boundaries->shape() == other.boundaries->shape();
 }
