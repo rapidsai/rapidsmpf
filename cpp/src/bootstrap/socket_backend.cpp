@@ -130,6 +130,7 @@ struct SocketServer::State {
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
     std::atomic<int> authenticated_count{0};
+    std::atomic<int> active_connections{0};
 };
 
 SocketServer::SocketServer(int nranks) : state_{std::make_shared<State>()} {
@@ -246,9 +247,22 @@ void SocketServer::accept_loop() {
                 continue;
             break;
         }
+
+        // Reject connections beyond `2 * nranks` to prevent thread exhaustion
+        // from a flood of unauthenticated connections. Increment first and
+        // check afterwards to avoid a TOCTOU race between threads.
+        int active =
+            state_->active_connections.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (active > 2 * state_->nranks) {
+            state_->active_connections.fetch_sub(1, std::memory_order_relaxed);
+            ::close(client_fd);
+            continue;
+        }
+
         std::lock_guard<std::mutex> lk(handler_mutex_);
         handler_threads_.emplace_back([this, client_fd]() {
             handle_connection(client_fd);
+            state_->active_connections.fetch_sub(1, std::memory_order_relaxed);
         });
     }
 }
