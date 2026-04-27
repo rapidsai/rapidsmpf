@@ -55,7 +55,7 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_include_directories(test_sources PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+target_include_directories(test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_compile_options(
   test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
@@ -125,7 +125,7 @@ if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
   set_target_properties(
     mpi_tests
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
                CXX_STANDARD 20
                CXX_STANDARD_REQUIRED ON
                # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -157,7 +157,7 @@ if(RAPIDSMPF_HAVE_MPI)
     add_executable(ucxx_tests main/ucxx.cpp)
     set_target_properties(
       ucxx_tests
-      PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+      PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
                  CXX_STANDARD 20
                  CXX_STANDARD_REQUIRED ON
                  # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -193,7 +193,7 @@ endif()
 add_executable(rrun_tests main/rrun.cpp test_rrun.cpp test_rrun_bind.cpp)
 set_target_properties(
   rrun_tests
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -217,7 +217,7 @@ add_executable(single_tests main/single.cpp)
 
 set_target_properties(
   single_tests
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std

@@ -8,7 +8,7 @@
 add_executable(bench_streaming_shuffle "bench_streaming_shuffle.cpp")
 set_target_properties(
   bench_streaming_shuffle
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/benchmarks"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              CUDA_STANDARD 20
