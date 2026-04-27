@@ -217,8 +217,9 @@ SocketServer::~SocketServer() {
 
     std::lock_guard<std::mutex> lk(handler_mutex_);
     for (auto& t : handler_threads_) {
-        if (t.joinable())
+        if (t.joinable()) {
             t.join();
+        }
     }
 }
 
@@ -546,8 +547,9 @@ void SocketBackend::put(std::string const& key, std::string_view value) {
         );
     }
     send_line("PUT key=" + key + " valuelen=" + std::to_string(value.size()));
-    if (!value.empty())
+    if (!value.empty()) {
         send_bytes(value.data(), value.size());
+    }
     std::string resp = recv_line();
     if (resp != "OK") {
         throw std::runtime_error("SocketBackend put() failed: " + resp);
