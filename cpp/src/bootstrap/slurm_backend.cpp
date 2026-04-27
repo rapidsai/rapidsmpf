@@ -133,6 +133,12 @@ void SlurmBackend::put(std::string const& key, std::string_view value) {
             + std::to_string(ctx_.rank)
         );
     }
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
 
     // PMIx_Put stores the key-value pair in the LOCAL PMIx cache of the
     // calling rank. PMIX_GLOBAL is a scope indicator meaning "intended to
@@ -159,6 +165,12 @@ void SlurmBackend::commit() {
 }
 
 std::string SlurmBackend::get(std::string const& key, Duration timeout) {
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{100};
 

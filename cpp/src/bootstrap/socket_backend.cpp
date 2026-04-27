@@ -465,6 +465,12 @@ void SocketBackend::put(std::string const& key, std::string_view value) {
             + std::to_string(ctx_.rank)
         );
     }
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
     send_line("PUT key=" + key + " valuelen=" + std::to_string(value.size()));
     if (!value.empty())
         send_bytes(value.data(), value.size());
@@ -475,6 +481,12 @@ void SocketBackend::put(std::string const& key, std::string_view value) {
 }
 
 std::string SocketBackend::get(std::string const& key, Duration timeout) {
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
     auto timeout_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
     send_line("GET key=" + key + " timeout=" + std::to_string(timeout_ms));

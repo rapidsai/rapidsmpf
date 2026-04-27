@@ -135,6 +135,12 @@ std::string FileBackend::get_kv_path(std::string const& key) const {
             "Key contains invalid path characters (e.g., '..', '/', '\\'): " + key
         );
     }
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
     return kv_dir_ + "/" + key;
 }
 
