@@ -31,9 +31,9 @@
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
 // Prefer throwing standard exceptions instead.
 
-namespace rapidsmpf::bootstrap::detail {
+namespace {
 
-static void write_all(int fd, void const* buf, std::size_t n) {
+void write_all(int fd, void const* buf, std::size_t n) {
     auto const* ptr = static_cast<char const*>(buf);
     while (n > 0) {
         ssize_t w = ::write(fd, ptr, n);
@@ -49,7 +49,7 @@ static void write_all(int fd, void const* buf, std::size_t n) {
     }
 }
 
-static void read_all(int fd, void* buf, std::size_t n) {
+void read_all(int fd, void* buf, std::size_t n) {
     auto* ptr = static_cast<char*>(buf);
     while (n > 0) {
         ssize_t r = ::read(fd, ptr, n);
@@ -69,7 +69,7 @@ static void read_all(int fd, void* buf, std::size_t n) {
 }
 
 // Read until '\n'; return the line without the newline.
-static std::string read_line(int fd) {
+std::string read_line(int fd) {
     std::string line;
     char ch;
     for (;;) {
@@ -91,7 +91,7 @@ static std::string read_line(int fd) {
     return line;
 }
 
-static std::string generate_token() {
+std::string generate_token() {
     std::array<uint8_t, 32> bytes{};
     if (::getrandom(bytes.data(), bytes.size(), 0) != static_cast<ssize_t>(bytes.size()))
     {
@@ -108,6 +108,10 @@ static std::string generate_token() {
     }
     return result;
 }
+
+}  // namespace
+
+namespace rapidsmpf::bootstrap::detail {
 
 struct SocketServer::State {
     std::mutex mu;
