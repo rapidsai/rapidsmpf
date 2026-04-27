@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -76,6 +77,7 @@ class SocketServer {
     struct State;
     std::shared_ptr<State> state_;
     int listen_fd_{-1};
+    std::array<int, 2> wakeup_pipe_{-1, -1};
     std::string address_;
     std::string token_;
     std::thread accept_thread_;

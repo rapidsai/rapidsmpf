@@ -18,7 +18,9 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/random.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -168,18 +170,43 @@ SocketServer::SocketServer(int nranks) : state_{std::make_shared<State>()} {
 
     address_ = "127.0.0.1:" + std::to_string(::ntohs(bound.sin_port));
 
+    // Wakeup pipe: write end signals accept_loop() to exit on shutdown.
+    // O_CLOEXEC prevents child rank processes from inheriting these fds.
+    if (::pipe(wakeup_pipe_.data()) < 0) {
+        ::close(listen_fd_);
+        throw std::runtime_error("pipe() failed: " + std::string{std::strerror(errno)});
+    }
+    ::fcntl(wakeup_pipe_[0], F_SETFD, FD_CLOEXEC);
+    ::fcntl(wakeup_pipe_[1], F_SETFD, FD_CLOEXEC);
+
     accept_thread_ = std::thread([this]() { accept_loop(); });
 }
 
 SocketServer::~SocketServer() {
     state_->shutdown.store(true, std::memory_order_release);
 
+    // Signal accept_loop() to exit by writing to the wakeup pipe.
+    // Closing listen_fd_ alone is not guaranteed to interrupt a blocking
+    // accept() call in another thread; the pipe write is reliable.
+    if (wakeup_pipe_[1] >= 0) {
+        char c = 0;
+        std::ignore = ::write(wakeup_pipe_[1], &c, 1);
+        ::close(wakeup_pipe_[1]);
+        wakeup_pipe_[1] = -1;
+    }
+
     if (listen_fd_ >= 0) {
         ::close(listen_fd_);
         listen_fd_ = -1;
     }
+
     if (accept_thread_.joinable()) {
         accept_thread_.join();
+    }
+
+    if (wakeup_pipe_[0] >= 0) {
+        ::close(wakeup_pipe_[0]);
+        wakeup_pipe_[0] = -1;
     }
 
     std::lock_guard<std::mutex> lk(handler_mutex_);
@@ -191,14 +218,32 @@ SocketServer::~SocketServer() {
 
 void SocketServer::accept_loop() {
     while (!state_->shutdown.load(std::memory_order_acquire)) {
+        // Wait for either a new connection or the shutdown wakeup signal.
+        std::array<pollfd, 2> fds{
+            {{.fd = listen_fd_, .events = POLLIN, .revents = 0},
+             {.fd = wakeup_pipe_[0], .events = POLLIN, .revents = 0}}
+        };
+        int ret = ::poll(fds.data(), 2, -1);
+        if (ret < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (fds[1].revents & POLLIN) {
+            break;  // wakeup signal from destructor
+        }
+        if (!(fds[0].revents & POLLIN)) {
+            continue;
+        }
+
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
         int client_fd =
             ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
         if (client_fd < 0) {
-            if (errno == EINTR)
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
-            break;  // EBADF/EINVAL means listen_fd_ was closed, therefore shutdown.
+            break;
         }
         std::lock_guard<std::mutex> lk(handler_mutex_);
         handler_threads_.emplace_back([this, client_fd]() {
