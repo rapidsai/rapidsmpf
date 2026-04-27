@@ -129,6 +129,7 @@ struct SocketServer::State {
     int nranks;
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
+    std::atomic<int> authenticated_count{0};
 };
 
 SocketServer::SocketServer(int nranks) : state_{std::make_shared<State>()} {
@@ -300,6 +301,16 @@ void SocketServer::handle_connection(int fd) {
         ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
         write_all(fd, "OK\n", 3);
+
+        // Once all ranks have authenticated there is no reason to keep the
+        // listen socket open. Signal the accept loop to stop so no further
+        // connections can be accepted.
+        if (state_->authenticated_count.fetch_add(1, std::memory_order_acq_rel) + 1
+            == state_->nranks)
+        {
+            char c = 0;
+            std::ignore = ::write(wakeup_pipe_[1], &c, 1);
+        }
 
         for (;;) {
             std::string line;
