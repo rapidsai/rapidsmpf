@@ -14,6 +14,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -156,16 +157,16 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
 class StreamingChannelMetadataGPU : public ::testing::Test {
   protected:
     rmm::cuda_stream_view stream{cudf::get_default_stream()};
+    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
 
-    // Build a single-column int32 TableChunk from a host vector.
     std::shared_ptr<TableChunk> make_chunk(std::vector<int32_t> vals) {
         rmm::device_buffer buf(vals.data(), vals.size() * sizeof(int32_t), stream);
         auto col = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::INT32},
             static_cast<cudf::size_type>(vals.size()),
             std::move(buf),
-            rmm::device_buffer{},  // no null mask
-            0  // null count
+            rmm::device_buffer{},
+            0
         );
         std::vector<std::unique_ptr<cudf::column>> cols;
         cols.push_back(std::move(col));
@@ -181,39 +182,34 @@ TEST_F(StreamingChannelMetadataGPU, OrderSchemeReplaceKeys) {
 
     auto b = make_chunk({100, 200});
     OrderScheme o1({k0}, b);
-    auto o2 = o1.replace_keys({k5});
+    auto o2 = o1.with_keys({k5});
 
     EXPECT_EQ(o2.keys[0].column_index, 5);
     EXPECT_EQ(o2.keys[0].order, cudf::order::DESCENDING);
     EXPECT_EQ(o2.strict_boundaries, o1.strict_boundaries);
     EXPECT_EQ(o2.boundaries->shape(), o1.boundaries->shape());
-    EXPECT_EQ(o2.boundaries.get(), b.get());  // shared_ptr — no device copy
-    EXPECT_NE(o1, o2);  // different keys → not shallow-equal
+    EXPECT_EQ(o2.boundaries.get(), b.get());
+    EXPECT_NE(o1, o2);
 
-    // Key count mismatch is rejected
-    EXPECT_THROW(static_cast<void>(o1.replace_keys({k0, k5})), std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(o1.with_keys({k0, k5})), std::invalid_argument);
 }
 
 TEST_F(StreamingChannelMetadataGPU, OrderSchemeBoundariesAlignedWith) {
     OrderKey k0{0, cudf::order::ASCENDING, cudf::null_order::BEFORE};
     OrderKey k3{3, cudf::order::ASCENDING, cudf::null_order::BEFORE};
 
-    // Same values, same keys → aligned
     OrderScheme o1({k0}, make_chunk({100, 200}));
     OrderScheme o2({k0}, make_chunk({100, 200}));
-    EXPECT_TRUE(o1.boundaries_aligned_with(o2));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o2, br));
 
-    // Same values, different key column indices → still aligned
     OrderScheme o_shifted({k3}, make_chunk({100, 200}));
-    EXPECT_TRUE(o1.boundaries_aligned_with(o_shifted));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o_shifted, br));
 
-    // Different strict_boundaries → not aligned (short-circuits before device op)
     OrderScheme o_strict({k0}, make_chunk({100, 200}), /*strict=*/true);
-    EXPECT_FALSE(o1.boundaries_aligned_with(o_strict));
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_strict, br));
 
-    // Different boundary values → not aligned
     OrderScheme o_diff({k0}, make_chunk({100, 300}));
-    EXPECT_FALSE(o1.boundaries_aligned_with(o_diff));
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_diff, br));
 }
 
 TEST_F(StreamingChannelMetadataGPU, PartitioningSpecOrder) {
@@ -225,7 +221,6 @@ TEST_F(StreamingChannelMetadataGPU, PartitioningSpecOrder) {
     EXPECT_TRUE(spec.order.has_value());
     EXPECT_EQ(spec.order->keys[0].column_index, 0);
 
-    // Equality with another ORDER spec built from identical data
     EXPECT_EQ(
         spec, PartitioningSpec::from_order(OrderScheme({k0}, make_chunk({100, 200})))
     );

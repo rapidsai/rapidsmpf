@@ -14,6 +14,7 @@
 
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -113,7 +114,6 @@ struct OrderScheme {
      * @brief Return a new OrderScheme with updated key column indices, sharing
      * boundaries.
      *
-     * The boundary `TableChunk` is shared via `shared_ptr`; no device copy is made.
      * The new key count must match the existing boundary column count.
      *
      * @param new_keys Replacement sort keys; size must equal
@@ -122,21 +122,18 @@ struct OrderScheme {
      *         `strict_boundaries`.
      * @throws std::invalid_argument if `new_keys` is empty or size mismatches boundaries.
      */
-    [[nodiscard]] OrderScheme replace_keys(std::vector<OrderKey> new_keys) const;
+    [[nodiscard]] OrderScheme with_keys(std::vector<OrderKey> new_keys) const;
 
     /**
      * @brief Check whether two schemes share the same boundary values.
      *
-     * Checks `strict_boundaries` equality and boundary shape, then compares
-     * boundary cell values column-by-column on the device using the LHS stream.
-     * Key column indices and sort directions are intentionally ignored — two
-     * schemes can have compatible partition ranges even when the keys refer to
-     * different column positions (e.g., after a column projection).
-     *
      * @param other The OrderScheme to compare against.
+     * @param br Buffer resource used for temporary allocations during comparison.
      * @return True when `strict_boundaries`, shape, and all boundary values match.
      */
-    [[nodiscard]] bool boundaries_aligned_with(OrderScheme const& other) const;
+    [[nodiscard]] bool boundaries_aligned_with(
+        OrderScheme const& other, rapidsmpf::BufferResource const& br
+    ) const;
 };
 
 /**
