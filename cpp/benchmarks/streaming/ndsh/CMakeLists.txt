@@ -44,7 +44,7 @@ foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
   add_executable(${query} "${query}.cpp")
   set_target_properties(
     ${query}
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh"
                CXX_STANDARD 20
                CXX_STANDARD_REQUIRED ON
                CUDA_STANDARD 20

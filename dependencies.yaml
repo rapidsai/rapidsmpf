@@ -756,16 +756,11 @@ dependencies:
           # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
           # https://github.com/rapidsai/rapidsmpf/issues/897
           - matrix:
-              arch: x86_64
               py: "3.14"
             packages:
           - matrix:
-              arch: x86_64
               py: "3.*"
             packages:
-              - ray-default>=2.49,<2.52
-          - matrix:
-              arch: aarch64
-            packages:
+              - ray-default>=2.55.1
           - matrix:
             packages:
