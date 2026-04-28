@@ -4,6 +4,8 @@
  */
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +15,8 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+
+#include <unistd.h>
 
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/error.hpp>
@@ -123,6 +127,14 @@ void FileBackend::sync() {
 }
 
 std::string FileBackend::get_kv_path(std::string const& key) const {
+    if (key.empty() || key.find("..") != std::string::npos
+        || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
+        || key.find('\0') != std::string::npos)
+    {
+        throw std::invalid_argument(
+            "Key contains invalid path characters (e.g., '..', '/', '\\'): " + key
+        );
+    }
     return kv_dir_ + "/" + key;
 }
 
@@ -193,24 +205,46 @@ bool FileBackend::wait_for_file(std::string const& path, Duration timeout) {
 }
 
 void FileBackend::write_file(std::string const& path, std::string_view content) {
-    std::string tmp_path = path + ".tmp." + std::to_string(getpid());
+    std::string tmp_path = path + ".tmp.XXXXXX";
 
-    // Write to temporary file
-    std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
-    if (!ofs) {
-        throw std::runtime_error("Failed to open temporary file: " + tmp_path);
-    }
-    ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
-    ofs.close();
-
-    // Atomic rename
-    std::error_code ec;
-    std::filesystem::rename(tmp_path, path, ec);
-    if (ec) {
-        std::error_code rm_ec;
-        std::filesystem::remove(tmp_path, rm_ec);  // Clean up temp file
+    // mkstemp requires a mutable char array and atomically creates a unique file,
+    // preventing symlink race conditions on shared filesystems.
+    int fd = mkstemp(tmp_path.data());
+    if (fd == -1) {
         throw std::runtime_error(
-            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message()
+            "Failed to create temporary file via mkstemp: " + tmp_path + ": "
+            + std::strerror(errno)
+        );
+    }
+
+    // Write content and close the file descriptor
+    auto bytes_left = content.size();
+    auto const* ptr = content.data();
+    while (bytes_left > 0) {
+        auto written = ::write(fd, ptr, bytes_left);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;  // re-try on interrupt
+            }
+            int err = errno;
+            ::close(fd);
+            ::unlink(tmp_path.c_str());
+            throw std::runtime_error(
+                "Failed to write to temporary file: " + tmp_path + ": "
+                + std::strerror(err)
+            );
+        }
+        bytes_left -= static_cast<std::size_t>(written);
+        ptr += written;
+    }
+    ::close(fd);
+
+    // POSIX rename(2) guarantees atomic replacement of the destination.
+    if (::rename(tmp_path.c_str(), path.c_str()) != 0) {
+        int err = errno;
+        ::unlink(tmp_path.c_str());
+        throw std::runtime_error(
+            "Failed to rename " + tmp_path + " to " + path + ": " + std::strerror(err)
         );
     }
 }

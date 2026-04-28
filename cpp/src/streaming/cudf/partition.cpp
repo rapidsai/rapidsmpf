@@ -40,7 +40,7 @@ Actor partition_and_pack(
         PartitionMapChunk partition_map{
             .data = rapidsmpf::partition_and_pack(
                 tbl.table_view(),
-                std::move(columns_to_hash),
+                columns_to_hash,
                 num_partitions,
                 hash_function,
                 seed,
