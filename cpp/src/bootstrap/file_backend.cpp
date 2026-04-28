@@ -127,18 +127,18 @@ void FileBackend::sync() {
 }
 
 std::string FileBackend::get_kv_path(std::string const& key) const {
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
     if (key.empty() || key.find("..") != std::string::npos
         || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
         || key.find('\0') != std::string::npos)
     {
         throw std::invalid_argument(
             "Key contains invalid path characters (e.g., '..', '/', '\\'): " + key
-        );
-    }
-    if (key.size() > max_key_size) {
-        throw std::invalid_argument(
-            "Key exceeds maximum length of " + std::to_string(max_key_size)
-            + " bytes: " + key
         );
     }
     return kv_dir_ + "/" + key;
