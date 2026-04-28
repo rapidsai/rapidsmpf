@@ -282,7 +282,7 @@ class TableChunk {
      * @note After this call, this object is in a moved-from state; only reassignment,
      * movement, or destruction are valid.
      */
-    [[nodiscard]] std::unique_ptr<PackedData> to_packed_data(BufferResource* br);
+    [[nodiscard]] std::unique_ptr<PackedData> into_packed_data(BufferResource* br);
 
     /**
      * @brief Return the shape of the table stored by the table chunk.

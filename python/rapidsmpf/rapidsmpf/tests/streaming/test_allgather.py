@@ -76,7 +76,7 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
 
     result = unpack_and_concat(
         (
-            PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
+            PackedDataChunk.from_message(msg, br=context.br()).into_packed_data()
             for msg in deferred.release()
         ),
         stream,
@@ -126,7 +126,7 @@ async def allgather_and_concat(
 ) -> None:
     gather = AllGather(context, comm, op_id)
     while (msg := await ch_in.recv(context)) is not None:
-        chunk = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
+        chunk = PackedDataChunk.from_message(msg, br=context.br()).into_packed_data()
         gather.insert(msg.sequence_number, chunk)
     gather.insert_finished()
     gathered = await gather.extract_all(context, ordered=True)

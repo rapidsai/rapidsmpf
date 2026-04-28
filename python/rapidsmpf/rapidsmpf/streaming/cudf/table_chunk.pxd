@@ -30,7 +30,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         bool_t is_spillable() noexcept
         cpp_TableChunk copy(cpp_MemoryReservation& reservation) except +ex_handler
         pair[size_type, size_type] shape() noexcept
-        unique_ptr[cpp_PackedData] to_packed_data(
+        unique_ptr[cpp_PackedData] into_packed_data(
             cpp_BufferResource* br
         ) except +ex_handler
 

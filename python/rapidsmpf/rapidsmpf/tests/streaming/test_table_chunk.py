@@ -422,7 +422,7 @@ def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> No
 
 
 @pytest.mark.parametrize("from_pack", [False, True], ids=["from_table", "from_pack"])
-def test_to_packed_data(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
+def test_into_packed_data(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
     expect = random_table(1024)
     if from_pack:
         pd = PackedData.from_cudf_packed_columns(
@@ -435,7 +435,7 @@ def test_to_packed_data(context: Context, stream: Stream, from_pack: bool) -> No
         )
     assert chunk.is_available()
 
-    result = chunk.to_packed_data(context.br())
+    result = chunk.into_packed_data(context.br())
     assert isinstance(result, PackedData)
 
     # Wrap the PackedData back into a TableChunk and verify contents.

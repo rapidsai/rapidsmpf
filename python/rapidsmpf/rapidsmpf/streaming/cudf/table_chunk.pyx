@@ -535,7 +535,7 @@ cdef class TableChunk:
             ret = cpp_table_copy(self._handle, res)
         return TableChunk.from_handle(move(ret), self._br)
 
-    def to_packed_data(self, BufferResource br not None):
+    def into_packed_data(self, BufferResource br not None):
         """
         Convert this table chunk to a PackedData, avoiding unnecessary copies.
 
@@ -568,7 +568,7 @@ cdef class TableChunk:
         cdef cpp_BufferResource* _br = br.ptr()
         cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
         with nogil:
-            result = deref(handle).to_packed_data(_br)
+            result = deref(handle).into_packed_data(_br)
         return PackedData.from_librapidsmpf(move(result), br)
 
     @property
