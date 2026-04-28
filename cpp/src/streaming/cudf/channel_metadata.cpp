@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -62,7 +63,19 @@ bool OrderScheme::boundaries_aligned_with(
         || boundaries->shape() != other.boundaries->shape())
     {
         return false;
-    } else if (boundaries->shape().first == 0) {
+    }
+    if (!std::equal(
+            keys.begin(),
+            keys.end(),
+            other.keys.begin(),
+            [](OrderKey const& a, OrderKey const& b) {
+                return a.order == b.order && a.null_order == b.null_order;
+            }
+        ))
+    {
+        return false;
+    }
+    if (boundaries->shape().first == 0) {
         return true;
     }
     auto const lhs = boundaries->table_view();
