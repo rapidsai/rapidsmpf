@@ -103,7 +103,7 @@ std::string generate_token() {
     }
     static constexpr std::string_view hex = "0123456789abcdef";
     std::string result;
-    result.reserve(64);
+    result.reserve(bytes.size() * 2);
     for (uint8_t b : bytes) {
         result += hex[b >> 4];
         result += hex[b & 0xf];
