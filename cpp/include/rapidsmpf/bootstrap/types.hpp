@@ -23,8 +23,8 @@ using Duration = std::chrono::duration<double>;
  * - FileBackend: matches the POSIX NAME_MAX filename limit (255 bytes).
  * - SocketBackend: protocol field width (`%255s`) matches this value.
  *
- * Keys must also consist only of printable, non-whitespace ASCII characters
- * (no `/`, `\`, `..`, or null bytes).
+ * Keys must also be valid as POSIX filename components: no whitespace,
+ * path separators (`/`, `\`), path traversal sequences (e.g. `..`), or null bytes.
  */
 inline constexpr std::size_t max_key_size = 255;
 
