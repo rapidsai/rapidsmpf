@@ -11,6 +11,7 @@ from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
+from rapidsmpf.memory.buffer_resource cimport cpp_BufferResource
 from rapidsmpf.streaming.core.message cimport cpp_Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
 
@@ -36,8 +37,10 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         shared_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundaries
         bool_t operator==(const cpp_OrderScheme&)
-        cpp_OrderScheme replace_keys(vector[cpp_OrderKey]) except +
-        bool_t boundaries_aligned_with(const cpp_OrderScheme&) except +
+        cpp_OrderScheme with_keys(vector[cpp_OrderKey]) except +
+        bool_t boundaries_aligned_with(
+            const cpp_OrderScheme&, const cpp_BufferResource&
+        ) except +
 
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":

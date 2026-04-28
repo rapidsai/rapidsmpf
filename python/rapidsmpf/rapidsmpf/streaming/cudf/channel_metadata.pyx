@@ -10,6 +10,7 @@ from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
 
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.streaming.core.message cimport Message
 from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
 
@@ -152,7 +153,7 @@ cdef class OrderScheme:
         """Number of boundary rows (N-1 for N partitions)."""
         return self._handle.get().boundaries.get().shape().first
 
-    def replace_keys(self, object new_keys) -> OrderScheme:
+    def with_keys(self, object new_keys) -> OrderScheme:
         """Return a new ``OrderScheme`` with updated key column indices."""
         cdef vector[cpp_OrderKey] cpp_keys
         for key in new_keys:
@@ -161,16 +162,14 @@ cdef class OrderScheme:
                     f"keys must contain OrderKey objects, got {type(key).__name__}"
                 )
             cpp_keys.push_back((<OrderKey>key)._key)
-        return OrderScheme.from_cpp(self._handle.get().replace_keys(move(cpp_keys)))
+        return OrderScheme.from_cpp(self._handle.get().with_keys(move(cpp_keys)))
 
-    def boundaries_aligned_with(self, OrderScheme other not None) -> bool:
-        """True when ``self`` and ``other`` share the same boundary values.
-
-        Checks ``strict_boundaries`` and boundary shape/values only;
-        key column indices and sort directions are ignored so schemes that
-        refer to different column positions can still be compared.
-        """
-        return self._handle.get().boundaries_aligned_with(deref(other._handle))
+    def boundaries_aligned_with(
+        self, OrderScheme other not None, BufferResource br not None
+    ) -> bool:
+        return self._handle.get().boundaries_aligned_with(
+            deref(other._handle), deref(br.ptr())
+        )
 
     def __eq__(self, other):
         if not isinstance(other, OrderScheme):

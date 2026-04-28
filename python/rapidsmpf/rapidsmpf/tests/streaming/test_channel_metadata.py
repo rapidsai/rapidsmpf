@@ -111,20 +111,20 @@ def test_order_scheme(context: Context) -> None:
         )
 
 
-def test_order_scheme_replace_keys(context: Context) -> None:
-    """replace_keys shares boundaries and updates column indices."""
+def test_order_scheme_with_keys(context: Context) -> None:
+    """with_keys shares boundaries and updates column indices."""
     o1 = _two_key_order_scheme(context)
     new_keys = [
         OrderKey(5, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
         OrderKey(3, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     ]
-    o2 = o1.replace_keys(new_keys)
+    o2 = o1.with_keys(new_keys)
     assert o2.keys[0].column_index == 5
     assert o2.keys[1].column_index == 3
     assert o2.num_boundaries == o1.num_boundaries
     assert o2.strict_boundaries == o1.strict_boundaries
     # Schemes with different key indices but shared boundaries are boundary-aligned
-    assert o1.boundaries_aligned_with(o2)
+    assert o1.boundaries_aligned_with(o2, context.br())
 
 
 def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
@@ -136,7 +136,7 @@ def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
     ]
     o1 = OrderScheme(keys, _make_boundaries(context, df))
     o2 = OrderScheme(keys, _make_boundaries(context, df))
-    assert o1.boundaries_aligned_with(o2)
+    assert o1.boundaries_aligned_with(o2, context.br())
 
     # Different key column indices but same boundary values → still aligned
     shifted_keys = [
@@ -144,16 +144,16 @@ def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
         OrderKey(3, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     ]
     o_shifted = OrderScheme(shifted_keys, _make_boundaries(context, df))
-    assert o1.boundaries_aligned_with(o_shifted)
+    assert o1.boundaries_aligned_with(o_shifted, context.br())
 
     # Different boundary values → not aligned (shape matches, values differ)
     df_diff = cudf.DataFrame({"key1": [100, 300], "key2": ["abc", "xyz"]})
     o3 = OrderScheme(keys, _make_boundaries(context, df_diff))
-    assert not o1.boundaries_aligned_with(o3)
+    assert not o1.boundaries_aligned_with(o3, context.br())
 
     # Different strict_boundaries → not aligned
     o_strict = OrderScheme(keys, _make_boundaries(context, df), strict_boundaries=True)
-    assert not o1.boundaries_aligned_with(o_strict)
+    assert not o1.boundaries_aligned_with(o_strict, context.br())
 
 
 def test_order_scheme_key_column_mismatch(context: Context) -> None:
@@ -278,7 +278,9 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     assert got_m.partitioning.local == "inherit"
     assert got_m.partitioning.inter_rank.strict_boundaries is True
     assert got_m.partitioning.inter_rank.num_boundaries == 2
-    assert got_m.partitioning.inter_rank.boundaries_aligned_with(order_scheme)
+    assert got_m.partitioning.inter_rank.boundaries_aligned_with(
+        order_scheme, context.br()
+    )
     assert msg_m.empty()
 
 
