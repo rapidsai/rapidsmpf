@@ -68,11 +68,11 @@ void read_all(int fd, void* buf, std::size_t n) {
     }
 }
 
-// Read until '\n'; return the line without the newline.
 std::string read_line(int fd) {
-    std::string line;
-    char ch;
+    std::array<char, 512> buf{};
+    std::size_t len = 0;
     for (;;) {
+        char ch;
         ssize_t r = ::read(fd, &ch, 1);
         if (r < 0) {
             if (errno == EINTR)
@@ -86,9 +86,11 @@ std::string read_line(int fd) {
         }
         if (ch == '\n')
             break;
-        line += ch;
+        if (len >= buf.size())
+            throw std::runtime_error("Protocol line exceeds buffer size");
+        buf[len++] = ch;
     }
-    return line;
+    return {buf.data(), len};
 }
 
 std::string generate_token() {
