@@ -239,6 +239,41 @@ target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
 
+# socket_backend_tests — standalone; compiles bootstrap sources directly so it does not depend on
+# the full rapidsmpf library (and its CUDA sources).
+add_executable(
+  socket_backend_tests
+  test_socket_backend.cpp
+  main/bootstrap.cpp
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/socket_backend.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/bootstrap.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/file_backend.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"
+  "${PROJECT_SOURCE_DIR}/src/system_info.cpp"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>"
+)
+set_target_properties(
+  socket_backend_tests
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             COMPONENT testing
+)
+target_include_directories(
+  socket_backend_tests PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+)
+target_compile_options(
+  socket_backend_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+)
+target_compile_definitions(
+  socket_backend_tests PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:RAPIDSMPF_HAVE_SLURM>
+)
+target_link_libraries(
+  socket_backend_tests PRIVATE GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+                               maybe_asan $<TARGET_NAME_IF_EXISTS:PMIx::PMIx> ${CMAKE_DL_LIBS}
+)
+add_test(NAME socket_backend_tests COMMAND "gtests/socket_backend_tests")
+
 # Create a list of targets that contains property KEY:VALUE.
 function(rapidsmpf_targets_with_property)
   set(options)
