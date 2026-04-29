@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules allgather.pyx)
+set(cython_modules allgather.pyx sparse_alltoall.pyx)
 
 rapids_cython_create_modules(
   CXX
