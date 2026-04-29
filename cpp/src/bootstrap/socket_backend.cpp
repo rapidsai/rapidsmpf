@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <condition_variable>
 #include <cstdio>
@@ -26,6 +28,7 @@
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/socket_backend.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
@@ -518,6 +521,24 @@ SocketBackend::~SocketBackend() {
     }
 }
 
+static void validate_key(std::string const& key) {
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
+    if (key.empty() || key.find("..") != std::string::npos
+        || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
+        || key.find('\0') != std::string::npos
+        || std::ranges::any_of(key, [](unsigned char c) { return std::isspace(c); }))
+    {
+        throw std::invalid_argument(
+            "Key contains invalid characters (e.g., whitespace, '..', '/', '\\'): " + key
+        );
+    }
+}
+
 void SocketBackend::send_line(std::string const& line) {
     std::string msg = line + "\n";
     write_all(fd_, msg.c_str(), msg.size());
@@ -542,12 +563,7 @@ void SocketBackend::put(std::string const& key, std::string_view value) {
             + std::to_string(ctx_.rank)
         );
     }
-    if (key.size() > max_key_size) {
-        throw std::invalid_argument(
-            "Key exceeds maximum length of " + std::to_string(max_key_size)
-            + " bytes: " + key
-        );
-    }
+    validate_key(key);
     send_line("PUT key=" + key + " valuelen=" + std::to_string(value.size()));
     if (!value.empty()) {
         send_bytes(value.data(), value.size());
@@ -559,12 +575,7 @@ void SocketBackend::put(std::string const& key, std::string_view value) {
 }
 
 std::string SocketBackend::get(std::string const& key, Duration timeout) {
-    if (key.size() > max_key_size) {
-        throw std::invalid_argument(
-            "Key exceeds maximum length of " + std::to_string(max_key_size)
-            + " bytes: " + key
-        );
-    }
+    validate_key(key);
     auto timeout_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count();
     send_line("GET key=" + key + " timeout=" + std::to_string(timeout_ms));
