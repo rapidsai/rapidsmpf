@@ -520,6 +520,8 @@ class Statistics {
      */
     void clear();
 
+    // TODO: move MemoryRecord and MemoryRecorder to RmmResourceAdaptor?
+
     /**
      * @brief Holds memory profiling information for a named scope.
      */
