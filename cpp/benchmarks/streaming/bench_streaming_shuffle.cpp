@@ -363,9 +363,7 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = args.enable_memory_profiler
-                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr)
-                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         stat_enabled_mr,
         args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
@@ -455,7 +453,15 @@ int main(int argc, char** argv) {
         }
         log.print(ss.str());
     }
-    log.print(ctx->statistics()->report("Statistics (of the last run):"));
+
+    if (args.enable_memory_profiler) {
+        log.print(ctx->statistics()->report(
+            "Statistics (of the last run):", stat_enabled_mr, br->concrete_pinned_mr()
+        ));
+    } else {
+        log.print(ctx->statistics()->report("Statistics (of the last run):"));
+    }
+
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Finalize());
     }

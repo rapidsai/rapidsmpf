@@ -400,8 +400,7 @@ def test_pickle_empty_options() -> None:
     ],
 )
 def test_statistics_from_options(*, opts: Options, expected_enabled: bool) -> None:
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    stats = Statistics.from_options(mr, opts)
+    stats = Statistics.from_options(opts)
     assert stats is not None
     assert stats.enabled == expected_enabled
 

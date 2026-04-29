@@ -154,24 +154,15 @@ Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
 
-// Leaving `mr_` as std::nullopt disables memory profiling.
+// TODO: remove this constructor and add a factory method, because
+// make_shared<Statistics>(false) != Statistics::disabled()
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
-Statistics::Statistics(
-    RmmResourceAdaptor mr, std::optional<PinnedMemoryResource> pinned_mr
-)
-    : enabled_{true}, mr_{std::move(mr)}, pinned_mr_{std::move(pinned_mr)} {}
-
-std::shared_ptr<Statistics> Statistics::from_options(
-    RmmResourceAdaptor mr,
-    config::Options options,
-    std::optional<PinnedMemoryResource> pinned_mr
-) {
+std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);
     });
-    return statistics ? std::make_shared<Statistics>(std::move(mr), std::move(pinned_mr))
-                      : Statistics::disabled();
+    return statistics ? std::make_shared<Statistics>(statistics) : Statistics::disabled();
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
@@ -251,10 +242,6 @@ void Statistics::clear() {
     stats_.clear();
 }
 
-bool Statistics::is_memory_profiling_enabled() const {
-    return mr_.has_value();
-}
-
 Statistics::MemoryRecorder::MemoryRecorder(
     Statistics* stats, RmmResourceAdaptor mr, std::string name
 )
@@ -276,11 +263,13 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
     record.global_peak = std::max(record.global_peak, scope.peak());
 }
 
-Statistics::MemoryRecorder Statistics::create_memory_recorder(std::string name) {
-    if (!mr_.has_value()) {
+Statistics::MemoryRecorder Statistics::create_memory_recorder(
+    std::optional<RmmResourceAdaptor> mr, std::string name
+) {
+    if (!mr.has_value()) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, *mr_, std::move(name)};
+    return MemoryRecorder{this, std::move(*mr), std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -288,7 +277,11 @@ Statistics::get_memory_records() const {
     return memory_records_;
 }
 
-std::string Statistics::report(std::string const& header) const {
+std::string Statistics::report(
+    std::string const& header,
+    std::optional<RmmResourceAdaptor> mr,
+    std::optional<PinnedMemoryResource> pinned_mr
+) const {
     std::stringstream ss;
     ss << header;
 
@@ -360,7 +353,7 @@ std::string Statistics::report(std::string const& header) const {
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    if (!mr_.has_value()) {
+    if (!mr.has_value()) {
         ss << "Disabled";
         return ss.str();
     }
@@ -370,8 +363,8 @@ std::string Statistics::report(std::string const& header) const {
         memory_records_.begin(), memory_records_.end()
     };
 
-    // Insert the "main" record, which is the overall statistics from `mr_`.
-    auto const main_record = mr_->get_main_record();
+    // Insert the "main" record, which is the overall statistics from `mr`.
+    auto const main_record = mr->get_main_record();
     sorted_records.emplace_back(
         "main (all allocations using RmmResourceAdaptor)",
         MemoryRecord{
@@ -379,8 +372,8 @@ std::string Statistics::report(std::string const& header) const {
         }
     );
 
-    if (pinned_mr_ != PinnedMemoryResource::Disabled) {
-        auto const pinned_record = pinned_mr_->get_main_memory_record();
+    if (pinned_mr != PinnedMemoryResource::Disabled) {
+        auto const pinned_record = pinned_mr->get_main_memory_record();
         sorted_records.emplace_back(
             "main (all allocations using PinnedMemoryResource)",
             MemoryRecord{

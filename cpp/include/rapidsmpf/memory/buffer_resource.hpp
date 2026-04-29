@@ -122,6 +122,24 @@ class BufferResource {
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
 
     /**
+     * @brief Get the device memory resource cast to a specific type.
+     *
+     * Attempts to cast the underlying device memory resource to @p T using
+     * `cuda::mr::resource_cast`. If the cast fails (i.e., the resource is not
+     * of type @p T), returns `std::nullopt`.
+     *
+     * @tparam T The target memory resource type. Must satisfy
+     * `cuda::mr::resource_with<T, cuda::mr::device_accessible>`.
+     * @return The device memory resource as @p T, or `std::nullopt` if the cast fails.
+     */
+    template <typename T>
+        requires cuda::mr::resource_with<T, cuda::mr::device_accessible>
+    [[nodiscard]] std::optional<T> device_mr_as() const noexcept {
+        auto resource = cuda::mr::resource_cast<T>(&device_mr_);
+        return resource ? std::make_optional(*resource) : std::nullopt;
+    }
+
+    /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
@@ -134,6 +152,16 @@ class BufferResource {
      * @return Reference to the RMM resource used for pinned host allocations.
      */
     [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
+
+    /**
+     * @brief Get the concrete pinned memory resource.
+     *
+     * @return Reference to the concrete pinned memory resource.
+     */
+    [[nodiscard]] constexpr const std::optional<PinnedMemoryResource>&
+    concrete_pinned_mr() const noexcept {
+        return pinned_mr_;
+    }
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.

@@ -520,7 +520,11 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        comm->logger()->print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report(
+            "Statistics:",
+            ctx->br()->device_mr_as<rapidsmpf::RmmResourceAdaptor>(),
+            ctx->br()->concrete_pinned_mr()
+        ));
         ctx->statistics()->clear();
     }
 

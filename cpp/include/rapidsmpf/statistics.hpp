@@ -114,34 +114,13 @@ class Statistics {
     Statistics(bool enabled = true);
 
     /**
-     * @brief Constructs a Statistics object with memory profiling enabled.
-     *
-     * Automatically enables both statistics and memory profiling.
-     *
-     * @param mr The RMM resource adaptor used for memory profiling.
-     * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
-     * `PinnedMemoryResource::Disabled`.
-     */
-    Statistics(
-        RmmResourceAdaptor mr,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
-    );
-
-    /**
      * @brief Construct from configuration options.
      *
-     * @param mr The RMM resource adaptor used for memory profiling.
      * @param options Configuration options.
-     * @param pinned_mr Optional pinned host memory resource for profiling; defaults to
-     * `PinnedMemoryResource::Disabled`.
      *
      * @return A shared pointer to the constructed Statistics instance.
      */
-    static std::shared_ptr<Statistics> from_options(
-        RmmResourceAdaptor mr,
-        config::Options options,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
-    );
+    static std::shared_ptr<Statistics> from_options(config::Options options);
 
     ~Statistics() noexcept;
 
@@ -201,9 +180,19 @@ class Statistics {
      * causing entries to read "No data collected" or imprecise statistics.
      *
      * @param header Header line prepended to the report.
+     * @param mr Optional RMM resource adaptor used for memory profiling. When provided,
+     * a memory profiling section is included in the report. When `std::nullopt`, the
+     * memory profiling section shows "Disabled".
+     * @param pinned_mr Optional pinned memory resource. When not
+     * `PinnedMemoryResource::Disabled`, a pinned memory section is included in the
+     * report.
      * @return Formatted statistics report.
      */
-    std::string report(std::string const& header = "Statistics:") const;
+    std::string report(
+        std::string const& header = "Statistics:",
+        std::optional<RmmResourceAdaptor> mr = std::nullopt,
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
+    ) const;
 
     /**
      * @brief Writes a JSON representation of all collected statistics to a stream.
@@ -532,13 +521,6 @@ class Statistics {
     void clear();
 
     /**
-     * @brief Checks whether memory profiling is enabled.
-     *
-     * @return True if memory profiling is active, otherwise False.
-     */
-    bool is_memory_profiling_enabled() const;
-
-    /**
      * @brief Holds memory profiling information for a named scope.
      */
     struct MemoryRecord {
@@ -582,20 +564,27 @@ class Statistics {
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        Statistics* stats_{nullptr};
-        std::optional<RmmResourceAdaptor> mr_;
+        Statistics* stats_{
+            nullptr
+        };  // TODO: make this shared_ptr using make_shared_from_this
+        std::optional<RmmResourceAdaptor>
+            mr_;  // optional because RmmResourceAdaptor is not default constructible
         std::string name_;
     };
 
     /**
      * @brief Creates a scoped memory recorder for the given name.
      *
-     * If memory profiling is not enabled, returns a no-op recorder.
+     * When @p mr is `std::nullopt`, returns a no-op recorder.
      *
+     * @param mr Optional RMM resource adaptor for tracking allocations. Pass
+     * `std::nullopt` to get a no-op recorder.
      * @param name Name of the scope.
      * @return A MemoryRecorder instance.
      */
-    MemoryRecorder create_memory_recorder(std::string name);
+    MemoryRecorder create_memory_recorder(
+        std::optional<RmmResourceAdaptor> mr, std::string name
+    );
 
     /**
      * @brief Retrieves all memory profiling records stored by this instance.
@@ -618,58 +607,58 @@ class Statistics {
     std::map<std::string, Stat> stats_;
     std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
-    std::optional<RmmResourceAdaptor> mr_;
-    std::optional<PinnedMemoryResource>
-        pinned_mr_;  ///< optional; not used by MemoryRecorder
 };
 
 /**
  * @brief Macro for automatic memory profiling of a code scope.
  *
  * This macro creates a scoped memory recorder that records memory usage statistics
- * upon entering and leaving a code block (if memory profiling is enabled).
+ * upon entering and leaving a code block.
  *
  * Usage:
- * - `RAPIDSMPF_MEMORY_PROFILE(stats)` - Uses __func__ as the function name
- * - `RAPIDSMPF_MEMORY_PROFILE(stats, "custom_name")` - Uses custom_name as the function
- * name
+ * - `RAPIDSMPF_MEMORY_PROFILE(stats, mr)` - Uses __func__ as the function name
+ * - `RAPIDSMPF_MEMORY_PROFILE(stats, mr, "custom_name")` - Uses custom_name as the
+ * function name
  *
  * Example usage:
  * @code
- * void foo(Statistics& stats) {
- *     RAPIDSMPF_MEMORY_PROFILE(stats);
- *     RAPIDSMPF_MEMORY_PROFILE(stats, "custom_name");
+ * void foo(Statistics& stats, RmmResourceAdaptor& mr) {
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, mr);
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, mr, "custom_name");
  * }
  * @endcode
  *
  * The first argument is a reference or pointer to a Statistics object.
- * The second argument (optional) is a custom function name string to use instead of
+ * The second argument is the RMM resource adaptor (or `std::nullopt` for no-op).
+ * The third argument (optional) is a custom function name string to use instead of
  * __func__.
  */
-#define RAPIDSMPF_MEMORY_PROFILE(...)                                       \
-    RAPIDSMPF_OVERLOAD_BY_ARG_COUNT(                                        \
-        __VA_ARGS__, RAPIDSMPF_MEMORY_PROFILE_2, RAPIDSMPF_MEMORY_PROFILE_1 \
-    )                                                                       \
-    (__VA_ARGS__)
+// clang-format off
+// Picks between _2 (stats, mr) and _3 (stats, mr, funcname) forms.
+#define RAPIDSMPF_MEMORY_PROFILE_PICK_(_1, _2, _3, NAME, ...) NAME
+#define RAPIDSMPF_MEMORY_PROFILE(...)                                                     \
+    RAPIDSMPF_MEMORY_PROFILE_PICK_(                                                       \
+        __VA_ARGS__, RAPIDSMPF_MEMORY_PROFILE_3, RAPIDSMPF_MEMORY_PROFILE_2, ~            \
+    )(__VA_ARGS__)
+// clang-format on
 
 // Version with default function name (__func__)
-#define RAPIDSMPF_MEMORY_PROFILE_1(stats) RAPIDSMPF_MEMORY_PROFILE_2(stats, __func__)
+#define RAPIDSMPF_MEMORY_PROFILE_2(stats, mr) \
+    RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, __func__)
 
 // Version with custom function name
-#define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                      \
-    auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                      \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                 \
-        ((rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__))   \
-          && rapidsmpf::detail::to_pointer(                                              \
-                 RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                           \
-          ) -> is_memory_profiling_enabled())                                            \
-             ? rapidsmpf::detail::to_pointer(                                            \
-                   RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \
-               )                                                                         \
-                   ->create_memory_recorder(                                             \
-                       std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-                       + std::string(funcname) + ")"                                     \
-                   )                                                                     \
-             : rapidsmpf::Statistics::MemoryRecorder{})
+#define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                                 \
+    auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                     \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                \
+        (rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)))  \
+            ? rapidsmpf::detail::to_pointer(                                            \
+                  RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \
+              )                                                                         \
+                  -> create_memory_recorder(                                            \
+                      (mr),                                                             \
+                      std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                          + std::string(funcname) + ")"                                 \
+                  )                                                                     \
+            : rapidsmpf::Statistics::MemoryRecorder {}
 
 }  // namespace rapidsmpf

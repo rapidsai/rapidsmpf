@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -65,7 +67,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
 
-    auto statistics = Statistics::from_options(mr, options, pinned_mr);
+    auto statistics = Statistics::from_options(options);
     return std::make_shared<BufferResource>(
         std::move(mr),
         std::move(pinned_mr),
