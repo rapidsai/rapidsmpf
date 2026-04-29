@@ -36,7 +36,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         vector[cpp_OrderKey] keys
         shared_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundaries
-        bool_t operator==(const cpp_OrderScheme&)
         cpp_OrderScheme with_keys(vector[cpp_OrderKey]) except +
         bool_t boundaries_aligned_with(
             const cpp_OrderScheme&, const cpp_BufferResource&

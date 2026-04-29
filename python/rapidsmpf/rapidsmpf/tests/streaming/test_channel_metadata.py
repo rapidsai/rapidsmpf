@@ -88,12 +88,14 @@ def test_order_scheme(context: Context) -> None:
     assert o1.num_boundaries == 1
     assert "OrderScheme" in repr(o1)
 
-    assert o1 == _two_key_order_scheme(context)
+    assert o1.boundaries_aligned_with(_two_key_order_scheme(context), context.br())
 
     o_strict = _two_key_order_scheme(context, strict_boundaries=True)
     assert o_strict.strict_boundaries is True
-    assert o1 != o_strict
-    assert o_strict == _two_key_order_scheme(context, strict_boundaries=True)
+    assert not o1.boundaries_aligned_with(o_strict, context.br())
+    assert o_strict.boundaries_aligned_with(
+        _two_key_order_scheme(context, strict_boundaries=True), context.br()
+    )
 
     with pytest.raises(TypeError, match="OrderKey"):
         OrderScheme(
@@ -190,7 +192,8 @@ def test_partitioning_scenarios(context: Context) -> None:
     # Order-based partitioning (range partitioned / sorted)
     order_scheme = _two_key_order_scheme(context)
     p_ordered = Partitioning(order_scheme, "inherit")
-    assert p_ordered.inter_rank == order_scheme
+    assert isinstance(p_ordered.inter_rank, OrderScheme)
+    assert p_ordered.inter_rank.boundaries_aligned_with(order_scheme, context.br())
     assert p_ordered.local == "inherit"
 
     # Mixed: inter_rank=Order, local=Hash
@@ -294,7 +297,10 @@ def test_order_scheme_roundtrip_from_metadata(context: Context) -> None:
     assert isinstance(scheme, OrderScheme)
 
     p2 = Partitioning(scheme, None)
-    assert p2.inter_rank == _two_key_order_scheme(context)
+    assert isinstance(p2.inter_rank, OrderScheme)
+    assert p2.inter_rank.boundaries_aligned_with(
+        _two_key_order_scheme(context), context.br()
+    )
 
 
 def test_access_after_move_raises() -> None:

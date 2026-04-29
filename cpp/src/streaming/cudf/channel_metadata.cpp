@@ -106,9 +106,24 @@ bool OrderScheme::boundaries_aligned_with(
     return true;
 }
 
-bool OrderScheme::operator==(OrderScheme const& other) const {
-    return strict_boundaries == other.strict_boundaries
-           && boundaries->shape() == other.boundaries->shape() && keys == other.keys;
+bool PartitioningSpec::operator==(PartitioningSpec const& other) const {
+    if (type != other.type)
+        return false;
+    switch (type) {
+    case Type::NONE:
+    case Type::INHERIT:
+        return true;
+    case Type::HASH:
+        return hash == other.hash;
+    case Type::ORDER:
+        {
+            auto const& a = *order;
+            auto const& b = *other.order;
+            return a.strict_boundaries == b.strict_boundaries
+                   && a.boundaries->shape() == b.boundaries->shape() && a.keys == b.keys;
+        }
+    }
+    return false;
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<ChannelMetadata> m) {

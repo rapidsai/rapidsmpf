@@ -95,10 +95,6 @@ cdef class OrderScheme:
     Data is partitioned by value ranges based on predetermined boundaries.
     For N partitions, there are N-1 boundary rows.
 
-    Equality (``==``) matches the C++ definition: same keys and strict_boundaries,
-    and boundary tables with the same shape if present; boundary *cell values*
-    are not compared.
-
     Parameters
     ----------
     keys
@@ -170,11 +166,6 @@ cdef class OrderScheme:
         return self._handle.get().boundaries_aligned_with(
             deref(other._handle), deref(br.ptr())
         )
-
-    def __eq__(self, other):
-        if not isinstance(other, OrderScheme):
-            return NotImplemented
-        return deref(self._handle) == deref((<OrderScheme>other)._handle)
 
     def __repr__(self):
         return (
