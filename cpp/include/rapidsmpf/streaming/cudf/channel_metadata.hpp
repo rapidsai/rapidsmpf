@@ -50,6 +50,12 @@ struct OrderKey {
      * @return True if all fields are equal.
      */
     bool operator==(OrderKey const&) const = default;
+
+    /**
+     * @brief Inequality comparison.
+     * @return True if any field is different.
+     */
+    bool operator!=(OrderKey const&) const = default;
 };
 
 /**
@@ -95,20 +101,6 @@ struct OrderScheme {
         std::shared_ptr<TableChunk> boundaries,
         bool strict_boundaries = false
     );
-
-    /**
-     * @brief Shallow metadata equality without comparing boundary values.
-     *
-     * Returns true when `keys` and `strict_boundaries` match, and boundary tables
-     * have the same shape.
-     * Cell values inside `boundaries` are intentionally not compared (that would
-     * require a device comparison API with stream and memory resource). Do not
-     * use `operator==` to assert that two schemes have identical range boundaries.
-     *
-     * @param other The OrderScheme to compare against.
-     * @return True under the shallow rules above.
-     */
-    bool operator==(OrderScheme const& other) const;
 
     /**
      * @brief Return a new OrderScheme with updated key column indices, sharing
@@ -197,9 +189,14 @@ struct PartitioningSpec {
 
     /**
      * @brief Equality comparison.
-     * @return True if both specs are equal.
+     *
+     * For ORDER specs, compares `keys`, `strict_boundaries`, and boundary shape
+     * (not boundary values — use `OrderScheme::boundaries_aligned_with` for that).
+     *
+     * @param other The PartitioningSpec to compare against.
+     * @return True if both specs are equal under the rules above.
      */
-    bool operator==(PartitioningSpec const&) const = default;
+    bool operator==(PartitioningSpec const& other) const;
 };
 
 /**

@@ -189,7 +189,7 @@ TEST_F(StreamingChannelMetadataGPU, OrderSchemeReplaceKeys) {
     EXPECT_EQ(o2.strict_boundaries, o1.strict_boundaries);
     EXPECT_EQ(o2.boundaries->shape(), o1.boundaries->shape());
     EXPECT_EQ(o2.boundaries.get(), b.get());
-    EXPECT_NE(o1, o2);
+    EXPECT_NE(o1.keys[0].column_index, o2.keys[0].column_index);
 
     EXPECT_THROW(static_cast<void>(o1.with_keys({k0, k5})), std::invalid_argument);
 }
