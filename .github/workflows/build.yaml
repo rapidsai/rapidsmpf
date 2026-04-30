@@ -37,8 +37,11 @@ permissions: {}
 jobs:
   conda-cpp-build:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
@@ -51,8 +54,11 @@ jobs:
   conda-python-build:
     needs: [conda-cpp-build]
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
@@ -66,8 +72,11 @@ jobs:
   upload-conda:
     needs: [conda-cpp-build, conda-python-build]
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@main
     with:
@@ -79,8 +88,11 @@ jobs:
     if: github.ref_type == 'branch'
     needs: conda-python-build
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
@@ -96,8 +108,11 @@ jobs:
       sha: ${{ inputs.sha }}
   wheel-build-librapidsmpf:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
@@ -114,8 +129,11 @@ jobs:
   wheel-publish-librapidsmpf:
     needs: wheel-build-librapidsmpf
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
     with:
@@ -128,8 +146,11 @@ jobs:
   wheel-build-rapidsmpf:
     needs: wheel-build-librapidsmpf
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
@@ -146,8 +167,11 @@ jobs:
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
     with:
@@ -161,8 +185,11 @@ jobs:
   wheel-build-rapidsmpf-singlecomm:
     needs: wheel-build-rapidsmpf
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:

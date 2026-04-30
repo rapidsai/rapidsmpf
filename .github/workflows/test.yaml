@@ -27,8 +27,11 @@ permissions: {}
 jobs:
   conda-cpp-tests:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
     with:
@@ -40,8 +43,11 @@ jobs:
       sha: ${{ inputs.sha }}
   conda-cpp-memcheck:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
@@ -54,8 +60,11 @@ jobs:
       sha: ${{ inputs.sha }}
   conda-python-tests:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
     with:
@@ -68,8 +77,11 @@ jobs:
       sha: ${{ inputs.sha }}
   wheel-test:
     permissions:
+      actions: read
       contents: read
       id-token: write
+      packages: read
+      pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
     with:
