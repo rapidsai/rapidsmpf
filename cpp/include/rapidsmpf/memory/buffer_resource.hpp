@@ -105,12 +105,16 @@ class BufferResource {
      *
      * @param mr The RMM resource adaptor.
      * @param options Configuration options.
+     * @param statistics The statistics instance to use (disabled by default). The caller
+     * is responsible for creating and owning this object.
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        RmmResourceAdaptor mr, config::Options options
+        RmmResourceAdaptor mr,
+        config::Options options,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     ~BufferResource() noexcept = default;
@@ -400,7 +404,7 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
     std::mutex mutex_;
@@ -414,6 +418,8 @@ class BufferResource {
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
+
+static_assert(StatisticsProvider<BufferResource>);
 
 /**
  * @brief A functor for querying the remaining available memory within a defined limit

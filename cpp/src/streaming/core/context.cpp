@@ -106,10 +106,13 @@ Context::Context(
 std::shared_ptr<Context> Context::from_options(
     RmmResourceAdaptor mr,
     std::shared_ptr<Communicator::Logger> logger,
-    config::Options options
+    config::Options options,
+    std::shared_ptr<Statistics> statistics
 ) {
     return std::make_shared<Context>(
-        options, std::move(logger), BufferResource::from_options(std::move(mr), options)
+        options,
+        std::move(logger),
+        BufferResource::from_options(std::move(mr), options, std::move(statistics))
     );
 }
 

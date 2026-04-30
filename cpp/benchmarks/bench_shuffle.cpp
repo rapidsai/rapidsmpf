@@ -550,7 +550,7 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = rapidsmpf::Statistics::create();
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();

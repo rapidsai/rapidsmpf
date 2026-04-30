@@ -363,7 +363,7 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = rapidsmpf::Statistics::create();
 
     auto pinned_mr = args.pinned_mem_disable
                          ? rapidsmpf::PinnedMemoryResource::Disabled

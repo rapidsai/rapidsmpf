@@ -7,7 +7,7 @@ from cython.operator cimport preincrement
 from libc.stdint cimport uint8_t
 from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
@@ -27,6 +27,11 @@ import os
 
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
+    cdef shared_ptr[cpp_Statistics] cpp_create \
+        "rapidsmpf::Statistics::create"(
+            bool_t enabled,
+        ) except +ex_handler
+
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
             cpp_Options options,
@@ -148,7 +153,7 @@ cdef class Statistics:
     """
     def __init__(self, *, bool_t enable):
         with nogil:
-            self._handle = make_shared[cpp_Statistics](enable)
+            self._handle = cpp_create(enable)
 
     @classmethod
     def from_options(cls, Options options not None):

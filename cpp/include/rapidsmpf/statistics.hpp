@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <filesystem>
 #include <initializer_list>
@@ -107,12 +108,13 @@ class Statistics {
     };
 
     /**
-     * @brief Constructs a Statistics object without memory profiling.
+     * @brief Creates a Statistics instance.
      *
      * @param enabled If true, enables tracking of statistics. If false, all operations
      * are no-ops.
+     * @return A shared pointer to a new Statistics instance.
      */
-    Statistics(bool enabled = true);
+    static std::shared_ptr<Statistics> create(bool enabled = true);
 
     /**
      * @brief Construct from configuration options.
@@ -125,8 +127,8 @@ class Statistics {
 
     ~Statistics() noexcept;
 
-    // `Statistics` is owned exclusively through `std::shared_ptr` (see `disabled()` and
-    // `from_options()`).
+    // `Statistics` is owned exclusively through `std::shared_ptr`. Use `create()`,
+    // `disabled()`, or `from_options()` to construct instances.
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
     Statistics(Statistics&&) = delete;
@@ -624,11 +626,32 @@ class Statistics {
         Formatter formatter;
     };
 
+    explicit Statistics(bool enabled);
+
     mutable std::mutex mutex_;
     std::atomic<bool> enabled_;
     std::map<std::string, Stat> stats_;
     std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
+};
+
+/**
+ * @brief Satisfied by any type that exposes a `statistics()` method returning
+ *        `std::shared_ptr<Statistics>`.
+ *
+ * Classes satisfying this concept are *statistics providers* — secondary
+ * classes that receive a provider as a constructor argument should derive their
+ * `Statistics` instance by calling `.statistics()` on it rather than accepting
+ * a separate `std::shared_ptr<Statistics>` argument.
+ *
+ * Each provider asserts this concept via `static_assert` in its own header.
+ * Current providers: `BufferResource`, `ProgressThread`, `streaming::Context`.
+ */
+template <typename T>
+concept StatisticsProvider = requires(T const& t) {
+    {
+        t.statistics()
+    } noexcept -> std::convertible_to<std::shared_ptr<Statistics>>;
 };
 
 /**

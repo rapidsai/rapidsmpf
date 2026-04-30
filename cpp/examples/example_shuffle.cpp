@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = std::make_shared<rapidsmpf::Statistics>();
+    auto stats = rapidsmpf::Statistics::create();
 
     // The communicator has a progress thread where the shuffler event loop executes. A
     // single progress thread may be used by multiple shufflers simultaneously.

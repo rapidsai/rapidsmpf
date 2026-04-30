@@ -162,19 +162,24 @@ Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
 
-// TODO: remove this constructor and add a factory method, because
-// make_shared<Statistics>(false) != Statistics::disabled()
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
+
+std::shared_ptr<Statistics> Statistics::create(bool enabled) {
+    if (!enabled) {
+        return disabled();
+    }
+    return std::shared_ptr<Statistics>(new Statistics(true));
+}
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? "False" : s);
+        return s.empty() ? false : parse_string<bool>(s);
     });
-    return statistics ? std::make_shared<Statistics>(statistics) : Statistics::disabled();
+    return statistics ? Statistics::create() : Statistics::disabled();
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
-    static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
+    static std::shared_ptr<Statistics> ret{new Statistics(false)};
     return ret;
 }
 
@@ -259,7 +264,7 @@ Statistics::MemoryRecorder::MemoryRecorder(
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
-    if (stats_ == nullptr) {
+    if (stats_ == nullptr || !stats_->enabled()) {
         return;
     }
     auto const scope = mr_->end_scoped_memory_record();
@@ -275,7 +280,7 @@ Statistics::MemoryRecorder Statistics::create_memory_recorder(
     std::optional<any_device_resource> mr, std::string name
 ) {
     auto* rma = get_optional_resource_as<RmmResourceAdaptor>(mr);
-    if (!rma) {
+    if (!enabled() || !rma) {
         return MemoryRecorder{};
     }
     return MemoryRecorder{this, *rma, std::move(name)};
@@ -485,7 +490,7 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 
 std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    auto ret = Statistics::create(enabled());
     ret->stats_ = stats_;
     ret->report_entries_ = report_entries_;
     return ret;
@@ -579,7 +584,7 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
 
     std::uint8_t enabled{};
     data = read_pod(data, enabled);
-    auto ret = std::make_shared<Statistics>(enabled != 0);
+    auto ret = Statistics::create(enabled != 0);
 
     std::uint64_t num_stats{};
     data = read_pod(data, num_stats);
@@ -656,7 +661,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 
     bool const any_enabled =
         std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
-    auto ret = std::make_shared<Statistics>(any_enabled);
+    auto ret = Statistics::create(any_enabled);
 
     for (auto const& snap : snapshots) {
         for (auto const& [name, stat] : snap.stats) {

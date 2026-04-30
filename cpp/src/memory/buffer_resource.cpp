@@ -58,7 +58,9 @@ BufferResource::BufferResource(
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    RmmResourceAdaptor mr, config::Options options
+    RmmResourceAdaptor mr,
+    config::Options options,
+    std::shared_ptr<Statistics> statistics
 ) {
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     auto mem_available = memory_available_from_options(mr, options);
@@ -67,7 +69,6 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
 
-    auto statistics = Statistics::from_options(options);
     return std::make_shared<BufferResource>(
         std::move(mr),
         std::move(pinned_mr),
@@ -267,7 +268,7 @@ SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
 
-std::shared_ptr<Statistics> BufferResource::statistics() {
+std::shared_ptr<Statistics> BufferResource::statistics() const noexcept {
     return statistics_;
 }
 

@@ -24,6 +24,7 @@ from rapidsmpf.memory.buffer_resource import (
 from rapidsmpf.memory.spill_collection import SpillCollection
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
+from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -748,8 +749,8 @@ def rmpf_worker_local_setup(
     options = Options(options_map)
 
     # use options to create the buffer resource
-    br = BufferResource.from_options(mr, options)
-    statistics = br.statistics
+    statistics = Statistics.from_options(options)
+    br = BufferResource.from_options(mr, options, statistics)
 
     # If enabled, create a staging device buffer for the spilling to reduce
     # device memory pressure.

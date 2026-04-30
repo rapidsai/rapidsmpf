@@ -29,7 +29,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<BufferResource>(*mr);
         stream = rmm::cuda_stream_default;
-        statistics = std::make_shared<Statistics>();
+        statistics = Statistics::create();
 
         auto allocate_fn = [this](std::size_t size) {
             return allocate_receive_buffer(size);

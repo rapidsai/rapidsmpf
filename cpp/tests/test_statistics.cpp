@@ -37,43 +37,43 @@ class StatisticsTest : public ::testing::Test {
 };
 
 TEST_F(StatisticsTest, Disabled) {
-    rapidsmpf::Statistics stats(false);
-    EXPECT_FALSE(stats.enabled());
+    auto stats = rapidsmpf::Statistics::create(false);
+    EXPECT_FALSE(stats->enabled());
 
     // Disabed statistics is a no-op.
-    stats.add_bytes_stat("name", 1);
-    EXPECT_THROW(stats.get_stat("name"), std::out_of_range);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics: disabled"));
+    stats->add_bytes_stat("name", 1);
+    EXPECT_THROW(stats->get_stat("name"), std::out_of_range);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("Statistics: disabled"));
 }
 
 TEST_F(StatisticsTest, Communication) {
-    rapidsmpf::Statistics stats;
-    EXPECT_TRUE(stats.enabled());
+    auto stats = rapidsmpf::Statistics::create();
+    EXPECT_TRUE(stats->enabled());
 
-    EXPECT_THROW(stats.get_stat("unknown-name"), std::out_of_range);
+    EXPECT_THROW(stats->get_stat("unknown-name"), std::out_of_range);
 
     // Default-formatted stat (no report entry needed).
-    stats.add_stat("plain-stat", 10);
-    stats.add_stat("plain-stat", 1);
-    EXPECT_EQ(stats.get_stat("plain-stat").count(), 2);
-    EXPECT_EQ(stats.get_stat("plain-stat").value(), 11);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("plain-stat"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("11 (count 2)"));
+    stats->add_stat("plain-stat", 10);
+    stats->add_stat("plain-stat", 1);
+    EXPECT_EQ(stats->get_stat("plain-stat").count(), 2);
+    EXPECT_EQ(stats->get_stat("plain-stat").value(), 11);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("plain-stat"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("11 (count 2)"));
 
-    stats.add_bytes_stat("byte-statistics", 20);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20 B"));
+    stats->add_bytes_stat("byte-statistics", 20);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("byte-statistics"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("20 B"));
 }
 
 TEST_F(StatisticsTest, AddReportEntryArityMismatchThrowsOnRender) {
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     // MemoryThroughput expects 3 stats; passing one is accepted at registration but
     // fails when report() tries to render the entry.
-    stats.add_report_entry(
+    stats->add_report_entry(
         "bad", {"only-one"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
-    stats.add_stat("only-one", 1.0);
-    EXPECT_THROW(std::ignore = stats.report(), std::out_of_range);
+    stats->add_stat("only-one", 1.0);
+    EXPECT_THROW(std::ignore = stats->report(), std::out_of_range);
 }
 
 TEST_F(StatisticsTest, StatMax) {
@@ -91,73 +91,73 @@ TEST_F(StatisticsTest, StatMax) {
 }
 
 TEST_F(StatisticsTest, AddReportEntryFirstWins) {
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     // The first add_report_entry wins: a Default (count-aware) entry stays
     // in place even after add_bytes_stat tries to upgrade it to Bytes.
-    stats.add_report_entry(
+    stats->add_report_entry(
         "my-bytes", {"my-bytes"}, rapidsmpf::Statistics::Formatter::Default
     );
-    stats.add_bytes_stat("my-bytes", 1024);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("my-bytes"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("1024"));
-    EXPECT_THAT(stats.report(), ::testing::Not(::testing::HasSubstr("KiB")));
+    stats->add_bytes_stat("my-bytes", 1024);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("my-bytes"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("1024"));
+    EXPECT_THAT(stats->report(), ::testing::Not(::testing::HasSubstr("KiB")));
 }
 
 TEST_F(StatisticsTest, MultiStatReportEntry) {
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     // Build a MemoryThroughput-style 3-stat report entry.
-    stats.add_report_entry(
+    stats->add_report_entry(
         "copy-summary",
         {"copy-summary-bytes", "copy-summary-time", "copy-summary-stream-delay"},
         rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
-    stats.add_stat("copy-summary-bytes", 1024 * 1024);
-    stats.add_stat("copy-summary-time", 0.001);
-    stats.add_stat("copy-summary-stream-delay", 0.0001);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("copy-summary"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("1 MiB"));
+    stats->add_stat("copy-summary-bytes", 1024 * 1024);
+    stats->add_stat("copy-summary-time", 0.001);
+    stats->add_stat("copy-summary-stream-delay", 0.0001);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("copy-summary"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("1 MiB"));
     // Component stats are consumed by the report entry and don't emit
     // their own lines.
     EXPECT_THAT(
-        stats.report(), ::testing::Not(::testing::HasSubstr("copy-summary-bytes"))
+        stats->report(), ::testing::Not(::testing::HasSubstr("copy-summary-bytes"))
     );
 }
 
 TEST_F(StatisticsTest, ReportNoDataCollected) {
-    rapidsmpf::Statistics stats;
-    stats.add_report_entry(
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_report_entry(
         "spill-summary",
         {"spill-bytes", "spill-time", "spill-delay"},
         rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
     // No stats recorded — entry should still appear with "No data collected".
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-summary"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("No data collected"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("spill-summary"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("No data collected"));
 
     // Adding only one of the three required stats still yields "No data collected".
-    stats.add_stat("spill-bytes", 1024 * 1024);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("No data collected"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("spill-bytes"));  // uncovered
+    stats->add_stat("spill-bytes", 1024 * 1024);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("No data collected"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("spill-bytes"));  // uncovered
 }
 
 TEST_F(StatisticsTest, ReportSorting) {
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
 
-    stats.add_stat("banana", 2);
-    stats.add_report_entry(
+    stats->add_stat("banana", 2);
+    stats->add_report_entry(
         "banana", {"banana"}, rapidsmpf::Statistics::Formatter::Default
     );
 
-    stats.add_stat("cherry", 3);
-    stats.add_report_entry(
+    stats->add_stat("cherry", 3);
+    stats->add_report_entry(
         "cherry", {"cherry"}, rapidsmpf::Statistics::Formatter::Default
     );
 
     // Uncovered raw stats for "apple" and "date".
-    stats.add_stat("apple", 1);
-    stats.add_stat("date", 4);
+    stats->add_stat("apple", 1);
+    stats->add_stat("date", 4);
 
-    auto const r = stats.report();
+    auto const r = stats->report();
     auto const pos_apple = r.find("apple");
     auto const pos_banana = r.find("banana");
     auto const pos_cherry = r.find("cherry");
@@ -176,12 +176,12 @@ TEST_F(StatisticsTest, ReportSorting) {
 TEST_F(StatisticsTest, MemoryProfiler) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     auto stream = cudf::get_default_stream();
 
     // Outer scope
     {
-        auto outer = stats.create_memory_recorder(mr, "outer");
+        auto outer = stats->create_memory_recorder(mr, "outer");
         void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
         void* ptr2 = mr.allocate_sync(1_MiB);  // +2 MiB
         mr.deallocate_sync(ptr1, 1_MiB);
@@ -189,7 +189,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 
         // Nested scope
         {
-            auto inner = stats.create_memory_recorder(mr, "inner");
+            auto inner = stats->create_memory_recorder(mr, "inner");
             void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
             mr.deallocate_sync(ptr3, 1_MiB);
         }
@@ -205,7 +205,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
         }
         stream.synchronize();
     }
-    auto const& records = stats.get_memory_records();
+    auto const& records = stats->get_memory_records();
 
     // Verify outer
     EXPECT_EQ(records.at("outer").num_calls, 1);
@@ -221,7 +221,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 
     // We can call the same name multiple times.
     {
-        auto outer = stats.create_memory_recorder(mr, "outer");
+        auto outer = stats->create_memory_recorder(mr, "outer");
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     EXPECT_EQ(records.at("outer").num_calls, 2);
@@ -270,11 +270,14 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(false);
-
+    auto stats = rapidsmpf::Statistics::create(false);
+    {
+        auto const& records = stats->get_memory_records();
+        EXPECT_TRUE(records.empty());
+    }
     // Outer scope — pass nullopt so the recorder is a no-op.
     {
-        auto outer = stats.create_memory_recorder(std::nullopt, "outer");
+        auto outer = stats->create_memory_recorder(std::nullopt, "outer");
         void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
         void* ptr2 = mr.allocate_sync(1_MiB);  // +2 MiB
         mr.deallocate_sync(ptr1, 1_MiB);
@@ -282,23 +285,23 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
 
         // Nested scope
         {
-            auto inner = stats.create_memory_recorder(std::nullopt, "inner");
+            auto inner = stats->create_memory_recorder(std::nullopt, "inner");
             void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
             mr.deallocate_sync(ptr3, 1_MiB);
         }
     }
-    auto const& records = stats.get_memory_records();
+    auto const& records = stats->get_memory_records();
     EXPECT_TRUE(records.empty());
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacro) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
-    auto const& records = stats.get_memory_records();
+    auto const& records = stats->get_memory_records();
     ASSERT_EQ(records.size(), 1);
     auto const& entry = *records.begin();
     EXPECT_TRUE(entry.first.find("test_statistics.cpp") != std::string::npos);
@@ -308,23 +311,23 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
 
 TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats(false);
+    auto stats = rapidsmpf::Statistics::create(false);
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, std::nullopt);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
-    auto const& records = stats.get_memory_records();
+    auto const& records = stats->get_memory_records();
     EXPECT_TRUE(records.empty());
 }
 
 TEST_F(StatisticsTest, JsonStream) {
-    rapidsmpf::Statistics stats;
-    stats.add_stat("foo", 10.0);
-    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
-    stats.add_bytes_stat("bar", 1024);
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_stat("foo", 10.0);
+    stats->add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats->add_bytes_stat("bar", 1024);
 
     std::ostringstream ss;
-    stats.write_json(ss);
+    stats->write_json(ss);
     auto const& s = ss.str();
 
     EXPECT_THAT(s, ::testing::HasSubstr(R"("foo")"));
@@ -339,31 +342,31 @@ TEST_F(StatisticsTest, JsonStream) {
 }
 
 TEST_F(StatisticsTest, InvalidStatNames) {
-    rapidsmpf::Statistics stats;
-    stats.add_stat("has\"quote", 1.0);
-    stats.add_stat("has\\backslash", 2.0);
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_stat("has\"quote", 1.0);
+    stats->add_stat("has\\backslash", 2.0);
     std::ostringstream ss;
-    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
+    EXPECT_THROW(stats->write_json(ss), std::invalid_argument);
 }
 
 TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats;
-    std::ignore = stats.create_memory_recorder(mr, "bad\"name");
+    auto stats = rapidsmpf::Statistics::create();
+    std::ignore = stats->create_memory_recorder(mr, "bad\"name");
     std::ostringstream ss;
-    EXPECT_THROW(stats.write_json(ss), std::invalid_argument);
+    EXPECT_THROW(stats->write_json(ss), std::invalid_argument);
 }
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    rapidsmpf::Statistics stats;
+    auto stats = rapidsmpf::Statistics::create();
     {
-        auto rec = stats.create_memory_recorder(mr, "alloc");
+        auto rec = stats->create_memory_recorder(mr, "alloc");
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
 
     std::ostringstream ss;
-    stats.write_json(ss);
+    stats->write_json(ss);
     auto const& s = ss.str();
 
     EXPECT_THAT(s, ::testing::HasSubstr("memory_records"));
@@ -375,14 +378,14 @@ TEST_F(StatisticsTest, JsonMemoryRecords) {
 }
 
 TEST_F(StatisticsTest, JsonReport) {
-    rapidsmpf::Statistics stats;
-    stats.add_stat("foo", 10.0);
-    stats.add_stat("foo", 5.0);  // count=2, value=15, max=10
-    stats.add_bytes_stat("bar", 1024);
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_stat("foo", 10.0);
+    stats->add_stat("foo", 5.0);  // count=2, value=15, max=10
+    stats->add_bytes_stat("bar", 1024);
 
     TempDir tmp_dir;
     auto const path = tmp_dir.path() / "stats.json";
-    stats.write_json(path);
+    stats->write_json(path);
 
     std::ifstream f(path);
     ASSERT_TRUE(f.is_open());
@@ -391,7 +394,7 @@ TEST_F(StatisticsTest, JsonReport) {
     );
 
     std::ostringstream ss;
-    stats.write_json(ss);
+    stats->write_json(ss);
     EXPECT_EQ(file_contents, ss.str());
 }
 
@@ -403,23 +406,23 @@ TEST_F(StatisticsTest, StatConstructor) {
 }
 
 TEST_F(StatisticsTest, SerializeRoundTrip) {
-    rapidsmpf::Statistics stats;
-    stats.add_stat("alpha", 10.0);
-    stats.add_stat("alpha", 5.0);  // count=2, value=15, max=10
-    stats.add_stat("beta", 3.0);
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_stat("alpha", 10.0);
+    stats->add_stat("alpha", 5.0);  // count=2, value=15, max=10
+    stats->add_stat("beta", 3.0);
 
-    auto const bytes = stats.serialize();
+    auto const bytes = stats->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
 
     EXPECT_TRUE(deserialized->enabled());
-    EXPECT_EQ(deserialized->get_stat("alpha"), stats.get_stat("alpha"));
-    EXPECT_EQ(deserialized->get_stat("beta"), stats.get_stat("beta"));
+    EXPECT_EQ(deserialized->get_stat("alpha"), stats->get_stat("alpha"));
+    EXPECT_EQ(deserialized->get_stat("beta"), stats->get_stat("beta"));
     EXPECT_EQ(deserialized->list_stat_names().size(), 2);
 }
 
 TEST_F(StatisticsTest, SerializeEmpty) {
-    rapidsmpf::Statistics stats;
-    auto const bytes = stats.serialize();
+    auto stats = rapidsmpf::Statistics::create();
+    auto const bytes = stats->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
 
     EXPECT_TRUE(deserialized->enabled());
@@ -467,38 +470,38 @@ TEST_F(StatisticsTest, DeserializeRejectsOutOfRangeFormatter) {
 
 TEST_F(StatisticsTest, SerializeRoundTripPreservesEnabledFlag) {
     // A disabled Statistics should come back disabled after a round-trip.
-    rapidsmpf::Statistics disabled(false);
-    auto const bytes = disabled.serialize();
+    auto disabled = rapidsmpf::Statistics::create(false);
+    auto const bytes = disabled->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
     EXPECT_FALSE(deserialized->enabled());
 
     // And an enabled one comes back enabled.
-    rapidsmpf::Statistics enabled(true);
-    auto const bytes2 = enabled.serialize();
+    auto enabled = rapidsmpf::Statistics::create(true);
+    auto const bytes2 = enabled->serialize();
     auto deserialized2 = rapidsmpf::Statistics::deserialize(bytes2);
     EXPECT_TRUE(deserialized2->enabled());
 }
 
 TEST_F(StatisticsTest, SerializeRoundTripWithReportEntries) {
-    rapidsmpf::Statistics stats;
-    stats.add_bytes_stat("alpha", 2048);  // Bytes entry
-    stats.add_duration_stat("beta", rapidsmpf::Duration{0.005});  // Duration entry
-    stats.add_report_entry(
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_bytes_stat("alpha", 2048);  // Bytes entry
+    stats->add_duration_stat("beta", rapidsmpf::Duration{0.005});  // Duration entry
+    stats->add_report_entry(
         "copy",
         {"copy-bytes", "copy-time", "copy-delay"},
         rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
-    stats.add_stat("copy-bytes", 1024.0 * 1024.0);
-    stats.add_stat("copy-time", 0.002);
-    stats.add_stat("copy-delay", 0.00001);
+    stats->add_stat("copy-bytes", 1024.0 * 1024.0);
+    stats->add_stat("copy-time", 0.002);
+    stats->add_stat("copy-delay", 0.00001);
 
-    auto const bytes = stats.serialize();
+    auto const bytes = stats->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
 
     // Stats round-trip numerically.
-    EXPECT_EQ(deserialized->get_stat("alpha"), stats.get_stat("alpha"));
-    EXPECT_EQ(deserialized->get_stat("beta"), stats.get_stat("beta"));
-    EXPECT_EQ(deserialized->get_stat("copy-bytes"), stats.get_stat("copy-bytes"));
+    EXPECT_EQ(deserialized->get_stat("alpha"), stats->get_stat("alpha"));
+    EXPECT_EQ(deserialized->get_stat("beta"), stats->get_stat("beta"));
+    EXPECT_EQ(deserialized->get_stat("copy-bytes"), stats->get_stat("copy-bytes"));
 
     // And crucially, formatter metadata is preserved: the deserialized
     // report renders formatted values, not raw numbers.
@@ -508,22 +511,22 @@ TEST_F(StatisticsTest, SerializeRoundTripWithReportEntries) {
 }
 
 TEST_F(StatisticsTest, Copy) {
-    rapidsmpf::Statistics stats;
-    stats.add_bytes_stat("x", 2048);  // registers a Bytes report entry
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_bytes_stat("x", 2048);  // registers a Bytes report entry
 
-    auto copied = stats.copy();
+    auto copied = stats->copy();
     EXPECT_TRUE(copied->enabled());
-    EXPECT_EQ(copied->get_stat("x"), stats.get_stat("x"));
+    EXPECT_EQ(copied->get_stat("x"), stats->get_stat("x"));
     // The Bytes formatter carried over the copy.
     EXPECT_THAT(copied->report(), ::testing::HasSubstr("2 KiB"));
 }
 
 TEST_F(StatisticsTest, MergeOverlapping) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_stat("x", 10.0);
     a->add_stat("x", 3.0);  // count=2, value=13, max=10
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_stat("x", 7.0);  // count=1, value=7, max=7
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, b};
@@ -535,10 +538,10 @@ TEST_F(StatisticsTest, MergeOverlapping) {
 }
 
 TEST_F(StatisticsTest, MergeDisjoint) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_stat("x", 1.0);
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_stat("y", 2.0);
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, b};
@@ -549,10 +552,10 @@ TEST_F(StatisticsTest, MergeDisjoint) {
 }
 
 TEST_F(StatisticsTest, MergeWithEmpty) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_stat("x", 5.0);
 
-    auto empty = std::make_shared<rapidsmpf::Statistics>();
+    auto empty = rapidsmpf::Statistics::create();
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, empty};
     auto merged = rapidsmpf::Statistics::merge(std::span{inputs});
@@ -566,10 +569,10 @@ TEST_F(StatisticsTest, MergeWithEmpty) {
 }
 
 TEST_F(StatisticsTest, MergeCombinesReportEntries) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_bytes_stat("x", 10);  // Bytes report entry
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_stat("x", 5.0);  // no formatter on this side
 
     // Merging a (has Bytes entry) with b: result uses a's entry.
@@ -584,13 +587,13 @@ TEST_F(StatisticsTest, MergeCombinesReportEntries) {
 }
 
 TEST_F(StatisticsTest, MergeMultiple) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_stat("x", 1.0);
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_stat("x", 2.0);
 
-    auto c = std::make_shared<rapidsmpf::Statistics>();
+    auto c = rapidsmpf::Statistics::create();
     c->add_stat("y", 10.0);
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, b, c};
@@ -610,7 +613,7 @@ TEST_F(StatisticsTest, MergeRejectsEmptySpan) {
 }
 
 TEST_F(StatisticsTest, MergeRejectsNullElement) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, nullptr};
     EXPECT_THROW(
         std::ignore = rapidsmpf::Statistics::merge(std::span{inputs}),
@@ -619,11 +622,11 @@ TEST_F(StatisticsTest, MergeRejectsNullElement) {
 }
 
 TEST_F(StatisticsTest, MergeRejectsConflictingFormatter) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_report_entry("x", {"x"}, rapidsmpf::Statistics::Formatter::Bytes);
     a->add_stat("x", 1.0);
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_report_entry("x", {"x"}, rapidsmpf::Statistics::Formatter::Duration);
     b->add_stat("x", 2.0);
 
@@ -637,10 +640,10 @@ TEST_F(StatisticsTest, MergeRejectsConflictingFormatter) {
 TEST_F(StatisticsTest, MergeIdenticalReportEntries) {
     // Two inputs with the same report entry (same formatter + stat_names)
     // must merge cleanly — no conflict.
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_bytes_stat("x", 10);
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_bytes_stat("x", 20);
 
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> inputs{a, b};
@@ -649,8 +652,8 @@ TEST_F(StatisticsTest, MergeIdenticalReportEntries) {
 }
 
 TEST_F(StatisticsTest, MergeEnabledFlagPropagates) {
-    auto enabled = std::make_shared<rapidsmpf::Statistics>(true);
-    auto disabled = std::make_shared<rapidsmpf::Statistics>(false);
+    auto enabled = rapidsmpf::Statistics::create(true);
+    auto disabled = rapidsmpf::Statistics::create(false);
 
     // disabled + disabled -> disabled.
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> both_off{disabled, disabled};
@@ -662,12 +665,12 @@ TEST_F(StatisticsTest, MergeEnabledFlagPropagates) {
 }
 
 TEST_F(StatisticsTest, MergeRejectsConflictingStatNames) {
-    auto a = std::make_shared<rapidsmpf::Statistics>();
+    auto a = rapidsmpf::Statistics::create();
     a->add_report_entry(
         "copy", {"b1", "t1", "d1"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
 
-    auto b = std::make_shared<rapidsmpf::Statistics>();
+    auto b = rapidsmpf::Statistics::create();
     b->add_report_entry(
         "copy", {"b2", "t2", "d2"}, rapidsmpf::Statistics::Formatter::MemoryThroughput
     );
