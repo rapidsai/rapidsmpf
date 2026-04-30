@@ -55,7 +55,7 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_include_directories(test_sources PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+target_include_directories(test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_compile_options(
   test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
@@ -88,6 +88,7 @@ target_sources(
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
+          test_sparse_alltoall.cpp
           test_shuffler_many_streams.cpp
           test_shuffler.cpp
           test_spill_manager.cpp
@@ -114,6 +115,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_channel_metadata.cpp
             streaming/test_read_parquet.cpp
             streaming/test_shuffler.cpp
+            streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
             streaming/test_table_chunk.cpp
   )
@@ -123,7 +125,7 @@ if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
   set_target_properties(
     mpi_tests
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
                CXX_STANDARD 20
                CXX_STANDARD_REQUIRED ON
                # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -155,7 +157,7 @@ if(RAPIDSMPF_HAVE_MPI)
     add_executable(ucxx_tests main/ucxx.cpp)
     set_target_properties(
       ucxx_tests
-      PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+      PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
                  CXX_STANDARD 20
                  CXX_STANDARD_REQUIRED ON
                  # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -191,7 +193,7 @@ endif()
 add_executable(rrun_tests main/rrun.cpp test_rrun.cpp test_rrun_bind.cpp)
 set_target_properties(
   rrun_tests
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -215,7 +217,7 @@ add_executable(single_tests main/single.cpp)
 
 set_target_properties(
   single_tests
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -236,6 +238,40 @@ target_link_libraries(
 target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
+
+# bootstrap_tests — standalone; compiles bootstrap sources directly so it does not depend on the
+# full rapidsmpf library (and its CUDA sources).
+add_executable(
+  bootstrap_tests
+  bootstrap/test_key_validation.cpp
+  bootstrap/test_socket_backend.cpp
+  main/bootstrap.cpp
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/socket_backend.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/bootstrap.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/file_backend.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"
+  "${PROJECT_SOURCE_DIR}/src/system_info.cpp"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>"
+)
+set_target_properties(
+  bootstrap_tests
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             COMPONENT testing
+)
+target_include_directories(
+  bootstrap_tests PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+)
+target_compile_options(bootstrap_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
+target_compile_definitions(
+  bootstrap_tests PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:RAPIDSMPF_HAVE_SLURM>
+)
+target_link_libraries(
+  bootstrap_tests PRIVATE GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+                          $<TARGET_NAME_IF_EXISTS:PMIx::PMIx> ${CMAKE_DL_LIBS}
+)
+add_test(NAME bootstrap_tests COMMAND "gtests/bootstrap_tests")
 
 # Create a list of targets that contains property KEY:VALUE.
 function(rapidsmpf_targets_with_property)

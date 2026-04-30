@@ -89,6 +89,9 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
                 break;
             }
         }
+        if (total_spilled >= amount) {
+            break;
+        }
     }
     RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);
     return total_spilled;

@@ -11,7 +11,8 @@ from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+                                               cpp_BufferResource)
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
 from rapidsmpf.memory.packed_data cimport PackedData
@@ -533,6 +534,42 @@ cdef class TableChunk:
         with nogil:
             ret = cpp_table_copy(self._handle, res)
         return TableChunk.from_handle(move(ret), self._br)
+
+    def into_packed_data(self, BufferResource br not None):
+        """
+        Convert this table chunk to a PackedData, avoiding unnecessary copies.
+
+        If the chunk's data is already in packed form (e.g., it arrived over the
+        network or was constructed from a :class:`PackedData`), the packed data is
+        moved out directly with no copy. Otherwise the table is serialized via
+        ``cudf.pack()``.
+
+        Parameters
+        ----------
+        br
+            Buffer resource used when packing is required.
+
+        Returns
+        -------
+        PackedData
+            The resulting packed data.
+
+        Raises
+        ------
+        ValueError
+            If the data is not already packed and the table is not available
+            (i.e., ``is_available() == False``).
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+        """
+        cdef unique_ptr[cpp_PackedData] result
+        cdef cpp_BufferResource* _br = br.ptr()
+        cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
+        with nogil:
+            result = move(deref(handle)).into_packed_data(_br)
+        return PackedData.from_librapidsmpf(move(result), br)
 
     @property
     def shape(self):

@@ -10,10 +10,23 @@
 
 #include <cuda_runtime_api.h>
 
+// cuco headers have sign-conversion issues; suppress for the host compiler
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
 #include <cuco/bloom_filter_policies.cuh>
 #include <cuco/bloom_filter_ref.cuh>
 #include <cuco/hash_functions.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <cub/device/device_transform.cuh>
 #include <cuda/std/tuple>

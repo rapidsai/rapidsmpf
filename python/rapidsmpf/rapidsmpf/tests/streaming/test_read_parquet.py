@@ -117,6 +117,9 @@ def test_read_parquet(
     num_rows: int | Literal["all"],
     use_filter: bool,  # noqa: FBT001
 ) -> None:
+    if comm.nranks != 1:
+        pytest.skip("Only support single-rank runs")
+
     ch: Channel[TableChunk] = context.create_channel()
 
     options = plc.io.parquet.ParquetReaderOptions.builder(source).build()

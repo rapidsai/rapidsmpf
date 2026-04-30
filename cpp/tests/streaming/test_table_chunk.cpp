@@ -470,6 +470,40 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
 }
 
+TEST_F(StreamingTableChunk, ToPackedDataFromPackedChunk) {
+    constexpr unsigned int num_rows = 100;
+    constexpr std::int64_t seed = 1337;
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+    auto packed_columns = cudf::pack(expect, stream);
+    TableChunk chunk{std::make_unique<PackedData>(
+        std::move(packed_columns.metadata),
+        br->move(std::move(packed_columns.gpu_data), stream)
+    )};
+    EXPECT_TRUE(chunk.is_available());
+
+    auto packed = std::move(chunk).into_packed_data(br.get());
+    EXPECT_FALSE(chunk.is_available());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+        expect, TableChunk{std::move(packed)}.table_view()
+    );
+}
+
+TEST_F(StreamingTableChunk, ToPackedDataFromTable) {
+    constexpr unsigned int num_rows = 100;
+    constexpr std::int64_t seed = 1337;
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+    TableChunk chunk{std::make_unique<cudf::table>(expect), stream};
+    EXPECT_TRUE(chunk.is_available());
+
+    auto packed = std::move(chunk).into_packed_data(br.get());
+    EXPECT_FALSE(chunk.is_available());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+        expect, TableChunk{std::move(packed)}.table_view()
+    );
+}
+
 TEST_F(StreamingTableChunk, ToMessageUnalignedSize) {
     constexpr unsigned int num_rows = 5;
     constexpr std::int64_t seed = 2025;

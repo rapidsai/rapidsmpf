@@ -421,6 +421,29 @@ def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> No
     assert device_chunk.shape == expected_shape
 
 
+@pytest.mark.parametrize("from_pack", [False, True], ids=["from_table", "from_pack"])
+def test_into_packed_data(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
+    expect = random_table(1024)
+    if from_pack:
+        pd = PackedData.from_cudf_packed_columns(
+            plc.contiguous_split.pack(expect, stream), stream, context.br()
+        )
+        chunk = TableChunk.from_packed_data(pd, br=context.br())
+    else:
+        chunk = TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True, br=context.br()
+        )
+    assert chunk.is_available()
+
+    result = chunk.into_packed_data(context.br())
+    assert isinstance(result, PackedData)
+
+    # Wrap the PackedData back into a TableChunk and verify contents.
+    result_chunk = TableChunk.from_packed_data(result, br=context.br())
+    assert result_chunk.is_available()
+    assert_eq(expect, result_chunk.table_view())
+
+
 @pytest.mark.parametrize("chunk_location", ["device", "host"])
 def test_make_table_chunks_available_or_wait_single_chunk(
     context: Context,

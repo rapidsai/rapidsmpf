@@ -8,9 +8,11 @@ from libc.stdint cimport uint8_t
 from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
+import json
 from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -29,7 +31,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         "rapidsmpf::Statistics::from_options"(
             cpp_RmmResourceAdaptor mr,
             cpp_Options options,
-            shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
+            optional[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
@@ -153,11 +155,9 @@ cdef class Statistics:
         """
         cdef Statistics ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned
         if pinned_mr is not None:
             cpp_pinned = pinned_mr._handle
-        else:
-            cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
             ret._handle = cpp_from_options(deref(mr_handle), options._handle,
                                            cpp_pinned)
@@ -241,6 +241,26 @@ cdef class Statistics:
             preincrement(it)
         return ret
 
+    def to_dict(self):
+        """
+        Return a plain dict snapshot of all statistics.
+
+        Each entry maps a stat name to a dict with ``count``, ``value``,
+        and ``max`` keys, matching the shape returned by :meth:`get_stat`.
+        The snapshot is taken atomically and is detached thus mutating it
+        does not affect the underlying :class:`Statistics`.
+
+        Report-entry and formatter metadata is not included; use
+        :meth:`report` or :meth:`write_json_string` for those.
+
+        Disabled statistics always return an empty dict.
+
+        Returns
+        -------
+        A ``dict`` mapping each stat name to its ``{"count", "value", "max"}`` dict.
+        """
+        return json.loads(self.write_json_string())["statistics"]
+
     def add_stat(self, name, double value):
         """
         Adds a value to a statistic.
@@ -282,6 +302,55 @@ cdef class Statistics:
             deref(self._handle).add_report_entry(
                 name_, cpp_stat_names, formatter
             )
+
+    def copy(self):
+        """
+        Creates a deep copy of this Statistics object.
+
+        Memory records are not copied.
+
+        Returns
+        -------
+        A new Statistics with the same stats and formatters.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = deref(self._handle).copy()
+        return ret
+
+    @staticmethod
+    def merge(stats):
+        """
+        Merge a sequence of Statistics into a new one.
+
+        For each stat name present in any input, the result has the summed
+        count, summed value, and the maximum of the maxes. Report entries
+        with the same name must agree on formatter and stat-name list;
+        otherwise the call raises ``ValueError``. Memory records are not
+        merged.
+
+        Parameters
+        ----------
+        stats
+            A non-empty sequence of :class:`Statistics` to merge.
+
+        Returns
+        -------
+        A new :class:`Statistics` containing the merged data.
+
+        Raises
+        ------
+        ValueError
+            If ``stats`` is empty or two inputs have conflicting report
+            entries.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        cdef vector[shared_ptr[cpp_Statistics]] v
+        for item in stats:
+            v.push_back((<Statistics?>item)._handle)
+        with nogil:
+            ret._handle = cpp_merge_statistics(v)
+        return ret
 
     @property
     def memory_profiling_enabled(self):
@@ -373,6 +442,9 @@ cdef class Statistics:
         """
         Writes a JSON report of all collected statistics to a file.
 
+        Disabled statistics produce a JSON object with an empty ``statistics``
+        section.
+
         Parameters
         ----------
         filepath
@@ -382,76 +454,21 @@ cdef class Statistics:
         ------
         OSError
             If the file cannot be opened or writing fails.
-        ValueError
-            If any stat name or memory record name contains a double quote, backslash,
-            or ASCII control character (0x00–0x1F).
         """
         cdef string path = <bytes>os.fsencode(filepath)
         with nogil:
             cpp_write_json(deref(self._handle), path)
 
-    def copy(self):
-        """
-        Creates a deep copy of this Statistics object.
-
-        Memory records are not copied.
-
-        Returns
-        -------
-        A new Statistics with the same stats and formatters.
-        """
-        cdef Statistics ret = Statistics.__new__(Statistics)
-        with nogil:
-            ret._handle = deref(self._handle).copy()
-        return ret
-
-    @staticmethod
-    def merge(stats):
-        """
-        Merge a sequence of Statistics into a new one.
-
-        For each stat name present in any input, the result has the summed
-        count, summed value, and the maximum of the maxes. Report entries
-        with the same name must agree on formatter and stat-name list;
-        otherwise the call raises ``ValueError``. Memory records are not
-        merged.
-
-        Parameters
-        ----------
-        stats
-            A non-empty sequence of :class:`Statistics` to merge.
-
-        Returns
-        -------
-        A new :class:`Statistics` containing the merged data.
-
-        Raises
-        ------
-        ValueError
-            If ``stats`` is empty or two inputs have conflicting report
-            entries.
-        """
-        cdef Statistics ret = Statistics.__new__(Statistics)
-        cdef vector[shared_ptr[cpp_Statistics]] v
-        for item in stats:
-            v.push_back((<Statistics?>item)._handle)
-        with nogil:
-            ret._handle = cpp_merge_statistics(v)
-        return ret
-
     def write_json_string(self) -> str:
         """
         Returns a JSON representation of all collected statistics as a string.
 
+        Disabled statistics produce a JSON object with an empty ``statistics``
+        section.
+
         Returns
         -------
         A JSON-formatted string.
-
-        Raises
-        ------
-        ValueError
-            If any stat name or memory record name contains a double quote, backslash,
-            or ASCII control character (0x00–0x1F).
         """
         cdef string result
         with nogil:
