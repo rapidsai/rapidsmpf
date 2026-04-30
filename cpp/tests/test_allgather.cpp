@@ -15,6 +15,7 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
+#include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -351,4 +352,37 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
             validate_packed_data(std::move(result), n_elements, offset, stream, *br)
         );
     }
+}
+
+// Test that PostBox::spill() tracks the remaining spill need correctly across iterations,
+// rather than passing the original amount to lower_bound every time.
+//
+// With chunks [20, 80, 90] and a request for 100 bytes: the first iteration spills 90
+// (the largest chunk, since none covers 100 alone). The second must search for a chunk
+// >= 10 and pick the 20-byte chunk, totalling 110.
+TEST(PostBox, spill_uses_remaining_amount) {
+    auto stream = cudf::get_default_stream();
+    auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+    auto br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+
+    rapidsmpf::coll::detail::PostBox postbox;
+
+    auto make_chunk = [&](std::size_t size) {
+        auto metadata =
+            std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+        auto res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DEVICE);
+        auto data = br->allocate(size, stream, res);
+        return rapidsmpf::coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+        );
+    };
+
+    postbox.insert(make_chunk(20));
+    postbox.insert(make_chunk(80));
+    postbox.insert(make_chunk(90));
+
+    EXPECT_EQ(postbox.spill(br.get(), 100), 110UL);
 }

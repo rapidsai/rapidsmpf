@@ -238,7 +238,7 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
     // spill.
     while (!spillable_chunks.empty()) {
         auto pos = std::ranges::lower_bound(
-            spillable_chunks, amount, std::less{}, [](Chunk* chunk) {
+            spillable_chunks, amount - total_spilled, std::less{}, [](Chunk* chunk) {
                 return chunk->data_size();
             }
         );
