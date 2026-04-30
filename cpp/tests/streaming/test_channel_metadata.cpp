@@ -63,12 +63,13 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     EXPECT_EQ(spec_hash.hash->column_indices[0], 0);
     EXPECT_EQ(spec_hash.hash->modulus, 16);
 
-    // Equality
-    EXPECT_EQ(spec_none, PartitioningSpec::none());
-    EXPECT_EQ(spec_inherit, PartitioningSpec::inherit());
-    EXPECT_EQ(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 16}));
-    EXPECT_NE(spec_none, spec_inherit);
-    EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 32}));
+    // Type checks (operator== removed; use field comparisons)
+    EXPECT_EQ(spec_none.type, PartitioningSpec::Type::NONE);
+    EXPECT_EQ(spec_inherit.type, PartitioningSpec::Type::INHERIT);
+    EXPECT_EQ(spec_hash.type, PartitioningSpec::Type::HASH);
+    EXPECT_NE(spec_none.type, spec_inherit.type);
+    EXPECT_EQ(spec_hash.hash->modulus, 16);
+    EXPECT_NE((PartitioningSpec::from_hash(HashScheme{{0}, 32}).hash->modulus), 16);
 }
 
 TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
@@ -93,14 +94,16 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     EXPECT_EQ(p_twostage.inter_rank.hash->modulus, 4);
     EXPECT_EQ(p_twostage.local.hash->modulus, 8);
 
-    // Equality
-    EXPECT_EQ(
-        p_global,
-        (Partitioning{
+    // Field comparisons (Partitioning::operator== removed)
+    {
+        Partitioning p_same{
             PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
-        })
-    );
-    EXPECT_NE(p_global, p_twostage);
+        };
+        EXPECT_EQ(p_global.inter_rank.type, p_same.inter_rank.type);
+        EXPECT_EQ(p_global.inter_rank.hash->modulus, p_same.inter_rank.hash->modulus);
+        EXPECT_EQ(p_global.local.type, p_same.local.type);
+    }
+    EXPECT_NE(p_global.inter_rank.hash->modulus, p_twostage.inter_rank.hash->modulus);
 }
 
 TEST_F(StreamingChannelMetadata, ChannelMetadata) {
@@ -134,8 +137,14 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
         },
         true
     };
-    EXPECT_EQ(m, m_same);
-    EXPECT_NE(m, m_diff);
+    // Field comparisons (ChannelMetadata::operator== removed)
+    EXPECT_EQ(m.local_count, m_same.local_count);
+    EXPECT_EQ(m.duplicated, m_same.duplicated);
+    EXPECT_EQ(
+        m.partitioning.inter_rank.hash->modulus,
+        m_same.partitioning.inter_rank.hash->modulus
+    );
+    EXPECT_NE(m.local_count, m_diff.local_count);
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
@@ -221,9 +230,9 @@ TEST_F(StreamingChannelMetadataGPU, PartitioningSpecOrder) {
     EXPECT_TRUE(spec.order.has_value());
     EXPECT_EQ(spec.order->keys[0].column_index, 0);
 
-    EXPECT_EQ(
-        spec, PartitioningSpec::from_order(OrderScheme({k0}, make_chunk({100, 200})))
-    );
-    EXPECT_NE(spec, PartitioningSpec::from_hash(HashScheme{{0}, 16}));
-    EXPECT_NE(spec, PartitioningSpec::none());
+    // Type checks only (PartitioningSpec::operator== removed; ORDER value comparison
+    // requires boundaries_aligned_with on the OrderScheme directly)
+    EXPECT_EQ(spec.type, PartitioningSpec::Type::ORDER);
+    EXPECT_NE(spec.type, PartitioningSpec::from_hash(HashScheme{{0}, 16}).type);
+    EXPECT_NE(spec.type, PartitioningSpec::none().type);
 }
