@@ -101,8 +101,9 @@ std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() co
     auto const max_pool_size = pool_properties_.max_pool_size.value_or(0);
     if (max_pool_size > 0) {
         auto const limit = safe_cast<std::int64_t>(max_pool_size);
-        auto tracker = *this;  // shared ownership — same underlying pool
-        return [tracker, limit]() { return limit - tracker.get().current_allocated(); };
+        return [tracker = *this, limit]() {
+            return limit - tracker.get().current_allocated();
+        };
     }
     return std::numeric_limits<std::int64_t>::max;
 }

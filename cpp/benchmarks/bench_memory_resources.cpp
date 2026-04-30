@@ -31,7 +31,7 @@ constexpr std::array<ResourceType, 3> RESOURCE_TYPES{
 };
 
 std::array<std::string, 3> const ResourceTypeStr{
-    "SystemMemoryResource", "HostMemoryResource", "PinnedMemoryResource"
+    "NewDelete", "HostMemoryResource", "PinnedMemoryResource"
 };
 
 class NewDelete {
