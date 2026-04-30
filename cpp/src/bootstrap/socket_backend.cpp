@@ -521,24 +521,6 @@ SocketBackend::~SocketBackend() {
     }
 }
 
-static void validate_key(std::string const& key) {
-    if (key.size() > max_key_size) {
-        throw std::invalid_argument(
-            "Key exceeds maximum length of " + std::to_string(max_key_size)
-            + " bytes: " + key
-        );
-    }
-    if (key.empty() || key.find("..") != std::string::npos
-        || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
-        || key.find('\0') != std::string::npos
-        || std::ranges::any_of(key, [](unsigned char c) { return std::isspace(c); }))
-    {
-        throw std::invalid_argument(
-            "Key contains invalid characters (e.g., whitespace, '..', '/', '\\'): " + key
-        );
-    }
-}
-
 void SocketBackend::send_line(std::string const& line) {
     std::string msg = line + "\n";
     write_all(fd_, msg.c_str(), msg.size());
