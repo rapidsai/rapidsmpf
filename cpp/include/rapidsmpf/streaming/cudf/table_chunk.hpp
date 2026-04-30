@@ -266,6 +266,29 @@ class TableChunk {
     [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 
     /**
+     * @brief Convert this table chunk to a `PackedData`, avoiding unnecessary copies.
+     *
+     * If the chunk's data is already in packed form (e.g., it arrived over the network
+     * or was constructed from a `PackedData`), the packed data is moved out directly
+     * with no copy. Otherwise the table is serialized via `cudf::pack()`.
+     *
+     * @param br Buffer resource used for the device memory resource when packing
+     * is required.
+     * @return A unique pointer to the resulting `PackedData`.
+     *
+     * @throws std::invalid_argument If the data is not already packed and
+     * `is_available() == false`.
+     *
+     * @note After this call, this object is in a moved-from state; only reassignment,
+     * movement, or destruction are valid.
+     *
+     * @note No memory reservation is required. If the data is already in packed form,
+     * no allocation occurs. If packing is required, `cudf::pack()` allocates device
+     * memory that is not tracked via a reservation.
+     */
+    [[nodiscard]] std::unique_ptr<PackedData> into_packed_data(BufferResource* br) &&;
+
+    /**
      * @brief Return the shape of the table stored by the table chunk.
      *
      * @return Pair of number of rows and number of columns.

@@ -234,6 +234,24 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
+std::unique_ptr<PackedData> TableChunk::into_packed_data(BufferResource* br) && {
+    if (packed_data_) {
+        table_view_ = std::nullopt;
+        return std::move(packed_data_);
+    }
+    RAPIDSMPF_EXPECTS(
+        is_available(), "TableChunk must be available; call make_available() first"
+    );
+    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
+    // `cudf::pack()` allocates device memory we haven't reserved.
+    auto packed_columns = cudf::pack(table_view_.value(), stream_, br->device_mr());
+    table_view_ = std::nullopt;
+    return std::make_unique<PackedData>(
+        std::move(packed_columns.metadata),
+        br->move(std::move(packed_columns.gpu_data), stream_)
+    );
+}
+
 std::pair<cudf::size_type, cudf::size_type> TableChunk::shape() const noexcept {
     if (packed_data_ != nullptr) {
         auto view = cudf::packed_metadata_view(*packed_data_->metadata);
