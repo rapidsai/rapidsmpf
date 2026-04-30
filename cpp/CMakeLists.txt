@@ -123,9 +123,9 @@ include(../cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
-# TODO remove this!
 include("${rapids-cmake-dir}/cpm/package_override.cmake")
-rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/cpm_override_cccl.json")
+rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/cpm_override_packages.json")
+
 rapids_cpm_init()
 
 rapids_find_package(
@@ -133,8 +133,6 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
-
-include(../cmake/thirdparty/get_cccl_cudax.cmake) # TODO remove this!
 
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)

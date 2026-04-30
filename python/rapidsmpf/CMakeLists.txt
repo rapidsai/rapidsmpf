@@ -10,9 +10,8 @@ cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 include(../../cmake/rapids_config.cmake)
 include(rapids-cpm)
 
-# TODO remove this!
 include("${rapids-cmake-dir}/cpm/package_override.cmake")
-rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/cpm_override_cccl.json")
+rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/cpm_override_packages.json")
 
 rapids_cpm_init()
 include(rapids-cuda)
@@ -48,7 +47,6 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 # * find C++ libraries from RAPIDS wheels in in site-packages --------------------------------------
 set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS TRUE)
 
-include(../../cmake/thirdparty/get_cccl_cudax.cmake) # TODO remove this!
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 if(RAPIDSMPF_HAVE_UCXX)
