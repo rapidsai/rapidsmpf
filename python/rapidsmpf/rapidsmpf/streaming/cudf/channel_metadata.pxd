@@ -64,14 +64,11 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         @staticmethod
         cpp_PartitioningSpec from_order(cpp_OrderScheme)
 
-        bool_t operator==(const cpp_PartitioningSpec&)
-
     cdef cppclass cpp_Partitioning "rapidsmpf::streaming::Partitioning":
         cpp_PartitioningSpec inter_rank
         cpp_PartitioningSpec local
         cpp_Partitioning() except +
         cpp_Partitioning(const cpp_Partitioning&) except +
-        bool_t operator==(const cpp_Partitioning&)
 
     cdef cppclass cpp_ChannelMetadata "rapidsmpf::streaming::ChannelMetadata":
         uint64_t local_count
@@ -82,7 +79,6 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
             cpp_Partitioning,
             bool_t
         ) except +
-        bool_t operator==(const cpp_ChannelMetadata&)
 
     cpp_Message cpp_to_message_channel_metadata "rapidsmpf::streaming::to_message" (
         uint64_t, unique_ptr[cpp_ChannelMetadata]

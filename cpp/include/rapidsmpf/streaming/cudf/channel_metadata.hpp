@@ -186,17 +186,6 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type ORDER.
      */
     static PartitioningSpec from_order(OrderScheme o);
-
-    /**
-     * @brief Equality comparison.
-     *
-     * For ORDER specs, compares `keys`, `strict_boundaries`, and boundary shape
-     * (not boundary values — use `OrderScheme::boundaries_aligned_with` for that).
-     *
-     * @param other The PartitioningSpec to compare against.
-     * @return True if both specs are equal under the rules above.
-     */
-    bool operator==(PartitioningSpec const& other) const;
 };
 
 /**
@@ -218,12 +207,6 @@ struct Partitioning {
     PartitioningSpec inter_rank;
     /// Distribution within a rank (corresponds to local/single communicator).
     PartitioningSpec local;
-
-    /**
-     * @brief Equality comparison.
-     * @return True if both partitionings are equal.
-     */
-    bool operator==(Partitioning const&) const = default;
 };
 
 /**
@@ -253,12 +236,6 @@ struct ChannelMetadata {
         : local_count(local_count),
           partitioning(std::move(partitioning)),
           duplicated(duplicated) {}
-
-    /**
-     * @brief Equality comparison.
-     * @return True if both metadata objects are equal.
-     */
-    bool operator==(ChannelMetadata const&) const = default;
 };
 
 /**
