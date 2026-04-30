@@ -482,7 +482,7 @@ TEST_F(StreamingTableChunk, ToPackedDataFromPackedChunk) {
     )};
     EXPECT_TRUE(chunk.is_available());
 
-    auto packed = chunk.into_packed_data(br.get());
+    auto packed = std::move(chunk).into_packed_data(br.get());
     EXPECT_FALSE(chunk.is_available());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
         expect, TableChunk{std::move(packed)}.table_view()
@@ -497,7 +497,7 @@ TEST_F(StreamingTableChunk, ToPackedDataFromTable) {
     TableChunk chunk{std::make_unique<cudf::table>(expect), stream};
     EXPECT_TRUE(chunk.is_available());
 
-    auto packed = chunk.into_packed_data(br.get());
+    auto packed = std::move(chunk).into_packed_data(br.get());
     EXPECT_FALSE(chunk.is_available());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
         expect, TableChunk{std::move(packed)}.table_view()

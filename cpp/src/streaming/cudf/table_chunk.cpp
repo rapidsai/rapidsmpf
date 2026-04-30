@@ -234,7 +234,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
-std::unique_ptr<PackedData> TableChunk::into_packed_data(BufferResource* br) {
+std::unique_ptr<PackedData> TableChunk::into_packed_data(BufferResource* br) && {
     if (packed_data_) {
         table_view_ = std::nullopt;
         return std::move(packed_data_);
