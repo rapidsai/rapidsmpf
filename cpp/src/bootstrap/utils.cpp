@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <ranges>
 #include <sstream>
@@ -25,6 +26,24 @@
 // Prefer throwing standard exceptions instead.
 
 namespace rapidsmpf::bootstrap {
+
+void validate_key(std::string const& key) {
+    if (key.size() > max_key_size) {
+        throw std::invalid_argument(
+            "Key exceeds maximum length of " + std::to_string(max_key_size)
+            + " bytes: " + key
+        );
+    }
+    if (key.empty() || key.find("..") != std::string::npos
+        || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
+        || key.find('\0') != std::string::npos
+        || std::ranges::any_of(key, [](unsigned char c) { return std::isspace(c); }))
+    {
+        throw std::invalid_argument(
+            "Key contains invalid characters (e.g., whitespace, '..', '/', '\\'): " + key
+        );
+    }
+}
 
 std::optional<std::string> getenv_optional(std::string_view name) {
     // std::getenv requires a null-terminated string; construct a std::string
