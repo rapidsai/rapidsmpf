@@ -37,7 +37,7 @@ cdef class PackedDataChunk:
         with nogil:
             self._handle.reset()
 
-    def into_packed_data(self):
+    def to_packed_data(self):
         """
         Convert to a PackedData object.
 

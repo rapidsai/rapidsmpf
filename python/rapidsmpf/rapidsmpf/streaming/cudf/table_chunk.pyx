@@ -568,7 +568,7 @@ cdef class TableChunk:
         cdef cpp_BufferResource* _br = br.ptr()
         cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
         with nogil:
-            result = deref(handle).into_packed_data(_br)
+            result = move(deref(handle)).into_packed_data(_br)
         return PackedData.from_librapidsmpf(move(result), br)
 
     @property
