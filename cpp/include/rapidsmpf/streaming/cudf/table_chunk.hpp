@@ -281,6 +281,10 @@ class TableChunk {
      *
      * @note After this call, this object is in a moved-from state; only reassignment,
      * movement, or destruction are valid.
+     *
+     * @note No memory reservation is required. If the data is already in packed form,
+     * no allocation occurs. If packing is required, `cudf::pack()` allocates device
+     * memory that is not tracked via a reservation.
      */
     [[nodiscard]] std::unique_ptr<PackedData> into_packed_data(BufferResource* br) &&;
 

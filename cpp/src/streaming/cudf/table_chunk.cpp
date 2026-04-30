@@ -242,6 +242,8 @@ std::unique_ptr<PackedData> TableChunk::into_packed_data(BufferResource* br) && 
     RAPIDSMPF_EXPECTS(
         is_available(), "TableChunk must be available; call make_available() first"
     );
+    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
+    // `cudf::pack()` allocates device memory we haven't reserved.
     auto packed_columns = cudf::pack(table_view_.value(), stream_, br->device_mr());
     table_view_ = std::nullopt;
     return std::make_unique<PackedData>(
