@@ -363,7 +363,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 TEST(PostBox, spill_uses_remaining_amount) {
     auto stream = cudf::get_default_stream();
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+    auto br = std::make_unique<rapidsmpf::BufferResource>(*mr);
 
     rapidsmpf::coll::detail::PostBox postbox;
 
