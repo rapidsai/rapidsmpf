@@ -400,7 +400,9 @@ int main(int argc, char** argv) {
            << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
         log->print(ss.str());
     }
-    log->print(stats->report("Statistics (of the last run):"));
+    log->print(
+        stats->report(std::nullopt, std::nullopt, "Statistics (of the last run):")
+    );
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file

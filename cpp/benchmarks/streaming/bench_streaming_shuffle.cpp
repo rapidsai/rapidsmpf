@@ -456,10 +456,12 @@ int main(int argc, char** argv) {
 
     if (args.enable_memory_profiler) {
         log.print(ctx->statistics()->report(
-            "Statistics (of the last run):", stat_enabled_mr, br->concrete_pinned_mr()
+            stat_enabled_mr, br->concrete_pinned_mr(), "Statistics (of the last run):"
         ));
     } else {
-        log.print(ctx->statistics()->report("Statistics (of the last run):"));
+        log.print(ctx->statistics()->report(
+            std::nullopt, std::nullopt, "Statistics (of the last run):"
+        ));
     }
 
     if (!use_bootstrap) {

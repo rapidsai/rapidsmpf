@@ -229,7 +229,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     EXPECT_EQ(records.at("outer").scoped.peak(), 2_MiB);
     EXPECT_EQ(records.at("outer").scoped.total(), 4_MiB);
 
-    auto const report = stats.report("Statistics:", mr, pinned_mr);
+    auto const report = stats.report(mr, pinned_mr);
 
     // Split the report on newlines and find the "main" record line.
     std::string main_line, pinned_line;

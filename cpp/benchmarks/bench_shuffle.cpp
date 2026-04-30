@@ -684,9 +684,13 @@ int main(int argc, char** argv) {
     }
 
     if (args.enable_memory_profiler) {
-        log->print(stats->report("Statistics (of the last run):", stat_enabled_mr));
+        log->print(
+            stats->report(stat_enabled_mr, std::nullopt, "Statistics (of the last run):")
+        );
     } else {
-        log->print(stats->report("Statistics (of the last run):"));
+        log->print(
+            stats->report(std::nullopt, std::nullopt, "Statistics (of the last run):")
+        );
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI

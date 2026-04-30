@@ -521,7 +521,6 @@ int main(int argc, char** argv) {
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
         comm->logger()->print(ctx->statistics()->report(
-            "Statistics:",
             ctx->br()->device_mr_as<rapidsmpf::RmmResourceAdaptor>(),
             ctx->br()->concrete_pinned_mr()
         ));

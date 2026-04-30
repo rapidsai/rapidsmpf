@@ -278,9 +278,9 @@ Statistics::get_memory_records() const {
 }
 
 std::string Statistics::report(
-    std::string const& header,
     std::optional<RmmResourceAdaptor> mr,
-    std::optional<PinnedMemoryResource> pinned_mr
+    std::optional<PinnedMemoryResource> pinned_mr,
+    std::string const& header
 ) const {
     std::stringstream ss;
     ss << header;

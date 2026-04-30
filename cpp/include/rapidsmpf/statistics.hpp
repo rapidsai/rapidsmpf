@@ -179,19 +179,19 @@ class Statistics {
      * this method. Otherwise, some timing statistics may not yet have been recorded,
      * causing entries to read "No data collected" or imprecise statistics.
      *
-     * @param header Header line prepended to the report.
      * @param mr Optional RMM resource adaptor used for memory profiling. When provided,
      * a memory profiling section is included in the report. When `std::nullopt`, the
      * memory profiling section shows "Disabled".
      * @param pinned_mr Optional pinned memory resource. When not
      * `PinnedMemoryResource::Disabled`, a pinned memory section is included in the
      * report.
+     * @param header Header line prepended to the report.
      * @return Formatted statistics report.
      */
     std::string report(
-        std::string const& header = "Statistics:",
         std::optional<RmmResourceAdaptor> mr = std::nullopt,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::string const& header = "Statistics:"
     ) const;
 
     /**

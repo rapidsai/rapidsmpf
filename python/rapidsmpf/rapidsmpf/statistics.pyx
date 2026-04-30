@@ -40,13 +40,12 @@ cdef extern from *:
     #include <sstream>
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
-        std::string const& header,
         rapidsmpf::RmmResourceAdaptor* mr_ptr,
         std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr
     ) {
         std::optional<rapidsmpf::RmmResourceAdaptor> mr =
             mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
-        return stats.report(header, mr, pinned_mr);
+        return stats.report(mr, pinned_mr);
     }
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name
@@ -100,7 +99,6 @@ cdef extern from *:
     """
     string cpp_report(
         cpp_Statistics stats,
-        string header,
         cpp_RmmResourceAdaptor* mr_ptr,
         optional[cpp_PinnedMemoryResource] pinned_mr,
     ) except +ex_handler nogil
@@ -196,7 +194,6 @@ cdef class Statistics:
         A string representing the formatted statistics report.
         """
         cdef string ret
-        cdef string header = b"Statistics:"
         cdef cpp_RmmResourceAdaptor* mr_ptr = NULL
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned
         if mr is not None:
@@ -205,7 +202,7 @@ cdef class Statistics:
             cpp_pinned = pinned_mr._handle
         with nogil:
             ret = cpp_report(
-                deref(self._handle), header, mr_ptr, cpp_pinned
+                deref(self._handle), mr_ptr, cpp_pinned
             )
         return ret.decode('UTF-8')
 
