@@ -1,0 +1,22 @@
+name: Compute Sanitizer Trigger
+
+# This workflow runs compute-sanitizer tools (racecheck, synccheck) on librapidsmpf tests weekly.
+# memcheck is run in the nightly test.yaml workflow.
+# For targeted testing, manually trigger compute-sanitizer-run.yaml with specific tool_name.
+
+on:
+  schedule:
+    - cron: '0 10 * * 6'  # Weekly on Saturday at 10:00 UTC
+  workflow_dispatch:
+
+jobs:
+  run-sanitizer-tests-racecheck:
+    name: compute-sanitizer racecheck tests
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "racecheck"
+  run-sanitizer-tests-synccheck:
+    name: compute-sanitizer synccheck tests
+    uses: ./.github/workflows/compute-sanitizer-run.yaml
+    with:
+      tool_name: "synccheck"
