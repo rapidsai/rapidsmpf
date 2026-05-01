@@ -158,7 +158,7 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr) {
     auto br = std::make_shared<BufferResource>(
         std::move(mr),
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
-                                        : std::make_shared<PinnedMemoryResource>(),
+                                        : PinnedMemoryResource::make_if_available(),
         std::move(memory_available),
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(

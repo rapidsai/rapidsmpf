@@ -9,6 +9,7 @@ add_executable(
   rrun
   "rrun.cpp"
   "${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/socket_backend.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"
   "${PROJECT_SOURCE_DIR}/src/system_info.cpp"
   "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>"

@@ -124,7 +124,7 @@ class Statistics {
      */
     Statistics(
         RmmResourceAdaptor mr,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
     );
 
     /**
@@ -140,7 +140,7 @@ class Statistics {
     static std::shared_ptr<Statistics> from_options(
         RmmResourceAdaptor mr,
         config::Options options,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled
     );
 
     ~Statistics() noexcept;
@@ -619,7 +619,7 @@ class Statistics {
     std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     std::optional<RmmResourceAdaptor> mr_;
-    std::shared_ptr<PinnedMemoryResource>
+    std::optional<PinnedMemoryResource>
         pinned_mr_;  ///< optional; not used by MemoryRecorder
 };
 

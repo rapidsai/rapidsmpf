@@ -10,10 +10,10 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/mr/pinned_host_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 using rapidsmpf::safe_cast;
@@ -34,14 +34,26 @@ std::array<std::string, 3> const ResourceTypeStr{
     "NewDelete", "HostMemoryResource", "PinnedMemoryResource"
 };
 
-class NewDelete final : public rapidsmpf::HostMemoryResource {
+class NewDelete {
   public:
+    void* allocate_sync(
+        std::size_t size, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        return ::operator new(size, std::align_val_t{alignment});
+    }
+
+    void deallocate_sync(
+        void* ptr, std::size_t, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        ::operator delete(ptr, std::align_val_t{alignment});
+    }
+
     void* allocate(
         rmm::cuda_stream_view,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) override {
-        return ::operator new(size, std::align_val_t{alignment});
+    ) {
+        return allocate_sync(size, alignment);
     }
 
     void deallocate(
@@ -49,22 +61,40 @@ class NewDelete final : public rapidsmpf::HostMemoryResource {
         void* ptr,
         std::size_t,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept override {
-        ::operator delete(ptr, std::align_val_t{alignment});
+    ) noexcept {
+        deallocate_sync(ptr, alignment);
     }
+
+    bool operator==(NewDelete const&) const noexcept {
+        return true;
+    }
+
+    bool operator!=(NewDelete const&) const noexcept {
+        return false;
+    }
+
+    friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
 };
 
-// Helper function to create a memory resource based on type
-std::unique_ptr<rapidsmpf::HostMemoryResource> create_host_memory_resource(
+// Helper function to create a type-erased host memory resource.
+cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     ResourceType const& resource_type
 ) {
     switch (resource_type) {
     case ResourceType::NEW_DELETE:
-        return std::make_unique<NewDelete>();
+        return NewDelete{};
     case ResourceType::HOST_MEMORY_RESOURCE:
-        return std::make_unique<rapidsmpf::HostMemoryResource>();
+        return rapidsmpf::HostMemoryResource{};
     case ResourceType::PINNED_MEMORY_RESOURCE:
-        return std::make_unique<rapidsmpf::PinnedMemoryResource>();
+        {
+            auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+            RAPIDSMPF_EXPECTS(
+                mr.has_value(),
+                "pinned memory is not supported on this system",
+                std::runtime_error
+            );
+            return *mr;
+        }
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
     }
@@ -84,12 +114,12 @@ void BM_Allocate(benchmark::State& state) {
 
     auto mr = create_host_memory_resource(resource_type);
     for (auto _ : state) {
-        void* ptr = mr->allocate(stream, allocation_size);
+        void* ptr = mr.allocate(stream, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         benchmark::DoNotOptimize(ptr);
         stream.synchronize();
 
         state.PauseTiming();
-        mr->deallocate(stream, ptr, allocation_size);
+        mr.deallocate(stream, ptr, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         stream.synchronize();
         state.ResumeTiming();
     }
@@ -118,11 +148,11 @@ void BM_Deallocate(benchmark::State& state) {
     auto mr = create_host_memory_resource(resource_type);
     for (auto _ : state) {
         state.PauseTiming();
-        void* ptr = mr->allocate(stream, allocation_size);
+        void* ptr = mr.allocate(stream, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         stream.synchronize();
         state.ResumeTiming();
 
-        mr->deallocate(stream, ptr, allocation_size);
+        mr.deallocate(stream, ptr, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         stream.synchronize();
     }
 
@@ -157,14 +187,15 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     stream.synchronize();
 
     for (auto _ : state) {
-        void* dst = host_mr->allocate(stream, transfer_size);
+        void* dst =
+            host_mr.allocate(stream, transfer_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(dst, src.data(), transfer_size, stream)
         );
         stream.synchronize();
 
         state.PauseTiming();
-        host_mr->deallocate(stream, dst, transfer_size);
+        host_mr.deallocate(stream, dst, transfer_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         state.ResumeTiming();
     }
 
@@ -188,7 +219,7 @@ void bench_copy(
 ) {
     for (auto _ : state) {
         state.PauseTiming();
-        void* dst = mr->allocate(stream, size);
+        void* dst = mr.allocate(stream, size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         stream.synchronize();
         state.ResumeTiming();
 
@@ -196,7 +227,7 @@ void bench_copy(
         stream.synchronize();
 
         state.PauseTiming();
-        mr->deallocate(stream, dst, size);
+        mr.deallocate(stream, dst, size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         state.ResumeTiming();
     }
 }
@@ -248,7 +279,8 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
     auto device_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
 
     // Allocate host memory and initialize
-    void* host_ptr = host_mr->allocate(stream, transfer_size);
+    void* host_ptr =
+        host_mr.allocate(stream, transfer_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
     memset(host_ptr, 0, transfer_size);
 
     // Allocate device memory and copy from host
@@ -280,7 +312,7 @@ void BM_HostToHostCopy(benchmark::State& state) {
 
     auto host_mr = create_host_memory_resource(resource_type);
 
-    void* src = host_mr->allocate(stream, transfer_size);
+    void* src = host_mr.allocate(stream, transfer_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
 
     // Initialize src to avoid optimization elimination
     std::memset(src, 0xAB, transfer_size);
@@ -308,7 +340,7 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     // Initialize src to avoid optimization removal
     RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
 
-    bench_copy(state, device_mr, src.data(), transfer_size, stream);
+    bench_copy(state, *device_mr, src.data(), transfer_size, stream);
 
     state.SetBytesProcessed(
         safe_cast<std::int64_t>(state.iterations())
@@ -386,7 +418,7 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 
     for (auto _ : state) {
         state.PauseTiming();
-        auto mr = std::make_unique<rapidsmpf::PinnedMemoryResource>(
+        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
             rapidsmpf::get_current_numa_node(), props
         );
         state.ResumeTiming();

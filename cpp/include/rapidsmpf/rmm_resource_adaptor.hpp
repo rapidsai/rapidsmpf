@@ -29,8 +29,11 @@ namespace rapidsmpf {
  * `cuda::mr::shared_resource`.
  */
 class RmmResourceAdaptor
-    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl> {
-    using shared_base = cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl>;
+    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
+          cuda::mr::any_resource<cuda::mr::device_accessible>>> {
+    using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
+    using shared_base =
+        cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
 
   public:
     /// @brief Tag this resource as device-accessible for the CCCL concept.
@@ -51,6 +54,18 @@ class RmmResourceAdaptor
     );
 
     ~RmmResourceAdaptor() = default;
+
+    /**
+     * @brief Equality comparison.
+     *
+     * Two adaptors are equal if and only if they share the same underlying shared state.
+     *
+     * @param other The other adaptor to compare.
+     * @return True if both adaptors refer to the same shared resource instance.
+     */
+    [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
+        return get() == other.get();
+    }
 
     /**
      * @brief Get a reference to the primary upstream resource.

@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/file_backend.hpp>
+#include <rapidsmpf/bootstrap/socket_backend.hpp>
 #include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/config.hpp>
 
@@ -27,8 +28,15 @@ namespace {
  * @brief Detect backend from environment variables.
  */
 BackendType detect_backend() {
-    // Check for rrun coordination first (explicit configuration takes priority).
-    // If RRUN_COORD_DIR is set, rrun is coordinating and we should use FILE backend.
+    // Socket backend takes highest priority: rrun sets RRUN_SOCKET_ADDR before
+    // forking ranks. Check this before RRUN_COORD_DIR so that new rrun launches
+    // use SocketBackend while old manual setups (RRUN_COORD_DIR only) still work.
+    if (getenv_optional("RRUN_SOCKET_ADDR")) {
+        return BackendType::SOCKET;
+    }
+
+    // Backward compatibility: if RRUN_COORD_DIR is set (but not RRUN_SOCKET_ADDR)
+    // use the file backend.
     if (getenv_optional("RRUN_COORD_DIR")) {
         return BackendType::FILE;
     }
@@ -99,6 +107,42 @@ Context file_backend_init() {
     return ctx;
 }
 
+/**
+ * @brief Initialize context for SOCKET backend.
+ */
+Context socket_backend_init() {
+    Context ctx;
+    ctx.type = BackendType::SOCKET;
+
+    auto rank_opt = getenv_int("RRUN_RANK");
+    auto nranks_opt = getenv_int("RRUN_NRANKS");
+
+    if (!rank_opt.has_value()) {
+        throw std::runtime_error(
+            "RRUN_RANK environment variable not set. "
+            "Set it or use a launcher like 'rrun'."
+        );
+    }
+    if (!nranks_opt.has_value()) {
+        throw std::runtime_error(
+            "RRUN_NRANKS environment variable not set. "
+            "Set it or use a launcher like 'rrun'."
+        );
+    }
+
+    ctx.rank = static_cast<Rank>(*rank_opt);
+    ctx.nranks = static_cast<Rank>(*nranks_opt);
+
+    if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
+        throw std::runtime_error(
+            "Invalid rank: RRUN_RANK=" + std::to_string(ctx.rank)
+            + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
+        );
+    }
+
+    return ctx;
+}
+
 #ifdef RAPIDSMPF_HAVE_SLURM
 /**
  * @brief Initialize context for SLURM backend.
@@ -149,6 +193,10 @@ Context init(BackendType type) {
     case BackendType::FILE:
         ctx = file_backend_init();
         ctx.backend = std::make_shared<detail::FileBackend>(ctx);
+        break;
+    case BackendType::SOCKET:
+        ctx = socket_backend_init();
+        ctx.backend = std::make_shared<detail::SocketBackend>(ctx);
         break;
 #ifdef RAPIDSMPF_HAVE_SLURM
     case BackendType::SLURM:

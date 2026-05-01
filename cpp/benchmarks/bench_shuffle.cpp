@@ -558,7 +558,7 @@ int main(int argc, char** argv) {
     stats->disable();
     rapidsmpf::BufferResource br{
         stat_enabled_mr,
-        args.pinned_mem_disable ? nullptr
+        args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_available),
         std::chrono::milliseconds{1},
