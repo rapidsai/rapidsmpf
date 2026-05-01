@@ -922,11 +922,14 @@ int execute_slurm_hybrid_mode(Config& cfg) {
                   << " launching " << cfg.nranks << " ranks per task" << std::endl;
     }
 
-    // Set up coordination directory before launching so children can use it.
+    // Slurm hybrid mode uses the FileBackend for intra-task coordination.
+    // The SocketServer is currently task-local only.
+    cfg.file_backend = true;
+
+    // Set up coordination directory (created by setup_launch_and_cleanup).
     if (cfg.coord_dir.empty()) {
         cfg.coord_dir = "/tmp/rrun_slurm_" + std::to_string(cfg.slurm->job_id);
     }
-    std::filesystem::create_directories(cfg.coord_dir);
 
     // Set RRUN_ROOT_ADDRESS_FILE for rank 0 (only on the root parent).
     // Rank 0's UCXX bootstrap (Path 1) writes its listener address here.
