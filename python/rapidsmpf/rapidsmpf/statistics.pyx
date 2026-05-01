@@ -1,13 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.bytes cimport PyBytes_FromStringAndSize
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
+from libc.stdint cimport uint8_t
+from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
+import json
 from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -24,9 +29,9 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor* mr,
+            cpp_RmmResourceAdaptor mr,
             cpp_Options options,
-            shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
+            optional[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
@@ -65,6 +70,24 @@ cdef extern from *:
         stats.write_json(ss);
         return ss.str();
     }
+    // Wrap the span-based Statistics::deserialize so Cython can pass a vector.
+    std::shared_ptr<rapidsmpf::Statistics> cpp_deserialize_statistics(
+        std::vector<std::uint8_t> const& v
+    ) {
+        return rapidsmpf::Statistics::deserialize(
+            std::span<std::uint8_t const>(v.data(), v.size())
+        );
+    }
+    // Wrap the span-based Statistics::merge so Cython can pass a vector.
+    std::shared_ptr<rapidsmpf::Statistics> cpp_merge_statistics(
+        std::vector<std::shared_ptr<rapidsmpf::Statistics>> const& v
+    ) {
+        return rapidsmpf::Statistics::merge(
+            std::span<std::shared_ptr<rapidsmpf::Statistics> const>(
+                v.data(), v.size()
+            )
+        );
+    }
     """
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
         except +ex_handler nogil
@@ -77,6 +100,12 @@ cdef extern from *:
     void cpp_write_json(cpp_Statistics stats, string filepath) \
         except +ex_handler nogil
     string cpp_write_json_string(cpp_Statistics stats) except +ex_handler nogil
+    shared_ptr[cpp_Statistics] cpp_deserialize_statistics(
+        const vector[uint8_t]& v
+    ) except +ex_handler nogil
+    shared_ptr[cpp_Statistics] cpp_merge_statistics(
+        const vector[shared_ptr[cpp_Statistics]]& v
+    ) except +ex_handler nogil
 
 cdef class Statistics:
     """
@@ -95,7 +124,7 @@ cdef class Statistics:
         if enable and mr is not None:
             mr_handle = mr.get_handle()
             with nogil:
-                self._handle = make_shared[cpp_Statistics](mr_handle)
+                self._handle = make_shared[cpp_Statistics](deref(mr_handle))
         else:
             with nogil:
                 self._handle = make_shared[cpp_Statistics](enable)
@@ -126,13 +155,12 @@ cdef class Statistics:
         """
         cdef Statistics ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned
         if pinned_mr is not None:
             cpp_pinned = pinned_mr._handle
-        else:
-            cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
-            ret._handle = cpp_from_options(mr_handle, options._handle, cpp_pinned)
+            ret._handle = cpp_from_options(deref(mr_handle), options._handle,
+                                           cpp_pinned)
         ret._mr = mr
         return ret
 
@@ -213,6 +241,26 @@ cdef class Statistics:
             preincrement(it)
         return ret
 
+    def to_dict(self):
+        """
+        Return a plain dict snapshot of all statistics.
+
+        Each entry maps a stat name to a dict with ``count``, ``value``,
+        and ``max`` keys, matching the shape returned by :meth:`get_stat`.
+        The snapshot is taken atomically and is detached thus mutating it
+        does not affect the underlying :class:`Statistics`.
+
+        Report-entry and formatter metadata is not included; use
+        :meth:`report` or :meth:`write_json_string` for those.
+
+        Disabled statistics always return an empty dict.
+
+        Returns
+        -------
+        A ``dict`` mapping each stat name to its ``{"count", "value", "max"}`` dict.
+        """
+        return json.loads(self.write_json_string())["statistics"]
+
     def add_stat(self, name, double value):
         """
         Adds a value to a statistic.
@@ -227,6 +275,82 @@ cdef class Statistics:
         cdef string name_ = str.encode(name)
         with nogil:
             deref(self._handle).add_stat(name_, value)
+
+    def add_report_entry(self, name, stat_names, Formatter formatter):
+        """
+        Associate a predefined formatter with one or more stat names.
+
+        Mirrors the C++ ``rapidsmpf::Statistics::add_report_entry``.
+        First-wins: if a report entry already exists under ``name``, this
+        call has no effect.
+
+        Parameters
+        ----------
+        name
+            Report entry name. Becomes one line in :meth:`report`.
+        stat_names
+            Iterable of stat names this entry aggregates. The number of
+            names must match the arity of ``formatter``.
+        formatter
+            A `Formatter` selecting the predefined render function.
+        """
+        cdef string name_ = str.encode(name)
+        cdef vector[string] cpp_stat_names
+        for sn in stat_names:
+            cpp_stat_names.push_back(str.encode(sn))
+        with nogil:
+            deref(self._handle).add_report_entry(
+                name_, cpp_stat_names, formatter
+            )
+
+    def copy(self):
+        """
+        Creates a deep copy of this Statistics object.
+
+        Memory records are not copied.
+
+        Returns
+        -------
+        A new Statistics with the same stats and formatters.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = deref(self._handle).copy()
+        return ret
+
+    @staticmethod
+    def merge(stats):
+        """
+        Merge a sequence of Statistics into a new one.
+
+        For each stat name present in any input, the result has the summed
+        count, summed value, and the maximum of the maxes. Report entries
+        with the same name must agree on formatter and stat-name list;
+        otherwise the call raises ``ValueError``. Memory records are not
+        merged.
+
+        Parameters
+        ----------
+        stats
+            A non-empty sequence of :class:`Statistics` to merge.
+
+        Returns
+        -------
+        A new :class:`Statistics` containing the merged data.
+
+        Raises
+        ------
+        ValueError
+            If ``stats`` is empty or two inputs have conflicting report
+            entries.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        cdef vector[shared_ptr[cpp_Statistics]] v
+        for item in stats:
+            v.push_back((<Statistics?>item)._handle)
+        with nogil:
+            ret._handle = cpp_merge_statistics(v)
+        return ret
 
     @property
     def memory_profiling_enabled(self):
@@ -318,6 +442,9 @@ cdef class Statistics:
         """
         Writes a JSON report of all collected statistics to a file.
 
+        Disabled statistics produce a JSON object with an empty ``statistics``
+        section.
+
         Parameters
         ----------
         filepath
@@ -327,72 +454,88 @@ cdef class Statistics:
         ------
         OSError
             If the file cannot be opened or writing fails.
-        ValueError
-            If any stat name or memory record name contains a double quote, backslash,
-            or ASCII control character (0x00–0x1F).
         """
         cdef string path = <bytes>os.fsencode(filepath)
         with nogil:
             cpp_write_json(deref(self._handle), path)
 
-    def copy(self):
-        """
-        Creates a deep copy of this Statistics object.
-
-        Memory records are not copied.
-
-        Returns
-        -------
-        A new Statistics with the same stats and formatters.
-        """
-        cdef Statistics ret = Statistics.__new__(Statistics)
-        with nogil:
-            ret._handle = deref(self._handle).copy()
-        return ret
-
-    def merge(self, others):
-        """
-        Merges this Statistics with a sequence of others.
-
-        For each stat name present in any object, the result has the summed
-        count, summed value, and the maximum of the two maxima. Formatters are
-        taken from this object. Memory records are not merged.
-
-        Parameters
-        ----------
-        others
-            A sequence of Statistics to merge with.
-
-        Returns
-        -------
-        A new Statistics containing the merged stats.
-        """
-        cdef Statistics ret = Statistics.__new__(Statistics)
-        cdef vector[shared_ptr[cpp_Statistics]] cpp_others
-        for item in others:
-            cpp_others.push_back((<Statistics?>item)._handle)
-        with nogil:
-            ret._handle = deref(self._handle).merge_many(cpp_others)
-        return ret
-
     def write_json_string(self) -> str:
         """
         Returns a JSON representation of all collected statistics as a string.
 
+        Disabled statistics produce a JSON object with an empty ``statistics``
+        section.
+
         Returns
         -------
         A JSON-formatted string.
-
-        Raises
-        ------
-        ValueError
-            If any stat name or memory record name contains a double quote, backslash,
-            or ASCII control character (0x00–0x1F).
         """
         cdef string result
         with nogil:
             result = cpp_write_json_string(deref(self._handle))
         return result.decode("utf-8")
+
+    def serialize(self) -> bytes:
+        """
+        Serialize the stats and report entries to a binary buffer.
+
+        Memory records and the memory-profiling resource pointer are not
+        included.
+
+        Returns
+        -------
+        A ``bytes`` object containing the serialized binary representation
+        of the Statistics.
+        """
+        cdef vector[uint8_t] vec
+        with nogil:
+            vec = deref(self._handle).serialize()
+        return <bytes>PyBytes_FromStringAndSize(
+            <const char*>vec.data() if not vec.empty() else NULL,
+            vec.size()
+        )
+
+    @staticmethod
+    def deserialize(bytes buf not None):
+        """
+        Deserialize a binary buffer into a Statistics object.
+
+        Reconstructs a Statistics instance from a byte buffer produced by
+        :meth:`serialize`. The resulting object has no memory records and
+        no associated memory-profiling resource.
+
+        Parameters
+        ----------
+        buf
+            A buffer containing serialized statistics.
+
+        Returns
+        -------
+        A reconstructed :class:`Statistics` instance.
+
+        Raises
+        ------
+        ValueError
+            If the input buffer is malformed or truncated.
+        """
+        cdef Py_ssize_t size = len(buf)
+        cdef const char* src = <const char*>buf
+        cdef vector[uint8_t] vec
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            vec.resize(size)
+            memcpy(<void*>vec.data(), src, size)
+            ret._handle = cpp_deserialize_statistics(vec)
+        ret._mr = None
+        return ret
+
+    def __getstate__(self):
+        return self.serialize()
+
+    def __setstate__(self, bytes state not None):
+        cdef Statistics restored = Statistics.deserialize(state)
+        self._handle = restored._handle
+        self._mr = None
 
 
 @dataclass
@@ -456,7 +599,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), mr, self._name
+                self._stats._handle.get(), deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

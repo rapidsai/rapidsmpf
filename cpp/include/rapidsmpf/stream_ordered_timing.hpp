@@ -8,6 +8,8 @@
 #include <optional>
 #include <string>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {

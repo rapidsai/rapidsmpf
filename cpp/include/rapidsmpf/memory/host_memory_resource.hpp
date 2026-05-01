@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -31,11 +31,8 @@ namespace rapidsmpf {
  */
 class HostMemoryResource {
   public:
-    /// @brief Default constructor.
     HostMemoryResource() = default;
-
-    /// @brief Virtual destructor to allow polymorphic use.
-    virtual ~HostMemoryResource() = default;
+    ~HostMemoryResource() = default;
 
     HostMemoryResource(HostMemoryResource const&) = default;  ///< Copyable.
     HostMemoryResource(HostMemoryResource&&) = default;  ///< Movable.
@@ -79,8 +76,6 @@ class HostMemoryResource {
     /**
      * @brief Allocates host memory associated with a CUDA stream.
      *
-     * Derived classes may override this to provide custom host allocation strategies.
-     *
      * @param stream CUDA stream associated with the allocation.
      * @param size Number of bytes to at least allocate.
      * @param alignment Required alignment.
@@ -89,7 +84,7 @@ class HostMemoryResource {
      * @throw std::bad_alloc If the allocation fails.
      * @throw std::invalid_argument If @p alignment is not a valid alignment.
      */
-    virtual void* allocate(
+    void* allocate(
         rmm::cuda_stream_view stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
@@ -98,18 +93,15 @@ class HostMemoryResource {
     /**
      * @brief Deallocates host memory associated with a CUDA stream.
      *
-     * The default implementation synchronizes @p stream before deallocating the
-     * memory with the ``delete`` operator. This ensures that any in-flight CUDA
-     * operations using the memory complete before it is freed.
-     *
-     * Derived classes may override this to provide custom host deallocation strategies.
+     * Synchronizes @p stream before deallocating the memory with the ``delete``
+     * operator.
      *
      * @param stream CUDA stream associated with operations that used @p ptr.
      * @param ptr Pointer to the memory to deallocate. May be nullptr.
      * @param size Number of bytes previously allocated at @p ptr.
      * @param alignment Alignment originally used for the allocation.
      */
-    virtual void deallocate(
+    void deallocate(
         rmm::cuda_stream_view stream,
         void* ptr,
         std::size_t size,
@@ -119,34 +111,23 @@ class HostMemoryResource {
     /**
      * @brief Compares this resource to another resource.
      *
-     * Two resources are considered equal if memory allocated by one may be
-     * deallocated by the other. The default implementation compares object identity.
-     *
-     * The base class is stateless, and all instances behave identically. Any
-     * instance can deallocate memory allocated by any other instance of this
-     * base class, so the comparison always returns true.
-     *
-     * Derived classes that use different allocation or deallocation strategies
-     * must override this function. Such classes should return true only when
-     * the other resource is compatible with their allocation and free methods.
+     * All instances are stateless and interchangeable, so this always returns
+     * true.
      *
      * @param other The resource to compare with.
-     * @return true because all instances of this base class are considered equal.
+     * @return true
      */
-    [[nodiscard]] virtual bool is_equal(
+    [[nodiscard]] bool operator==(
         [[maybe_unused]] HostMemoryResource const& other
     ) const noexcept {
         return true;
     }
 
-    /// @copydoc is_equal()
-    [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
-        return is_equal(other);
-    }
-
-    /// @copydoc is_equal()
-    [[nodiscard]] bool operator!=(HostMemoryResource const& other) const noexcept {
-        return !is_equal(other);
+    /// @copydoc operator==
+    [[nodiscard]] bool operator!=(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
+        return false;
     }
 
     /**

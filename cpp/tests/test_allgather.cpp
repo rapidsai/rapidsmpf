@@ -12,8 +12,10 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/table_utilities.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
+#include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -32,18 +34,15 @@ class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
+        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
     }
 
     void TearDown() override {
         br = nullptr;
-        mr = nullptr;
     }
 
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
-    std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
 TEST_F(BaseAllGatherTest, timeout) {
@@ -290,22 +289,21 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     auto this_rank = comm->rank();
 
     // On rank 0, wrap the device MR with a delayed version.
-    std::unique_ptr<DelayedMemoryResource> delayed_mr;
     std::unique_ptr<rapidsmpf::BufferResource> delay_br;
     std::unique_ptr<AllGather> allgather;
     constexpr rapidsmpf::OpID op_id = 0;
     if (this_rank == 0) {
-        delayed_mr = std::make_unique<DelayedMemoryResource>(
-            mr.get(), std::chrono::milliseconds(500)
-        );
         // Recreate the buffer resource and allgather with the delayed MR.
-        delay_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
+        delay_br = std::make_unique<rapidsmpf::BufferResource>(
+            DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
+        );
         allgather =
             std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, delay_br.get());
     } else {
         allgather =
             std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, br.get());
     }
+
     for (int i = 0; i < n_inserts; i++) {
         allgather->insert(
             i, generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br)
@@ -354,4 +352,37 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
             validate_packed_data(std::move(result), n_elements, offset, stream, *br)
         );
     }
+}
+
+// Test that PostBox::spill() tracks the remaining spill need correctly across iterations,
+// rather than passing the original amount to lower_bound every time.
+//
+// With chunks [20, 80, 90] and a request for 100 bytes: the first iteration spills 90
+// (the largest chunk, since none covers 100 alone). The second must search for a chunk
+// >= 10 and pick the 20-byte chunk, totalling 110.
+TEST(PostBox, spill_uses_remaining_amount) {
+    auto stream = cudf::get_default_stream();
+    auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+    auto br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+
+    rapidsmpf::coll::detail::PostBox postbox;
+
+    auto make_chunk = [&](std::size_t size) {
+        auto metadata =
+            std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+        auto res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DEVICE);
+        auto data = br->allocate(size, stream, res);
+        return rapidsmpf::coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+        );
+    };
+
+    postbox.insert(make_chunk(20));
+    postbox.insert(make_chunk(80));
+    postbox.insert(make_chunk(90));
+
+    EXPECT_EQ(postbox.spill(br.get(), 100), 110UL);
 }

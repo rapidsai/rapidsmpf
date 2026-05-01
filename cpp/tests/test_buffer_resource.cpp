@@ -14,7 +14,6 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/mr/limiting_resource_adaptor.hpp>
-#include <rmm/mr/owning_wrapper.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -176,7 +175,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     auto stream = cudf::get_default_stream();
 
     // Create a buffer resource that limit available device memory to 10 KiB.
-    LimitAvailableMemory dev_mem_available{&mr, 10_KiB};
+    LimitAvailableMemory dev_mem_available{mr, 10_KiB};
     BufferResource br{
         mr, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, dev_mem_available}}
     };
@@ -290,7 +289,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     RmmResourceAdaptor mr{mr_cuda};
-    auto stats = std::make_shared<Statistics>(&mr);
+    auto stats = std::make_shared<Statistics>(mr);
     auto pinned_mr = PinnedMemoryResource::make_if_available();
     BufferResource br{
         mr,
@@ -357,18 +356,16 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
     void SetUp() override {
         // Create a buffer resource with limited device memory (10 KiB) and unlimited
         // host memory.
-        cuda_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        mr = std::make_unique<RmmResourceAdaptor>(*cuda_mr);
+        mr = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
         br = std::make_unique<BufferResource>(
             *mr,
             PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
-                {MemoryType::DEVICE, LimitAvailableMemory{mr.get(), 10_KiB}}
+                {MemoryType::DEVICE, LimitAvailableMemory{*mr, 10_KiB}}
             }
         );
     }
 
-    std::unique_ptr<rmm::mr::cuda_memory_resource> cuda_mr;
     std::unique_ptr<RmmResourceAdaptor> mr;
     std::unique_ptr<BufferResource> br;
 };
@@ -646,14 +643,12 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         }
 
         // Setup br1 with statistics for its device memory
-        mr_cuda1 = std::make_unique<rmm::mr::cuda_memory_resource>();
-        mr1 = std::make_unique<RmmResourceAdaptor>(*mr_cuda1);
-        br1 = std::make_unique<BufferResource>(mr1.get());
+        mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
+        br1 = std::make_unique<BufferResource>(*mr1);
 
         // Setup br2 with statistics for its device memory
-        mr_cuda2 = std::make_unique<rmm::mr::cuda_memory_resource>();
-        mr2 = std::make_unique<RmmResourceAdaptor>(*mr_cuda2);
-        br2 = std::make_unique<BufferResource>(mr2.get());
+        mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
+        br2 = std::make_unique<BufferResource>(*mr2);
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -685,8 +680,6 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
     rmm::cuda_stream_view stream;
     std::vector<std::uint8_t> host_pattern;
 
-    std::unique_ptr<rmm::mr::cuda_memory_resource> mr_cuda1;
-    std::unique_ptr<rmm::mr::cuda_memory_resource> mr_cuda2;
     std::unique_ptr<RmmResourceAdaptor> mr1;
     std::unique_ptr<RmmResourceAdaptor> mr2;
     std::unique_ptr<BufferResource> br1;

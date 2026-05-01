@@ -15,6 +15,20 @@
 namespace rapidsmpf::bootstrap {
 
 /**
+ * @brief Validate a key against all constraints documented in types.hpp.
+ *
+ * Enforces the following rules uniformly across all backends:
+ * - Length must not exceed `max_key_size` bytes.
+ * - Must not be empty.
+ * - Must not contain whitespace, path separators (`/`, `\`), path traversal
+ *   sequences (e.g. `..`), or null bytes.
+ *
+ * @param key Key to validate.
+ * @throws std::invalid_argument if the key violates any constraint.
+ */
+void validate_key(std::string const& key);
+
+/**
  * @brief Get environment variable as optional string.
  *
  * Retrieves the value of an environment variable by name, returning it as

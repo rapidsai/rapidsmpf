@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
@@ -14,6 +15,7 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rmm.librmm.memory_resource cimport make_any_device_resource
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -119,6 +121,8 @@ cdef extern from * nogil:
         vector[MemoryType],
     ) except +ex_handler
 
+
+@no_gc_clear
 cdef class BufferResource:
     """
     Class managing buffer resources.
@@ -216,18 +220,16 @@ cdef class BufferResource:
         # checked cast requires the GIL
         stats_handle = (<Statistics?>statistics)._handle
 
-        # Keep MR alive because the C++ BufferResource stores a raw pointer.
-        # TODO: once RMM is migrating to CCCL (copyable) any_resource,
-        # rather than the any_resource_ref reference type, we don't
-        # need to keep this alive here.
+        # Stored for the Python device_mr/pinned_mr property accessors.
+        # The C++ BufferResource owns the resource via any_resource.
         self._device_mr = device_mr
         self._pinned_mr = pinned_mr
-        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned_mr
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
         if self._pinned_mr is not None:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
-                device_mr.get_mr(),
+                make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_available),
                 period,
@@ -533,10 +535,10 @@ cdef class LimitAvailableMemory:
     >>> memory_limiter = LimitAvailableMemory(mr, limit=1_000_000)
     """
     def __init__(self, RmmResourceAdaptor mr not None, int64_t limit):
-        self._mr = mr  # Keep the mr alive.
+        self._mr = mr  # Keep a copy of mr alive.
         cdef cpp_RmmResourceAdaptor* handle = mr.get_handle()
         with nogil:
-            self._handle = make_shared[cpp_LimitAvailableMemory](handle, limit)
+            self._handle = make_shared[cpp_LimitAvailableMemory](deref(handle), limit)
 
     def __call__(self):
         """
@@ -565,7 +567,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef unordered_map[MemoryType, cpp_MemoryAvailable] \
         cpp_memory_available_from_options \
         "rapidsmpf::memory_available_from_options"(
-            cpp_RmmResourceAdaptor* mr, cpp_Options options
+            cpp_RmmResourceAdaptor mr, cpp_Options options
         ) except +ex_handler
 
 
@@ -601,7 +603,8 @@ cdef class AvailableMemoryMap:
         cdef AvailableMemoryMap ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
         with nogil:
-            ret._handle = cpp_memory_available_from_options(mr_handle, options._handle)
+            ret._handle = cpp_memory_available_from_options(deref(mr_handle),
+                                                            options._handle)
         return ret
 
 

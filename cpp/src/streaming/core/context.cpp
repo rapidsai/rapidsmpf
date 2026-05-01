@@ -104,12 +104,12 @@ Context::Context(
       ) {}
 
 std::shared_ptr<Context> Context::from_options(
-    RmmResourceAdaptor* mr,
+    RmmResourceAdaptor mr,
     std::shared_ptr<Communicator::Logger> logger,
     config::Options options
 ) {
     return std::make_shared<Context>(
-        options, std::move(logger), BufferResource::from_options(mr, options)
+        options, std::move(logger), BufferResource::from_options(std::move(mr), options)
     );
 }
 
@@ -128,6 +128,7 @@ void Context::shutdown() noexcept {
             "constructed the executor"
         );
         executor_->shutdown();
+        spillable_messages_->clear();
     }
 }
 

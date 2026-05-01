@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -41,6 +42,8 @@
 #include <cucascade/memory/topology_discovery.hpp>
 
 #include <rrun/rrun.hpp>
+
+#include <rapidsmpf/bootstrap/socket_backend.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <pmix.h>
@@ -124,6 +127,7 @@ struct Config {
     BindToState bind_state{
         BindToState::NotSpecified
     };  // State of --bind-to specification
+    bool file_backend{false};  // Force file-based coordination instead of socket
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
     std::optional<SlurmEnv> slurm;  // Set when slurm_mode is true
 };
@@ -216,6 +220,8 @@ void print_usage(std::string_view prog_name) {
         << "                     Can be specified multiple times\n"
         << "  -v                 Verbose output\n"
         << "  --no-cleanup       Don't cleanup coordination directory on exit\n"
+        << "  --file-backend     Use file-based coordination instead of the default\n"
+        << "                     socket-based backend. Implies -d if not set.\n"
         << "  -h, --help         Display this help message\n\n"
         << "Environment Variables:\n"
         << "  CUDA_VISIBLE_DEVICES is set for each rank based on GPU assignment\n"
@@ -403,6 +409,8 @@ Config parse_args(int argc, char* argv[]) {
             cfg.verbose = true;
         } else if (arg == "--no-cleanup") {
             cfg.cleanup = false;
+        } else if (arg == "--file-backend") {
+            cfg.file_backend = true;
         } else if (arg == "--slurm") {
             cfg.slurm_mode = true;
         } else if (arg == "--") {
@@ -621,7 +629,6 @@ int setup_launch_and_cleanup(
     int total_ranks,
     std::string const& coord_dir_hint = ""
 ) {
-    // Set up coordination directory
     if (cfg.coord_dir.empty()) {
         if (!coord_dir_hint.empty()) {
             cfg.coord_dir = "/tmp/rrun_" + coord_dir_hint;
@@ -629,13 +636,37 @@ int setup_launch_and_cleanup(
             cfg.coord_dir = "/tmp/rrun_" + generate_session_id();
         }
     }
-    std::filesystem::create_directories(cfg.coord_dir);
+
+    // Use an optional to conditionally own the socket server. When --file-backend
+    // is set the optional stays empty and the file path is used instead.
+    std::optional<rapidsmpf::bootstrap::detail::SocketServer> socket_server;
+
+    if (cfg.file_backend) {
+        std::filesystem::create_directories(cfg.coord_dir);
+        cfg.env_vars["RRUN_COORD_DIR"] = cfg.coord_dir;
+        if (cfg.verbose) {
+            std::cout << "[rrun] File coordination directory: " << cfg.coord_dir
+                      << std::endl;
+        }
+    } else {
+        // Start the socket coordination server. It binds to 127.0.0.1:0, generates a
+        // 256-bit random auth token, and holds all KV/barrier state in memory.
+        // Its lifetime covers the entire fork-wait cycle, so child ranks can connect
+        // and exchange coordination data without touching the filesystem.
+        socket_server.emplace(ranks_per_task);
+        cfg.env_vars["RRUN_SOCKET_ADDR"] = socket_server->address();
+        cfg.env_vars["RRUN_SOCKET_TOKEN"] = socket_server->token();
+        if (cfg.verbose) {
+            std::cout << "[rrun] Socket coordination server: " << socket_server->address()
+                      << std::endl;
+        }
+    }
 
     // Launch ranks and wait for completion
     int exit_status =
         launch_ranks_fork_based(cfg, rank_offset, ranks_per_task, total_ranks);
 
-    if (cfg.cleanup) {
+    if (cfg.file_backend && cfg.cleanup) {
         if (cfg.verbose) {
             std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
                       << std::endl;
@@ -646,7 +677,7 @@ int setup_launch_and_cleanup(
             std::cerr << "[rrun] Warning: Failed to cleanup directory: " << cfg.coord_dir
                       << ": " << ec.message() << std::endl;
         }
-    } else if (cfg.verbose) {
+    } else if (cfg.file_backend && cfg.verbose) {
         std::cout << "[rrun] Coordination directory preserved: " << cfg.coord_dir
                   << std::endl;
     }
@@ -1203,10 +1234,6 @@ pid_t launch_rank_local(
             setenv("RRUN_RANK", std::to_string(global_rank).c_str(), 1);
             setenv("RRUN_NRANKS", std::to_string(total_ranks).c_str(), 1);
 
-            if (!cfg.coord_dir.empty()) {
-                setenv("RRUN_COORD_DIR", cfg.coord_dir.c_str(), 1);
-            }
-
             // In Slurm hybrid mode, unset Slurm/PMIx rank variables to avoid confusion
             // Children should not try to initialize PMIx themselves
             if (cfg.slurm_mode) {
@@ -1284,8 +1311,13 @@ int main(int argc, char* argv[]) {
                     std::cout << "  Tag Output:    Yes\n";
                 }
                 std::cout << "  Ranks:         " << cfg.nranks << "\n"
-                          << "  Coord Dir:     " << cfg.coord_dir << "\n"
-                          << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
+                          << "  Backend:       " << (cfg.file_backend ? "file" : "socket")
+                          << "\n";
+                if (cfg.file_backend) {
+                    std::cout << "  Coord Dir:     " << cfg.coord_dir << "\n"
+                              << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no")
+                              << "\n";
+                }
             }
             std::cout << "  Application:   " << cfg.app_binary << "\n";
             std::vector<std::string> bind_types;

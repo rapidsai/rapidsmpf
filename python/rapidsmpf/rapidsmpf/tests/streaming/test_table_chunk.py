@@ -150,7 +150,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     df1 = random_table(1024)
     df2 = random_table(2048)
 
-    sm = SpillableMessages()
+    sm = SpillableMessages(context.br())
     sm.insert(
         Message(
             seq,
@@ -419,6 +419,29 @@ def test_shape_accessor(context: Context, stream: Stream, from_pack: bool) -> No
     device_chunk = host_chunk.make_available(res)
     assert device_chunk.is_available()
     assert device_chunk.shape == expected_shape
+
+
+@pytest.mark.parametrize("from_pack", [False, True], ids=["from_table", "from_pack"])
+def test_into_packed_data(context: Context, stream: Stream, from_pack: bool) -> None:  # noqa: FBT001
+    expect = random_table(1024)
+    if from_pack:
+        pd = PackedData.from_cudf_packed_columns(
+            plc.contiguous_split.pack(expect, stream), stream, context.br()
+        )
+        chunk = TableChunk.from_packed_data(pd, br=context.br())
+    else:
+        chunk = TableChunk.from_pylibcudf_table(
+            expect, stream, exclusive_view=True, br=context.br()
+        )
+    assert chunk.is_available()
+
+    result = chunk.into_packed_data(context.br())
+    assert isinstance(result, PackedData)
+
+    # Wrap the PackedData back into a TableChunk and verify contents.
+    result_chunk = TableChunk.from_packed_data(result, br=context.br())
+    assert result_chunk.is_available()
+    assert_eq(expect, result_chunk.table_view())
 
 
 @pytest.mark.parametrize("chunk_location", ["device", "host"])
