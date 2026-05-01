@@ -121,8 +121,8 @@ struct OrderScheme {
      *
      * @param other The OrderScheme to compare against.
      * @param br Buffer resource used for temporary allocations during comparison.
-     * @return True when both schemes have strict boundaries, the boundary values
-     * match, and the schemes are otherwise compatible (same order and null_order).
+     * @return True when both schemes have matching boundary values and strict_boundaries
+     * attributes, and the schemes are otherwise compatible (same order and null_order).
      */
     [[nodiscard]] bool boundaries_aligned_with(
         OrderScheme const& other, rapidsmpf::BufferResource const& br
