@@ -29,7 +29,8 @@ def test_partitioning_scenarios() -> None:
     p_default = Partitioning()
     assert p_default.inter_rank is None
     assert p_default.local is None
-    assert Partitioning(None, None) == p_default
+    assert Partitioning(None, None).inter_rank is None
+    assert Partitioning(None, None).local is None
 
     # Direct global shuffle: inter_rank=Hash, local=Aligned
     p_global = Partitioning(HashScheme((0,), 16), "inherit")
@@ -46,9 +47,10 @@ def test_partitioning_scenarios() -> None:
     assert p_local_none.inter_rank == HashScheme((0,), 16)
     assert p_local_none.local is None
 
-    # Equality and repr
-    assert p_global == Partitioning(HashScheme((0,), 16), "inherit")
-    assert p_global != p_twostage
+    # Repr (Partitioning.__eq__ removed; use field comparisons)
+    assert p_global.inter_rank == HashScheme((0,), 16)
+    assert p_global.local == "inherit"
+    assert p_twostage.inter_rank != p_global.inter_rank
     assert "Partitioning" in repr(p_global)
     assert "inter_rank" in repr(p_global)
 
@@ -67,13 +69,15 @@ def test_channel_metadata() -> None:
     # With partitioning and duplicated
     p = Partitioning(HashScheme((0,), 16), "inherit")
     m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
-    assert m_full.partitioning == p
+    assert m_full.partitioning.inter_rank == HashScheme((0,), 16)
+    assert m_full.partitioning.local == "inherit"
     assert m_full.duplicated is True
 
-    # Equality and repr
+    # Field comparisons (ChannelMetadata.__eq__ removed)
     m2 = ChannelMetadata(local_count=4)
-    assert m == m2
-    assert m != ChannelMetadata(local_count=8)
+    assert m.local_count == m2.local_count
+    assert m.duplicated == m2.duplicated
+    assert ChannelMetadata(local_count=8).local_count != m.local_count
     assert "local_count=4" in repr(m)
 
     # Validation

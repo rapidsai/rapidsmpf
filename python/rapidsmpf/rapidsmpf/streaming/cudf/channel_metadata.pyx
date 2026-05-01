@@ -120,11 +120,6 @@ cdef class Partitioning:
     def local(self):
         return _from_spec(deref(self._handle).local)
 
-    def __eq__(self, other):
-        if not isinstance(other, Partitioning):
-            return NotImplemented
-        return deref(self._handle) == deref((<Partitioning>other)._handle)
-
     def __repr__(self):
         return f"Partitioning(inter_rank={self.inter_rank!r}, local={self.local!r})"
 
@@ -205,11 +200,6 @@ cdef class ChannelMetadata:
     @property
     def duplicated(self) -> bool:
         return self.handle_ptr().duplicated
-
-    def __eq__(self, other):
-        if not isinstance(other, ChannelMetadata):
-            return NotImplemented
-        return deref(self.handle_ptr()) == deref((<ChannelMetadata>other).handle_ptr())
 
     def __repr__(self):
         return (
