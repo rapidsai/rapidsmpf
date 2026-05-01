@@ -88,7 +88,7 @@ class BufferResource {
      */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -395,7 +395,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
-    std::shared_ptr<PinnedMemoryResource> pinned_mr_;
+    std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.

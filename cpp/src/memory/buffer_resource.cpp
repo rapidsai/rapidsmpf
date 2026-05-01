@@ -11,6 +11,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -35,7 +36,7 @@ auto add_missing_availability_functions(
 
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-    std::shared_ptr<PinnedMemoryResource> pinned_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
@@ -43,6 +44,7 @@ BufferResource::BufferResource(
 )
     : device_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
+      host_mr_{},
       memory_available_{add_missing_availability_functions(
           std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
       )},

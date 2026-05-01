@@ -158,14 +158,14 @@ Statistics::~Statistics() noexcept {
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
 Statistics::Statistics(
-    RmmResourceAdaptor mr, std::shared_ptr<PinnedMemoryResource> pinned_mr
+    RmmResourceAdaptor mr, std::optional<PinnedMemoryResource> pinned_mr
 )
     : enabled_{true}, mr_{std::move(mr)}, pinned_mr_{std::move(pinned_mr)} {}
 
 std::shared_ptr<Statistics> Statistics::from_options(
     RmmResourceAdaptor mr,
     config::Options options,
-    std::shared_ptr<PinnedMemoryResource> pinned_mr
+    std::optional<PinnedMemoryResource> pinned_mr
 ) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return parse_string<bool>(s.empty() ? "False" : s);

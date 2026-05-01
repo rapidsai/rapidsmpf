@@ -8,6 +8,7 @@ from libc.stdint cimport uint8_t
 from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
 
@@ -30,7 +31,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         "rapidsmpf::Statistics::from_options"(
             cpp_RmmResourceAdaptor mr,
             cpp_Options options,
-            shared_ptr[cpp_PinnedMemoryResource] pinned_mr,
+            optional[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
@@ -154,11 +155,9 @@ cdef class Statistics:
         """
         cdef Statistics ret = cls.__new__(cls)
         cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned
         if pinned_mr is not None:
             cpp_pinned = pinned_mr._handle
-        else:
-            cpp_pinned = shared_ptr[cpp_PinnedMemoryResource]()
         with nogil:
             ret._handle = cpp_from_options(deref(mr_handle), options._handle,
                                            cpp_pinned)

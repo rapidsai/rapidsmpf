@@ -186,6 +186,7 @@ add_library(
   src/coll/utils.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
+  src/bootstrap/socket_backend.cpp
   src/bootstrap/utils.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
