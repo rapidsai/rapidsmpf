@@ -117,11 +117,12 @@ struct OrderScheme {
     [[nodiscard]] OrderScheme with_keys(std::vector<OrderKey> new_keys) const;
 
     /**
-     * @brief Check whether two schemes share the same boundary values.
+     * @brief Check whether boundary values are aligned with another scheme.
      *
      * @param other The OrderScheme to compare against.
      * @param br Buffer resource used for temporary allocations during comparison.
-     * @return True when `strict_boundaries`, shape, and all boundary values match.
+     * @return True when both schemes have strict boundaries, the boundary values
+     * match, and the schemes are otherwise compatible (same order and null_order).
      */
     [[nodiscard]] bool boundaries_aligned_with(
         OrderScheme const& other, rapidsmpf::BufferResource const& br
