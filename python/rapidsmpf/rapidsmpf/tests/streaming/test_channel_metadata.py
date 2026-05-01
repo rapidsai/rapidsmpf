@@ -62,6 +62,7 @@ def test_hash_scheme() -> None:
     assert h1.modulus == 16
     assert repr(h1) == "HashScheme((0, 1), 16)"
 
+    # Equality
     assert h1 == HashScheme((0, 1), 16)
     assert h1 != HashScheme((0, 1), 32)
     assert h1 != HashScheme((2,), 16)
@@ -216,22 +217,26 @@ def test_partitioning_scenarios(context: Context) -> None:
 
 def test_channel_metadata() -> None:
     """Test ChannelMetadata construction and properties."""
+    # Basic construction
     m = ChannelMetadata(local_count=4)
     assert m.local_count == 4
     assert m.duplicated is False
 
+    # With partitioning and duplicated
     p = Partitioning(HashScheme((0,), 16), "inherit")
     m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
     assert m_full.partitioning.inter_rank == HashScheme((0,), 16)
     assert m_full.partitioning.local == "inherit"
     assert m_full.duplicated is True
 
+    # Field comparisons (ChannelMetadata.__eq__ removed)
     m2 = ChannelMetadata(local_count=4)
     assert m.local_count == m2.local_count
     assert m.duplicated == m2.duplicated
     assert ChannelMetadata(local_count=8).local_count != m.local_count
     assert "local_count=4" in repr(m)
 
+    # Validation
     with pytest.raises(ValueError, match="local_count must be non-negative"):
         ChannelMetadata(local_count=-1)
 
@@ -310,8 +315,10 @@ def test_access_after_move_raises() -> None:
         local_count=4,
         partitioning=Partitioning(HashScheme((0,), 16), "inherit"),
     )
+    # Move into a message (releases the handle)
     _ = Message(0, m)
 
+    # Accessing any property should raise ValueError
     with pytest.raises(ValueError, match="uninitialized"):
         _ = m.local_count
 
