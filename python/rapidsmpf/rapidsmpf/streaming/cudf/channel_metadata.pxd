@@ -100,7 +100,7 @@ cdef class OrderKey:
 
 
 cdef class OrderScheme:
-    cdef shared_ptr[cpp_OrderScheme] _handle
+    cdef cpp_OrderScheme _handle
 
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme)

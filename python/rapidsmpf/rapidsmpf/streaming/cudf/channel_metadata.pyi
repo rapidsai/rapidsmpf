@@ -25,7 +25,7 @@ class HashScheme:
 
 @dataclass(frozen=True, slots=True)
 class OrderKey:
-    """Sort key: column index, direction, and null ordering (``pylibcudf`` enums)."""
+    """Sort key: column index, direction, and null ordering."""
 
     column_index: int
     order: plc.types.Order
@@ -49,8 +49,6 @@ class OrderScheme:
     def boundaries_aligned_with(
         self, other: OrderScheme, br: BufferResource
     ) -> bool: ...
-    # Shallow equality: keys + strict_boundaries + boundary shape only.
-    def __eq__(self, other: object) -> bool: ...
     def __repr__(self) -> str: ...
 
 PartitioningSpecValue = HashScheme | OrderScheme | None | Literal["inherit"]

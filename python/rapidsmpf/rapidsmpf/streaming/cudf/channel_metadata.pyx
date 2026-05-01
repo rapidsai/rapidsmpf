@@ -4,7 +4,7 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_shared, make_unique, shared_ptr, unique_ptr
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
@@ -74,11 +74,11 @@ cdef class OrderKey:
 
     @property
     def order(self):
-        return plc_types.Order(<int>self._key.order)
+        return plc_types.Order(self._key.order)
 
     @property
     def null_order(self):
-        return plc_types.NullOrder(<int>self._key.null_order)
+        return plc_types.NullOrder(self._key.null_order)
 
     def __eq__(self, other):
         if not isinstance(other, OrderKey):
@@ -116,11 +116,7 @@ cdef class OrderScheme:
     ):
         cdef vector[cpp_OrderKey] cpp_keys
         for key in keys:
-            if not isinstance(key, OrderKey):
-                raise TypeError(
-                    f"keys must contain OrderKey objects, got {type(key).__name__}"
-                )
-            cpp_keys.push_back((<OrderKey>key)._key)
+            cpp_keys.push_back((<OrderKey?>key)._key)
         if cpp_keys.empty():
             raise ValueError("OrderScheme: keys must not be empty")
         self._handle = _make_order_scheme(
@@ -130,42 +126,36 @@ cdef class OrderScheme:
     @staticmethod
     cdef OrderScheme from_cpp(cpp_OrderScheme scheme):
         cdef OrderScheme ret = OrderScheme.__new__(OrderScheme)
-        ret._handle = make_shared[cpp_OrderScheme](move(scheme))
+        ret._handle = move(scheme)
         return ret
 
     @property
     def keys(self) -> tuple:
         cdef int i
-        cdef int n = <int>self._handle.get().keys.size()
-        return tuple(OrderKey.from_cpp(self._handle.get().keys[i]) for i in range(n))
+        cdef int n = <int>self._handle.keys.size()
+        return tuple(OrderKey.from_cpp(self._handle.keys[i]) for i in range(n))
 
     @property
     def strict_boundaries(self) -> bool:
         """Same semantics as the C++ ``OrderScheme::strict_boundaries`` field."""
-        return self._handle.get().strict_boundaries
+        return self._handle.strict_boundaries
 
     @property
     def num_boundaries(self) -> int:
         """Number of boundary rows (N-1 for N partitions)."""
-        return self._handle.get().boundaries.get().shape().first
+        return self._handle.boundaries.get().shape().first
 
     def with_keys(self, object new_keys) -> OrderScheme:
         """Return a new ``OrderScheme`` with updated key column indices."""
         cdef vector[cpp_OrderKey] cpp_keys
         for key in new_keys:
-            if not isinstance(key, OrderKey):
-                raise TypeError(
-                    f"keys must contain OrderKey objects, got {type(key).__name__}"
-                )
-            cpp_keys.push_back((<OrderKey>key)._key)
-        return OrderScheme.from_cpp(self._handle.get().with_keys(move(cpp_keys)))
+            cpp_keys.push_back((<OrderKey?>key)._key)
+        return OrderScheme.from_cpp(self._handle.with_keys(move(cpp_keys)))
 
     def boundaries_aligned_with(
         self, OrderScheme other not None, BufferResource br not None
     ) -> bool:
-        return self._handle.get().boundaries_aligned_with(
-            deref(other._handle), deref(br.ptr())
-        )
+        return self._handle.boundaries_aligned_with(other._handle, deref(br.ptr()))
 
     def __repr__(self):
         return (
@@ -183,7 +173,7 @@ cdef void _apply_spec(cpp_PartitioningSpec& spec, obj) except *:
     elif isinstance(obj, HashScheme):
         spec = cpp_PartitioningSpec.from_hash((<HashScheme>obj)._scheme)
     elif isinstance(obj, OrderScheme):
-        spec = cpp_PartitioningSpec.from_order(deref((<OrderScheme>obj)._handle))
+        spec = cpp_PartitioningSpec.from_order((<OrderScheme>obj)._handle)
     else:
         raise TypeError(
             f"Expected HashScheme, OrderScheme, None, or 'inherit', "
@@ -246,28 +236,28 @@ cdef extern from * nogil:
     #include <memory>
     #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
 
-    static std::shared_ptr<rapidsmpf::streaming::OrderScheme>
+    static rapidsmpf::streaming::OrderScheme
     _make_order_scheme(
         std::vector<rapidsmpf::streaming::OrderKey> keys,
         std::unique_ptr<rapidsmpf::streaming::TableChunk> boundaries,
         bool strict_boundaries
     ) {
-        return std::make_shared<rapidsmpf::streaming::OrderScheme>(
+        return rapidsmpf::streaming::OrderScheme{
             std::move(keys), std::move(boundaries), strict_boundaries
-        );
+        };
     }
 
     static std::unique_ptr<rapidsmpf::streaming::ChannelMetadata>
-    _channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
+    cpp_channel_metadata_from_message(rapidsmpf::streaming::Message msg) {
         return std::make_unique<rapidsmpf::streaming::ChannelMetadata>(
             msg.release<rapidsmpf::streaming::ChannelMetadata>()
         );
     }
     """
-    shared_ptr[cpp_OrderScheme] _make_order_scheme(
+    cpp_OrderScheme _make_order_scheme(
         vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
     ) except +
-    unique_ptr[cpp_ChannelMetadata] _channel_metadata_from_message(
+    unique_ptr[cpp_ChannelMetadata] cpp_channel_metadata_from_message(
         cpp_Message
     ) except +
 
@@ -319,7 +309,7 @@ cdef class ChannelMetadata:
     def from_message(Message message not None):
         """Construct by consuming a Message (message becomes empty)."""
         return ChannelMetadata.from_handle(
-            _channel_metadata_from_message(move(message._handle))
+            cpp_channel_metadata_from_message(move(message._handle))
         )
 
     def into_message(self, uint64_t sequence_number, Message message not None):
@@ -342,9 +332,7 @@ cdef class ChannelMetadata:
 
     @property
     def partitioning(self) -> Partitioning:
-        if not self._handle:
-            raise ValueError("ChannelMetadata is uninitialized, has it been released?")
-        return Partitioning.from_cpp(self._handle.get().partitioning)
+        return Partitioning.from_cpp(self.handle_ptr().partitioning)
 
     @property
     def duplicated(self) -> bool:
