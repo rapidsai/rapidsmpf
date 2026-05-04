@@ -95,11 +95,6 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
                 );
             }
 
-            auto verbose = getenv_optional("RAPIDSMPF_VERBOSE");
-            if (verbose && *verbose == "1") {
-                std::cerr << "[rank 0] Wrote address to " << *address_file << std::endl;
-            }
-
             unsetenv("RRUN_ROOT_ADDRESS_FILE");
         }
 
