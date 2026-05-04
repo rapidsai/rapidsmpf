@@ -575,7 +575,7 @@ pid_t fork_with_piped_stdio(
         setvbuf(stderr, nullptr, _IONBF, 0);
 
         // Execute child body (should not return on success because
-        // exec_application calls execvp).  We must catch any exception here
+        // exec_application calls execvp). We must catch any exception here
         // to guarantee the child always reaches _exit(); letting an exception
         // propagate would unwind into the parent code-path where inherited
         // std::thread objects (forwarder threads) trigger std::terminate().
@@ -758,10 +758,10 @@ void write_kv_for_children(
 /**
  * @brief Relay the root UCXX address from rank 0 to all Slurm tasks.
  *
- * Called in a background thread after all ranks have been launched.  The root
+ * Called in a background thread after all ranks have been launched. The root
  * parent (SLURM_PROCID==0) polls the address file that rank 0 writes when it
- * initialises UCXX.  Once available it publishes the address via PMIx so that
- * non-root parents can retrieve it.  Every parent then writes the address into
+ * initialises UCXX. Once available it publishes the address via PMIx so that
+ * non-root parents can retrieve it. Every parent then writes the address into
  * its local FileBackend kv store so that the children can pick it up with
  * `get("ucxx_root_address")`.
  *
@@ -851,17 +851,12 @@ void relay_root_address(
     }
 
     // Write into the local FileBackend kv store so children can get() it.
-    // The raw address from UCXX is hex-encoded, but the FileBackend stores
-    // opaque bytes.  The UCXX bootstrap Path 3 stores the *raw* address via
-    // put(), so we must hex-decode before writing here.
+    // Rank 0's UCXX bootstrap publishes the raw binary address via put(), and
+    // non-root ranks retrieve it via get(). The FileBackend kv entry must
+    // therefore contain the raw address, not the hex-encoded one.
     //
-    // However, the UCXX bootstrap Path 4 retrieves the value as a raw string
-    // and passes it directly to createAddressFromString.  Path 3's put() writes
-    // the raw string_view from the UCXX address.  So the FileBackend kv entry
-    // must contain the *raw* (binary) address, not the hex-encoded one.
-    //
-    // The hex encoding is only used for the address file and PMIx transport
-    // (which may not be binary-safe).  Decode before writing to the kv store.
+    // Hex encoding is only used for the address file and PMIx transport (which
+    // may not be binary-safe). Decode before writing to the kv store.
 
     // Inline hex decode (same as in ucxx.cpp).
     auto hex_decode = [](std::string_view const& input) -> std::string {
@@ -891,10 +886,10 @@ void relay_root_address(
 /**
  * @brief Execute application in Slurm hybrid mode with PMIx coordination.
  *
- * All ranks are launched simultaneously.  A background thread relays the root
+ * All ranks are launched simultaneously. A background thread relays the root
  * UCXX address (if any) between the parents via PMIx and writes it into each
- * parent's local FileBackend kv store so that the children can retrieve it
- * through the normal bootstrap Path 3/4 (put/get).
+ * parent's local FileBackend kv store so that the children's non-root ranks
+ * can retrieve it through the normal bootstrap get() call.
  *
  * Applications that never initialise UCXX communication work transparently:
  * the relay thread detects that all children have exited without producing an
@@ -932,7 +927,8 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     }
 
     // Set RRUN_ROOT_ADDRESS_FILE for rank 0 (only on the root parent).
-    // Rank 0's UCXX bootstrap (Path 1) writes its listener address here.
+    // Rank 0's UCXX bootstrap writes its listener address here in addition
+    // to publishing it via put().
     std::string address_file =
         "/tmp/rapidsmpf_root_address_" + std::to_string(cfg.slurm->job_id);
     bool is_root_parent = (cfg.slurm->global_rank == 0);
@@ -941,9 +937,10 @@ int execute_slurm_hybrid_mode(Config& cfg) {
     }
 
     // Launch all ranks (including rank 0) simultaneously.
-    // The ranks use FileBackend (Path 3/4) for UCXX bootstrap coordination.
-    // The relay thread below will populate the local kv store with the root
-    // address once it becomes available.
+    // The ranks use the FileBackend for UCXX bootstrap coordination (rank 0
+    // calls put(), non-root ranks call get()). The relay thread below will
+    // populate the local kv store with the root address once it becomes
+    // available.
     std::atomic<bool> relay_stop{false};
     std::thread relay_thread(
         relay_root_address, std::cref(cfg), std::cref(address_file), std::cref(relay_stop)
