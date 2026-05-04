@@ -16,6 +16,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -265,7 +266,7 @@ std::size_t discover_pinned_pool_actual_size(
 
 }  // namespace
 
-TEST(PinnedResourceMaxSize, max_pool_size_limit) {
+TEST(PinnedResource, max_pool_size_limit) {
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
     auto stream = cudf::get_default_stream();
@@ -291,4 +292,25 @@ TEST(PinnedResourceMaxSize, max_pool_size_limit) {
     std::size_t const actual_pool_size = discover_pinned_pool_actual_size(stream, 1_MiB);
     EXPECT_THROW(alloc_and_dealloc(actual_pool_size + 1), cuda::cuda_error);
     stream.synchronize();
+}
+
+TEST(PinnedResource, from_default_options) {
+    auto mr = rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
+    if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    EXPECT_EQ(
+        mr->properties().initial_pool_size,
+        rapidsmpf::safe_cast<std::size_t>(
+            rapidsmpf::get_host_memory_per_gpu()
+            * rapidsmpf::PinnedMemoryResource::DEFAULT_INIT_POOL_SIZE_FACTOR
+        )
+    );
+    EXPECT_EQ(
+        mr->properties().max_pool_size.value(),
+        rapidsmpf::safe_cast<std::size_t>(
+            rapidsmpf::get_host_memory_per_gpu()
+            * rapidsmpf::PinnedMemoryResource::DEFAULT_MAX_POOL_SIZE_FACTOR
+        )
+    );
 }

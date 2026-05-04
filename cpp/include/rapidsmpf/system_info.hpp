@@ -79,5 +79,11 @@ std::vector<int> get_current_numa_nodes() noexcept;
  */
 std::uint64_t get_numa_node_host_memory(int numa_id = get_current_numa_node()) noexcept;
 
+/**
+ * @brief Get the amount of host memory per GPU.
+ *
+ * @return Amount of host memory per GPU in bytes.
+ */
+std::uint64_t get_host_memory_per_gpu();
 
 }  // namespace rapidsmpf

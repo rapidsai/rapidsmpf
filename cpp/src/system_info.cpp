@@ -7,6 +7,8 @@
 #include <sched.h>
 #include <unistd.h>
 
+#include <cucascade/memory/topology_discovery.hpp>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/system_info.hpp>
 
@@ -77,6 +79,26 @@ std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
         return get_total_host_memory();
     }
     return safe_cast<std::uint64_t>(ret);
+}
+
+namespace {
+const auto& get_topology() {
+    static const auto topo = [] {
+        cucascade::memory::topology_discovery discovery;
+        RAPIDSMPF_EXPECTS(
+            discovery.discover(),
+            "get_host_memory_per_gpu(): failed to discover system topology",
+            std::runtime_error
+        );
+        return discovery;
+    }();
+    return topo.get_topology();
+}
+}  // namespace
+
+std::uint64_t get_host_memory_per_gpu() {
+    auto const num_gpus = get_topology().num_gpus;
+    return get_total_host_memory() / std::max<std::uint64_t>(1, num_gpus);
 }
 
 }  // namespace rapidsmpf
