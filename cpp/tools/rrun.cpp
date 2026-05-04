@@ -1077,11 +1077,12 @@ int launch_ranks_fork_based(
 
     auto suppress_output = std::make_shared<std::atomic<bool>>(false);
 
-    // Helper to create a forwarder thread for a given fd (returns default thread if fd <
-    // 0).
+    // Helper to create a forwarder thread for a given fd (returns default thread 
+    // if fd < 0).
     auto make_forwarder = [&](int fd, int rank, bool to_stderr) -> std::thread {
-        if (fd < 0)
+        if (fd < 0) {
             return {};
+        }
         return std::thread([fd, rank, to_stderr, &cfg, suppress_output]() {
             FILE* stream = fdopen(fd, "r");
             if (!stream) {
