@@ -28,6 +28,7 @@ class Statistics:
     def enabled(self) -> bool: ...
     def report(
         self,
+        *,
         mr: RmmResourceAdaptor | None = None,
         pinned_mr: PinnedMemoryResource | None = None,
     ) -> str: ...

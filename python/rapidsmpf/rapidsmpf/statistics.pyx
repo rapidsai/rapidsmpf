@@ -171,6 +171,7 @@ cdef class Statistics:
 
     def report(
         self,
+        *,
         RmmResourceAdaptor mr = None,
         PinnedMemoryResource pinned_mr = None,
     ):
