@@ -214,6 +214,26 @@ TEST(PinnedResource, equality) {
     EXPECT_NE(mr1, mr3);
 }
 
+TEST(PinnedResource, transient_mr) {
+    auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+    if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    rmm::cuda_stream_view stream{};
+
+    auto source_data = random_vector<std::uint8_t>(0, 1024);
+
+    // create a pinned host buffer using mr
+    auto pinned_host_buffer = std::make_unique<rmm::device_buffer>(
+        source_data.data(), source_data.size(), stream, *mr
+    );
+
+    // now reset mr, but pinned_host_buffer should keep the shared mr alive
+    mr.reset();
+
+    EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
 namespace {
 
 /// Discover the actual pool size the driver creates when a small max is requested.
