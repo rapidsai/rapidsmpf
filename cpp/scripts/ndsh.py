@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import hashlib
 import sys
 from pathlib import Path
 
@@ -56,6 +57,18 @@ TPCH_TABLES = [
     "region",
     "supplier",
 ]
+
+# simple precaution to ensure that the SQL hasn't changed
+# from what we expect.
+QUERY_HASHES = {
+    "q01": "cccf0c3d9302ee4b56a2bac2f2aa05ab",
+    "q03": "1fdb8b3d8044f7d72c7bb021d025ea70",
+    "q04": "ed586bdb2b1495d3b1b19d1217dd6750",
+    "q09": "de7c61303a841c512857ee50412b54b9",
+    "q17": "7be3e180995f841ece86ffb2de9cf2b0",
+    "q18": "38b13cbbaeea09c224cc53b532507f76",
+    "q21": "61bcc0a1239c0feefc54b683027df014",
+}
 
 
 def discover_benchmarks(
@@ -163,7 +176,15 @@ def generate_expected(sql_path: Path, input_dir: Path, output_path: Path) -> Non
 
     # Read and execute the query
     query = sql_path.read_text()
-    result = con.execute(query).arrow().read_all()
+    query_hash = hashlib.md5(query.encode()).hexdigest()
+    query_id = sql_path.stem
+
+    if query_id not in QUERY_HASHES:
+        raise ValueError(f"Query {query_id} from file {sql_path} not found in QUERY_HASHES. Please update scripts/ndsh.py with the new hash.")
+    if query_hash != QUERY_HASHES[query_id]:
+        raise ValueError(f"Query {query_id} from file {sql_path} has changed. Please update scripts/ndsh.py with the new hash using 'md5sum {sql_path}'.")
+
+    result = con.sql(query).arrow().read_all()
 
     # Write result to parquet
     pq.write_table(result, output_path)

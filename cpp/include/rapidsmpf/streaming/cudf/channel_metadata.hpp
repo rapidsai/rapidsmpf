@@ -6,12 +6,18 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
+#include <cuda_runtime_api.h>
+
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
+#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -32,6 +38,98 @@ struct HashScheme {
 };
 
 /**
+ * @brief A single sort key: column index, sort direction, and null placement.
+ */
+struct OrderKey {
+    cudf::size_type column_index;  ///< Column to sort on.
+    cudf::order order;  ///< ASCENDING or DESCENDING.
+    cudf::null_order null_order;  ///< BEFORE or AFTER.
+
+    /**
+     * @brief Equality comparison.
+     * @return True if all fields are equal.
+     */
+    bool operator==(OrderKey const&) const = default;
+
+    /**
+     * @brief Inequality comparison.
+     * @return True if any field is different.
+     */
+    bool operator!=(OrderKey const&) const = default;
+};
+
+/**
+ * @brief Order-based partitioning scheme for sorted/range-partitioned data.
+ *
+ * Data is partitioned by value ranges based on predetermined boundaries.
+ * For N partitions, there are N-1 boundary rows:
+ * - Partition 0: values < boundaries[0]
+ * - Partition i (0 < i < N-1): boundaries[i-1] <= values < boundaries[i]
+ * - Partition N-1: values >= boundaries[N-2]
+ *
+ * `keys[i]` is the i-th sort column; ordering is lexicographic by `keys[0]`,
+ * then `keys[1]`, and so on.
+ *
+ * When `boundaries` is set, its columns must align with `keys`
+ * (same count and compatible dtypes). Mismatched dtypes are a usage error.
+ *
+ * `strict_boundaries`: when true, every row in a chunk belongs to a single partition's
+ * half-open key range (partition keys do not straddle chunk interiors). When false,
+ * a chunk may contain keys spanning multiple partitions.
+ */
+struct OrderScheme {
+    std::vector<OrderKey> keys;  ///< Sort keys (column, order, null_order per entry).
+    std::shared_ptr<TableChunk> boundaries;  ///< N-1 boundary rows for N partitions.
+    /// See struct-level note on `strict_boundaries` semantics.
+    bool strict_boundaries{false};
+
+    /// @brief Default constructor. Produces an invalid (empty) scheme.
+    OrderScheme() = default;
+
+    /**
+     * @brief Construct a validated OrderScheme.
+     *
+     * @param keys Non-empty sort keys; size must equal `boundaries->shape().second`.
+     * @param boundaries Non-null, device-resident boundary table (N-1 rows for N
+     * partitions). Accepts a `unique_ptr<TableChunk>` via implicit conversion.
+     * @param strict_boundaries See struct-level doc. Defaults to false.
+     * @throws std::invalid_argument if `keys` is empty, `boundaries` is null or not
+     * device-resident, or `keys.size() != boundaries->shape().second`.
+     */
+    OrderScheme(
+        std::vector<OrderKey> keys,
+        std::shared_ptr<TableChunk> boundaries,
+        bool strict_boundaries = false
+    );
+
+    /**
+     * @brief Return a new OrderScheme with updated key column indices, sharing
+     * boundaries.
+     *
+     * The new key count must match the existing boundary column count.
+     *
+     * @param new_keys Replacement sort keys; size must equal
+     * `boundaries->shape().second`.
+     * @return A new OrderScheme with `new_keys` and the same `boundaries` and
+     *         `strict_boundaries`.
+     * @throws std::invalid_argument if `new_keys` is empty or size mismatches boundaries.
+     */
+    [[nodiscard]] OrderScheme with_keys(std::vector<OrderKey> new_keys) const;
+
+    /**
+     * @brief Check whether boundary values are aligned with another scheme.
+     *
+     * @param other The OrderScheme to compare against.
+     * @param br Buffer resource used for temporary allocations during comparison.
+     * @return True when both schemes have matching boundary values and strict_boundaries
+     * attributes, and the schemes are otherwise compatible (same order and null_order).
+     */
+    [[nodiscard]] bool boundaries_aligned_with(
+        OrderScheme const& other, rapidsmpf::BufferResource const& br
+    ) const;
+};
+
+/**
  * @brief Partitioning specification for a single hierarchical level.
  *
  * Represents how data is partitioned at one level of the hierarchy
@@ -40,6 +138,7 @@ struct HashScheme {
  * - `none()`: No partitioning information at this level.
  * - `inherit()`: Partitioning is inherited from the parent level unchanged.
  * - `from_hash(h)`: Explicit hash partitioning with the given scheme.
+ * - `from_order(o)`: Explicit order/range partitioning with the given scheme.
  */
 struct PartitioningSpec {
     /**
@@ -49,10 +148,12 @@ struct PartitioningSpec {
         NONE,  ///< No partitioning information at this level.
         INHERIT,  ///< Partitioning is inherited from parent level unchanged.
         HASH,  ///< Hash partitioning.
+        ORDER,  ///< Order/range partitioning.
     };
 
     Type type = Type::NONE;  ///< The type of partitioning.
     std::optional<HashScheme> hash;  ///< Valid only when type == HASH.
+    std::optional<OrderScheme> order;  ///< Valid only when type == ORDER.
 
     /**
      * @brief Create a spec indicating no partitioning information.
@@ -67,7 +168,7 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type INHERIT.
      */
     static PartitioningSpec inherit() {
-        return {.type = Type::INHERIT, .hash = std::nullopt};
+        return {.type = Type::INHERIT, .hash = std::nullopt, .order = std::nullopt};
     }
 
     /**
@@ -76,14 +177,16 @@ struct PartitioningSpec {
      * @return A PartitioningSpec with type HASH.
      */
     static PartitioningSpec from_hash(HashScheme h) {
-        return {.type = Type::HASH, .hash = std::move(h)};
+        return {.type = Type::HASH, .hash = std::move(h), .order = std::nullopt};
     }
 
     /**
-     * @brief Equality comparison.
-     * @return True if both specs are equal.
+     * @brief Create a spec for order/range partitioning.
+     * @param o The order scheme to use. `o.keys` must be non-empty; otherwise
+     * throws `std::invalid_argument`.
+     * @return A PartitioningSpec with type ORDER.
      */
-    bool operator==(PartitioningSpec const&) const = default;
+    static PartitioningSpec from_order(OrderScheme o);
 };
 
 /**
@@ -105,12 +208,6 @@ struct Partitioning {
     PartitioningSpec inter_rank;
     /// Distribution within a rank (corresponds to local/single communicator).
     PartitioningSpec local;
-
-    /**
-     * @brief Equality comparison.
-     * @return True if both partitionings are equal.
-     */
-    bool operator==(Partitioning const&) const = default;
 };
 
 /**
@@ -140,12 +237,6 @@ struct ChannelMetadata {
         : local_count(local_count),
           partitioning(std::move(partitioning)),
           duplicated(duplicated) {}
-
-    /**
-     * @brief Equality comparison.
-     * @return True if both metadata objects are equal.
-     */
-    bool operator==(ChannelMetadata const&) const = default;
 };
 
 /**
