@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -23,8 +23,6 @@ from rapidsmpf.streaming.cudf import (
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -85,14 +83,14 @@ def test_order_scheme(context: Context) -> None:
         OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
         OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     )
-    assert o1.strict_boundaries is False
+    assert not o1.strict_boundaries
     assert o1.num_boundaries == 1
     assert "OrderScheme" in repr(o1)
 
     assert o1.boundaries_aligned_with(_two_key_order_scheme(context), context.br())
 
     o_strict = _two_key_order_scheme(context, strict_boundaries=True)
-    assert o_strict.strict_boundaries is True
+    assert o_strict.strict_boundaries
     assert not o1.boundaries_aligned_with(o_strict, context.br())
     assert o_strict.boundaries_aligned_with(
         _two_key_order_scheme(context, strict_boundaries=True), context.br()
@@ -100,10 +98,7 @@ def test_order_scheme(context: Context) -> None:
 
     with pytest.raises(TypeError, match="OrderKey"):
         OrderScheme(
-            cast(
-                "Sequence[OrderKey]",
-                [(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE)],
-            ),
+            [(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE)],  # type: ignore[arg-type, list-item]
             _make_boundaries(context, cudf.DataFrame({"k": [0]})),
         )
 
@@ -220,14 +215,14 @@ def test_channel_metadata() -> None:
     # Basic construction
     m = ChannelMetadata(local_count=4)
     assert m.local_count == 4
-    assert m.duplicated is False
+    assert not m.duplicated
 
     # With partitioning and duplicated
     p = Partitioning(HashScheme((0,), 16), "inherit")
     m_full = ChannelMetadata(local_count=4, partitioning=p, duplicated=True)
     assert m_full.partitioning.inter_rank == HashScheme((0,), 16)
     assert m_full.partitioning.local == "inherit"
-    assert m_full.duplicated is True
+    assert m_full.duplicated
 
     # Field comparisons (ChannelMetadata.__eq__ removed)
     m2 = ChannelMetadata(local_count=4)
@@ -252,7 +247,7 @@ def test_message_roundtrip() -> None:
     assert msg_m.sequence_number == 99
     got_m = ChannelMetadata.from_message(msg_m)
     assert got_m.local_count == 4
-    assert got_m.duplicated is True
+    assert got_m.duplicated
     assert got_m.partitioning.inter_rank == HashScheme((0,), 16)
     assert msg_m.empty()
 
@@ -278,14 +273,14 @@ def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     assert msg_m.sequence_number == 42
     got_m = ChannelMetadata.from_message(msg_m)
     assert got_m.local_count == 8
-    assert got_m.duplicated is True
+    assert got_m.duplicated
     assert isinstance(got_m.partitioning.inter_rank, OrderScheme)
     assert got_m.partitioning.inter_rank.keys == (
         OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
         OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
     )
     assert got_m.partitioning.local == "inherit"
-    assert got_m.partitioning.inter_rank.strict_boundaries is True
+    assert got_m.partitioning.inter_rank.strict_boundaries
     assert got_m.partitioning.inter_rank.num_boundaries == 2
     assert got_m.partitioning.inter_rank.boundaries_aligned_with(
         order_scheme, context.br()

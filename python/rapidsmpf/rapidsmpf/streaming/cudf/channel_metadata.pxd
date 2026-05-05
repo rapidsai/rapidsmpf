@@ -27,12 +27,18 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         bool_t operator==(const cpp_HashScheme&)
 
     cdef cppclass cpp_OrderKey "rapidsmpf::streaming::OrderKey":
+        cpp_OrderKey() noexcept
+        cpp_OrderKey(int32_t, cpp_order, cpp_null_order) noexcept
         int32_t column_index
         cpp_order order
         cpp_null_order null_order
-        bool_t operator==(const cpp_OrderKey&)
+        bool_t operator==(const cpp_OrderKey&) noexcept
 
     cdef cppclass cpp_OrderScheme "rapidsmpf::streaming::OrderScheme":
+        cpp_OrderScheme() noexcept
+        cpp_OrderScheme(
+            vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
+        ) except +
         vector[cpp_OrderKey] keys
         shared_ptr[cpp_TableChunk] boundaries
         bool_t strict_boundaries
@@ -86,14 +92,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
 
 cdef class HashScheme:
-    cdef cpp_HashScheme _scheme
+    cdef cpp_HashScheme _handle
 
     @staticmethod
     cdef HashScheme from_cpp(cpp_HashScheme scheme)
 
 
 cdef class OrderKey:
-    cdef cpp_OrderKey _key
+    cdef cpp_OrderKey _handle
 
     @staticmethod
     cdef OrderKey from_cpp(cpp_OrderKey key)
@@ -107,7 +113,7 @@ cdef class OrderScheme:
 
 
 cdef class Partitioning:
-    cdef cpp_Partitioning _data
+    cdef cpp_Partitioning _handle
 
     @staticmethod
     cdef Partitioning from_cpp(cpp_Partitioning data)
