@@ -32,9 +32,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   conda-cpp-build:
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -45,7 +53,13 @@ jobs:
       sha: ${{ inputs.sha }}
   conda-python-build:
     needs: [conda-cpp-build]
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -57,7 +71,13 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   upload-conda:
     needs: [conda-cpp-build, conda-python-build]
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -67,7 +87,13 @@ jobs:
   docs-build:
     if: github.ref_type == 'branch'
     needs: conda-python-build
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     with:
       arch: "amd64"
@@ -81,7 +107,13 @@ jobs:
       script: "ci/build_docs.sh"
       sha: ${{ inputs.sha }}
   wheel-build-librapidsmpf:
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -96,7 +128,13 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
   wheel-publish-librapidsmpf:
     needs: wheel-build-librapidsmpf
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -107,7 +145,13 @@ jobs:
       package-type: cpp
   wheel-build-rapidsmpf:
     needs: wheel-build-librapidsmpf
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -122,7 +166,13 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
@@ -134,7 +184,13 @@ jobs:
       publish-wheel-search-key: rapidsmpf_wheel_python_abi3
   wheel-build-rapidsmpf-singlecomm:
     needs: wheel-build-rapidsmpf
-    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
