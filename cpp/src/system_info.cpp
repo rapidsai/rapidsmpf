@@ -4,6 +4,8 @@
  */
 
 
+#include <ranges>
+
 #include <sched.h>
 #include <unistd.h>
 
@@ -97,8 +99,13 @@ const auto& get_topology() {
 }  // namespace
 
 std::uint64_t get_host_memory_per_gpu() {
-    auto const num_gpus = get_topology().num_gpus;
-    return get_total_host_memory() / std::max<std::uint64_t>(1, num_gpus);
+    auto const current_numa_node = get_current_numa_node();
+    auto const& gpus = get_topology().gpus;
+    auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
+        return gpu.numa_node == current_numa_node;
+    });
+    return get_numa_node_host_memory(current_numa_node)
+           / std::max<std::uint64_t>(1, num_local_gpus);
 }
 
 }  // namespace rapidsmpf
