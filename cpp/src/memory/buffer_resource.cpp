@@ -88,11 +88,15 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-rmm::host_async_resource_ref BufferResource::pinned_mr() {
+rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
     return *pinned_mr_;
+}
+
+std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
+    return pinned_mr_.has_value() ? std::make_optional(*pinned_mr_) : std::nullopt;
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(

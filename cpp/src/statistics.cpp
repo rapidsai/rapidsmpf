@@ -87,6 +87,14 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
         },
     }};
 
+template <typename T, typename... Properties>
+T* get_optional_resource_as(std::optional<cuda::mr::any_resource<Properties...>>& mr) {
+    if (mr.has_value()) {
+        return cuda::mr::resource_cast<T>(&(*mr));
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 // -- Stat --------------------------------------------------------------------
@@ -264,12 +272,13 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
 }
 
 Statistics::MemoryRecorder Statistics::create_memory_recorder(
-    std::optional<RmmResourceAdaptor> mr, std::string name
+    std::optional<any_device_resource> mr, std::string name
 ) {
-    if (!mr.has_value()) {
+    auto* rma = get_optional_resource_as<RmmResourceAdaptor>(mr);
+    if (!rma) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, std::move(*mr), std::move(name)};
+    return MemoryRecorder{this, *rma, std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -278,8 +287,8 @@ Statistics::get_memory_records() const {
 }
 
 std::string Statistics::report(
-    std::optional<RmmResourceAdaptor> mr,
-    std::optional<PinnedMemoryResource> pinned_mr,
+    std::optional<any_device_resource> mr,
+    std::optional<any_host_device_resource> pinned_mr,
     std::string const& header
 ) const {
     std::stringstream ss;
@@ -353,7 +362,9 @@ std::string Statistics::report(
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    if (!mr.has_value()) {
+    auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(mr);
+    auto* pinned_adaptor = get_optional_resource_as<PinnedMemoryResource>(pinned_mr);
+    if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();
     }
@@ -364,7 +375,7 @@ std::string Statistics::report(
     };
 
     // Insert the "main" record, which is the overall statistics from `mr`.
-    auto const main_record = mr->get_main_record();
+    auto const main_record = dev_adaptor->get_main_record();
     sorted_records.emplace_back(
         "main (all allocations using RmmResourceAdaptor)",
         MemoryRecord{
@@ -372,8 +383,8 @@ std::string Statistics::report(
         }
     );
 
-    if (pinned_mr != PinnedMemoryResource::Disabled) {
-        auto const pinned_record = pinned_mr->get_main_memory_record();
+    if (pinned_adaptor) {
+        auto const pinned_record = pinned_adaptor->get_main_memory_record();
         sorted_records.emplace_back(
             "main (all allocations using PinnedMemoryResource)",
             MemoryRecord{

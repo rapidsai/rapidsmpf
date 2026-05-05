@@ -364,10 +364,13 @@ int main(int argc, char** argv) {
     }
 
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+
+    auto pinned_mr = args.pinned_mem_disable
+                         ? rapidsmpf::PinnedMemoryResource::Disabled
+                         : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         stat_enabled_mr,
-        args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
-                                : rapidsmpf::PinnedMemoryResource::make_if_available(),
+        pinned_mr,
         std::move(memory_available),
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(
@@ -456,7 +459,7 @@ int main(int argc, char** argv) {
 
     if (args.enable_memory_profiler) {
         log.print(ctx->statistics()->report(
-            stat_enabled_mr, br->concrete_pinned_mr(), "Statistics (of the last run):"
+            stat_enabled_mr, pinned_mr, "Statistics (of the last run):"
         ));
     } else {
         log.print(ctx->statistics()->report(

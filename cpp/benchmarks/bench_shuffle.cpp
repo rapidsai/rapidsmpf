@@ -301,9 +301,7 @@ rapidsmpf::Duration do_run(
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         if (args.enable_memory_profiler) {
-            RAPIDSMPF_MEMORY_PROFILE(
-                statistics, br->device_mr_as<rapidsmpf::RmmResourceAdaptor>(), "shuffling"
-            );
+            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr(), "shuffling");
         }
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,

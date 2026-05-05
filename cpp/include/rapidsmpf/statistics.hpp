@@ -22,6 +22,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -189,8 +190,8 @@ class Statistics {
      * @return Formatted statistics report.
      */
     std::string report(
-        std::optional<RmmResourceAdaptor> mr = std::nullopt,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::optional<any_device_resource> mr = std::nullopt,
+        std::optional<any_host_device_resource> pinned_mr = std::nullopt,
         std::string const& header = "Statistics:"
     ) const;
 
@@ -585,7 +586,7 @@ class Statistics {
      * @return A MemoryRecorder instance.
      */
     MemoryRecorder create_memory_recorder(
-        std::optional<RmmResourceAdaptor> mr, std::string name
+        std::optional<any_device_resource> mr, std::string name
     );
 
     /**

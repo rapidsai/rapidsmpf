@@ -36,9 +36,7 @@ partition_and_split(
     BufferResource* br,
     AllowOverbooking allow_overbooking
 ) {
-    RAPIDSMPF_MEMORY_PROFILE(
-        br->statistics(), br->device_mr_as<rapidsmpf::RmmResourceAdaptor>()
-    );
+    RAPIDSMPF_MEMORY_PROFILE(br->statistics(), br->device_mr());
     if (table.num_rows() == 0) {
         // Return views of a copy of the empty `table`.
         auto owner = std::make_unique<cudf::table>(table, stream, br->device_mr());
@@ -90,9 +88,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_MEMORY_PROFILE(
-        br->statistics(), br->device_mr_as<rapidsmpf::RmmResourceAdaptor>()
-    );
+    RAPIDSMPF_MEMORY_PROFILE(br->statistics(), br->device_mr());
     RAPIDSMPF_EXPECTS(num_partitions > 0, "Need to split to at least one partition");
     if (table.num_rows() == 0) {
         auto splits =
@@ -127,9 +123,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_MEMORY_PROFILE(
-        br->statistics(), br->device_mr_as<rapidsmpf::RmmResourceAdaptor>()
-    );
+    RAPIDSMPF_MEMORY_PROFILE(br->statistics(), br->device_mr());
     std::unordered_map<shuffler::PartID, PackedData> ret;
 
     // contiguous split does a deep-copy. Therefore, we need to reserve memory for
@@ -159,9 +153,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_MEMORY_PROFILE(
-        br->statistics(), br->device_mr_as<rapidsmpf::RmmResourceAdaptor>()
-    );
+    RAPIDSMPF_MEMORY_PROFILE(br->statistics(), br->device_mr());
 
     // Let's find the total size of the partitions and how much of the packed data we
     // need to move to device memory (unspill).
