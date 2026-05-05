@@ -69,7 +69,7 @@ class StreamOrderedTiming;
  * std::cout << stats.report();
  * @endcode
  */
-class Statistics {
+class Statistics : public std::enable_shared_from_this<Statistics> {
   public:
     /**
      * @brief Identifies a predefined formatter used by `report()`.
@@ -551,7 +551,9 @@ class Statistics {
          * @param mr The RMM resource adaptor providing scoped memory statistics.
          * @param name Name of the scope.
          */
-        MemoryRecorder(Statistics* stats, RmmResourceAdaptor mr, std::string name);
+        MemoryRecorder(
+            std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+        );
 
         /**
          * @brief Destructor.
@@ -567,9 +569,7 @@ class Statistics {
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        Statistics* stats_{
-            nullptr
-        };  // TODO: make this shared_ptr using make_shared_from_this
+        std::shared_ptr<Statistics> stats_{};
         std::optional<RmmResourceAdaptor>
             mr_;  // optional because RmmResourceAdaptor is not default constructible
         std::string name_;
