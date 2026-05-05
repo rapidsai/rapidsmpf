@@ -19,7 +19,9 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "utils.hpp"
 
@@ -301,16 +303,17 @@ TEST(PinnedResource, from_default_options) {
     }
     EXPECT_EQ(
         mr->properties().initial_pool_size,
-        rapidsmpf::safe_cast<std::size_t>(
-            rapidsmpf::get_host_memory_per_gpu()
-            * rapidsmpf::PinnedMemoryResource::DEFAULT_INIT_POOL_SIZE_FACTOR
+        rapidsmpf::parse_nbytes_or_percent(
+            rapidsmpf::PinnedMemoryResource::DefaultInitiPoolSizeFactor,
+            static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
     EXPECT_EQ(
         mr->properties().max_pool_size.value(),
-        rapidsmpf::safe_cast<std::size_t>(
-            rapidsmpf::get_host_memory_per_gpu()
-            * rapidsmpf::PinnedMemoryResource::DEFAULT_MAX_POOL_SIZE_FACTOR
+        rapidsmpf::parse_nbytes_or_percent(
+            rapidsmpf::PinnedMemoryResource::DefaultMaxPoolSizeFactor,
+            static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
+
         )
     );
 }

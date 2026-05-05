@@ -78,27 +78,23 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     });
 
     if (pinned_memory && is_pinned_memory_resources_supported()) {
+        auto const host_memory_per_gpu = get_host_memory_per_gpu();
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
-                [](auto const& s) {
-                    return s.empty() ? safe_cast<size_t>(
-                                           get_host_memory_per_gpu()
-                                           * DEFAULT_INIT_POOL_SIZE_FACTOR
-                                       )
-                                     : parse_nbytes_unsigned(s);
+                [&](auto const& s) {
+                    return parse_nbytes_or_percent(
+                        s.empty() ? DefaultInitiPoolSizeFactor : s,
+                        static_cast<double>(host_memory_per_gpu)
+                    );
                 }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [](auto const& s) -> std::optional<size_t> {
-                    const auto parsed = parse_optional(s);
-                    if (parsed.has_value() && !parsed->empty()) {
-                        return parse_nbytes_unsigned(*parsed);
-                    } else {
-                        return safe_cast<size_t>(
-                            get_host_memory_per_gpu() * DEFAULT_MAX_POOL_SIZE_FACTOR
-                        );
-                    }
+                "pinned_max_pool_size", [&](auto const& s) {
+                    return parse_nbytes_or_percent(
+                        s.empty() ? DefaultMaxPoolSizeFactor : s,
+                        static_cast<double>(host_memory_per_gpu)
+                    );
                 }
             )
         };
