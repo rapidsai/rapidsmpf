@@ -409,7 +409,7 @@ Shuffle:
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )
     if stats.enabled:
-        comm.logger.print(stats.report(mr))
+        comm.logger.print(stats.report(mr=mr))
 
 
 def dir_path(path: str) -> Path:

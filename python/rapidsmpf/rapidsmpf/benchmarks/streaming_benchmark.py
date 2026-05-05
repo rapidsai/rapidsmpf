@@ -290,7 +290,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
 
     if args.statistics:
-        comm.logger.print(stats.report(mr))
+        comm.logger.print(stats.report(mr=mr))
 
 
 def parse_args(
