@@ -105,7 +105,7 @@ std::uint64_t get_host_memory_per_gpu() {
         return gpu.numa_node == current_numa_node;
     });
     return get_numa_node_host_memory(current_numa_node)
-           / std::max<std::uint64_t>(1, num_local_gpus);
+           / std::max<std::uint64_t>(1, static_cast<std::uint64_t>(num_local_gpus));
 }
 
 }  // namespace rapidsmpf
