@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +21,7 @@
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/file_backend.hpp>
+#include <rapidsmpf/bootstrap/utils.hpp>
 #include <rapidsmpf/error.hpp>
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
@@ -127,14 +130,7 @@ void FileBackend::sync() {
 }
 
 std::string FileBackend::get_kv_path(std::string const& key) const {
-    if (key.empty() || key.find("..") != std::string::npos
-        || key.find('/') != std::string::npos || key.find('\\') != std::string::npos
-        || key.find('\0') != std::string::npos)
-    {
-        throw std::invalid_argument(
-            "Key contains invalid path characters (e.g., '..', '/', '\\'): " + key
-        );
-    }
+    validate_key(key);
     return kv_dir_ + "/" + key;
 }
 
@@ -205,7 +201,11 @@ bool FileBackend::wait_for_file(std::string const& path, Duration timeout) {
 }
 
 void FileBackend::write_file(std::string const& path, std::string_view content) {
-    std::string tmp_path = path + ".tmp.XXXXXX";
+    // Create the temp file in the parent directory rather than appending to the key
+    // name, so a max-length (255-byte) key does not push the filename past NAME_MAX.
+    auto slash = path.rfind('/');
+    std::string parent = (slash != std::string::npos) ? path.substr(0, slash) : ".";
+    std::string tmp_path = parent + "/.tmp.XXXXXX";
 
     // mkstemp requires a mutable char array and atomically creates a unique file,
     // preventing symlink race conditions on shared filesystems.
