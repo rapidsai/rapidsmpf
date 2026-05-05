@@ -45,7 +45,7 @@ cdef extern from *:
     ) {
         std::optional<rapidsmpf::RmmResourceAdaptor> mr =
             mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
-        return stats.report(mr, pinned_mr);
+        return stats.report({.mr = mr, .pinned_mr = pinned_mr});
     }
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name

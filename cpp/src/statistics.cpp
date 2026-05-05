@@ -286,13 +286,9 @@ Statistics::get_memory_records() const {
     return memory_records_;
 }
 
-std::string Statistics::report(
-    std::optional<any_device_resource> mr,
-    std::optional<any_host_device_resource> pinned_mr,
-    std::string const& header
-) const {
+std::string Statistics::report(ReportArgs report_args) const {
     std::stringstream ss;
-    ss << header;
+    ss << report_args.header;
 
     if (!enabled()) {
         ss << " disabled.";
@@ -362,8 +358,9 @@ std::string Statistics::report(
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(mr);
-    auto* pinned_adaptor = get_optional_resource_as<PinnedMemoryResource>(pinned_mr);
+    auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
+    auto* pinned_adaptor =
+        get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
     if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();

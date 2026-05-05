@@ -166,6 +166,27 @@ class Statistics {
     }
 
     /**
+     * @brief Named-argument struct for `report()`.
+     *
+     * All fields carry defaults so any subset may be supplied using designated
+     * initialisers:
+     * @code{.cpp}
+     * stats.report({.mr = my_mr, .header = "Run 1:"});
+     * @endcode
+     */
+    struct ReportArgs {
+        /// Optional RMM resource adaptor used for memory profiling. When provided,
+        /// a memory profiling section is included in the report. When `std::nullopt`,
+        /// the memory profiling section shows "Disabled".
+        std::optional<any_device_resource> mr = std::nullopt;
+        /// Optional pinned memory resource. When provided, a pinned memory section
+        /// is included in the report.
+        std::optional<any_host_device_resource> pinned_mr = std::nullopt;
+        /// Header line prepended to the report.
+        std::string_view header = "Statistics:";
+    };
+
+    /**
      * @brief Generates a formatted report of all collected statistics.
      *
      * Every registered report entry always produces a line. If all the stats
@@ -180,20 +201,18 @@ class Statistics {
      * this method. Otherwise, some timing statistics may not yet have been recorded,
      * causing entries to read "No data collected" or imprecise statistics.
      *
-     * @param mr Optional RMM resource adaptor used for memory profiling. When provided,
-     * a memory profiling section is included in the report. When `std::nullopt`, the
-     * memory profiling section shows "Disabled".
-     * @param pinned_mr Optional pinned memory resource. When not
-     * `PinnedMemoryResource::Disabled`, a pinned memory section is included in the
-     * report.
-     * @param header Header line prepended to the report.
+     * @param report_args Report options. See `ReportArgs`.
      * @return Formatted statistics report.
      */
-    std::string report(
-        std::optional<any_device_resource> mr = std::nullopt,
-        std::optional<any_host_device_resource> pinned_mr = std::nullopt,
-        std::string const& header = "Statistics:"
-    ) const;
+    std::string report(ReportArgs report_args) const;
+
+    /**
+     * @brief Overload with all-default options. Equivalent to `report(ReportArgs{})`.
+     * @return Formatted statistics report.
+     */
+    std::string report() const {
+        return report(ReportArgs{});
+    }
 
     /**
      * @brief Writes a JSON representation of all collected statistics to a stream.

@@ -458,13 +458,13 @@ int main(int argc, char** argv) {
     }
 
     if (args.enable_memory_profiler) {
-        log.print(ctx->statistics()->report(
-            stat_enabled_mr, pinned_mr, "Statistics (of the last run):"
-        ));
+        log.print(ctx->statistics()->report({
+            .mr = stat_enabled_mr,
+            .pinned_mr = pinned_mr,
+            .header = "Statistics (of the last run):",
+        }));
     } else {
-        log.print(ctx->statistics()->report(
-            std::nullopt, std::nullopt, "Statistics (of the last run):"
-        ));
+        log.print(ctx->statistics()->report({.header = "Statistics (of the last run):"}));
     }
 
     if (!use_bootstrap) {

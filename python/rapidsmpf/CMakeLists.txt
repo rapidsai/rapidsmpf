@@ -10,9 +10,6 @@ cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 include(../../cmake/rapids_config.cmake)
 include(rapids-cpm)
 
-include("${rapids-cmake-dir}/cpm/package_override.cmake")
-rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/cpm_override_packages.json")
-
 rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
