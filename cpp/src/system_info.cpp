@@ -4,7 +4,7 @@
  */
 
 
-#include <ranges>
+#include <algorithm>
 
 #include <sched.h>
 #include <unistd.h>
