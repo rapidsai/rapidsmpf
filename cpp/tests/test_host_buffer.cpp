@@ -231,6 +231,10 @@ TEST(PinnedResource, transient_mr) {
     // now reset mr, but pinned_host_buffer should keep the shared mr alive
     mr.reset();
 
+    auto buffer = rapidsmpf::HostBuffer::from_rmm_device_buffer(
+        std::move(pinned_host_buffer), stream
+    );
+
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
