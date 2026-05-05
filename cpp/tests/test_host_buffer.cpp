@@ -108,7 +108,7 @@ TEST_P(HostMemoryResource, from_owned_vector) {
 
     // Create a host buffer by taking ownership of a vector
     auto buffer = rapidsmpf::HostBuffer::from_owned_vector(
-        std::vector<std::uint8_t>(source_data), stream, mr
+        std::vector<std::uint8_t>(source_data), stream
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
@@ -178,7 +178,7 @@ TEST_P(PinnedResource, from_owned_vector) {
 
     // Create a host buffer by taking ownership of a vector
     auto buffer = rapidsmpf::HostBuffer::from_owned_vector(
-        std::vector<std::uint8_t>(source_data), stream, *mr
+        std::vector<std::uint8_t>(source_data), stream
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
@@ -197,7 +197,7 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
 
     // Create a host buffer by taking ownership of an rmm::device_buffer
     auto buffer = rapidsmpf::HostBuffer::from_rmm_device_buffer(
-        std::move(pinned_host_buffer), stream, *mr
+        std::move(pinned_host_buffer), stream
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
