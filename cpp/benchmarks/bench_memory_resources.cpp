@@ -446,4 +446,51 @@ BENCHMARK(BM_PinnedFirstAlloc_InitialPoolSize)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
+// Pool initialization time as a function of initial pool size.
+// max_pool_size is fixed at 100% of host memory per GPU.
+// initial_pool_size sweeps 0%, 10%, 20%, ..., 100% of max_pool_size.
+void BM_PinnedPoolInit_InitialPoolSize(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
+    // Ensure CUDA device context is initialized.
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+
+    auto const pct = safe_cast<int>(state.range(0));
+    std::size_t const max_pool_size = rapidsmpf::get_host_memory_per_gpu();
+    std::size_t const initial_pool_size =
+        safe_cast<std::size_t>(max_pool_size * pct / 100);
+
+    rapidsmpf::PinnedPoolProperties props{
+        .initial_pool_size = initial_pool_size,
+        .max_pool_size = max_pool_size,
+    };
+
+    for (auto _ : state) {
+        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
+            rapidsmpf::get_current_numa_node(), props
+        );
+        benchmark::DoNotOptimize(mr);
+        // Destroy mr at end of iteration (pool teardown excluded from timing).
+        state.PauseTiming();
+        mr.reset();
+        state.ResumeTiming();
+    }
+
+    state.counters["initial_pool_size_bytes"] = static_cast<double>(initial_pool_size);
+    state.counters["max_pool_size_bytes"] = static_cast<double>(max_pool_size);
+    state.counters["initial_pool_pct"] = static_cast<double>(pct);
+}
+
+void PinnedPoolInit_InitialPoolSize_Args(benchmark::Benchmark* b) {
+    b->DenseRange(0, 100, 10);
+}
+
+BENCHMARK(BM_PinnedPoolInit_InitialPoolSize)
+    ->Apply(PinnedPoolInit_InitialPoolSize_Args)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
+
 BENCHMARK_MAIN();
