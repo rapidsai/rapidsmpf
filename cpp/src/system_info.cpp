@@ -5,6 +5,7 @@
 
 
 #include <algorithm>
+#include <optional>
 
 #include <sched.h>
 #include <unistd.h>
@@ -85,16 +86,18 @@ std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
 
 namespace {
 const auto& get_topology() {
-    static const auto topo = [] {
+    static const auto topo = [] -> std::optional<cucascade::memory::topology_discovery> {
         cucascade::memory::topology_discovery discovery;
-        RAPIDSMPF_EXPECTS(
-            discovery.discover(),
-            "get_host_memory_per_gpu(): failed to discover system topology",
-            std::runtime_error
-        );
+        if (!discovery.discover()) {
+            return std::nullopt;
+        }
         return discovery;
     }();
-    return topo.get_topology();
+
+    RAPIDSMPF_EXPECTS(
+        topo.has_value(), "Failed to discover system topology", std::runtime_error
+    );
+    return topo->get_topology();
 }
 }  // namespace
 
