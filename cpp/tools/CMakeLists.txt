@@ -8,6 +8,10 @@
 add_executable(
   rrun
   "rrun.cpp"
+  "rrun_utils.cpp"
+  "rrun_single_node.cpp"
+  "rrun_slurm_passthrough.cpp"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${CMAKE_CURRENT_SOURCE_DIR}/rrun_slurm_hybrid.cpp>"
   "${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/socket_backend.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"

@@ -1,13 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int32_t, int64_t, uint64_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
+from libcpp.utility cimport pair
 from libcpp.vector cimport vector
+from pylibcudf.libcudf.types cimport null_order as cpp_null_order
+from pylibcudf.libcudf.types cimport order as cpp_order
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
+from rapidsmpf.memory.buffer_resource cimport cpp_BufferResource
 from rapidsmpf.streaming.core.message cimport cpp_Message
+from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
@@ -20,14 +26,37 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         cpp_HashScheme(vector[int32_t], int) except +
         bool_t operator==(const cpp_HashScheme&)
 
+    cdef cppclass cpp_OrderKey "rapidsmpf::streaming::OrderKey":
+        cpp_OrderKey() noexcept
+        cpp_OrderKey(int32_t, cpp_order, cpp_null_order) noexcept
+        int32_t column_index
+        cpp_order order
+        cpp_null_order null_order
+        bool_t operator==(const cpp_OrderKey&) noexcept
+
+    cdef cppclass cpp_OrderScheme "rapidsmpf::streaming::OrderScheme":
+        cpp_OrderScheme() noexcept
+        cpp_OrderScheme(
+            vector[cpp_OrderKey], unique_ptr[cpp_TableChunk], bool_t
+        ) except +
+        vector[cpp_OrderKey] keys
+        shared_ptr[cpp_TableChunk] boundaries
+        bool_t strict_boundaries
+        cpp_OrderScheme with_keys(vector[cpp_OrderKey]) except +
+        bool_t boundaries_aligned_with(
+            const cpp_OrderScheme&, const cpp_BufferResource&
+        ) except +
+
     cdef cppclass cpp_PartitioningSpec "rapidsmpf::streaming::PartitioningSpec":
         enum cpp_Type "rapidsmpf::streaming::PartitioningSpec::Type":
             NONE "rapidsmpf::streaming::PartitioningSpec::Type::NONE"
             INHERIT "rapidsmpf::streaming::PartitioningSpec::Type::INHERIT"
             HASH "rapidsmpf::streaming::PartitioningSpec::Type::HASH"
+            ORDER "rapidsmpf::streaming::PartitioningSpec::Type::ORDER"
 
         cpp_Type type
         optional[cpp_HashScheme] hash
+        optional[cpp_OrderScheme] order
 
         @staticmethod
         cpp_PartitioningSpec none()
@@ -38,9 +67,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
         @staticmethod
         cpp_PartitioningSpec from_hash(cpp_HashScheme)
 
+        @staticmethod
+        cpp_PartitioningSpec from_order(cpp_OrderScheme)
+
     cdef cppclass cpp_Partitioning "rapidsmpf::streaming::Partitioning":
         cpp_PartitioningSpec inter_rank
         cpp_PartitioningSpec local
+        cpp_Partitioning() except +
+        cpp_Partitioning(const cpp_Partitioning&) except +
 
     cdef cppclass cpp_ChannelMetadata "rapidsmpf::streaming::ChannelMetadata":
         uint64_t local_count
@@ -58,17 +92,31 @@ cdef extern from "<rapidsmpf/streaming/cudf/channel_metadata.hpp>" \
 
 
 cdef class HashScheme:
-    cdef cpp_HashScheme _scheme
+    cdef cpp_HashScheme _handle
 
     @staticmethod
     cdef HashScheme from_cpp(cpp_HashScheme scheme)
 
 
-cdef class Partitioning:
-    cdef unique_ptr[cpp_Partitioning] _handle
+cdef class OrderKey:
+    cdef cpp_OrderKey _handle
 
     @staticmethod
-    cdef Partitioning from_handle(unique_ptr[cpp_Partitioning] handle)
+    cdef OrderKey from_cpp(cpp_OrderKey key)
+
+
+cdef class OrderScheme:
+    cdef cpp_OrderScheme _handle
+
+    @staticmethod
+    cdef OrderScheme from_cpp(cpp_OrderScheme scheme)
+
+
+cdef class Partitioning:
+    cdef cpp_Partitioning _handle
+
+    @staticmethod
+    cdef Partitioning from_cpp(cpp_Partitioning data)
 
 
 cdef class ChannelMetadata:
