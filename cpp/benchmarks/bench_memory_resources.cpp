@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
 #include <cstring>
 
 #include <benchmark/benchmark.h>
@@ -17,6 +18,15 @@
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 using rapidsmpf::safe_cast;
+
+// When the RAPIDSMPF_SMOKE_TEST_MODE env var is set (to any value), each
+// benchmark's argument generator emits only a tiny subset of cases so the
+// suite finishes quickly during CI smoke tests. Cached because Apply
+// callbacks invoke this once per registered benchmark.
+static bool smoke_test_mode() {
+    static bool const value = std::getenv("RAPIDSMPF_SMOKE_TEST_MODE") != nullptr;
+    return value;
+}
 
 enum ResourceType : int {
     NEW_DELETE = 0,
@@ -351,11 +361,15 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
 
 // Custom argument generator for the benchmark
 void CustomArguments(benchmark::Benchmark* b) {
-    // Test different allocation sizes
-    for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
-        // Test all memory resource types
+    constexpr std::array all_sizes{1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30};
+    auto num_sizes = all_sizes.size();
+    if (smoke_test_mode()) {
+        num_sizes = 1;
+        b->Iterations(1);
+    }
+    for (std::size_t i = 0; i < num_sizes; ++i) {
         for (auto resource_type : RESOURCE_TYPES) {
-            b->Args({size, resource_type});
+            b->Args({all_sizes[i], resource_type});
         }
     }
 }
@@ -435,9 +449,15 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 }
 
 void PinnedFirstAlloc_InitialPoolSize_Args(benchmark::Benchmark* b) {
-    for (auto size : {1, 256, 1024}) {  // in MB
-        b->Args({size, 1});  // primed
-        b->Args({size, 0});  // no priming
+    constexpr std::array all_sizes_mb{1, 256, 1024};
+    auto num_sizes = all_sizes_mb.size();
+    if (smoke_test_mode()) {
+        num_sizes = 1;
+        b->Iterations(1);
+    }
+    for (std::size_t i = 0; i < num_sizes; ++i) {
+        b->Args({all_sizes_mb[i], 1});  // primed
+        b->Args({all_sizes_mb[i], 0});  // no priming
     }
 }
 
@@ -485,7 +505,12 @@ void BM_PinnedPoolInit_InitialPoolSize(benchmark::State& state) {
 }
 
 void PinnedPoolInit_InitialPoolSize_Args(benchmark::Benchmark* b) {
-    b->DenseRange(0, 100, 10);
+    if (smoke_test_mode()) {
+        b->Iterations(1);
+        b->Args({1});  // only do 1% for the smoke test
+    } else {
+        b->DenseRange(0, 100, 10);
+    }
 }
 
 BENCHMARK(BM_PinnedPoolInit_InitialPoolSize)
