@@ -5,11 +5,14 @@ from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
+                                                      cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -27,7 +30,6 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
         bool enabled() except +ex_handler
-        string report() except +ex_handler
         void add_stat(
             string name,
             double value
@@ -37,7 +39,6 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
             vector[string] stat_names,
             Formatter formatter
         ) except +ex_handler
-        bool is_memory_profiling_enabled() except +ex_handler
         unordered_map[string, cpp_MemoryRecord] get_memory_records() \
             except +ex_handler
         shared_ptr[cpp_Statistics] copy() except +ex_handler
@@ -58,8 +59,6 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
-    cdef RmmResourceAdaptor _mr
-
 
 cdef class MemoryRecorder:
     cdef unique_ptr[cpp_MemoryRecorder] _handle

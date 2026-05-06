@@ -300,7 +300,9 @@ rapidsmpf::Duration do_run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
-        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
+        if (args.enable_memory_profiler) {
+            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr(), "shuffling");
+        }
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             0,  // op_id
@@ -538,7 +540,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     set_current_rmm_resource(args.rmm_mr);
-    auto stat_enabled_mr = set_device_mem_resource_with_stats();
+    rapidsmpf::RmmResourceAdaptor stat_enabled_mr = set_device_mem_resource_with_stats();
 
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
@@ -548,11 +550,7 @@ int main(int argc, char** argv) {
         };
     }
 
-    // Create statistics (enabled from the start) and pass to BufferResource so that
-    // all components (Shuffler, SpillManager, etc.) share the same statistics object.
-    auto stats = args.enable_memory_profiler
-                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr)
-                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();
@@ -682,7 +680,14 @@ int main(int argc, char** argv) {
         }
         log->print(ss.str());
     }
-    log->print(stats->report("Statistics (of the last run):"));
+
+    if (args.enable_memory_profiler) {
+        log->print(stats->report(
+            {.mr = stat_enabled_mr, .header = "Statistics (of the last run):"}
+        ));
+    } else {
+        log->print(stats->report({.header = "Statistics (of the last run):"}));
+    }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file

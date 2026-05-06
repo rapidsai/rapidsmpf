@@ -40,27 +40,17 @@ def test_get_nonexistent_stat() -> None:
         stats.get_stat("foo")
 
 
-def test_enable_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    stats = Statistics(enable=False)
-    assert not stats.memory_profiling_enabled
-    mr = RmmResourceAdaptor(device_mr)
-    stats = Statistics(enable=False, mr=mr)
-    assert not stats.memory_profiling_enabled
-    stats = Statistics(enable=True, mr=mr)
-    assert stats.memory_profiling_enabled
-
-
-def test_get_empty_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    stats = Statistics(enable=True, mr=RmmResourceAdaptor(device_mr))
+def test_get_empty_memory_records() -> None:
+    stats = Statistics(enable=True)
     assert stats.get_memory_records() == {}
 
 
 def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
     mr = RmmResourceAdaptor(device_mr)
-    stats = Statistics(enable=True, mr=mr)
-    with stats.memory_profiling("outer"):
+    stats = Statistics(enable=True)
+    with stats.memory_profiling(mr, "outer"):
         b1 = mr.allocate(1024)
-        with stats.memory_profiling("inner"):
+        with stats.memory_profiling(mr, "inner"):
             mr.deallocate(mr.allocate(512), 512)
             mr.deallocate(mr.allocate(512), 512)
         mr.deallocate(b1, 1024)
@@ -160,8 +150,8 @@ def test_write_json_string_matches_file(tmp_path: pathlib.Path) -> None:
 
 def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
     mr = RmmResourceAdaptor(device_mr)
-    stats = Statistics(enable=True, mr=mr)
-    with stats.memory_profiling("alloc"):
+    stats = Statistics(enable=True)
+    with stats.memory_profiling(mr, "alloc"):
         mr.deallocate(mr.allocate(1024), 1024)
 
     data = json.loads(stats.write_json_string())
@@ -175,8 +165,8 @@ def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None
 
 def test_invalid_memory_record_names(device_mr: rmm.mr.CudaMemoryResource) -> None:
     mr = RmmResourceAdaptor(device_mr)
-    stats = Statistics(enable=True, mr=mr)
-    with stats.memory_profiling('bad"name'):
+    stats = Statistics(enable=True)
+    with stats.memory_profiling(mr, 'bad"name'):
         pass
     with pytest.raises(ValueError):
         stats.write_json_string()

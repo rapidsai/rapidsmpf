@@ -997,7 +997,9 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        comm->logger()->print(ctx->statistics()->report());
+        comm->logger()->print(ctx->statistics()->report(
+            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
+        ));
         ctx->statistics()->clear();
     }
 
