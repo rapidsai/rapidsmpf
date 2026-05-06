@@ -4,6 +4,9 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -44,7 +47,7 @@ std::size_t constexpr random_table_size_lower_bound(
  * @note The function uses the specified CUDA stream for asynchronous operations.
  */
 rmm::device_uvector<std::int32_t> random_device_vector(
-    cudf::size_type nelem,
+    std::size_t nelem,
     std::int32_t min_val,
     std::int32_t max_val,
     rmm::cuda_stream_view stream,
