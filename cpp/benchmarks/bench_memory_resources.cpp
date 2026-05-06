@@ -458,7 +458,7 @@ void BM_PinnedPoolInit_InitialPoolSize(benchmark::State& state) {
     // Ensure CUDA device context is initialized.
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
-    auto const pct = safe_cast<int>(state.range(0));
+    auto const pct = safe_cast<std::size_t>(state.range(0));
     std::size_t const max_pool_size = rapidsmpf::get_host_memory_per_gpu();
     std::size_t const initial_pool_size =
         safe_cast<std::size_t>(max_pool_size * pct / 100);
