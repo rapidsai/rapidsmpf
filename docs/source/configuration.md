@@ -107,16 +107,16 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Environment Variable**: `RAPIDSMPF_PINNED_INITIAL_POOL_SIZE`
   - **Default**: 10% of per-GPU host memory
   - **Description**: Initial size of the pinned host memory pool when `pinned_memory` is
-    enabled. When unset or empty, the pool is pre-allocated to 10% of total host memory 
-    available in the current NUMA node divided by the number of GPUs in that NUMA node. 
+    enabled. When unset or empty, the pool is pre-allocated to 10% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
     Accepts byte counts or percentage (e.g. `"1GiB"`, `"512MiB"`).
 
 - **`pinned_max_pool_size`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MAX_POOL_SIZE`
   - **Default**: 80% of per-GPU host memory
   - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
-    enabled. When unset or empty, the pool is capped at 80% of total host memory 
-    available in the current NUMA node divided by the number of GPUs in that NUMA node.  
+    enabled. When unset or empty, the pool is capped at 80% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
     Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
 
 - **`spill_device_limit`**

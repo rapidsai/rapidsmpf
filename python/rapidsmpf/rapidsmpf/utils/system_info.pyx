@@ -91,19 +91,18 @@ def get_numa_node_host_memory(numa_id = None):
 
 def get_host_memory_per_gpu():
     """
-    Get the total host memory divided by the number of GPUs in the system.
+    Get the amount of host memory per GPU.
 
-    Returns the amount of host memory attributed to each GPU, computed as
-    total host memory divided by the number of GPUs visible to the system.
-    Falls back to total host memory when only one GPU (or none) is present.
+    This is calculated as the total host memory available for the current NUMA
+    node divided by the number of GPUs bound to that NUMA node.
 
     Returns
     -------
-    Host memory per GPU in bytes.
+    Amount of host memory per GPU in bytes.
 
     Raises
     ------
     RuntimeError
-        If system topology discovery fails.
+        If no GPUs are found on the current NUMA node.
     """
     return cpp_get_host_memory_per_gpu()
