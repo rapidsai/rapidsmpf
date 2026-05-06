@@ -31,7 +31,7 @@ cdef class SpillableMessages:
 
     Examples
     --------
-    >>> msgs = SpillableMessages()
+    >>> msgs = SpillableMessages(br)
     >>> mid = msgs.insert(msg)
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)

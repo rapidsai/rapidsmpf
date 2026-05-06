@@ -143,7 +143,7 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr) {
         memory_available[MemoryType::DEVICE] =
             LimitAvailableMemory{mr, static_cast<std::int64_t>(limit_size)};
     }
-    auto statistics = std::make_shared<Statistics>(mr);
+    auto statistics = std::make_shared<Statistics>(/* enable = */ true);
 
     RAPIDSMPF_EXPECTS(
         arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),

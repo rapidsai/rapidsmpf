@@ -241,7 +241,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
     rmm.mr.set_current_device_resource(mr)
 
-    stats = Statistics(enable=args.statistics, mr=mr)
+    stats = Statistics(enable=args.statistics)
     progress_thread = ProgressThread(stats)
     if args.comm == "mpi":
         comm = rapidsmpf.communicator.mpi.new_communicator(
@@ -290,7 +290,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
 
     if args.statistics:
-        comm.logger.print(stats.report())
+        comm.logger.print(stats.report(mr=mr))
 
 
 def parse_args(

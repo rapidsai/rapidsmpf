@@ -144,9 +144,9 @@ def test_statistics() -> None:
     assert not br_default.statistics.enabled
 
     # Test with enabled statistics (with memory profiling)
-    stats_mr = Statistics(enable=True, mr=mr)
-    br_with_mr = BufferResource(mr, statistics=stats_mr)
-    assert br_with_mr.statistics is stats_mr
+    stats = Statistics(enable=True)
+    br_with_mr = BufferResource(mr, statistics=stats)
+    assert br_with_mr.statistics is stats
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])

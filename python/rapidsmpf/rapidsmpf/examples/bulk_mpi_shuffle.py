@@ -316,7 +316,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
     br = BufferResource(mr, memory_available=memory_available)
 
-    stats = Statistics(enable=args.statistics, mr=mr)
+    stats = Statistics(enable=args.statistics)
 
     progress_thread = ProgressThread(stats)
     if args.cluster_type == "mpi":
@@ -409,7 +409,7 @@ Shuffle:
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )
     if stats.enabled:
-        comm.logger.print(stats.report())
+        comm.logger.print(stats.report(mr=mr))
 
 
 def dir_path(path: str) -> Path:
