@@ -88,9 +88,7 @@ const auto& get_topology() {
     static const auto topo = [] {
         cucascade::memory::topology_discovery discovery;
         RAPIDSMPF_EXPECTS(
-            discovery.discover(),
-            "get_host_memory_per_gpu(): failed to discover system topology",
-            std::runtime_error
+            discovery.discover(), "Failed to discover system topology", std::runtime_error
         );
         return discovery;
     }();
@@ -106,7 +104,7 @@ std::uint64_t get_host_memory_per_gpu() {
     });
     RAPIDSMPF_EXPECTS(
         num_local_gpus > 0,
-        "get_host_memory_per_gpu(): no GPUs found on current NUMA node",
+        "No GPUs found on current NUMA node " + std::to_string(current_numa_node),
         std::runtime_error
     );
     return get_numa_node_host_memory(current_numa_node)
