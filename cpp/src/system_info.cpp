@@ -104,8 +104,13 @@ std::uint64_t get_host_memory_per_gpu() {
     auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
         return gpu.numa_node == current_numa_node;
     });
+    RAPIDSMPF_EXPECTS(
+        num_local_gpus > 0,
+        "get_host_memory_per_gpu(): no GPUs found on current NUMA node",
+        std::runtime_error
+    );
     return get_numa_node_host_memory(current_numa_node)
-           / std::max<std::uint64_t>(1, static_cast<std::uint64_t>(num_local_gpus));
+           / safe_cast<std::uint64_t>(num_local_gpus);
 }
 
 }  // namespace rapidsmpf

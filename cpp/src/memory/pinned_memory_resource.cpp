@@ -85,7 +85,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 [&](auto const& s) {
                     return parse_nbytes_or_percent(
                         s.empty() ? DefaultInitiPoolSizeFactor : s,
-                        static_cast<double>(host_memory_per_gpu)
+                        safe_cast<double>(host_memory_per_gpu)
                     );
                 }
             ),
@@ -93,7 +93,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 "pinned_max_pool_size", [&](auto const& s) {
                     return parse_nbytes_or_percent(
                         s.empty() ? DefaultMaxPoolSizeFactor : s,
-                        static_cast<double>(host_memory_per_gpu)
+                        safe_cast<double>(host_memory_per_gpu)
                     );
                 }
             )
