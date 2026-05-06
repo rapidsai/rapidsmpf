@@ -99,8 +99,7 @@ def get_host_memory_per_gpu():
 
     Returns
     -------
-    int
-        Host memory per GPU in bytes.
+    Host memory per GPU in bytes.
 
     Raises
     ------
