@@ -678,7 +678,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), deref(mr), self._name
+                self._stats._handle, deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

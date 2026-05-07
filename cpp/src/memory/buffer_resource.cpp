@@ -58,9 +58,7 @@ BufferResource::BufferResource(
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    RmmResourceAdaptor mr,
-    config::Options options,
-    std::shared_ptr<Statistics> statistics
+    RmmResourceAdaptor mr, config::Options options, std::shared_ptr<Statistics> statistics
 ) {
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     auto mem_available = memory_available_from_options(mr, options);

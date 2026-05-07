@@ -548,7 +548,9 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts, Statistics.from_options(opts)) as ctx:
+    with Context.from_options(
+        comm.logger, mr, opts, Statistics.from_options(opts)
+    ) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
         assert ctx.stream_pool_size() == 8
@@ -572,7 +574,9 @@ def test_context_from_options_enables_statistics_when_requested() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts, Statistics.from_options(opts)) as ctx:
+    with Context.from_options(
+        comm.logger, mr, opts, Statistics.from_options(opts)
+    ) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
 

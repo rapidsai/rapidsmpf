@@ -256,9 +256,9 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder(
-    Statistics* stats, RmmResourceAdaptor mr, std::string name
+    std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
-    : stats_{stats}, mr_{std::move(mr)}, name_{std::move(name)} {
+    : stats_{std::move(stats)}, mr_{std::move(mr)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     mr_->begin_scoped_memory_record();
 }
@@ -283,7 +283,7 @@ Statistics::MemoryRecorder Statistics::create_memory_recorder(
     if (!enabled() || !rma) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, *rma, std::move(name)};
+    return MemoryRecorder{shared_from_this(), *rma, std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&

@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.statistics import Statistics
 
 
 DataFrameT = TypeVar("DataFrameT")
