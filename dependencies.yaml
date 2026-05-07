@@ -419,9 +419,9 @@ dependencies:
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - output_types: [conda, pyproject, requirements]
         packages:
+          - cuda-core>=0.7.0
           - psutil  # Used for timeout_with_stack.py
           - pytest
-          - cuda-core>=0.7.0
   run_rapidsmpf:
     common:
       - output_types: [conda, requirements, pyproject]
@@ -750,17 +750,10 @@ dependencies:
             packages:
               - *ucxx_unsuffixed
   depends_on_ray:
-    specific:
+    common:
       - output_types: conda
-        matrices:
-          # TODO: enable `ray-default` for Python 3.14 once `ray` supports 3.14
-          # https://github.com/rapidsai/rapidsmpf/issues/897
-          - matrix:
-              py: "3.14"
-            packages:
-          - matrix:
-              py: "3.*"
-            packages:
-              - ray-default>=2.55.1
-          - matrix:
-            packages:
+        packages:
+          - ray-default>=2.55.1
+      - output_types: [requirements, pyproject]
+        packages:
+          - ray>=2.55.1
