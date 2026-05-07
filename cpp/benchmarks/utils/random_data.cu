@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 
@@ -16,6 +17,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "random_data.hpp"
 
@@ -28,13 +30,10 @@ rmm::device_uvector<std::int32_t> random_device_vector(
 ) {
     // Fill vector with random data.
     using index_t = std::int64_t;
-    RAPIDSMPF_EXPECTS(
-        nelem <= static_cast<std::size_t>(std::numeric_limits<index_t>::max()),
-        "random_device_vector size exceeds signed iterator range"
-    );
+    auto const end_index = rapidsmpf::safe_cast<index_t>(nelem);
     rmm::device_uvector<std::int32_t> vec(nelem, stream, mr);
     thrust::counting_iterator<index_t> const begin(0);
-    thrust::counting_iterator<index_t> const end(static_cast<index_t>(nelem));
+    thrust::counting_iterator<index_t> const end(end_index);
     thrust::transform(
         rmm::exec_policy(stream),
         begin,
@@ -58,9 +57,8 @@ std::unique_ptr<cudf::column> random_column(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    RAPIDSMPF_EXPECTS(nrows >= 0, "nrows must be non-negative");
     auto vec = random_device_vector(
-        static_cast<std::size_t>(nrows), min_val, max_val, stream, mr
+        rapidsmpf::safe_cast<std::size_t>(nrows), min_val, max_val, stream, mr
     );
     return std::make_unique<cudf::column>(
         std::move(vec), rmm::device_buffer{0, stream, mr}, 0
@@ -86,8 +84,13 @@ void random_fill(rapidsmpf::Buffer& buffer, rmm::device_async_resource_ref mr) {
     switch (buffer.mem_type()) {
     case rapidsmpf::MemoryType::DEVICE:
         {
+            auto const num_elements = std::max<std::size_t>(
+                std::size_t{1},
+                buffer.size / sizeof(random_data_t)
+                    + (buffer.size % sizeof(random_data_t) != 0)
+            );
             auto vec = random_device_vector(
-                (buffer.size + sizeof(std::int32_t) - 1) / sizeof(std::int32_t),
+                num_elements,
                 std::numeric_limits<std::int32_t>::min(),
                 std::numeric_limits<std::int32_t>::max(),
                 buffer.stream(),
