@@ -182,7 +182,7 @@ class Context {
      *
      * @return Shared pointer to the statistics instance.
      */
-    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept;
+    [[nodiscard]] std::shared_ptr<Statistics> const& statistics() const noexcept;
 
     /**
      * @brief Create a new channel associated with this context.

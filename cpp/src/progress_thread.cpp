@@ -115,7 +115,7 @@ bool ProgressThread::is_running() const {
     return active_;
 }
 
-std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
+std::shared_ptr<Statistics> const& ProgressThread::statistics() const noexcept {
     return statistics_;
 }
 

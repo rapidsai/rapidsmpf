@@ -404,7 +404,7 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics() const noexcept;
+    std::shared_ptr<Statistics> const& statistics() const noexcept;
 
   private:
     std::mutex mutex_;

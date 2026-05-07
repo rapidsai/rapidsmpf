@@ -641,12 +641,15 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
 /**
  * @brief Satisfied by any type that exposes a `statistics()` method returning
- *        `std::shared_ptr<Statistics>`.
+ *        `std::shared_ptr<Statistics> const&`.
  *
  * Classes satisfying this concept are *statistics providers* — secondary
  * classes that receive a provider as a constructor argument should derive their
  * `Statistics` instance by calling `.statistics()` on it rather than accepting
  * a separate `std::shared_ptr<Statistics>` argument.
+ *
+ * Returning by const-reference avoids the per-call atomic refcount bump that a
+ * by-value `std::shared_ptr` return would incur on hot paths.
  *
  * Each provider asserts this concept via `static_assert` in its own header.
  * Current providers: `BufferResource`, `ProgressThread`, `streaming::Context`.
@@ -655,7 +658,7 @@ template <typename T>
 concept StatisticsProvider = requires(T const& t) {
     {
         t.statistics()
-    } noexcept -> std::convertible_to<std::shared_ptr<Statistics>>;
+    } noexcept -> std::same_as<std::shared_ptr<Statistics> const&>;
 };
 
 /**
