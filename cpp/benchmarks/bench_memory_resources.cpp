@@ -16,15 +16,25 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 using rapidsmpf::safe_cast;
 
-// When the RAPIDSMPF_SMOKE_TEST_MODE env var is set (to any value), each
-// benchmark's argument generator emits only a tiny subset of cases so the
-// suite finishes quickly during CI smoke tests. Cached because Apply
-// callbacks invoke this once per registered benchmark.
+// When the RAPIDSMPF_SMOKE_TEST_MODE env var is set to a truthy value (e.g.
+// "1", "on", "true", "yes"), each benchmark's argument generator emits only a
+// tiny subset of cases so the suite finishes quickly during CI smoke tests.
+// Cached because Apply callbacks invoke this once per registered benchmark.
+//
+// We use an env var rather than a CLI flag because google-benchmark's
+// BENCHMARK(...)->Apply(...) macros run during static initialization, before
+// main() has a chance to parse argv. A CLI-flag approach would require moving
+// every benchmark registration into main() (via benchmark::RegisterBenchmark),
+// which is more invasive. std::getenv works fine during static init.
 static bool smoke_test_mode() {
-    static bool const value = std::getenv("RAPIDSMPF_SMOKE_TEST_MODE") != nullptr;
+    static bool const value = []() {
+        char const* env = std::getenv("RAPIDSMPF_SMOKE_TEST_MODE");
+        return env != nullptr && rapidsmpf::parse_string<bool>(env);
+    }();
     return value;
 }
 

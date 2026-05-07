@@ -21,7 +21,7 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_comm -m cuda
 
-RAPIDSMPF_SMOKE_TEST_MODE=1 \
+RAPIDSMPF_SMOKE_TEST_MODE="ON" \
     python "${TIMEOUT_TOOL_PATH}" 30 ./bench_memory_resources
 
 python "${TIMEOUT_TOOL_PATH}" 30 \
