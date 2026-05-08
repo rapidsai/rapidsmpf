@@ -14,18 +14,19 @@
 namespace rapidsmpf {
 
 HostBuffer::HostBuffer(
-    std::size_t size, rmm::cuda_stream_view stream, rmm::host_async_resource_ref mr
+    std::size_t size,
+    rmm::cuda_stream_view stream,
+    cuda::mr::any_resource<cuda::mr::host_accessible> mr
 )
     : stream_{stream} {
     if (size > 0) {
-        auto owned_mr = cuda::mr::any_resource<cuda::mr::host_accessible>{mr};
         auto* ptr = static_cast<std::byte*>(
-            owned_mr.allocate(stream_, size, alignof(::cuda::std::max_align_t))
+            mr.allocate(stream_, size, alignof(::cuda::std::max_align_t))
         );
         span_ = std::span<std::byte>{ptr, size};
         deallocate_fn_ =
-            [owned_mr = std::move(owned_mr), ptr, size](rmm::cuda_stream_view s) mutable {
-                owned_mr.deallocate(s, ptr, size, alignof(::cuda::std::max_align_t));
+            [mr = std::move(mr), ptr, size](rmm::cuda_stream_view s) mutable {
+                mr.deallocate(s, ptr, size, alignof(::cuda::std::max_align_t));
             };
     }
 }

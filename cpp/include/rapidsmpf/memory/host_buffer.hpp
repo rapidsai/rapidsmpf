@@ -13,6 +13,8 @@
 #include <span>
 #include <vector>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/resource_ref.hpp>
@@ -36,10 +38,15 @@ class HostBuffer {
      *
      * @param size Number of bytes to allocate.
      * @param stream CUDA stream on which allocation and deallocation occur.
-     * @param mr RMM host memory resource used for allocation.
+     * @param mr Host-accessible memory resource used for allocation. Taken by value
+     *        so the buffer shares ownership of the resource (e.g. bumps the refcount
+     *        when constructed from a shared-ownership resource); an implicit
+     *        conversion from `rmm::host_async_resource_ref` is also supported.
      */
     HostBuffer(
-        std::size_t size, rmm::cuda_stream_view stream, rmm::host_async_resource_ref mr
+        std::size_t size,
+        rmm::cuda_stream_view stream,
+        cuda::mr::any_resource<cuda::mr::host_accessible> mr
     );
 
     ~HostBuffer() noexcept;
