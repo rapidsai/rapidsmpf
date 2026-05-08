@@ -184,7 +184,8 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
     // Use per-peer recv_from to avoid consuming messages belonging to a future
     // collective on the same tag (see rapidsai/rapidsmpf#927).
-    for (Rank peer = 0; peer < nranks_; ++peer) {
+    for (Rank i = 0; i < nranks_; ++i) {
+        auto const peer = (i + rank_) % nranks_;
         if (peer == rank_) {
             continue;
         }
