@@ -96,7 +96,7 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
 
 - **`pinned_memory`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MEMORY`
-  - **Default**: `true`
+  - **Default**: `false`
   - **Description**: Enables pinned host memory if it is available on the system.
     Pinned host memory provides higher bandwidth and lower latency for device-to-host
     transfers compared to regular pageable host memory. When enabled, RapidsMPF
