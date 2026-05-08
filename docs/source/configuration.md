@@ -96,7 +96,7 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
 
 - **`pinned_memory`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MEMORY`
-  - **Default**: `false`
+  - **Default**: `true`
   - **Description**: Enables pinned host memory if it is available on the system.
     Pinned host memory provides higher bandwidth and lower latency for device-to-host
     transfers compared to regular pageable host memory. When enabled, RapidsMPF
@@ -105,17 +105,19 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
 
 - **`pinned_initial_pool_size`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_INITIAL_POOL_SIZE`
-  - **Default**: `0`
-  - **Description**: Initial size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. A value of `0` means the pool starts empty and grows
-    on demand. Accepts byte counts (e.g. `"1GiB"`, `"512MiB"`).
+  - **Default**: 10% of per-GPU host memory
+  - **Description**: Initial size of the pinned host memory pool when `pinned_memory` is
+    enabled. When unset or empty, the pool is pre-allocated to 10% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
+    Accepts byte counts or percentage (e.g. `"1GiB"`, `"512MiB"`).
 
 - **`pinned_max_pool_size`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MAX_POOL_SIZE`
-  - **Default**: `"disabled"`
-  - **Description**: Maximum size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. When unset or empty, the pool is allowed to grow
-    without an upper bound. Accepts byte counts (e.g. `"4GiB"`, `"2048MiB"`).
+  - **Default**: 80% of per-GPU host memory
+  - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
+    enabled. When unset or empty, the pool is capped at 80% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
+    Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
