@@ -316,9 +316,6 @@ TagMetadataPayloadExchange::setup_data_receives() {
                 );
                 // Store in per-rank vector to maintain order
                 in_transit_messages_[src].push_back(std::move(tag_message));
-                // Break to ensure we don't return later messages before this one
-                // completes
-                break;
             } else {
                 // Control/metadata-only message
                 // Only return if there are no earlier in-transit messages from this rank
