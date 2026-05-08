@@ -250,7 +250,6 @@ add_executable(
   "${PROJECT_SOURCE_DIR}/src/bootstrap/bootstrap.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/file_backend.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"
-  "${PROJECT_SOURCE_DIR}/src/system_info.cpp"
   "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>"
 )
 set_target_properties(
