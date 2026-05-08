@@ -115,4 +115,3 @@ std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() co
 }
 
 }  // namespace rapidsmpf
-1
