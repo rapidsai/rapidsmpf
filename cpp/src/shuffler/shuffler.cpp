@@ -173,20 +173,16 @@ class Shuffler::Progress {
         }
 
         // There are no messages to be posted, or waiting to be completed.
-        bool const containers_empty =
-            shuffler_.mpe_->is_idle() && shuffler_.to_send_.empty();
+        bool const all_sends_posted = shuffler_.to_send_.empty();
         // We've inserted a finish message and we've received everything we expect.
         bool const is_finished =
             shuffler_.locally_finished_.load(std::memory_order_acquire)
             && shuffler_.finish_counter_.all_finished();
-        // Finished and shuffler is no longer active.
-        bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
-                             && is_finished && containers_empty;
-        // Signal can_extract_ when all chunks have been received and all internal
-        // containers are drained. If we own no partitions we "can-extract" immediately,
-        // but we only wake a waiter once we've drained internal containers so that we can
-        // reuse the op_id for a subsequent shuffle.
-        if (!shuffler_.can_extract_ && is_finished && containers_empty) {
+        // Signal can_extract_ when all chunks have been received and all sends have been
+        // posted. If we own no partitions we "can-extract" immediately, but we only wake
+        // a waiter once we've drained internal containers so that we can reuse the op_id
+        // for a subsequent shuffle.
+        if (!shuffler_.can_extract_ && is_finished) {
             {
                 std::lock_guard lock(shuffler_.mutex_);
                 shuffler_.can_extract_ = true;
@@ -196,6 +192,10 @@ class Shuffler::Progress {
                 callback();
             }
         }
+        // Finished and shuffler is no longer active.
+        bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
+                             && is_finished && all_sends_posted
+                             && shuffler_.mpe_->is_idle();
         return is_done ? ProgressThread::ProgressState::Done
                        : ProgressThread::ProgressState::InProgress;
     }
