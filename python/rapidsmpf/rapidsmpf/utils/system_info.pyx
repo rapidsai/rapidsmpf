@@ -14,6 +14,9 @@ cdef extern from "<rapidsmpf/system_info.hpp>" nogil:
     cdef uint64_t cpp_get_numa_node_host_memory \
         "rapidsmpf::get_numa_node_host_memory"(int numa_id) noexcept
 
+    cdef uint64_t cpp_get_host_memory_per_gpu \
+        "rapidsmpf::get_host_memory_per_gpu"() except+
+
 
 def get_total_host_memory():
     """
@@ -84,3 +87,22 @@ def get_numa_node_host_memory(numa_id = None):
     else:
         _numa_id = numa_id
     return cpp_get_numa_node_host_memory(_numa_id)
+
+
+def get_host_memory_per_gpu():
+    """
+    Get the amount of host memory per GPU.
+
+    This is calculated as the total host memory available for the current NUMA
+    node divided by the number of GPUs bound to that NUMA node.
+
+    Returns
+    -------
+    Amount of host memory per GPU in bytes.
+
+    Raises
+    ------
+    RuntimeError
+        If no GPUs are found on the current NUMA node.
+    """
+    return cpp_get_host_memory_per_gpu()

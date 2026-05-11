@@ -3,9 +3,20 @@
  * reserved. SPDX-License-Identifier: Apache-2.0
  */
 
+#include <memory>
+#include <vector>
+
 #include <gtest/gtest.h>
 
+#include <cudf/column/column_factories.hpp>
+#include <cudf/table/table.hpp>
+#include <cudf/utilities/default_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
+
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/cudf/channel_metadata.hpp>
+#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 using namespace rapidsmpf::streaming;
 
@@ -24,6 +35,19 @@ TEST_F(StreamingChannelMetadata, HashScheme) {
     EXPECT_NE(h, (HashScheme{{2}, 16}));
 }
 
+TEST_F(StreamingChannelMetadata, OrderSchemeCtorRejectsEmptyKeys) {
+    EXPECT_THROW(static_cast<void>(OrderScheme({}, nullptr)), std::invalid_argument);
+}
+
+TEST_F(StreamingChannelMetadata, OrderSchemeCtorRejectsNullBoundaries) {
+    EXPECT_THROW(
+        static_cast<void>(
+            OrderScheme({{0, cudf::order::ASCENDING, cudf::null_order::BEFORE}}, nullptr)
+        ),
+        std::invalid_argument
+    );
+}
+
 TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     // None
     auto spec_none = PartitioningSpec::none();
@@ -39,12 +63,13 @@ TEST_F(StreamingChannelMetadata, PartitioningSpec) {
     EXPECT_EQ(spec_hash.hash->column_indices[0], 0);
     EXPECT_EQ(spec_hash.hash->modulus, 16);
 
-    // Equality
-    EXPECT_EQ(spec_none, PartitioningSpec::none());
-    EXPECT_EQ(spec_inherit, PartitioningSpec::inherit());
-    EXPECT_EQ(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 16}));
-    EXPECT_NE(spec_none, spec_inherit);
-    EXPECT_NE(spec_hash, PartitioningSpec::from_hash(HashScheme{{0}, 32}));
+    // Type checks (operator== removed; use field comparisons)
+    EXPECT_EQ(spec_none.type, PartitioningSpec::Type::NONE);
+    EXPECT_EQ(spec_inherit.type, PartitioningSpec::Type::INHERIT);
+    EXPECT_EQ(spec_hash.type, PartitioningSpec::Type::HASH);
+    EXPECT_NE(spec_none.type, spec_inherit.type);
+    EXPECT_EQ(spec_hash.hash->modulus, 16);
+    EXPECT_NE((PartitioningSpec::from_hash(HashScheme{{0}, 32}).hash->modulus), 16);
 }
 
 TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
@@ -69,14 +94,16 @@ TEST_F(StreamingChannelMetadata, PartitioningScenarios) {
     EXPECT_EQ(p_twostage.inter_rank.hash->modulus, 4);
     EXPECT_EQ(p_twostage.local.hash->modulus, 8);
 
-    // Equality
-    EXPECT_EQ(
-        p_global,
-        (Partitioning{
+    // Field comparisons (Partitioning::operator== removed)
+    {
+        Partitioning p_same{
             PartitioningSpec::from_hash(HashScheme{{0}, 16}), PartitioningSpec::inherit()
-        })
-    );
-    EXPECT_NE(p_global, p_twostage);
+        };
+        EXPECT_EQ(p_global.inter_rank.type, p_same.inter_rank.type);
+        EXPECT_EQ(p_global.inter_rank.hash->modulus, p_same.inter_rank.hash->modulus);
+        EXPECT_EQ(p_global.local.type, p_same.local.type);
+    }
+    EXPECT_NE(p_global.inter_rank.hash->modulus, p_twostage.inter_rank.hash->modulus);
 }
 
 TEST_F(StreamingChannelMetadata, ChannelMetadata) {
@@ -110,8 +137,14 @@ TEST_F(StreamingChannelMetadata, ChannelMetadata) {
         },
         true
     };
-    EXPECT_EQ(m, m_same);
-    EXPECT_NE(m, m_diff);
+    // Field comparisons (ChannelMetadata::operator== removed)
+    EXPECT_EQ(m.local_count, m_same.local_count);
+    EXPECT_EQ(m.duplicated, m_same.duplicated);
+    EXPECT_EQ(
+        m.partitioning.inter_rank.hash->modulus,
+        m_same.partitioning.inter_rank.hash->modulus
+    );
+    EXPECT_NE(m.local_count, m_diff.local_count);
 }
 
 TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
@@ -128,4 +161,78 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
     EXPECT_FALSE(released.duplicated);
     EXPECT_EQ(released.partitioning.inter_rank.hash->modulus, 16);
     EXPECT_TRUE(msg_m.empty());
+}
+
+class StreamingChannelMetadataGPU : public ::testing::Test {
+  protected:
+    rmm::cuda_stream_view stream{cudf::get_default_stream()};
+    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
+
+    std::shared_ptr<TableChunk> make_chunk(std::vector<int32_t> vals) {
+        rmm::device_buffer buf(vals.data(), vals.size() * sizeof(int32_t), stream);
+        auto col = std::make_unique<cudf::column>(
+            cudf::data_type{cudf::type_id::INT32},
+            static_cast<cudf::size_type>(vals.size()),
+            std::move(buf),
+            rmm::device_buffer{},
+            0
+        );
+        std::vector<std::unique_ptr<cudf::column>> cols;
+        cols.push_back(std::move(col));
+        return std::make_shared<TableChunk>(
+            std::make_unique<cudf::table>(std::move(cols)), stream
+        );
+    }
+};
+
+TEST_F(StreamingChannelMetadataGPU, OrderSchemeReplaceKeys) {
+    OrderKey k0{0, cudf::order::ASCENDING, cudf::null_order::BEFORE};
+    OrderKey k5{5, cudf::order::DESCENDING, cudf::null_order::AFTER};
+
+    auto b = make_chunk({100, 200});
+    OrderScheme o1({k0}, b);
+    auto o2 = o1.with_keys({k5});
+
+    EXPECT_EQ(o2.keys[0].column_index, 5);
+    EXPECT_EQ(o2.keys[0].order, cudf::order::DESCENDING);
+    EXPECT_EQ(o2.strict_boundaries, o1.strict_boundaries);
+    EXPECT_EQ(o2.boundaries->shape(), o1.boundaries->shape());
+    EXPECT_EQ(o2.boundaries.get(), b.get());
+    EXPECT_NE(o1.keys[0].column_index, o2.keys[0].column_index);
+
+    EXPECT_THROW(static_cast<void>(o1.with_keys({k0, k5})), std::invalid_argument);
+}
+
+TEST_F(StreamingChannelMetadataGPU, OrderSchemeBoundariesAlignedWith) {
+    OrderKey k0{0, cudf::order::ASCENDING, cudf::null_order::BEFORE};
+    OrderKey k3{3, cudf::order::ASCENDING, cudf::null_order::BEFORE};
+
+    OrderScheme o1({k0}, make_chunk({100, 200}));
+    OrderScheme o2({k0}, make_chunk({100, 200}));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o2, br));
+
+    OrderScheme o_shifted({k3}, make_chunk({100, 200}));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o_shifted, br));
+
+    OrderScheme o_strict({k0}, make_chunk({100, 200}), /*strict=*/true);
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_strict, br));
+
+    OrderScheme o_diff({k0}, make_chunk({100, 300}));
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_diff, br));
+}
+
+TEST_F(StreamingChannelMetadataGPU, PartitioningSpecOrder) {
+    OrderKey k0{0, cudf::order::ASCENDING, cudf::null_order::BEFORE};
+    OrderScheme o({k0}, make_chunk({100, 200}));
+
+    auto spec = PartitioningSpec::from_order(o);
+    EXPECT_EQ(spec.type, PartitioningSpec::Type::ORDER);
+    EXPECT_TRUE(spec.order.has_value());
+    EXPECT_EQ(spec.order->keys[0].column_index, 0);
+
+    // Type checks only (PartitioningSpec::operator== removed; ORDER value comparison
+    // requires boundaries_aligned_with on the OrderScheme directly)
+    EXPECT_EQ(spec.type, PartitioningSpec::Type::ORDER);
+    EXPECT_NE(spec.type, PartitioningSpec::from_hash(HashScheme{{0}, 16}).type);
+    EXPECT_NE(spec.type, PartitioningSpec::none().type);
 }

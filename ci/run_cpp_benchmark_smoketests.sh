@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -21,8 +21,8 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_comm -m cuda
 
-python "${TIMEOUT_TOOL_PATH}" 30 \
-  ./bench_memory_resources --benchmark_min_time=0s
+RAPIDSMPF_SMOKE_TEST_MODE="ON" \
+    python "${TIMEOUT_TOOL_PATH}" 30 ./bench_memory_resources
 
 python "${TIMEOUT_TOOL_PATH}" 30 \
   ./bench_streaming_shuffle -m cuda
