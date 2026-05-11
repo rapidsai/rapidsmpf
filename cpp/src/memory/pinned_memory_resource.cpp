@@ -74,7 +74,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return s.empty() ? true : parse_string<bool>(s);
+        return s.empty() ? EnabledByDefault : parse_string<bool>(s);
     });
 
     if (pinned_memory && is_pinned_memory_resources_supported()) {
