@@ -105,8 +105,7 @@ class BufferResource {
      *
      * @param mr The RMM resource adaptor.
      * @param options Configuration options.
-     * @param statistics The statistics instance to use (disabled by default). The caller
-     * is responsible for creating and owning this object.
+     * @param statistics The statistics instance to use (disabled by default).
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.

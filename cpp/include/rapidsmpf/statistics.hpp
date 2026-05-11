@@ -653,7 +653,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
  * by-value `std::shared_ptr` return would incur on hot paths.
  *
  * Each provider asserts this concept via `static_assert` in its own header.
- * Current providers: `BufferResource`, `ProgressThread`, `streaming::Context`.
+ * For example, `BufferResource`, `ProgressThread`, `streaming::Context`.
  */
 template <typename T>
 concept StatisticsProvider = requires(T const& t) {
