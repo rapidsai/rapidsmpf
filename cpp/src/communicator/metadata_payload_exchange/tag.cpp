@@ -140,7 +140,8 @@ void TagMetadataPayloadExchange::finish() {
     // exactly how many application messages we sent to it, so the peer can
     // stop receiving once it has them all.
     // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
-    for (Rank peer = 0; peer < nranks_; ++peer) {
+    for (Rank i = 0; i < nranks_; ++i) {
+        auto const peer = (i + rank_) % nranks_;
         if (peer == rank_) {
             continue;
         }
