@@ -39,9 +39,9 @@ class HostBuffer {
      * @param size Number of bytes to allocate.
      * @param stream CUDA stream on which allocation and deallocation occur.
      * @param mr Host-accessible memory resource used for allocation. Taken by value
-     *        so the buffer shares ownership of the resource (e.g. bumps the refcount
-     *        when constructed from a shared-ownership resource); an implicit
-     *        conversion from `rmm::host_async_resource_ref` is also supported.
+     * so the buffer shares ownership of the resource (e.g. bumps the refcount
+     * when constructed from a shared-ownership resource); an implicit
+     * conversion from `rmm::host_async_resource_ref` is also supported.
      */
     HostBuffer(
         std::size_t size,
@@ -213,8 +213,8 @@ class HostBuffer {
      * @param span View of the owned memory.
      * @param stream CUDA stream associated with this buffer.
      * @param deallocate_fn Callable invoked with the current stream to release the
-     *        underlying memory. It captures all resources needed for deallocation (e.g.
-     *        memory resource, raw pointer, size).
+     * underlying memory. It captures all resources needed for deallocation (e.g.
+     * memory resource, raw pointer, size).
      */
     HostBuffer(
         std::span<std::byte> span,
