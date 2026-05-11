@@ -159,6 +159,22 @@ void TagMetadataPayloadExchange::finish() {
     }
 }
 
+bool TagMetadataPayloadExchange::finished_polling() const {
+    if (finished_) {
+        for (Rank peer = 0; peer < nranks_; ++peer) {
+            if (peer == rank_) {
+                continue;
+            }
+            auto const p = safe_cast<std::size_t>(peer);
+            if (!peer_terminated_[p] || peer_received_[p] < peer_expected_[p]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 bool TagMetadataPayloadExchange::is_idle() const {
     bool const io_idle = fire_and_forget_.empty() && incoming_messages_.empty()
                          && in_transit_messages_.empty() && in_transit_futures_.empty();

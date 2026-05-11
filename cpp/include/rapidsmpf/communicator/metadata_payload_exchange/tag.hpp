@@ -83,6 +83,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @copydoc MetadataPayloadExchange::is_idle
      */
     bool is_idle() const override;
+    bool finished_polling() const override;
 
   private:
     /**
