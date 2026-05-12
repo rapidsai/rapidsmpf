@@ -47,6 +47,7 @@ python -m auditwheel repair \
     --exclude libcudf.so \
     --exclude libkvikio.so \
     --exclude libnvidia-ml.so.1 \
+    --exclude libnvcomp.so.5 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
@@ -88,6 +89,7 @@ python -m auditwheel repair \
     --exclude libcudf.so \
     --exclude libkvikio.so \
     --exclude libnvidia-ml.so.1 \
+    --exclude libnvcomp.so.5 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude librapidsmpf.so \
