@@ -12,7 +12,6 @@ from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from concurrent.futures import ThreadPoolExecutor
 
     from rapidsmpf.streaming.core.actor import CppActor
     from rapidsmpf.streaming.core.channel import Channel
@@ -31,7 +30,7 @@ async def task_that_spins(ctx: Context, ch_in: Channel) -> None:
         pass
 
 
-def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> None:
+def test_task_exceptions(context: Context) -> None:
     ch1: Channel[Payload] = context.create_channel()
     ch2: Channel[Payload] = context.create_channel()
     ch3: Channel[Payload] = context.create_channel()
@@ -45,7 +44,7 @@ def test_task_exceptions(context: Context, py_executor: ThreadPoolExecutor) -> N
     ]
 
     with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="Throwing in task")):
-        run_actor_network(actors=actors, py_executor=py_executor)
+        run_actor_network(context, actors=actors)
 
     messages = deferred.release()
     assert len(messages) == 0

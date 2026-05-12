@@ -1,20 +1,64 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.utility cimport move
 
 import asyncio
 import inspect
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
+from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
+from rapidsmpf.streaming.chunks.utils cimport py_deleter
+from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
 from rapidsmpf.streaming.core.context cimport Context
 
+
+cdef extern from * nogil:
+    """
+    namespace {
+    coro::task<void> cpp_when_all_task(
+        std::vector<rapidsmpf::streaming::Actor> actors
+    ) {
+        rapidsmpf::streaming::coro_results(co_await coro::when_all(std::move(actors)));
+    }
+
+    void cpp_when_all(
+        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+        std::vector<rapidsmpf::streaming::Actor> actors,
+        void (*cpp_set_py_future)(void *, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    cpp_when_all_task(std::move(actors))
+                )
+            ),
+            "libcoro's spawn_detached() failed to spawn task"
+        );
+    }
+    }
+    """
+    void cpp_when_all(
+        shared_ptr[cpp_Context],
+        vector[cpp_Actor],
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    ) except +ex_handler
 
 cdef class CppActor:
     """
@@ -179,22 +223,59 @@ def define_actor(*, extra_channels=()):
     return partial(decorate_actor, extra_channels)
 
 
-def run_actor_network(*, actors, py_executor = None):
+def sync_wait(fn):
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(fn)
+    finally:
+        loop.close()
+
+
+async def when_all(Context ctx not None, list cpp_actors):
+    """
+    Asynchronously run C++ actors.
+
+    Parameters
+    ----------
+    ctx
+        Streaming context for execution.
+    cpp_actors
+        List of CppActor nodes
+
+    Warnings
+    --------
+    The C++ actor handles are released and must not be used after this call.
+    """
+    cdef vector[cpp_Actor] cpp_handles
+    for actor in cpp_actors:
+        cpp_handles.push_back(move(deref((<CppActor?>actor).release_handle())))
+    ret = asyncio.get_running_loop().create_future()
+    Py_INCREF(ret)
+    with nogil:
+        cpp_when_all(
+            ctx._handle,
+            move(cpp_handles),
+            cpp_set_py_future,
+            move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
+        )
+    await ret
+
+
+def run_actor_network(Context ctx not None, *, actors):
     """
     Run streaming actors to completion (blocking).
 
     Accepts a collection of actors. Native C++ actors are moved into the C++ network
     and executed with minimal Python overhead, while Python actors are gathered and
-    executed on a dedicated event loop in the provided executor.
+    executed on a dedicated event loop.
 
     Parameters
     ----------
+    ctx
+        Streaming context for execution.
     actors
         Iterable of actors. Each element is either a native C++ actor or a Python
         awaitable representing an actor.
-    py_executor
-        Executor used to run Python actors (required if any Python actors are present).
-        If no Python actors are provided, this is ignored.
 
     Warnings
     --------
@@ -202,8 +283,6 @@ def run_actor_network(*, actors, py_executor = None):
 
     Raises
     ------
-    ValueError
-        If Python actors are present but no executor is provided.
     Exception
         Any unhandled exception from an actor is re-raised after execution. If multiple
         actors raise exceptions, only one is re-raised, and it is unspecified which one.
@@ -225,8 +304,8 @@ def run_actor_network(*, actors, py_executor = None):
     ...     await ch_out.drain(context)
     ...
     >>> run_actor_network(
-    ...     actors=[cpp_actor, python_actor(context, ch_out=ch)],
-    ...     py_executor=ThreadPoolExecutor(max_workers=1),
+    ...     context,
+    ...     actors=[cpp_actor, python_actor(context, ch_out=ch)]
     ... )
     >>> results = output.release()
     >>> tbl = TableChunk.from_message(results[0])
@@ -234,24 +313,16 @@ def run_actor_network(*, actors, py_executor = None):
     42
     """
 
-    # Split actors into C++ actors and Python actors.
-    cdef vector[cpp_Actor] cpp_actors
     cdef list py_actors = []
+    cdef list cpp_actors = []
     for actor in actors:
         if isinstance(actor, CppActor):
-            cpp_actors.push_back(move(deref((<CppActor>actor).release_handle())))
+            cpp_actors.append(actor)
         else:
             py_actors.append(actor)
 
-    if len(py_actors) > 0:
-        if py_executor is None:
-            raise ValueError("must provide a py_executor to run Python actors.")
-        py_future = py_executor.submit(asyncio.run, run_py_actors(py_actors))
-
-    try:
-        if cpp_actors.size() > 0:
-            with nogil:
-                cpp_run_actor_network(move(cpp_actors))
-    finally:
-        if len(py_actors) > 0:
-            py_future.result()  # This will raise any unhandled exception.
+    py_actors = [when_all(ctx, cpp_actors), *py_actors]
+    # Need to run in a separate thread in case the cluster runtime already
+    # has an async event loop.
+    executor = ThreadPoolExecutor(max_workers=1)
+    executor.submit(sync_wait, run_py_actors(py_actors)).result()
