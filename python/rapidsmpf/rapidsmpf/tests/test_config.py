@@ -410,7 +410,7 @@ def test_statistics_from_options(*, opts: Options, expected_enabled: bool) -> No
     [
         (Options({"pinned_memory": "True"}), True),
         (Options({"pinned_memory": "False"}), False),
-        (Options(), True),  # Default case
+        (Options(), False),  # Default case (disabled by default)
     ],
 )
 def test_pinned_memory_resource_from_options(
