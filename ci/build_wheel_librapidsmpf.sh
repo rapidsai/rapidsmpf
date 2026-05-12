@@ -39,8 +39,8 @@ export SITE_PACKAGES
 python -m auditwheel repair \
     --exclude libcudf.so \
     --exclude libkvikio.so \
-    --exclude libnvidia-ml.so.1 \
     --exclude libnvcomp.so.5 \
+    --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
     --exclude libucp.so.0 \
