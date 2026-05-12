@@ -11,6 +11,7 @@ import pytest
 
 import rmm.mr
 
+from rapidsmpf import defaults
 from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
 from rapidsmpf.memory.buffer import MemoryType
@@ -596,3 +597,66 @@ def test_context_from_options_can_create_channel() -> None:
         assert ctx is not None
         channel: Channel[Any] = ctx.create_channel()
         assert channel is not None
+
+
+def test_defaults_module_exposes_expected_constants() -> None:
+    """All documented constants are present and have the expected types."""
+    assert isinstance(defaults.DEFAULT_STATISTICS, str)
+    assert isinstance(defaults.DEFAULT_PINNED_MEMORY, bool)
+    assert isinstance(defaults.DEFAULT_PINNED_INITIAL_POOL_SIZE, str)
+    assert isinstance(defaults.DEFAULT_PINNED_MAX_POOL_SIZE, str)
+    assert isinstance(defaults.DEFAULT_SPILL_DEVICE_LIMIT, str)
+    assert isinstance(defaults.DEFAULT_PERIODIC_SPILL_CHECK, str)
+    assert isinstance(defaults.DEFAULT_NUM_STREAMS, int)
+    assert isinstance(defaults.DEFAULT_NUM_STREAMING_THREADS, int)
+    assert isinstance(defaults.DEFAULT_MEMORY_RESERVE_TIMEOUT, str)
+    assert isinstance(defaults.DEFAULT_LOG, str)
+    assert isinstance(defaults.DEFAULT_UCXX_PROGRESS_MODE, str)
+
+
+def test_defaults_match_from_options_with_empty_options() -> None:
+    """Each DEFAULT_* matches the value the corresponding from_options
+    produces from an empty Options(). Single source of truth check.
+    """
+    opts = Options()
+
+    # statistics: literal string parsed via parse_string<bool>.
+    stats = Statistics.from_options(opts)
+    assert stats.enabled is False
+    assert defaults.DEFAULT_STATISTICS in {"False", "false", "0", "no", "off"}
+
+    # pinned_memory: bool default propagated as-is.
+    assert defaults.DEFAULT_PINNED_MEMORY is False
+    assert PinnedMemoryResource.from_options(opts) is None
+
+    # num_streams: int default propagated through stream_pool_from_options.
+    assert defaults.DEFAULT_NUM_STREAMS == 16
+    assert stream_pool_from_options(opts).get_pool_size() == 16
+
+    # periodic_spill_check: string default ("1ms") parsed via parse_duration.
+    assert defaults.DEFAULT_PERIODIC_SPILL_CHECK == "1ms"
+    duration = periodic_spill_check_from_options(opts)
+    assert duration is not None
+    assert abs(duration - 0.001) < 1e-9
+
+    # spill_device_limit: percent default.
+    assert defaults.DEFAULT_SPILL_DEVICE_LIMIT == "80%"
+
+    # streaming defaults.
+    assert defaults.DEFAULT_NUM_STREAMING_THREADS == 1
+    assert defaults.DEFAULT_MEMORY_RESERVE_TIMEOUT.replace(" ", "") == "100ms"
+
+    # pinned-pool size factors.
+    assert defaults.DEFAULT_PINNED_INITIAL_POOL_SIZE == "0%"
+    assert defaults.DEFAULT_PINNED_MAX_POOL_SIZE == "80%"
+
+    # Communicator log level (must parse to a known LOG_LEVEL_NAME).
+    assert defaults.DEFAULT_LOG == "WARN"
+
+    # UCXX progress mode (must be one of the recognised string forms).
+    assert defaults.DEFAULT_UCXX_PROGRESS_MODE in {
+        "blocking",
+        "polling",
+        "thread-blocking",
+        "thread-polling",
+    }

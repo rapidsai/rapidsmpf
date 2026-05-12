@@ -10,6 +10,7 @@
 #include <cuda/memory_resource>
 
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
@@ -282,7 +283,10 @@ memory_available_from_options(RmmResourceAdaptor mr, config::Options options) {
              options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
                  auto const [_, total_mem] = rmm::available_device_memory();
                  return rmm::align_down(
-                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+                     parse_nbytes_or_percent(
+                         s.empty() ? defaults::buffer_resource::SpillDeviceLimit : s,
+                         total_mem
+                     ),
                      rmm::CUDA_ALLOCATION_ALIGNMENT
                  );
              })
@@ -294,7 +298,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
     return options.get<std::optional<Duration>>(
         "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
-                return parse_duration("1ms");
+                return parse_duration(defaults::buffer_resource::PeriodicSpillCheck);
             }
             if (auto val = parse_optional(s); val.has_value()) {
                 return parse_duration(val.value());
@@ -306,7 +310,8 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
 
 std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
     auto const num_streams = options.get<std::size_t>("num_streams", [](auto const& s) {
-        return s.empty() ? 16 : parse_string<std::size_t>(s);
+        return s.empty() ? defaults::buffer_resource::NumStreams
+                         : parse_string<std::size_t>(s);
     });
     RAPIDSMPF_EXPECTS(
         num_streams > 0,

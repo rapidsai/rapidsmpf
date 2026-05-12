@@ -13,6 +13,7 @@
 
 #include <coro/sync_wait.hpp>
 
+#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
@@ -30,7 +31,9 @@ MemoryReserveOrWait::MemoryReserveOrWait(
       executor_{std::move(executor)},
       br_{std::move(br)},
       timeout_{options.get<Duration>("memory_reserve_timeout", [](std::string const& s) {
-          return s.empty() ? parse_duration("100 ms") : parse_duration(s);
+          return parse_duration(
+              s.empty() ? defaults::streaming::MemoryReserveTimeout : s
+          );
       })} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");

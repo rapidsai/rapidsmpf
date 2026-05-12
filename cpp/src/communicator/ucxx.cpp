@@ -13,6 +13,7 @@
 #include <ucxx/request.h>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -938,15 +939,17 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 ) {
     auto progress_mode =
         options.get<ProgressMode>("ucxx_progress_mode", [](auto const& s) {
-            if (s.empty()) {
-                return ProgressMode::ThreadBlocking;
-            } else if (s == "blocking") {
+            // When the option is unset, parse the default through the same
+            // matching logic as user input (single source of truth: the string).
+            auto const value =
+                s.empty() ? rapidsmpf::defaults::ucxx::ProgressMode : std::string_view{s};
+            if (value == "blocking") {
                 return ProgressMode::Blocking;
-            } else if (s == "polling") {
+            } else if (value == "polling") {
                 return ProgressMode::Polling;
-            } else if (s == "thread-blocking") {
+            } else if (value == "thread-blocking") {
                 return ProgressMode::ThreadBlocking;
-            } else if (s == "thread-polling") {
+            } else if (value == "thread-polling") {
                 return ProgressMode::ThreadPolling;
             } else {
                 RAPIDSMPF_FAIL("Invalid progress mode");

@@ -74,7 +74,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return s.empty() ? EnabledByDefault : parse_string<bool>(s);
+        return s.empty() ? defaults::pinned_memory::Enabled : parse_string<bool>(s);
     });
 
     if (pinned_memory && is_pinned_memory_resources_supported()) {
@@ -84,7 +84,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 "pinned_initial_pool_size",
                 [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? DefaultInitiPoolSizeFactor : s,
+                        s.empty() ? defaults::pinned_memory::InitialPoolSizeFactor : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }
@@ -92,7 +92,7 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
             .max_pool_size = options.get<std::optional<size_t>>(
                 "pinned_max_pool_size", [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? DefaultMaxPoolSizeFactor : s,
+                        s.empty() ? defaults::pinned_memory::MaxPoolSizeFactor : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }

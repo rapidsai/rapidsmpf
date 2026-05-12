@@ -355,10 +355,10 @@ Duration parse_duration(std::string_view text) {
 }
 
 template <>
-bool parse_string(std::string const& text) {
+bool parse_string(std::string_view text) {
     try {
         // Try parsing `text` as a integer.
-        return static_cast<bool>(std::stoi(text));
+        return static_cast<bool>(std::stoi(std::string{text}));
     } catch (std::invalid_argument const&) {
     }
     std::string str = to_lower(trim(text));
