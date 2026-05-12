@@ -21,7 +21,7 @@ rapids_cuda_init_architectures(RAPIDSMPF)
 project(
   RAPIDSMPF
   VERSION "${RAPIDS_VERSION}"
-  LANGUAGES C CXX CUDA
+  LANGUAGES CXX CUDA
 )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -322,7 +322,7 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
           $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           $<TARGET_NAME_IF_EXISTS:conda_env>

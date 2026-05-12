@@ -143,7 +143,7 @@ if(RAPIDSMPF_HAVE_MPI)
     PRIVATE rapidsmpf::rapidsmpf
             GTest::gmock
             GTest::gtest
-            $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+            $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
             $<TARGET_NAME_IF_EXISTS:conda_env>
             maybe_asan
             test_sources
@@ -176,7 +176,7 @@ if(RAPIDSMPF_HAVE_MPI)
               GTest::gmock
               GTest::gtest
               ucxx::ucxx
-              $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+              $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
               $<TARGET_NAME_IF_EXISTS:conda_env>
               maybe_asan
               test_sources
