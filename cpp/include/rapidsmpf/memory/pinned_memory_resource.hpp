@@ -100,6 +100,28 @@ class PinnedMemoryResource final
     /// @brief Sentinel value indicating that pinned host memory is disabled.
     static constexpr std::nullopt_t Disabled = std::nullopt;
 
+    /// @brief Whether pinned host memory is enabled by default.
+    static constexpr bool EnabledByDefault = false;
+
+    /**
+     * @brief Fraction of total host memory per GPU used as the initial pinned pool size
+     *        when no explicit `pinned_initial_pool_size` option is provided.
+     *
+     * Applied as: `initial_pool_size = get_host_memory_per_gpu() *
+     * DefaultInitiPoolSizeFactor`.
+     */
+    static constexpr std::string_view DefaultInitiPoolSizeFactor = "0%";
+
+    /**
+     * @brief Fraction of total host memory per GPU used as the maximum pinned pool size
+     *        when no explicit `pinned_max_pool_size` option is provided.
+     *
+     * Applied as: `max_pool_size = get_host_memory_per_gpu() *
+     * DefaultMaxPoolSizeFactor`. `get_host_memory_per_gpu()` is computed as total
+     * host memory divided by the number of GPUs visible to the system.
+     */
+    static constexpr std::string_view DefaultMaxPoolSizeFactor = "80%";
+
     /**
      * @brief Create a pinned memory resource if the system supports pinned memory.
      *
@@ -117,6 +139,14 @@ class PinnedMemoryResource final
 
     /**
      * @brief Construct from configuration options.
+     *
+     * Recognized options:
+     * - `pinned_memory` (bool): enables pinned memory; defaults to
+     *   `EnabledByDefault`.
+     * - `pinned_initial_pool_size` (nbytes string): initial pool size; defaults to
+     *   `get_host_memory_per_gpu() * DefaultInitiPoolSizeFactor`.
+     * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size; defaults to
+     *   `get_host_memory_per_gpu() * DefaultMaxPoolSizeFactor`.
      *
      * @param options Configuration options.
      *

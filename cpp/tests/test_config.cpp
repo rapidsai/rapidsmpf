@@ -504,18 +504,13 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledWhenSetToFalse) {
     EXPECT_FALSE(pmr.has_value());
 }
 
-TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledByDefault) {
+TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledByDefault) {
     Options opts;  // Empty options
 
     auto pmr = PinnedMemoryResource::from_options(opts);
 
-    if (is_pinned_memory_resources_supported()) {
-        EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_TRUE(pmr.has_value());
-    } else {
-        EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_FALSE(pmr.has_value());
-    }
+    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
+    EXPECT_FALSE(pmr.has_value());
 }
 
 TEST(OptionsTest, MemoryAvailableFromOptionsCreatesMapWithDeviceLimit) {
