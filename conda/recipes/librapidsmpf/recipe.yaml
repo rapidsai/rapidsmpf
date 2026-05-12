@@ -75,7 +75,6 @@ cache:
       - ${{ stdlib("c") }}
     host:
       - cuda-version =${{ cuda_version }}
-      - cuda-cudart-dev
       - cuda-cupti-dev
       - cuda-nvml-dev
       - libcudf =${{ minor_version }}
@@ -113,7 +112,6 @@ outputs:
         - ${{ stdlib("c") }}
       host:
         - cuda-version =${{ cuda_version }}
-        - cuda-cudart-dev
         - cuda-cupti-dev
         - cuda-nvml-dev
         - libcudf =${{ minor_version }}
@@ -122,7 +120,6 @@ outputs:
         - openmpi >=5.0
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
-        - cuda-cudart
         - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
@@ -136,7 +133,6 @@ outputs:
           - ${{ compiler("cxx") }}
           - ${{ stdlib("c") }}
         by_name:
-          - cuda-cudart
           - cuda-cupti
           - libcudf
           - openmpi
@@ -161,7 +157,6 @@ outputs:
         - cuda-nvml-dev
         - ${{ stdlib("c") }}
       host:
-        - cuda-cudart-dev
         - cuda-cupti-dev
         - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
@@ -171,7 +166,6 @@ outputs:
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
-        - cuda-cudart
         - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
@@ -184,7 +178,6 @@ outputs:
           - ${{ compiler("cuda") }} =${{ cuda_version }}
           - ${{ stdlib("c") }}
         by_name:
-          - cuda-cudart
           - cuda-cupti
           - librmm
           - libcudf
