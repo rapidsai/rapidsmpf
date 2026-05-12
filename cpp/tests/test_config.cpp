@@ -445,9 +445,7 @@ TEST(OptionsTest, StatisticsFromOptionsEnabledWhenSetToTrue) {
     std::unordered_map<std::string, std::string> strings = {{"statistics", "True"}};
     Options opts(strings);
 
-    rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor mr{cuda_mr};
-    auto stats = Statistics::from_options(mr, opts);
+    auto stats = Statistics::from_options(opts);
 
     ASSERT_NE(stats, nullptr);
     EXPECT_TRUE(stats->enabled());
@@ -457,9 +455,7 @@ TEST(OptionsTest, StatisticsFromOptionsEnabledWhenSetToOne) {
     std::unordered_map<std::string, std::string> strings = {{"statistics", "1"}};
     Options opts(strings);
 
-    rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor mr{cuda_mr};
-    auto stats = Statistics::from_options(mr, opts);
+    auto stats = Statistics::from_options(opts);
 
     ASSERT_NE(stats, nullptr);
     EXPECT_TRUE(stats->enabled());
@@ -469,9 +465,7 @@ TEST(OptionsTest, StatisticsFromOptionsDisabledWhenSetToFalse) {
     std::unordered_map<std::string, std::string> strings = {{"statistics", "False"}};
     Options opts(strings);
 
-    rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor mr{cuda_mr};
-    auto stats = Statistics::from_options(mr, opts);
+    auto stats = Statistics::from_options(opts);
 
     ASSERT_NE(stats, nullptr);
     EXPECT_FALSE(stats->enabled());
@@ -480,10 +474,7 @@ TEST(OptionsTest, StatisticsFromOptionsDisabledWhenSetToFalse) {
 TEST(OptionsTest, StatisticsFromOptionsDisabledByDefault) {
     Options opts;  // Empty options
 
-    rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor mr{cuda_mr};
-    auto stats = Statistics::from_options(mr, opts);
-    EXPECT_TRUE(stats == Statistics::disabled());
+    auto stats = Statistics::from_options(opts);
     EXPECT_FALSE(stats->enabled());
 }
 
@@ -493,13 +484,13 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledWhenSetToTrue) {
 
     auto pmr = PinnedMemoryResource::from_options(opts);
 
-    // Should be enabled if system supports it, or Disabled (nullptr) if not
+    // Should be enabled if system supports it, or Disabled (nullopt) if not
     if (is_pinned_memory_resources_supported()) {
         EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_NE(pmr, nullptr);
+        EXPECT_TRUE(pmr.has_value());
     } else {
         EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_EQ(pmr, nullptr);
+        EXPECT_FALSE(pmr.has_value());
     }
 }
 
@@ -510,21 +501,16 @@ TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledWhenSetToFalse) {
     auto pmr = PinnedMemoryResource::from_options(opts);
 
     EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-    EXPECT_EQ(pmr, nullptr);
+    EXPECT_FALSE(pmr.has_value());
 }
 
-TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledByDefault) {
+TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledByDefault) {
     Options opts;  // Empty options
 
     auto pmr = PinnedMemoryResource::from_options(opts);
 
-    if (is_pinned_memory_resources_supported()) {
-        EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_NE(pmr, nullptr);
-    } else {
-        EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_EQ(pmr, nullptr);
-    }
+    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
+    EXPECT_FALSE(pmr.has_value());
 }
 
 TEST(OptionsTest, MemoryAvailableFromOptionsCreatesMapWithDeviceLimit) {

@@ -22,10 +22,18 @@ on:
         type: string
         default: nightly
 
+permissions: {}
+
 jobs:
   conda-cpp-tests:
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@cuda-13.2.0
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -34,8 +42,14 @@ jobs:
       script: ci/test_cpp.sh
       sha: ${{ inputs.sha }}
   conda-cpp-memcheck:
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@cuda-13.2.0
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -45,8 +59,14 @@ jobs:
       script: ci/test_cpp_memcheck.sh
       sha: ${{ inputs.sha }}
   conda-python-tests:
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@cuda-13.2.0
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -56,8 +76,14 @@ jobs:
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
   wheel-test:
-    secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@cuda-13.2.0
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}

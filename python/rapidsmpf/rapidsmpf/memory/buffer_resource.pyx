@@ -224,7 +224,7 @@ cdef class BufferResource:
         # The C++ BufferResource owns the resource via any_resource.
         self._device_mr = device_mr
         self._pinned_mr = pinned_mr
-        cdef shared_ptr[cpp_PinnedMemoryResource] cpp_pinned_mr
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
         if self._pinned_mr is not None:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
@@ -264,7 +264,7 @@ cdef class BufferResource:
             memory_available=AvailableMemoryMap.from_options(mr, options),
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=Statistics.from_options(mr, options, pinned_mr=pinned_mr),
+            statistics=Statistics.from_options(options),
         )
 
     def __dealloc__(self):

@@ -13,13 +13,14 @@
 #include <span>
 #include <vector>
 
+#include <cuda/memory_resource>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
-#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 namespace rapidsmpf {
 
@@ -30,17 +31,6 @@ namespace rapidsmpf {
 class HostBuffer {
   public:
     /**
-     * @brief Type-erased deleter for owned storage.
-     *
-     * This deleter holds a callable that releases the underlying storage when invoked.
-     * It enables `HostBuffer` to take ownership of different storage types
-     * (e.g., `rmm::device_buffer`, `std::vector<std::uint8_t>`) without exposing their
-     * types. The deleter captures the owned object and destroys it when the deleter
-     * itself is destroyed (the `void*` parameter is ignored).
-     */
-    using OwnedStorageDeleter = std::function<void(void*)>;
-
-    /**
      * @brief Allocate a new host buffer.
      *
      * If `size` is greater than zero, memory is allocated using the provided memory
@@ -48,10 +38,15 @@ class HostBuffer {
      *
      * @param size Number of bytes to allocate.
      * @param stream CUDA stream on which allocation and deallocation occur.
-     * @param mr RMM host memory resource used for allocation.
+     * @param mr Host-accessible memory resource used for allocation. Taken by value
+     * so the buffer shares ownership of the resource (e.g. bumps the refcount
+     * when constructed from a shared-ownership resource); an implicit
+     * conversion from `rmm::host_async_resource_ref` is also supported.
      */
     HostBuffer(
-        std::size_t size, rmm::cuda_stream_view stream, rmm::host_async_resource_ref mr
+        std::size_t size,
+        rmm::cuda_stream_view stream,
+        cuda::mr::any_resource<cuda::mr::host_accessible> mr
     );
 
     ~HostBuffer() noexcept;
@@ -176,14 +171,11 @@ class HostBuffer {
      *
      * @param data Vector to take ownership of (will be moved).
      * @param stream CUDA stream to associate with this buffer.
-     * @param mr Host memory resource used to allocate the buffer.
      *
      * @return A new `HostBuffer` owning the vector's memory.
      */
     static HostBuffer from_owned_vector(
-        std::vector<std::uint8_t>&& data,
-        rmm::cuda_stream_view stream,
-        rmm::host_async_resource_ref mr
+        std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
     );
 
     /**
@@ -199,7 +191,6 @@ class HostBuffer {
      *
      * @param pinned_host_buffer Device buffer to take ownership of.
      * @param stream CUDA stream to associate with this buffer.
-     * @param mr Pinned host memory resource used to allocate the buffer.
      *
      * @return A new `HostBuffer` owning the device buffer's memory.
      *
@@ -212,8 +203,7 @@ class HostBuffer {
      */
     static HostBuffer from_rmm_device_buffer(
         std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
-        rmm::cuda_stream_view stream,
-        PinnedMemoryResource& mr
+        rmm::cuda_stream_view stream
     );
 
   private:
@@ -222,21 +212,21 @@ class HostBuffer {
      *
      * @param span View of the owned memory.
      * @param stream CUDA stream associated with this buffer.
-     * @param mr Dummy memory resource (not used for deallocation).
-     * @param owned_storage Unique pointer managing the owned storage lifetime.
+     * @param deallocate_fn Callable invoked with the current stream to release the
+     * underlying memory. It captures all resources needed for deallocation (e.g.
+     * memory resource, raw pointer, size).
      */
     HostBuffer(
         std::span<std::byte> span,
         rmm::cuda_stream_view stream,
-        rmm::host_async_resource_ref mr,
-        std::unique_ptr<void, OwnedStorageDeleter> owned_storage
+        std::function<void(rmm::cuda_stream_view)> deallocate_fn
     );
 
     rmm::cuda_stream_view stream_;
-    rmm::host_async_resource_ref mr_;
     std::span<std::byte> span_{};
-    /// @brief Optional owned storage that will be released when the buffer is destroyed.
-    std::unique_ptr<void, OwnedStorageDeleter> owned_storage_{nullptr, [](void*) {}};
+    /// @brief Callable that releases the underlying memory when invoked with the current
+    /// stream. Null when the buffer is empty.
+    std::function<void(rmm::cuda_stream_view)> deallocate_fn_{};
 };
 
 }  // namespace rapidsmpf

@@ -8,7 +8,12 @@
 add_executable(
   rrun
   "rrun.cpp"
+  "rrun_utils.cpp"
+  "rrun_single_node.cpp"
+  "rrun_slurm_passthrough.cpp"
+  "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${CMAKE_CURRENT_SOURCE_DIR}/rrun_slurm_hybrid.cpp>"
   "${PROJECT_SOURCE_DIR}/src/rrun/rrun.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bootstrap/socket_backend.cpp"
   "${PROJECT_SOURCE_DIR}/src/bootstrap/utils.cpp"
   "${PROJECT_SOURCE_DIR}/src/system_info.cpp"
   "$<$<BOOL:${RAPIDSMPF_HAVE_SLURM}>:${PROJECT_SOURCE_DIR}/src/bootstrap/slurm_backend.cpp>"
@@ -30,6 +35,7 @@ target_link_libraries(
   PRIVATE Threads::Threads
           cuCascade::cucascade
           $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<$<TARGET_EXISTS:nvcomp::nvcomp>:nvcomp::nvcomp>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
@@ -59,6 +65,7 @@ target_link_libraries(
   topology_discovery
   PRIVATE cuCascade::cucascade
           $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<$<TARGET_EXISTS:nvcomp::nvcomp>:nvcomp::nvcomp>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           maybe_asan
@@ -93,6 +100,7 @@ target_link_libraries(
   check_resource_binding
   PRIVATE cuCascade::cucascade
           $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          $<$<TARGET_EXISTS:nvcomp::nvcomp>:nvcomp::nvcomp>
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>

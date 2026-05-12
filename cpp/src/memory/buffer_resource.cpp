@@ -7,10 +7,13 @@
 #include <stdexcept>
 #include <utility>
 
+#include <cuda/memory_resource>
+
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -35,7 +38,7 @@ auto add_missing_availability_functions(
 
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-    std::shared_ptr<PinnedMemoryResource> pinned_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
@@ -43,6 +46,7 @@ BufferResource::BufferResource(
 )
     : device_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
+      host_mr_{},
       memory_available_{add_missing_availability_functions(
           std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
       )},
@@ -63,7 +67,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
     }
 
-    auto statistics = Statistics::from_options(mr, options, pinned_mr);
+    auto statistics = Statistics::from_options(options);
     return std::make_shared<BufferResource>(
         std::move(mr),
         std::move(pinned_mr),
@@ -84,11 +88,17 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-rmm::host_async_resource_ref BufferResource::pinned_mr() {
+rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
     return *pinned_mr_;
+}
+
+std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
+    // since any_host_device_resource is constructible from
+    // host_device_async_resource_ref, optional can be returned as-is.
+    return pinned_mr_;
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(

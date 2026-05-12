@@ -289,7 +289,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     RmmResourceAdaptor mr{mr_cuda};
-    auto stats = std::make_shared<Statistics>(mr);
+    auto stats = std::make_shared<Statistics>(/* enable = */ true);
     auto pinned_mr = PinnedMemoryResource::make_if_available();
     BufferResource br{
         mr,

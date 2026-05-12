@@ -22,6 +22,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -88,7 +89,7 @@ class BufferResource {
      */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-        std::shared_ptr<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -131,9 +132,18 @@ class BufferResource {
     /**
      * @brief Get the RMM pinned host memory resource.
      *
+     * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
+
+    /**
+     * @brief Get the pinned host memory resource if available.
+     *
+     * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
+     * pinned host memory is not available.
+     */
+    [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -395,7 +405,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
-    std::shared_ptr<PinnedMemoryResource> pinned_mr_;
+    std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.

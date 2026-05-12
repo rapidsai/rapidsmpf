@@ -476,6 +476,20 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
     EXPECT_EQ(mr.current_allocated(), 0);  // All allocations have been released
 }
 
+TEST(RmmResourceAdaptor, EqualityWithCudaMemoryResource) {
+    rmm::mr::cuda_memory_resource cuda_mr{};
+
+    RmmResourceAdaptor adaptor_a{cuda_mr};
+    RmmResourceAdaptor adaptor_b{cuda_mr};
+
+    // Both wrap same resouce but have difference shared states
+    EXPECT_NE(adaptor_a, adaptor_b);
+
+    // A copy shares the same control block -> equal.
+    RmmResourceAdaptor adaptor_a_copy = adaptor_a;
+    EXPECT_EQ(adaptor_a, adaptor_a_copy);
+}
+
 TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
     constexpr std::size_t outer_alloc_size = 1_MiB;
     constexpr std::size_t inner_alloc_size = 2_MiB;

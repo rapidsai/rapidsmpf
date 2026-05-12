@@ -84,7 +84,6 @@ requirements:
     - libnuma
     - ${{ stdlib("c") }}
   host:
-    - cuda-cudart-dev
     - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
     - cython >=3.2.2
@@ -126,7 +125,6 @@ requirements:
       - ${{ compiler("cuda") }}
       - ${{ stdlib("c") }}
     by_name:
-      - cuda-cudart
       - cuda-cupti
       - cuda-version
       - openmpi
