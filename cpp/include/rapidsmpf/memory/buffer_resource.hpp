@@ -311,6 +311,11 @@ class BufferResource {
      *
      * This operation is cheap; no copy is performed.
      *
+     * The resulting Buffer's memory type is inferred from @p data's memory
+     * resource: if the resource is host-accessible (e.g. pinned host memory),
+     * the Buffer is created with `MemoryType::PINNED_HOST`; otherwise it is
+     * created with `MemoryType::DEVICE`.
+     *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
@@ -318,18 +323,10 @@ class BufferResource {
      * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
-     * @param mem_type The memory type of the underlying @p data. A device accessible
-     * memory type is required (ie. MemoryType::DEVICE or MemoryType::PINNED_HOST).
      * @return Unique pointer to the resulting Buffer.
-     *
-     * @throws std::invalid_argument If the memory type is invalid.
-     * @throws std::runtime_error If @p mem_type is MemoryType::PINNED_HOST and the
-     * pinned memory resource is not available.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data,
-        rmm::cuda_stream_view stream,
-        MemoryType mem_type = MemoryType::DEVICE
+        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
     );
 
     /**

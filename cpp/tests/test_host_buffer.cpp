@@ -36,36 +36,30 @@ void test_buffer(auto&& buffer, std::vector<std::uint8_t> const& source_data) {
 
     const auto* data = buffer.data();
     // Check the contents using std::equal
-    EXPECT_TRUE(
-        std::equal(
-            source_data.begin(),
-            source_data.end(),
-            reinterpret_cast<const std::uint8_t*>(data)
-        )
-    );
+    EXPECT_TRUE(std::equal(
+        source_data.begin(),
+        source_data.end(),
+        reinterpret_cast<const std::uint8_t*>(data)
+    ));
 
     // move constructor
     rapidsmpf::HostBuffer buffer2(std::move(buffer));
     // no need to synchronize because the stream is the same
-    EXPECT_TRUE(
-        std::equal(
-            source_data.begin(),
-            source_data.end(),
-            reinterpret_cast<const std::uint8_t*>(buffer2.data())
-        )
-    );
+    EXPECT_TRUE(std::equal(
+        source_data.begin(),
+        source_data.end(),
+        reinterpret_cast<const std::uint8_t*>(buffer2.data())
+    ));
     EXPECT_EQ(data, buffer2.data());
 
     // move assignment
     buffer = std::move(buffer2);
     // no need to synchronize because the stream is the same
-    EXPECT_TRUE(
-        std::equal(
-            source_data.begin(),
-            source_data.end(),
-            reinterpret_cast<const std::uint8_t*>(buffer.data())
-        )
-    );
+    EXPECT_TRUE(std::equal(
+        source_data.begin(),
+        source_data.end(),
+        reinterpret_cast<const std::uint8_t*>(buffer.data())
+    ));
     EXPECT_EQ(data, buffer.data());
 
     // Clean up
@@ -321,7 +315,17 @@ TEST(PinnedResource, max_pool_size_limit) {
 }
 
 TEST(PinnedResource, from_default_options) {
-    auto mr = rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
+    {
+        // disabled by default
+        auto mr =
+            rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
+        EXPECT_EQ(mr, rapidsmpf::PinnedMemoryResource::Disabled);
+    }
+
+    // check default pool values, if enabled
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
+    auto mr =
+        rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options(strings));
     if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }

@@ -205,9 +205,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 );
                 // update the provided `reservation`
                 br->release(reservation, nbytes);
-                auto host_buffer = br->move(
-                    std::move(packed_pinned.gpu_data), stream(), MemoryType::PINNED_HOST
-                );
+                auto host_buffer =
+                    br->move(std::move(packed_pinned.gpu_data), stream());
                 return TableChunk(
                     std::make_unique<PackedData>(
                         std::move(packed_pinned.metadata), std::move(host_buffer)

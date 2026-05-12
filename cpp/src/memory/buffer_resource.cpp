@@ -14,6 +14,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -208,9 +209,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data,
-    rmm::cuda_stream_view stream,
-    MemoryType mem_type
+    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
@@ -218,27 +217,15 @@ std::unique_ptr<Buffer> BufferResource::move(
         data->set_stream(stream);
     }
 
-    if (mem_type == MemoryType::DEVICE) {
-        return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
-    } else if (mem_type == MemoryType::PINNED_HOST) {
-        RAPIDSMPF_EXPECTS(
-            pinned_mr_ != PinnedMemoryResource::Disabled,
-            "pinned memory resource is not available",
-            std::runtime_error
-        );
-
+    if (is_host_accessible(data->memory_resource())) {
         auto pinned_host_buffer = std::make_unique<HostBuffer>(
-            HostBuffer::from_rmm_device_buffer(std::move(data), stream, pinned_mr())
+            HostBuffer::from_rmm_device_buffer(std::move(data), stream)
         );
         return std::unique_ptr<Buffer>(
             new Buffer(std::move(pinned_host_buffer), stream, MemoryType::PINNED_HOST)
         );
-    } else {
-        RAPIDSMPF_FAIL(
-            "Invalid memory type: " + std::string(to_string(mem_type)),
-            std::invalid_argument
-        );
     }
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
