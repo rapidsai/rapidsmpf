@@ -5,9 +5,10 @@ Compile-time descriptors for every configuration option recognised by the
 ``from_options`` factories and option-driven constructors.
 
 Each descriptor is an :class:`OptionDescriptor` exposing ``key`` (the lookup
-string passed to ``Options``) and ``default_value`` (the value used when the
-option is unset). Descriptors are grouped under module sub-namespaces that
-mirror the C++ layout (``rapidsmpf::statistics``, ``rapidsmpf::pinned_memory``,
+string passed to ``Options``) and ``default_val`` (the value used when the
+option is unset). Descriptors are exposed as module-level constants whose
+names are prefixed with the originating C++ namespace
+(``rapidsmpf::statistics``, ``rapidsmpf::pinned_memory``,
 ``rapidsmpf::buffer_resource``, ``rapidsmpf::streaming``,
 ``rapidsmpf::communicator``, ``rapidsmpf::ucxx``).
 
@@ -16,87 +17,68 @@ import time, so Python and C++ cannot drift out of sync.
 
 Example:
     >>> from rapidsmpf import options
-    >>> options.buffer_resource.NumStreamsOption.key
+    >>> options.BufferResourceNumStreamsOption.key
     'num_streams'
-    >>> options.buffer_resource.NumStreamsOption.default_value
+    >>> options.BufferResourceNumStreamsOption.default_val
     16
 """
 
-from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 from libc.stdint cimport uint32_t
 from libcpp cimport bool as bool_t
 
-
 T = TypeVar("T")
 
 
-@dataclass(frozen=True)
-class OptionDescriptor(Generic[T]):
+class OptionDescriptor(NamedTuple, Generic[T]):
     """Lookup key paired with the default value for a single option."""
 
     key: str
-    default_value: T
+    default_val: T
 
 
 # Pull every key and default out of the C++ header. Member-access expressions
 # (e.g. ``EnabledOption.key``) cannot appear directly in a Cython
 # ``cdef extern`` alias, so a tiny helper namespace re-exposes each as a
-# plain identifier with a stable spelling.
+# plain identifier with a stable spelling. Macros keep the per-option
+# boilerplate to a single line.
 cdef extern from *:
     """
     #include <rapidsmpf/options.hpp>
     namespace rapidsmpf_options_py {
-    // keys
-    inline constexpr const char* k_statistics =
-        rapidsmpf::statistics::EnabledOption.key;
-    inline constexpr const char* k_pinned_memory =
-        rapidsmpf::pinned_memory::EnabledOption.key;
-    inline constexpr const char* k_pinned_initial_pool_size =
-        rapidsmpf::pinned_memory::InitialPoolSizeFactorOption.key;
-    inline constexpr const char* k_pinned_max_pool_size =
-        rapidsmpf::pinned_memory::MaxPoolSizeFactorOption.key;
-    inline constexpr const char* k_spill_device_limit =
-        rapidsmpf::buffer_resource::SpillDeviceLimitOption.key;
-    inline constexpr const char* k_periodic_spill_check =
-        rapidsmpf::buffer_resource::PeriodicSpillCheckOption.key;
-    inline constexpr const char* k_num_streams =
-        rapidsmpf::buffer_resource::NumStreamsOption.key;
-    inline constexpr const char* k_num_streaming_threads =
-        rapidsmpf::streaming::NumStreamingThreadsOption.key;
-    inline constexpr const char* k_memory_reserve_timeout =
-        rapidsmpf::streaming::MemoryReserveTimeoutOption.key;
-    inline constexpr const char* k_log =
-        rapidsmpf::communicator::LogOption.key;
-    inline constexpr const char* k_ucxx_progress_mode =
-        rapidsmpf::ucxx::ProgressModeOption.key;
+    // For string-view defaults: exposes `k_<SUFFIX>` and `d_<SUFFIX>`
+    // as `const char*` aliases for `rapidsmpf::NS::OPT`.
+    #define RMPF_STR_OPT(SUFFIX, NS, OPT) \\
+        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key; \\
+        inline constexpr const char* d_##SUFFIX = \\
+            rapidsmpf::NS::OPT.default_val.data();
+    // For non-string defaults: same as RMPF_STR_OPT but `d_<SUFFIX>` has type T.
+    #define RMPF_TYPED_OPT(T, SUFFIX, NS, OPT) \\
+        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key; \\
+        inline constexpr T d_##SUFFIX = rapidsmpf::NS::OPT.default_val;
 
-    // string-view defaults exposed as null-terminated `const char*`
-    inline constexpr const char* d_statistics =
-        rapidsmpf::statistics::EnabledOption.default_value.data();
-    inline constexpr const char* d_pinned_initial_pool_size =
-        rapidsmpf::pinned_memory::InitialPoolSizeFactorOption.default_value.data();
-    inline constexpr const char* d_pinned_max_pool_size =
-        rapidsmpf::pinned_memory::MaxPoolSizeFactorOption.default_value.data();
-    inline constexpr const char* d_spill_device_limit =
-        rapidsmpf::buffer_resource::SpillDeviceLimitOption.default_value.data();
-    inline constexpr const char* d_periodic_spill_check =
-        rapidsmpf::buffer_resource::PeriodicSpillCheckOption.default_value.data();
-    inline constexpr const char* d_memory_reserve_timeout =
-        rapidsmpf::streaming::MemoryReserveTimeoutOption.default_value.data();
-    inline constexpr const char* d_log =
-        rapidsmpf::communicator::LogOption.default_value.data();
-    inline constexpr const char* d_ucxx_progress_mode =
-        rapidsmpf::ucxx::ProgressModeOption.default_value.data();
+    RMPF_STR_OPT(statistics, statistics, EnabledOption)
+    RMPF_TYPED_OPT(bool, pinned_memory, pinned_memory, EnabledOption)
+    RMPF_STR_OPT(pinned_initial_pool_size,
+                 pinned_memory, InitialPoolSizeFactorOption)
+    RMPF_STR_OPT(pinned_max_pool_size,
+                 pinned_memory, MaxPoolSizeFactorOption)
+    RMPF_STR_OPT(spill_device_limit,
+                 buffer_resource, SpillDeviceLimitOption)
+    RMPF_STR_OPT(periodic_spill_check,
+                 buffer_resource, PeriodicSpillCheckOption)
+    RMPF_TYPED_OPT(std::size_t, num_streams,
+                   buffer_resource, NumStreamsOption)
+    RMPF_TYPED_OPT(std::uint32_t, num_streaming_threads,
+                   streaming, NumStreamingThreadsOption)
+    RMPF_STR_OPT(memory_reserve_timeout,
+                 streaming, MemoryReserveTimeoutOption)
+    RMPF_STR_OPT(log, communicator, LogOption)
+    RMPF_STR_OPT(ucxx_progress_mode, ucxx, ProgressModeOption)
 
-    // typed defaults
-    inline constexpr bool d_pinned_memory =
-        rapidsmpf::pinned_memory::EnabledOption.default_value;
-    inline constexpr size_t d_num_streams =
-        rapidsmpf::buffer_resource::NumStreamsOption.default_value;
-    inline constexpr uint32_t d_num_streaming_threads =
-        rapidsmpf::streaming::NumStreamingThreadsOption.default_value;
+    #undef RMPF_STR_OPT
+    #undef RMPF_TYPED_OPT
     }  // namespace rapidsmpf_options_py
     """
     const char* _k_statistics "rapidsmpf_options_py::k_statistics"
@@ -143,88 +125,74 @@ cdef _decode(const char* s):
     return (<bytes>s).decode("utf-8")
 
 
-class statistics:
-    """Options for :py:meth:`rapidsmpf.statistics.Statistics.from_options`."""
+# Options for `rapidsmpf::statistics`.
+StatisticsEnabledOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_statistics),
+    default_val=_decode(_d_statistics),
+)
 
-    EnabledOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_statistics),
-        default_value=_decode(_d_statistics),
-    )
+# Options for `rapidsmpf::pinned_memory`.
+PinnedMemoryEnabledOption: OptionDescriptor[bool] = OptionDescriptor(
+    key=_decode(_k_pinned_memory),
+    default_val=bool(_d_pinned_memory),
+)
+PinnedMemoryInitialPoolSizeFactorOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_pinned_initial_pool_size),
+    default_val=_decode(_d_pinned_initial_pool_size),
+)
+PinnedMemoryMaxPoolSizeFactorOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_pinned_max_pool_size),
+    default_val=_decode(_d_pinned_max_pool_size),
+)
 
+# Options for `rapidsmpf::buffer_resource`.
+BufferResourceSpillDeviceLimitOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_spill_device_limit),
+    default_val=_decode(_d_spill_device_limit),
+)
+BufferResourcePeriodicSpillCheckOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_periodic_spill_check),
+    default_val=_decode(_d_periodic_spill_check),
+)
+BufferResourceNumStreamsOption: OptionDescriptor[int] = OptionDescriptor(
+    key=_decode(_k_num_streams),
+    default_val=int(_d_num_streams),
+)
 
-class pinned_memory:
-    """Options for
-    :py:meth:`rapidsmpf.memory.pinned_memory_resource.PinnedMemoryResource.from_options`.
-    """
+# Options for `rapidsmpf::streaming`.
+StreamingNumStreamingThreadsOption: OptionDescriptor[int] = OptionDescriptor(
+    key=_decode(_k_num_streaming_threads),
+    default_val=int(_d_num_streaming_threads),
+)
+StreamingMemoryReserveTimeoutOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_memory_reserve_timeout),
+    default_val=_decode(_d_memory_reserve_timeout),
+)
 
-    EnabledOption: OptionDescriptor[bool] = OptionDescriptor(
-        key=_decode(_k_pinned_memory),
-        default_value=bool(_d_pinned_memory),
-    )
-    InitialPoolSizeFactorOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_pinned_initial_pool_size),
-        default_value=_decode(_d_pinned_initial_pool_size),
-    )
-    MaxPoolSizeFactorOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_pinned_max_pool_size),
-        default_value=_decode(_d_pinned_max_pool_size),
-    )
+# Options for `rapidsmpf::communicator` (consumed by `Communicator::Logger`).
+CommunicatorLogOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_log),
+    default_val=_decode(_d_log),
+)
 
-
-class buffer_resource:
-    """Options for the buffer resource and its helpers."""
-
-    SpillDeviceLimitOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_spill_device_limit),
-        default_value=_decode(_d_spill_device_limit),
-    )
-    PeriodicSpillCheckOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_periodic_spill_check),
-        default_value=_decode(_d_periodic_spill_check),
-    )
-    NumStreamsOption: OptionDescriptor[int] = OptionDescriptor(
-        key=_decode(_k_num_streams),
-        default_value=int(_d_num_streams),
-    )
-
-
-class streaming:
-    """Options for the streaming subsystem."""
-
-    NumStreamingThreadsOption: OptionDescriptor[int] = OptionDescriptor(
-        key=_decode(_k_num_streaming_threads),
-        default_value=int(_d_num_streaming_threads),
-    )
-    MemoryReserveTimeoutOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_memory_reserve_timeout),
-        default_value=_decode(_d_memory_reserve_timeout),
-    )
-
-
-class communicator:
-    """Options consumed by ``rapidsmpf::Communicator::Logger``."""
-
-    LogOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_log),
-        default_value=_decode(_d_log),
-    )
-
-
-class ucxx:
-    """Options consumed by ``rapidsmpf::ucxx::init``."""
-
-    ProgressModeOption: OptionDescriptor[str] = OptionDescriptor(
-        key=_decode(_k_ucxx_progress_mode),
-        default_value=_decode(_d_ucxx_progress_mode),
-    )
+# Options for `rapidsmpf::ucxx` (consumed by `rapidsmpf::ucxx::init`).
+UcxxProgressModeOption: OptionDescriptor[str] = OptionDescriptor(
+    key=_decode(_k_ucxx_progress_mode),
+    default_val=_decode(_d_ucxx_progress_mode),
+)
 
 
 __all__ = [
     "OptionDescriptor",
-    "statistics",
-    "pinned_memory",
-    "buffer_resource",
-    "streaming",
-    "communicator",
-    "ucxx",
+    "StatisticsEnabledOption",
+    "PinnedMemoryEnabledOption",
+    "PinnedMemoryInitialPoolSizeFactorOption",
+    "PinnedMemoryMaxPoolSizeFactorOption",
+    "BufferResourceSpillDeviceLimitOption",
+    "BufferResourcePeriodicSpillCheckOption",
+    "BufferResourceNumStreamsOption",
+    "StreamingNumStreamingThreadsOption",
+    "StreamingMemoryReserveTimeoutOption",
+    "CommunicatorLogOption",
+    "UcxxProgressModeOption",
 ]

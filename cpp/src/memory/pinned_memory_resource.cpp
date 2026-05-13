@@ -74,13 +74,11 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
 std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
-    bool const enabled = options.get<bool>(
-        pinned_memory::EnabledOption.key,
-        [](auto const& s) {
-            return s.empty() ? pinned_memory::EnabledOption.default_value
+    bool const enabled =
+        options.get<bool>(pinned_memory::EnabledOption.key, [](auto const& s) {
+            return s.empty() ? pinned_memory::EnabledOption.default_val
                              : parse_string<bool>(s);
-        }
-    );
+        });
 
     if (enabled && is_pinned_memory_resources_supported()) {
         auto const host_memory_per_gpu = get_host_memory_per_gpu();
@@ -89,20 +87,17 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
                 pinned_memory::InitialPoolSizeFactorOption.key,
                 [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty()
-                            ? pinned_memory::InitialPoolSizeFactorOption.default_value
-                            : s,
+                        s.empty() ? pinned_memory::InitialPoolSizeFactorOption.default_val
+                                  : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                pinned_memory::MaxPoolSizeFactorOption.key,
-                [&](auto const& s) {
+                pinned_memory::MaxPoolSizeFactorOption.key, [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty()
-                            ? pinned_memory::MaxPoolSizeFactorOption.default_value
-                            : s,
+                        s.empty() ? pinned_memory::MaxPoolSizeFactorOption.default_val
+                                  : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }

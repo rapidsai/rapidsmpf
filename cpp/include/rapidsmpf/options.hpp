@@ -31,7 +31,7 @@ namespace rapidsmpf {
 template <typename T>
 struct OptionDescriptor {
     char const* key;  ///< Null-terminated lookup key passed to `Options::get`.
-    T default_value;  ///< Value used when the option is unset.
+    T default_val;  ///< Value used when the option is unset.
 };
 
 /// @brief Options for `rapidsmpf::Statistics::from_options`.
@@ -39,7 +39,7 @@ namespace statistics {
 /// @brief Whether statistics tracking is enabled.
 inline constexpr OptionDescriptor<std::string_view> EnabledOption{
     .key = "statistics",
-    .default_value = "False",
+    .default_val = "False",
 };
 }  // namespace statistics
 
@@ -48,21 +48,21 @@ namespace pinned_memory {
 /// @brief Whether pinned host memory is enabled.
 inline constexpr OptionDescriptor<bool> EnabledOption{
     .key = "pinned_memory",
-    .default_value = false,
+    .default_val = false,
 };
 
 /// @brief Initial pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * InitialPoolSizeFactorOption`.
 inline constexpr OptionDescriptor<std::string_view> InitialPoolSizeFactorOption{
     .key = "pinned_initial_pool_size",
-    .default_value = "0%",
+    .default_val = "0%",
 };
 
 /// @brief Maximum pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * MaxPoolSizeFactorOption`.
 inline constexpr OptionDescriptor<std::string_view> MaxPoolSizeFactorOption{
     .key = "pinned_max_pool_size",
-    .default_value = "80%",
+    .default_val = "80%",
 };
 }  // namespace pinned_memory
 
@@ -71,20 +71,20 @@ namespace buffer_resource {
 /// @brief Device-memory spill limit (nbytes string or percent of total).
 inline constexpr OptionDescriptor<std::string_view> SpillDeviceLimitOption{
     .key = "spill_device_limit",
-    .default_value = "80%",
+    .default_val = "80%",
 };
 
 /// @brief Periodic spill-check interval (duration string or
 /// disabled-sentinel).
 inline constexpr OptionDescriptor<std::string_view> PeriodicSpillCheckOption{
     .key = "periodic_spill_check",
-    .default_value = "1ms",
+    .default_val = "1ms",
 };
 
 /// @brief CUDA stream-pool size used by the buffer resource.
 inline constexpr OptionDescriptor<std::size_t> NumStreamsOption{
     .key = "num_streams",
-    .default_value = 16,
+    .default_val = 16,
 };
 }  // namespace buffer_resource
 
@@ -93,13 +93,13 @@ namespace streaming {
 /// @brief Number of threads in the streaming coroutine pool.
 inline constexpr OptionDescriptor<std::uint32_t> NumStreamingThreadsOption{
     .key = "num_streaming_threads",
-    .default_value = 1,
+    .default_val = 1,
 };
 
 /// @brief Per-attempt timeout for streaming memory reservations.
 inline constexpr OptionDescriptor<std::string_view> MemoryReserveTimeoutOption{
     .key = "memory_reserve_timeout",
-    .default_value = "100 ms",
+    .default_val = "100 ms",
 };
 }  // namespace streaming
 
@@ -109,7 +109,7 @@ namespace communicator {
 /// `Logger::LOG_LEVEL_NAMES`).
 inline constexpr OptionDescriptor<std::string_view> LogOption{
     .key = "log",
-    .default_value = "WARN",
+    .default_val = "WARN",
 };
 }  // namespace communicator
 
@@ -119,7 +119,7 @@ namespace ucxx {
 /// `"thread-blocking"`, `"thread-polling"`.
 inline constexpr OptionDescriptor<std::string_view> ProgressModeOption{
     .key = "ucxx_progress_mode",
-    .default_value = "thread-blocking",
+    .default_val = "thread-blocking",
 };
 }  // namespace ucxx
 

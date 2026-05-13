@@ -277,13 +277,11 @@ memory_available_from_options(RmmResourceAdaptor mr, config::Options options) {
     // Create a memory availability map that limits device memory based on the
     // `spill_device_limit` option.
     auto const limit = options.get<std::int64_t>(
-        buffer_resource::SpillDeviceLimitOption.key,
-        [](auto const& s) {
+        buffer_resource::SpillDeviceLimitOption.key, [](auto const& s) {
             auto const [_, total_mem] = rmm::available_device_memory();
             return rmm::align_down(
                 parse_nbytes_or_percent(
-                    s.empty() ? buffer_resource::SpillDeviceLimitOption.default_value
-                              : s,
+                    s.empty() ? buffer_resource::SpillDeviceLimitOption.default_val : s,
                     total_mem
                 ),
                 rmm::CUDA_ALLOCATION_ALIGNMENT
@@ -299,7 +297,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
         [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
                 return parse_duration(
-                    buffer_resource::PeriodicSpillCheckOption.default_value
+                    buffer_resource::PeriodicSpillCheckOption.default_val
                 );
             }
             if (auto val = parse_optional(s); val.has_value()) {
@@ -312,9 +310,8 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
 
 std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
     auto const num_streams = options.get<std::size_t>(
-        buffer_resource::NumStreamsOption.key,
-        [](auto const& s) {
-            return s.empty() ? buffer_resource::NumStreamsOption.default_value
+        buffer_resource::NumStreamsOption.key, [](auto const& s) {
+            return s.empty() ? buffer_resource::NumStreamsOption.default_val
                              : parse_string<std::size_t>(s);
         }
     );

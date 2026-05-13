@@ -1,35 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 T = TypeVar("T")
 
-@dataclass(frozen=True)
-class OptionDescriptor(Generic[T]):
+class OptionDescriptor(NamedTuple, Generic[T]):
     key: str
-    default_value: T
+    default_val: T
 
-class statistics:
-    EnabledOption: OptionDescriptor[str]
+StatisticsEnabledOption: OptionDescriptor[str]
 
-class pinned_memory:
-    EnabledOption: OptionDescriptor[bool]
-    InitialPoolSizeFactorOption: OptionDescriptor[str]
-    MaxPoolSizeFactorOption: OptionDescriptor[str]
+PinnedMemoryEnabledOption: OptionDescriptor[bool]
+PinnedMemoryInitialPoolSizeFactorOption: OptionDescriptor[str]
+PinnedMemoryMaxPoolSizeFactorOption: OptionDescriptor[str]
 
-class buffer_resource:
-    SpillDeviceLimitOption: OptionDescriptor[str]
-    PeriodicSpillCheckOption: OptionDescriptor[str]
-    NumStreamsOption: OptionDescriptor[int]
+BufferResourceSpillDeviceLimitOption: OptionDescriptor[str]
+BufferResourcePeriodicSpillCheckOption: OptionDescriptor[str]
+BufferResourceNumStreamsOption: OptionDescriptor[int]
 
-class streaming:
-    NumStreamingThreadsOption: OptionDescriptor[int]
-    MemoryReserveTimeoutOption: OptionDescriptor[str]
+StreamingNumStreamingThreadsOption: OptionDescriptor[int]
+StreamingMemoryReserveTimeoutOption: OptionDescriptor[str]
 
-class communicator:
-    LogOption: OptionDescriptor[str]
+CommunicatorLogOption: OptionDescriptor[str]
 
-class ucxx:
-    ProgressModeOption: OptionDescriptor[str]
+UcxxProgressModeOption: OptionDescriptor[str]
+
+__all__: list[str]

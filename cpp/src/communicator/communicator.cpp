@@ -10,9 +10,8 @@
 namespace rapidsmpf {
 namespace {
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
-    auto const value =
-        str.empty() ? std::string{communicator::LogOption.default_value}
-                    : to_upper(trim(str));
+    auto const value = str.empty() ? std::string{communicator::LogOption.default_val}
+                                   : to_upper(trim(str));
     for (std::uint32_t i = 0; i < Communicator::Logger::LOG_LEVEL_NAMES.size(); ++i) {
         auto level = static_cast<Communicator::Logger::LOG_LEVEL>(i);
         if (value == Communicator::Logger::level_name(level)) {

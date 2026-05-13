@@ -35,7 +35,7 @@ CoroThreadPoolExecutor::CoroThreadPoolExecutor(
               NumStreamingThreadsOption.key,
               [](std::string const& s) -> std::uint32_t {
                   if (s.empty()) {
-                      return NumStreamingThreadsOption.default_value;
+                      return NumStreamingThreadsOption.default_val;
                   }
                   if (int v = std::stoi(s); v > 0) {
                       return static_cast<std::uint32_t>(v);

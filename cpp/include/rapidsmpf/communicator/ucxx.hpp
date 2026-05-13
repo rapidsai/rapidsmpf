@@ -92,6 +92,8 @@ class InitializedRank {
  * @param options The options to use for the communicator, currently supports only
  *                `"ucxx_progress_mode"`.
  *
+ * @return a unique pointer to an InitializedRank object.
+ *
  * @throws std::logic_error if the `remote_address` is an invalid object.
  */
 std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(

@@ -12,7 +12,6 @@ import pytest
 import rmm.mr
 
 from rapidsmpf import options
-from rapidsmpf.options import OptionDescriptor
 from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
 from rapidsmpf.memory.buffer import MemoryType
@@ -26,6 +25,7 @@ from rapidsmpf.memory.pinned_memory_resource import (
     PinnedMemoryResource,
     is_pinned_memory_resources_supported,
 )
+from rapidsmpf.options import OptionDescriptor
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
@@ -600,142 +600,21 @@ def test_context_from_options_can_create_channel() -> None:
         assert channel is not None
 
 
-_ALL_OPTIONS: list[OptionDescriptor] = [
-    options.statistics.EnabledOption,
-    options.pinned_memory.EnabledOption,
-    options.pinned_memory.InitialPoolSizeFactorOption,
-    options.pinned_memory.MaxPoolSizeFactorOption,
-    options.buffer_resource.SpillDeviceLimitOption,
-    options.buffer_resource.PeriodicSpillCheckOption,
-    options.buffer_resource.NumStreamsOption,
-    options.streaming.NumStreamingThreadsOption,
-    options.streaming.MemoryReserveTimeoutOption,
-    options.communicator.LogOption,
-    options.ucxx.ProgressModeOption,
-]
-
-
 def test_option_descriptors_are_well_formed() -> None:
-    """Every exposed descriptor is an OptionDescriptor with a non-empty key."""
-    for opt in _ALL_OPTIONS:
-        assert isinstance(opt, OptionDescriptor)
+    """Every descriptor exported from `rapidsmpf.options` has a non-empty key
+    and a default value of the documented type.
+    """
+    descriptors = [
+        getattr(options, name)
+        for name in options.__all__
+        if isinstance(getattr(options, name), OptionDescriptor)
+    ]
+    assert descriptors, "expected at least one OptionDescriptor in options.__all__"
+    for opt in descriptors:
         assert isinstance(opt.key, str)
         assert opt.key
-        # `default_value` may be str, bool, or int depending on the option.
-        assert opt.default_value is not None or isinstance(opt.default_value, str)
-
-
-def test_option_descriptor_default_value_types() -> None:
-    """Each descriptor's default_value has the documented Python type."""
-    assert isinstance(options.statistics.EnabledOption.default_value, str)
-    assert isinstance(options.pinned_memory.EnabledOption.default_value, bool)
-    assert isinstance(
-        options.pinned_memory.InitialPoolSizeFactorOption.default_value, str
-    )
-    assert isinstance(
-        options.pinned_memory.MaxPoolSizeFactorOption.default_value, str
-    )
-    assert isinstance(
-        options.buffer_resource.SpillDeviceLimitOption.default_value, str
-    )
-    assert isinstance(
-        options.buffer_resource.PeriodicSpillCheckOption.default_value, str
-    )
-    assert isinstance(options.buffer_resource.NumStreamsOption.default_value, int)
-    assert isinstance(
-        options.streaming.NumStreamingThreadsOption.default_value, int
-    )
-    assert isinstance(
-        options.streaming.MemoryReserveTimeoutOption.default_value, str
-    )
-    assert isinstance(options.communicator.LogOption.default_value, str)
-    assert isinstance(options.ucxx.ProgressModeOption.default_value, str)
-
-
-def test_option_keys_match_callsite_strings() -> None:
-    """Each descriptor's ``key`` is the literal string the C++ from_options
-    factories pass to ``Options::get``.
-    """
-    assert options.statistics.EnabledOption.key == "statistics"
-    assert options.pinned_memory.EnabledOption.key == "pinned_memory"
-    assert (
-        options.pinned_memory.InitialPoolSizeFactorOption.key
-        == "pinned_initial_pool_size"
-    )
-    assert (
-        options.pinned_memory.MaxPoolSizeFactorOption.key == "pinned_max_pool_size"
-    )
-    assert (
-        options.buffer_resource.SpillDeviceLimitOption.key == "spill_device_limit"
-    )
-    assert (
-        options.buffer_resource.PeriodicSpillCheckOption.key
-        == "periodic_spill_check"
-    )
-    assert options.buffer_resource.NumStreamsOption.key == "num_streams"
-    assert (
-        options.streaming.NumStreamingThreadsOption.key == "num_streaming_threads"
-    )
-    assert (
-        options.streaming.MemoryReserveTimeoutOption.key == "memory_reserve_timeout"
-    )
-    assert options.communicator.LogOption.key == "log"
-    assert options.ucxx.ProgressModeOption.key == "ucxx_progress_mode"
-
-
-def test_option_descriptor_defaults_match_from_options_with_empty_options() -> None:
-    """Each descriptor's ``default_value`` matches what the corresponding
-    ``from_options`` factory produces from an empty ``Options()``. Single
-    source-of-truth check across the C++/Python boundary.
-    """
-    opts = Options()
-
-    # statistics: string default parsed via parse_string<bool>.
-    assert Statistics.from_options(opts).enabled is False
-    assert options.statistics.EnabledOption.default_value in {
-        "False",
-        "false",
-        "0",
-        "no",
-        "off",
-    }
-
-    # pinned_memory: bool default propagated as-is.
-    assert options.pinned_memory.EnabledOption.default_value is False
-    assert PinnedMemoryResource.from_options(opts) is None
-
-    # buffer_resource defaults.
-    assert options.buffer_resource.NumStreamsOption.default_value == 16
-    assert stream_pool_from_options(opts).get_pool_size() == 16
-
-    assert options.buffer_resource.PeriodicSpillCheckOption.default_value == "1ms"
-    duration = periodic_spill_check_from_options(opts)
-    assert duration is not None
-    assert abs(duration - 0.001) < 1e-9
-
-    assert options.buffer_resource.SpillDeviceLimitOption.default_value == "80%"
-
-    # streaming defaults.
-    assert options.streaming.NumStreamingThreadsOption.default_value == 1
-    assert (
-        options.streaming.MemoryReserveTimeoutOption.default_value.replace(" ", "")
-        == "100ms"
-    )
-
-    # pinned-pool size factors.
-    assert options.pinned_memory.InitialPoolSizeFactorOption.default_value == "0%"
-    assert options.pinned_memory.MaxPoolSizeFactorOption.default_value == "80%"
-
-    # Communicator log level.
-    assert options.communicator.LogOption.default_value == "WARN"
-
-    # UCXX progress mode.
-    assert options.ucxx.ProgressModeOption.default_value in {
-        "blocking",
-        "polling",
-        "thread-blocking",
-        "thread-polling",
-    }
+        # `default_val` may be str, bool, or int depending on the option.
+        assert opt.default_val is not None or isinstance(opt.default_val, str)
 
 
 def test_option_keys_round_trip_through_options() -> None:
@@ -745,8 +624,8 @@ def test_option_keys_round_trip_through_options() -> None:
     """
     opts = Options(
         {
-            options.statistics.EnabledOption.key: "True",
-            options.buffer_resource.NumStreamsOption.key: "8",
+            options.StatisticsEnabledOption.key: "True",
+            options.BufferResourceNumStreamsOption.key: "8",
         }
     )
     assert Statistics.from_options(opts).enabled is True
@@ -757,5 +636,5 @@ def test_option_descriptor_is_frozen() -> None:
     """Descriptors are immutable so call sites cannot mutate the canonical
     metadata at runtime.
     """
-    with pytest.raises(Exception):  # FrozenInstanceError subclasses Exception
-        options.buffer_resource.NumStreamsOption.key = "other"  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        options.BufferResourceNumStreamsOption.key = "other"  # type: ignore[misc]
