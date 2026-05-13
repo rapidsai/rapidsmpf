@@ -294,8 +294,10 @@ coro::task<MemoryReservation> reserve_memory(
     // If allow_overbooking is not specified, get it from the configuration options.
     if (!allow_overbooking.has_value()) {
         bool const allow_overbook_default = ctx->options().get<bool>(
-            "allow_overbooking_by_default",
-            [](std::string const& s) { return s.empty() ? true : parse_string<bool>(s); }
+            AllowOverbookingByDefaultOption.key, [](std::string const& s) {
+                return s.empty() ? AllowOverbookingByDefaultOption.default_val
+                                 : parse_string<bool>(s);
+            }
         );
         allow_overbooking =
             allow_overbook_default ? AllowOverbooking::YES : AllowOverbooking::NO;

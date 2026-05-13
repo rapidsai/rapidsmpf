@@ -18,6 +18,12 @@ from rapidsmpf.config import (
     OptionalBytes,
     Options,
 )
+from rapidsmpf.config_defaults import (
+    BUFFER_RESOURCE_PERIODIC_SPILL_CHECK,
+    BUFFER_RESOURCE_SPILL_DEVICE_LIMIT,
+    PINNED_MEMORY_ENABLED,
+    STATISTICS_ENABLED,
+)
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
 )
@@ -728,9 +734,9 @@ def rmpf_worker_local_setup(
     options_map = options.get_strings()
     # Map prefixed integration keys to internal RapidsMPF option names.
     for suffix, rmpf_key in (
-        ("statistics", "statistics"),
-        ("spill_to_pinned_memory", "pinned_memory"),
-        ("periodic_spill_check", "periodic_spill_check"),
+        ("statistics", STATISTICS_ENABLED),
+        ("spill_to_pinned_memory", PINNED_MEMORY_ENABLED),
+        ("periodic_spill_check", BUFFER_RESOURCE_PERIODIC_SPILL_CHECK),
     ):
         custom_key = f"{option_prefix}{suffix}"
         if custom_key in options_map:
@@ -742,7 +748,7 @@ def rmpf_worker_local_setup(
     if spill_device_key in options_map:
         val = float(options_map.pop(spill_device_key))
         total_memory = rmm.mr.available_device_memory()[1]
-        options_map["spill_device_limit"] = f"{int(total_memory * val)}"
+        options_map[BUFFER_RESOURCE_SPILL_DEVICE_LIMIT] = f"{int(total_memory * val)}"
 
     # overwrite the options with the new options map
     options = Options(options_map)

@@ -25,6 +25,9 @@ from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.statistics cimport Statistics
 
+from rapidsmpf.config_defaults import BUFFER_RESOURCE_NUM_STREAMS
+from rapidsmpf.config_defaults import DEFAULTS as _OPTION_DEFAULTS
+
 
 cdef extern from *:
     """
@@ -651,9 +654,15 @@ def stream_pool_from_options(Options options not None):
     Pool of CUDA streams used throughout RapidsMPF for operations that do not take
     an explicit CUDA stream.
     """
-    cdef int pool_size = options.get_or_default("num_streams", default_value=16)
+    cdef int pool_size = options.get_or_default(
+        BUFFER_RESOURCE_NUM_STREAMS,
+        default_value=_OPTION_DEFAULTS[BUFFER_RESOURCE_NUM_STREAMS],
+    )
     if pool_size < 1:
-        raise ValueError("the `num_streams` options must be greater than 0")
+        raise ValueError(
+            f"the `{BUFFER_RESOURCE_NUM_STREAMS}` options must be "
+            "greater than 0"
+        )
     return CudaStreamPool(
         pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,

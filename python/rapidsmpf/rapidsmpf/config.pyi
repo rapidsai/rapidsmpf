@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Generic, NamedTuple, TypeVar, overload
+from typing import Generic, TypeVar, overload
 
 T = TypeVar("T")
 
@@ -40,26 +40,3 @@ class Optional(Generic[T]):
 class OptionalBytes(Optional): ...
 
 def get_environment_variables(key_regex: str = ...) -> dict[str, str]: ...
-
-class OptionDescriptor(NamedTuple, Generic[T]):
-    key: str
-    default_val: T
-
-StatisticsEnabledOption: OptionDescriptor[str]
-
-PinnedMemoryEnabledOption: OptionDescriptor[bool]
-PinnedMemoryInitialPoolSizeFactorOption: OptionDescriptor[str]
-PinnedMemoryMaxPoolSizeFactorOption: OptionDescriptor[str]
-
-BufferResourceSpillDeviceLimitOption: OptionDescriptor[str]
-BufferResourcePeriodicSpillCheckOption: OptionDescriptor[str]
-BufferResourceNumStreamsOption: OptionDescriptor[int]
-
-StreamingNumStreamingThreadsOption: OptionDescriptor[int]
-StreamingMemoryReserveTimeoutOption: OptionDescriptor[str]
-
-CommunicatorLogOption: OptionDescriptor[str]
-
-UcxxProgressModeOption: OptionDescriptor[str]
-
-__all__: list[str]

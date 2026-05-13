@@ -11,9 +11,12 @@ import pytest
 
 import rmm.mr
 
-from rapidsmpf import config as config_module
 from rapidsmpf.communicator import single as single_comm
-from rapidsmpf.config import OptionDescriptor, Optional, OptionalBytes, Options
+from rapidsmpf.config import Optional, OptionalBytes, Options
+from rapidsmpf.config_defaults import (
+    BUFFER_RESOURCE_NUM_STREAMS,
+    STATISTICS_ENABLED,
+)
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     AvailableMemoryMap,
@@ -303,8 +306,8 @@ def test_insert_if_absent_normalizes_keys_before_checking() -> None:
     # Try inserting mixed-case and whitespace-padded keys
     inserted_count = opts.insert_if_absent(
         {
-            " Lowercase_KEY ": "456",  # matches existing after normalization
-            "NEW_KEY": "789",  # new key
+            " Lowercase ": "456",  # matches existing after normalization
+            "NEW": "789",  # new key
         }
     )
 
@@ -599,43 +602,16 @@ def test_context_from_options_can_create_channel() -> None:
         assert channel is not None
 
 
-def test_option_descriptors_are_well_formed() -> None:
-    """Every descriptor exported from `rapidsmpf.config` has a non-empty key
-    and a default value of the documented type.
-    """
-    descriptors = [
-        getattr(config_module, name)
-        for name in config_module.__all__
-        if isinstance(getattr(config_module, name), OptionDescriptor)
-    ]
-    assert descriptors, (
-        "expected at least one OptionDescriptor in rapidsmpf.config.__all__"
-    )
-    for opt in descriptors:
-        assert isinstance(opt.key, str)
-        assert opt.key
-        # `default_val` may be str, bool, or int depending on the option.
-        assert opt.default_val is not None or isinstance(opt.default_val, str)
-
-
 def test_option_keys_round_trip_through_options() -> None:
-    """An Options built using descriptor ``key`` strings is read by
-    ``from_options`` as expected (smoke test that the keys are wired the same
-    in C++ and Python).
+    """An Options built using key constants from ``rapidsmpf.config_defaults`` is
+    read by ``from_options`` as expected (smoke test that the keys are wired the
+    same in C++ and Python).
     """
     opts = Options(
         {
-            config_module.StatisticsEnabledOption.key: "True",
-            config_module.BufferResourceNumStreamsOption.key: "8",
+            STATISTICS_ENABLED: "True",
+            BUFFER_RESOURCE_NUM_STREAMS: "8",
         }
     )
     assert Statistics.from_options(opts).enabled is True
     assert stream_pool_from_options(opts).get_pool_size() == 8
-
-
-def test_option_descriptor_is_frozen() -> None:
-    """Descriptors are immutable so call sites cannot mutate the canonical
-    metadata at runtime.
-    """
-    with pytest.raises(AttributeError):
-        config_module.BufferResourceNumStreamsOption.key = "other"  # type: ignore[misc]

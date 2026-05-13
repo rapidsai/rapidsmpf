@@ -477,6 +477,15 @@ inline constexpr OptionDescriptor<std::string_view> MemoryReserveTimeoutOption{
     .key = "memory_reserve_timeout",
     .default_val = "100 ms",
 };
+
+/// @brief Whether streaming memory reservations may overbook by default.
+/// Used by `reserve_memory` when the caller does not pass an explicit
+/// `AllowOverbooking` policy.
+inline constexpr OptionDescriptor<bool> AllowOverbookingByDefaultOption{
+    .key = "allow_overbooking_by_default",
+    .default_val = true,
+};
+
 }  // namespace streaming
 
 /// @brief Options consumed by `rapidsmpf::Communicator::Logger`.
