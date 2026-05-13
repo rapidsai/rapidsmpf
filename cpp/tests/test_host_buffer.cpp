@@ -328,14 +328,14 @@ TEST(PinnedResource, from_default_options) {
     EXPECT_EQ(
         mr->properties().initial_pool_size,
         rapidsmpf::parse_nbytes_or_percent(
-            rapidsmpf::pinned_memory::InitialPoolSizeFactorOption.default_val,
+            rapidsmpf::pinned_memory::InitialPoolSizeOption.default_val,
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
     EXPECT_EQ(
         mr->properties().max_pool_size.value(),
         rapidsmpf::parse_nbytes_or_percent(
-            rapidsmpf::pinned_memory::MaxPoolSizeFactorOption.default_val,
+            rapidsmpf::pinned_memory::MaxPoolSizeOption.default_val,
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );

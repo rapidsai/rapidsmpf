@@ -428,15 +428,15 @@ inline constexpr OptionDescriptor<bool> EnabledOption{
 };
 
 /// @brief Initial pinned-pool size, applied as
-/// `get_host_memory_per_gpu() * InitialPoolSizeFactorOption`.
-inline constexpr OptionDescriptor<std::string_view> InitialPoolSizeFactorOption{
+/// `get_host_memory_per_gpu() * InitialPoolSizeOption`.
+inline constexpr OptionDescriptor<std::string_view> InitialPoolSizeOption{
     .key = "pinned_initial_pool_size",
     .default_val = "0%",
 };
 
 /// @brief Maximum pinned-pool size, applied as
-/// `get_host_memory_per_gpu() * MaxPoolSizeFactorOption`.
-inline constexpr OptionDescriptor<std::string_view> MaxPoolSizeFactorOption{
+/// `get_host_memory_per_gpu() * MaxPoolSizeOption`.
+inline constexpr OptionDescriptor<std::string_view> MaxPoolSizeOption{
     .key = "pinned_max_pool_size",
     .default_val = "80%",
 };

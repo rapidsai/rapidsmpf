@@ -54,9 +54,9 @@ cdef extern from *:
     RMPF_STR_OPT(statistics, statistics, EnabledOption)
     RMPF_TYPED_OPT(bool, pinned_memory, pinned_memory, EnabledOption)
     RMPF_STR_OPT(pinned_initial_pool_size,
-                 pinned_memory, InitialPoolSizeFactorOption)
+                 pinned_memory, InitialPoolSizeOption)
     RMPF_STR_OPT(pinned_max_pool_size,
-                 pinned_memory, MaxPoolSizeFactorOption)
+                 pinned_memory, MaxPoolSizeOption)
     RMPF_STR_OPT(spill_device_limit,
                  buffer_resource, SpillDeviceLimitOption)
     RMPF_STR_OPT(periodic_spill_check,
@@ -129,10 +129,10 @@ STATISTICS_ENABLED: Final[str] = _decode(_k_statistics)
 
 # Options for `rapidsmpf::pinned_memory`.
 PINNED_MEMORY_ENABLED: Final[str] = _decode(_k_pinned_memory)
-PINNED_MEMORY_INITIAL_POOL_SIZE_FACTOR: Final[str] = _decode(
+PINNED_MEMORY_INITIAL_POOL_SIZE: Final[str] = _decode(
     _k_pinned_initial_pool_size
 )
-PINNED_MEMORY_MAX_POOL_SIZE_FACTOR: Final[str] = _decode(_k_pinned_max_pool_size)
+PINNED_MEMORY_MAX_POOL_SIZE: Final[str] = _decode(_k_pinned_max_pool_size)
 
 # Options for `rapidsmpf::buffer_resource`.
 BUFFER_RESOURCE_SPILL_DEVICE_LIMIT: Final[str] = _decode(_k_spill_device_limit)
@@ -158,8 +158,8 @@ UCXX_PROGRESS_MODE: Final[str] = _decode(_k_ucxx_progress_mode)
 DEFAULTS: Final[Mapping[str, Union[str, bool, int]]] = MappingProxyType({
     STATISTICS_ENABLED: _decode(_d_statistics),
     PINNED_MEMORY_ENABLED: bool(_d_pinned_memory),
-    PINNED_MEMORY_INITIAL_POOL_SIZE_FACTOR: _decode(_d_pinned_initial_pool_size),
-    PINNED_MEMORY_MAX_POOL_SIZE_FACTOR: _decode(_d_pinned_max_pool_size),
+    PINNED_MEMORY_INITIAL_POOL_SIZE: _decode(_d_pinned_initial_pool_size),
+    PINNED_MEMORY_MAX_POOL_SIZE: _decode(_d_pinned_max_pool_size),
     BUFFER_RESOURCE_SPILL_DEVICE_LIMIT: _decode(_d_spill_device_limit),
     BUFFER_RESOURCE_PERIODIC_SPILL_CHECK: _decode(_d_periodic_spill_check),
     BUFFER_RESOURCE_NUM_STREAMS: int(_d_num_streams),
@@ -174,8 +174,8 @@ DEFAULTS: Final[Mapping[str, Union[str, bool, int]]] = MappingProxyType({
 __all__ = [
     "STATISTICS_ENABLED",
     "PINNED_MEMORY_ENABLED",
-    "PINNED_MEMORY_INITIAL_POOL_SIZE_FACTOR",
-    "PINNED_MEMORY_MAX_POOL_SIZE_FACTOR",
+    "PINNED_MEMORY_INITIAL_POOL_SIZE",
+    "PINNED_MEMORY_MAX_POOL_SIZE",
     "BUFFER_RESOURCE_SPILL_DEVICE_LIMIT",
     "BUFFER_RESOURCE_PERIODIC_SPILL_CHECK",
     "BUFFER_RESOURCE_NUM_STREAMS",

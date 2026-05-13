@@ -84,20 +84,18 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
         auto const host_memory_per_gpu = get_host_memory_per_gpu();
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
-                pinned_memory::InitialPoolSizeFactorOption.key,
+                pinned_memory::InitialPoolSizeOption.key,
                 [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? pinned_memory::InitialPoolSizeFactorOption.default_val
-                                  : s,
+                        s.empty() ? pinned_memory::InitialPoolSizeOption.default_val : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                pinned_memory::MaxPoolSizeFactorOption.key, [&](auto const& s) {
+                pinned_memory::MaxPoolSizeOption.key, [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? pinned_memory::MaxPoolSizeFactorOption.default_val
-                                  : s,
+                        s.empty() ? pinned_memory::MaxPoolSizeOption.default_val : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }

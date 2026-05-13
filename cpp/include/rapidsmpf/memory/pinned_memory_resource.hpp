@@ -121,9 +121,9 @@ class PinnedMemoryResource final
      * Recognized options (see `rapidsmpf::pinned_memory`):
      * - `pinned_memory` (bool): enables pinned memory.
      * - `pinned_initial_pool_size` (nbytes string): initial pool size, applied
-     *   as `get_host_memory_per_gpu() * InitialPoolSizeFactor`.
+     *   as `get_host_memory_per_gpu() * InitialPoolSize`.
      * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size,
-     *   applied as `get_host_memory_per_gpu() * MaxPoolSizeFactor`.
+     *   applied as `get_host_memory_per_gpu() * MaxPoolSize`.
      *
      * @param options Configuration options.
      *
