@@ -208,7 +208,7 @@ target_compile_options(
 )
 target_link_libraries(
   rrun_tests
-  PRIVATE rapidsmpf::rapidsmpf cuCascade::cucascade GTest::gmock GTest::gtest
+  PRIVATE rapidsmpf::rapidsmpf cuCascade::cucascade_topology_discovery GTest::gmock GTest::gtest
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
