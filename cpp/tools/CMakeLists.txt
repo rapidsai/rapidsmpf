@@ -62,8 +62,12 @@ target_compile_options(
 )
 target_link_libraries(
   topology_discovery
-  PRIVATE cuCascade::cucascade_topology_discovery $<TARGET_NAME_IF_EXISTS:conda_env>
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan ${CMAKE_DL_LIBS}
+  PRIVATE CUDA::cudart_static
+          cuCascade::cucascade_topology_discovery
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          maybe_asan
+          ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS topology_discovery
@@ -92,8 +96,12 @@ target_compile_definitions(
 )
 target_link_libraries(
   check_resource_binding
-  PRIVATE cuCascade::cucascade_topology_discovery $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+  PRIVATE CUDA::cudart_static
+          cuCascade::cucascade_topology_discovery
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          ${CMAKE_DL_LIBS}
 )
 install(
   TARGETS check_resource_binding
