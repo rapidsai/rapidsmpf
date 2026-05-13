@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+
 #include <thrust/random.h>
 #include <thrust/transform.h>
 
@@ -13,25 +17,32 @@
 #include <rmm/exec_policy.hpp>
 
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "random_data.hpp"
 
 rmm::device_uvector<std::int32_t> random_device_vector(
-    cudf::size_type nelem,
+    std::size_t nelem,
     std::int32_t min_val,
     std::int32_t max_val,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     // Fill vector with random data.
-    rmm::device_uvector<std::int32_t> vec(static_cast<std::size_t>(nelem), stream, mr);
+    using index_t = std::int64_t;
+    auto const end_index = rapidsmpf::safe_cast<index_t>(nelem);
+    rmm::device_uvector<std::int32_t> vec(nelem, stream, mr);
+    thrust::counting_iterator<index_t> const begin(0);
+    thrust::counting_iterator<index_t> const end(end_index);
     thrust::transform(
         rmm::exec_policy(stream),
-        thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(nelem),
+        begin,
+        end,
         vec.begin(),
-        [min_val, max_val] __device__(cudf::size_type index) {
-            thrust::default_random_engine engine(index);  // HACK: use the seed as index
+        [min_val, max_val] __device__(index_t index) {
+            thrust::default_random_engine engine(
+                static_cast<thrust::default_random_engine::result_type>(index)
+            );
             thrust::uniform_int_distribution<std::int32_t> dist(min_val, max_val);
             return dist(engine);
         }
@@ -46,7 +57,9 @@ std::unique_ptr<cudf::column> random_column(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    auto vec = random_device_vector(nrows, min_val, max_val, stream, mr);
+    auto vec = random_device_vector(
+        rapidsmpf::safe_cast<std::size_t>(nrows), min_val, max_val, stream, mr
+    );
     return std::make_unique<cudf::column>(
         std::move(vec), rmm::device_buffer{0, stream, mr}, 0
     );
@@ -71,8 +84,13 @@ void random_fill(rapidsmpf::Buffer& buffer, rmm::device_async_resource_ref mr) {
     switch (buffer.mem_type()) {
     case rapidsmpf::MemoryType::DEVICE:
         {
+            auto const num_elements = std::max<std::size_t>(
+                std::size_t{1},
+                buffer.size / sizeof(random_data_t)
+                    + (buffer.size % sizeof(random_data_t) != 0)
+            );
             auto vec = random_device_vector(
-                buffer.size / sizeof(std::int32_t) + sizeof(std::int32_t),
+                num_elements,
                 std::numeric_limits<std::int32_t>::min(),
                 std::numeric_limits<std::int32_t>::max(),
                 buffer.stream(),
