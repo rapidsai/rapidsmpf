@@ -11,9 +11,9 @@ import pytest
 
 import rmm.mr
 
-from rapidsmpf import options
+from rapidsmpf import config as config_module
 from rapidsmpf.communicator import single as single_comm
-from rapidsmpf.config import Optional, OptionalBytes, Options
+from rapidsmpf.config import OptionDescriptor, Optional, OptionalBytes, Options
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     AvailableMemoryMap,
@@ -25,7 +25,6 @@ from rapidsmpf.memory.pinned_memory_resource import (
     PinnedMemoryResource,
     is_pinned_memory_resources_supported,
 )
-from rapidsmpf.options import OptionDescriptor
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
@@ -601,15 +600,17 @@ def test_context_from_options_can_create_channel() -> None:
 
 
 def test_option_descriptors_are_well_formed() -> None:
-    """Every descriptor exported from `rapidsmpf.options` has a non-empty key
+    """Every descriptor exported from `rapidsmpf.config` has a non-empty key
     and a default value of the documented type.
     """
     descriptors = [
-        getattr(options, name)
-        for name in options.__all__
-        if isinstance(getattr(options, name), OptionDescriptor)
+        getattr(config_module, name)
+        for name in config_module.__all__
+        if isinstance(getattr(config_module, name), OptionDescriptor)
     ]
-    assert descriptors, "expected at least one OptionDescriptor in options.__all__"
+    assert descriptors, (
+        "expected at least one OptionDescriptor in rapidsmpf.config.__all__"
+    )
     for opt in descriptors:
         assert isinstance(opt.key, str)
         assert opt.key
@@ -624,8 +625,8 @@ def test_option_keys_round_trip_through_options() -> None:
     """
     opts = Options(
         {
-            options.StatisticsEnabledOption.key: "True",
-            options.BufferResourceNumStreamsOption.key: "8",
+            config_module.StatisticsEnabledOption.key: "True",
+            config_module.BufferResourceNumStreamsOption.key: "8",
         }
     )
     assert Statistics.from_options(opts).enabled is True
@@ -637,4 +638,4 @@ def test_option_descriptor_is_frozen() -> None:
     metadata at runtime.
     """
     with pytest.raises(AttributeError):
-        options.BufferResourceNumStreamsOption.key = "other"  # type: ignore[misc]
+        config_module.BufferResourceNumStreamsOption.key = "other"  # type: ignore[misc]

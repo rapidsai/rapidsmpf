@@ -13,8 +13,8 @@
 #include <ucxx/request.h>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {

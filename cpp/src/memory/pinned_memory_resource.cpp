@@ -10,9 +10,9 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
-#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {

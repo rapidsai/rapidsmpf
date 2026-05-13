@@ -19,7 +19,6 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
-#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>

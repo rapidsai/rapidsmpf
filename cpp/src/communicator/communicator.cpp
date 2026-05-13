@@ -4,7 +4,7 @@
  */
 
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/options.hpp>
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {

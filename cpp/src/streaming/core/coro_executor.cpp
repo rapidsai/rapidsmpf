@@ -5,8 +5,8 @@
 
 #include <utility>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 
 namespace rapidsmpf::streaming {

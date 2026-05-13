@@ -12,8 +12,8 @@
 #include <sstream>
 #include <unordered_set>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
