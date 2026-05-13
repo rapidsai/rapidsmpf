@@ -306,8 +306,8 @@ def test_insert_if_absent_normalizes_keys_before_checking() -> None:
     # Try inserting mixed-case and whitespace-padded keys
     inserted_count = opts.insert_if_absent(
         {
-            " Lowercase ": "456",  # matches existing after normalization
-            "NEW": "789",  # new key
+            " Lowercase_KEY": "456",  # matches existing after normalization
+            "NEW_KEY": "789",  # new key
         }
     )
 
