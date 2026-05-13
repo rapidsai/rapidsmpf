@@ -17,22 +17,6 @@
 #
 # We build cuCascade as a static library to avoid packaging issues with wheels.
 function(find_and_configure_cucascade)
-  # Find cuDF transitive dependencies that cuCascade's subproject and the tools need.
-  if(NOT TARGET kvikio::kvikio)
-    find_package(kvikio REQUIRED CONFIG)
-  endif()
-  if(NOT TARGET nvcomp::nvcomp)
-    find_package(nvcomp REQUIRED CONFIG)
-  endif()
-
-  # Mark dependencies as GLOBAL so cuCascade's subproject can see them
-  if(TARGET kvikio::kvikio)
-    set_target_properties(kvikio::kvikio PROPERTIES IMPORTED_GLOBAL TRUE)
-  endif()
-  if(TARGET nvcomp::nvcomp)
-    set_target_properties(nvcomp::nvcomp PROPERTIES IMPORTED_GLOBAL TRUE)
-  endif()
-
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade cuCascade::cucascade_topology_discovery
