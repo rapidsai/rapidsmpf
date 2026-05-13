@@ -33,6 +33,7 @@ target_compile_definitions(
 target_link_libraries(
   rrun
   PRIVATE Threads::Threads
+          CUDA::cudart_static
           cuCascade::cucascade_topology_discovery
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
