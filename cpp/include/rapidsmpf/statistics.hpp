@@ -642,15 +642,16 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
 /**
  * @brief Satisfied by any type that exposes a `statistics()` method returning
- *        `std::shared_ptr<Statistics> const&`.
+ *        `std::shared_ptr<Statistics>` by value.
  *
  * Classes satisfying this concept are *statistics providers* — secondary
  * classes that receive a provider as a constructor argument should derive their
  * `Statistics` instance by calling `.statistics()` on it rather than accepting
  * a separate `std::shared_ptr<Statistics>` argument.
  *
- * Returning by const-reference avoids the per-call atomic refcount bump that a
- * by-value `std::shared_ptr` return would incur on hot paths.
+ * @note Returning by value provides clear ownership semantics. Callers that invoke
+ * `statistics()` multiple times within the same scope should cache the result
+ * in a local variable to avoid repeated atomic refcount operations on hot paths.
  *
  * Each provider asserts this concept via `static_assert` in its own header.
  * For example, `BufferResource`, `ProgressThread`, `streaming::Context`.
@@ -659,7 +660,7 @@ template <typename T>
 concept StatisticsProvider = requires(T const& t) {
     {
         t.statistics()
-    } noexcept -> std::same_as<std::shared_ptr<Statistics> const&>;
+    } noexcept -> std::same_as<std::shared_ptr<Statistics>>;
 };
 
 /**
@@ -702,15 +703,18 @@ concept StatisticsProvider = requires(T const& t) {
     RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, __func__)
 
 // Version with custom function name
-#define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                        \
-    RAPIDSMPF_EXPECTS(                                                         \
-        (stats) != nullptr, "RAPIDSMPF_MEMORY_PROFILE: stats must not be null" \
-    );                                                                         \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =       \
-        (stats) -> create_memory_recorder(                                     \
-            (mr),                                                              \
-            std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "("  \
-                + std::string(funcname) + ")"                                  \
-        )
+#define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                                 \
+    auto const& RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) = (stats); \
+    RAPIDSMPF_EXPECTS(                                                                  \
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) != nullptr,        \
+        "RAPIDSMPF_MEMORY_PROFILE: stats must not be null"                              \
+    );                                                                                  \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                \
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__)                    \
+            -> create_memory_recorder(                                                  \
+                (mr),                                                                   \
+                std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "("       \
+                    + std::string(funcname) + ")"                                       \
+            )
 
 }  // namespace rapidsmpf

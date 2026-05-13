@@ -734,40 +734,29 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
     auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+    auto statistics = br->statistics();
 
     // Negative offsets
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *dst, *src, 10, -1, 0), std::invalid_argument
-    );
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *dst, *src, 10, 0, -1), std::invalid_argument
-    );
+    EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, -1, 0), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, 0, -1), std::invalid_argument);
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0
-        ),
+        buffer_copy(statistics, *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)
-        ),
+        buffer_copy(statistics, *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0
-        ),
+        buffer_copy(statistics, *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)
-        ),
+        buffer_copy(statistics, *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
         std::invalid_argument
     );
 }

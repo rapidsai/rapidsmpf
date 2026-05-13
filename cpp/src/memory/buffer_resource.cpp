@@ -266,7 +266,7 @@ SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
 
-std::shared_ptr<Statistics> const& BufferResource::statistics() const noexcept {
+std::shared_ptr<Statistics> BufferResource::statistics() const noexcept {
     return statistics_;
 }
 

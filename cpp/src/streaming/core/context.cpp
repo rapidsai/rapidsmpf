@@ -157,7 +157,7 @@ std::shared_ptr<MemoryReserveOrWait> const& Context::memory(
     return memory_[static_cast<std::size_t>(mem_type)];
 }
 
-std::shared_ptr<Statistics> const& Context::statistics() const noexcept {
+std::shared_ptr<Statistics> Context::statistics() const noexcept {
     return br_->statistics();
 }
 

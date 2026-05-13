@@ -181,7 +181,7 @@ class ProgressThread {
     /**
      * @brief @return The statistics instance on this progress thread.
      */
-    std::shared_ptr<Statistics> const& statistics() const noexcept;
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
     /**
