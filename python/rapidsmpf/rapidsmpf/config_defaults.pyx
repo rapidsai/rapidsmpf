@@ -20,60 +20,45 @@ Example:
     >>> config_defaults.BUFFER_RESOURCE_NUM_STREAMS
     'num_streams'
     >>> config_defaults.DEFAULTS[config_defaults.BUFFER_RESOURCE_NUM_STREAMS]
-    16
+    '16'
 """
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final, Union
-
-from libc.stdint cimport uint32_t
-from libcpp cimport bool as bool_t
+from typing import Final
 
 
 # Pull every key and default out of the C++ header. Member-access expressions
 # (e.g. ``EnabledOption.key``) cannot appear directly in a Cython
 # ``cdef extern`` alias, so a tiny helper namespace re-exposes each as a
-# plain identifier with a stable spelling. Macros keep the per-option
-# boilerplate to a single line.
+# plain identifier with a stable spelling. Both ``key`` and ``default_val``
+# are ``std::string_view``s initialised from string literals, so ``.data()``
+# yields a null-terminated ``const char*`` suitable for Cython byte decoding.
 cdef extern from *:
     """
     #include <rapidsmpf/config.hpp>
     namespace rapidsmpf_options_py {
-    // For string-view defaults: exposes `k_<SUFFIX>` and `d_<SUFFIX>`
-    // as `const char*` aliases for `rapidsmpf::NS::OPT`.
-    #define RMPF_STR_OPT(SUFFIX, NS, OPT) \\
-        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key; \\
-        inline constexpr const char* d_##SUFFIX = \\
-            rapidsmpf::NS::OPT.default_val.data();
-    // For non-string defaults: same as RMPF_STR_OPT but `d_<SUFFIX>` has type T.
-    #define RMPF_TYPED_OPT(T, SUFFIX, NS, OPT) \\
-        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key; \\
-        inline constexpr T d_##SUFFIX = rapidsmpf::NS::OPT.default_val;
+    // Exposes `k_<SUFFIX>` and `d_<SUFFIX>` as `const char*` aliases for the
+    // key and default-value strings of `rapidsmpf::NS::OPT`.
+    #define RMPF_OPT(SUFFIX, NS, OPT) \\
+        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key.data(); \\
+        inline constexpr const char* d_##SUFFIX = rapidsmpf::NS::OPT.default_val.data();
 
-    RMPF_TYPED_OPT(bool, statistics, statistics, EnabledOption)
-    RMPF_TYPED_OPT(bool, pinned_memory, pinned_memory, EnabledOption)
-    RMPF_STR_OPT(pinned_initial_pool_size,
-                 pinned_memory, InitialPoolSizeOption)
-    RMPF_STR_OPT(pinned_max_pool_size,
-                 pinned_memory, MaxPoolSizeOption)
-    RMPF_STR_OPT(spill_device_limit,
-                 buffer_resource, SpillDeviceLimitOption)
-    RMPF_STR_OPT(periodic_spill_check,
-                 buffer_resource, PeriodicSpillCheckOption)
-    RMPF_TYPED_OPT(std::size_t, num_streams,
-                   buffer_resource, NumStreamsOption)
-    RMPF_TYPED_OPT(std::uint32_t, num_streaming_threads,
-                   streaming, NumStreamingThreadsOption)
-    RMPF_STR_OPT(memory_reserve_timeout,
-                 streaming, MemoryReserveTimeoutOption)
-    RMPF_TYPED_OPT(bool, allow_overbooking_by_default,
-                   streaming, AllowOverbookingByDefaultOption)
-    RMPF_STR_OPT(log, communicator, LogOption)
-    RMPF_STR_OPT(ucxx_progress_mode, ucxx, ProgressModeOption)
+    RMPF_OPT(statistics, statistics, EnabledOption)
+    RMPF_OPT(pinned_memory, pinned_memory, EnabledOption)
+    RMPF_OPT(pinned_initial_pool_size, pinned_memory, InitialPoolSizeOption)
+    RMPF_OPT(pinned_max_pool_size, pinned_memory, MaxPoolSizeOption)
+    RMPF_OPT(spill_device_limit, buffer_resource, SpillDeviceLimitOption)
+    RMPF_OPT(periodic_spill_check, buffer_resource, PeriodicSpillCheckOption)
+    RMPF_OPT(num_streams, buffer_resource, NumStreamsOption)
+    RMPF_OPT(num_streaming_threads, streaming, NumStreamingThreadsOption)
+    RMPF_OPT(memory_reserve_timeout, streaming, MemoryReserveTimeoutOption)
+    RMPF_OPT(allow_overbooking_by_default,
+             streaming, AllowOverbookingByDefaultOption)
+    RMPF_OPT(log, communicator, LogOption)
+    RMPF_OPT(ucxx_progress_mode, ucxx, ProgressModeOption)
 
-    #undef RMPF_STR_OPT
-    #undef RMPF_TYPED_OPT
+    #undef RMPF_OPT
     }  // namespace rapidsmpf_options_py
     """
     const char* _k_statistics "rapidsmpf_options_py::k_statistics"
@@ -97,6 +82,8 @@ cdef extern from *:
     const char* _k_ucxx_progress_mode \
         "rapidsmpf_options_py::k_ucxx_progress_mode"
 
+    const char* _d_statistics "rapidsmpf_options_py::d_statistics"
+    const char* _d_pinned_memory "rapidsmpf_options_py::d_pinned_memory"
     const char* _d_pinned_initial_pool_size \
         "rapidsmpf_options_py::d_pinned_initial_pool_size"
     const char* _d_pinned_max_pool_size \
@@ -105,19 +92,16 @@ cdef extern from *:
         "rapidsmpf_options_py::d_spill_device_limit"
     const char* _d_periodic_spill_check \
         "rapidsmpf_options_py::d_periodic_spill_check"
+    const char* _d_num_streams "rapidsmpf_options_py::d_num_streams"
+    const char* _d_num_streaming_threads \
+        "rapidsmpf_options_py::d_num_streaming_threads"
     const char* _d_memory_reserve_timeout \
         "rapidsmpf_options_py::d_memory_reserve_timeout"
+    const char* _d_allow_overbooking_by_default \
+        "rapidsmpf_options_py::d_allow_overbooking_by_default"
     const char* _d_log "rapidsmpf_options_py::d_log"
     const char* _d_ucxx_progress_mode \
         "rapidsmpf_options_py::d_ucxx_progress_mode"
-
-    bool_t _d_statistics "rapidsmpf_options_py::d_statistics"
-    bool_t _d_pinned_memory "rapidsmpf_options_py::d_pinned_memory"
-    bool_t _d_allow_overbooking_by_default \
-        "rapidsmpf_options_py::d_allow_overbooking_by_default"
-    size_t _d_num_streams "rapidsmpf_options_py::d_num_streams"
-    uint32_t _d_num_streaming_threads \
-        "rapidsmpf_options_py::d_num_streaming_threads"
 
 
 cdef _decode(const char* s):
@@ -153,19 +137,23 @@ COMMUNICATOR_LOG: Final[str] = _decode(_k_log)
 UCXX_PROGRESS_MODE: Final[str] = _decode(_k_ucxx_progress_mode)
 
 
-# Read-only mapping from option key to default value. The map itself is wrapped
-# in a `MappingProxyType` so call sites cannot mutate the canonical defaults;
-DEFAULTS: Final[Mapping[str, Union[str, bool, int]]] = MappingProxyType({
-    STATISTICS_ENABLED: bool(_d_statistics),
-    PINNED_MEMORY_ENABLED: bool(_d_pinned_memory),
+# Read-only mapping from option key to default value. Values are the raw
+# string representation sourced from C++ (the canonical form, since options
+# are parsed from strings at runtime); callers convert to typed values as
+# needed using the same parser they apply to user-supplied option strings.
+DEFAULTS: Final[Mapping[str, str]] = MappingProxyType({
+    STATISTICS_ENABLED: _decode(_d_statistics),
+    PINNED_MEMORY_ENABLED: _decode(_d_pinned_memory),
     PINNED_MEMORY_INITIAL_POOL_SIZE: _decode(_d_pinned_initial_pool_size),
     PINNED_MEMORY_MAX_POOL_SIZE: _decode(_d_pinned_max_pool_size),
     BUFFER_RESOURCE_SPILL_DEVICE_LIMIT: _decode(_d_spill_device_limit),
     BUFFER_RESOURCE_PERIODIC_SPILL_CHECK: _decode(_d_periodic_spill_check),
-    BUFFER_RESOURCE_NUM_STREAMS: int(_d_num_streams),
-    STREAMING_NUM_STREAMING_THREADS: int(_d_num_streaming_threads),
+    BUFFER_RESOURCE_NUM_STREAMS: _decode(_d_num_streams),
+    STREAMING_NUM_STREAMING_THREADS: _decode(_d_num_streaming_threads),
     STREAMING_MEMORY_RESERVE_TIMEOUT: _decode(_d_memory_reserve_timeout),
-    STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT: bool(_d_allow_overbooking_by_default),
+    STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT: _decode(
+        _d_allow_overbooking_by_default
+    ),
     COMMUNICATOR_LOG: _decode(_d_log),
     UCXX_PROGRESS_MODE: _decode(_d_ucxx_progress_mode),
 })

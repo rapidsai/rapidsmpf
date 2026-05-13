@@ -246,10 +246,10 @@ class Options {
      * the same key will result in a `std::bad_any_cast`.
      */
     template <typename T>
-    T const& get(std::string const& key, OptionFactory<T> factory) {
+    T const& get(std::string_view key, OptionFactory<T> factory) {
         auto& shared = *shared_;
         std::lock_guard<std::mutex> lock(shared.mutex);
-        auto& option = shared.options[key];
+        auto& option = shared.options[std::string{key}];
         if (!option.get_value().has_value()) {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
         }
@@ -399,44 +399,46 @@ std::unordered_map<std::string, std::string> get_environment_variables(
  * distinct from same-named runtime entities in its module (for example,
  * `rapidsmpf::ucxx::ProgressModeOption` vs the `enum class ProgressMode`).
  *
- * @tparam T The C++ type used to represent the option's parsed value.
- *           For options whose default is a percentage / nbytes / duration
- *           string, T is `std::string_view` and the default is parsed by the
- *           same factory the call site uses for user-supplied values.
+ * Both `key` and `default_val` are stored as `std::string_view`. Options are
+ * always parsed from their string representation at runtime, so the default
+ * is expressed as a string and fed through the same factory the call site
+ * uses for user-supplied values. Descriptors must be initialized from string
+ * literals so that `key.data()` and `default_val.data()` yield
+ * null-terminated `char const*` pointers, which are consumed directly by the
+ * Cython bindings.
  */
-template <typename T>
 struct OptionDescriptor {
-    char const* key;  ///< Null-terminated lookup key passed to `Options::get`.
-    T default_val;  ///< Value used when the option is unset.
+    std::string_view key;  ///< Lookup key passed to `Options::get`.
+    std::string_view default_val;  ///< String form of the value used when unset.
 };
 
 /// @brief Options for `rapidsmpf::Statistics::from_options`.
 namespace statistics {
 /// @brief Whether statistics tracking is enabled.
-inline constexpr OptionDescriptor<bool> EnabledOption{
+inline constexpr OptionDescriptor EnabledOption{
     .key = "statistics",
-    .default_val = false,
+    .default_val = "false",
 };
 }  // namespace statistics
 
 /// @brief Options for `rapidsmpf::PinnedMemoryResource::from_options`.
 namespace pinned_memory {
 /// @brief Whether pinned host memory is enabled.
-inline constexpr OptionDescriptor<bool> EnabledOption{
+inline constexpr OptionDescriptor EnabledOption{
     .key = "pinned_memory",
-    .default_val = false,
+    .default_val = "false",
 };
 
 /// @brief Initial pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * InitialPoolSizeOption`.
-inline constexpr OptionDescriptor<std::string_view> InitialPoolSizeOption{
+inline constexpr OptionDescriptor InitialPoolSizeOption{
     .key = "pinned_initial_pool_size",
     .default_val = "0%",
 };
 
 /// @brief Maximum pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * MaxPoolSizeOption`.
-inline constexpr OptionDescriptor<std::string_view> MaxPoolSizeOption{
+inline constexpr OptionDescriptor MaxPoolSizeOption{
     .key = "pinned_max_pool_size",
     .default_val = "80%",
 };
@@ -445,35 +447,35 @@ inline constexpr OptionDescriptor<std::string_view> MaxPoolSizeOption{
 /// @brief Options for `rapidsmpf::BufferResource::from_options` and helpers.
 namespace buffer_resource {
 /// @brief Device-memory spill limit (nbytes string or percent of total).
-inline constexpr OptionDescriptor<std::string_view> SpillDeviceLimitOption{
+inline constexpr OptionDescriptor SpillDeviceLimitOption{
     .key = "spill_device_limit",
     .default_val = "80%",
 };
 
 /// @brief Periodic spill-check interval (duration string or
 /// disabled-sentinel).
-inline constexpr OptionDescriptor<std::string_view> PeriodicSpillCheckOption{
+inline constexpr OptionDescriptor PeriodicSpillCheckOption{
     .key = "periodic_spill_check",
     .default_val = "1ms",
 };
 
 /// @brief CUDA stream-pool size used by the buffer resource.
-inline constexpr OptionDescriptor<std::size_t> NumStreamsOption{
+inline constexpr OptionDescriptor NumStreamsOption{
     .key = "num_streams",
-    .default_val = 16,
+    .default_val = "16",
 };
 }  // namespace buffer_resource
 
 /// @brief Options for the streaming subsystem.
 namespace streaming {
 /// @brief Number of threads in the streaming coroutine pool.
-inline constexpr OptionDescriptor<std::uint32_t> NumStreamingThreadsOption{
+inline constexpr OptionDescriptor NumStreamingThreadsOption{
     .key = "num_streaming_threads",
-    .default_val = 1,
+    .default_val = "1",
 };
 
 /// @brief Per-attempt timeout for streaming memory reservations.
-inline constexpr OptionDescriptor<std::string_view> MemoryReserveTimeoutOption{
+inline constexpr OptionDescriptor MemoryReserveTimeoutOption{
     .key = "memory_reserve_timeout",
     .default_val = "100 ms",
 };
@@ -481,9 +483,9 @@ inline constexpr OptionDescriptor<std::string_view> MemoryReserveTimeoutOption{
 /// @brief Whether streaming memory reservations may overbook by default.
 /// Used by `reserve_memory` when the caller does not pass an explicit
 /// `AllowOverbooking` policy.
-inline constexpr OptionDescriptor<bool> AllowOverbookingByDefaultOption{
+inline constexpr OptionDescriptor AllowOverbookingByDefaultOption{
     .key = "allow_overbooking_by_default",
-    .default_val = true,
+    .default_val = "true",
 };
 
 }  // namespace streaming
@@ -492,7 +494,7 @@ inline constexpr OptionDescriptor<bool> AllowOverbookingByDefaultOption{
 namespace communicator {
 /// @brief Logger verbosity level (string form, one of
 /// `Logger::LOG_LEVEL_NAMES`).
-inline constexpr OptionDescriptor<std::string_view> LogOption{
+inline constexpr OptionDescriptor LogOption{
     .key = "log",
     .default_val = "WARN",
 };
@@ -502,7 +504,7 @@ inline constexpr OptionDescriptor<std::string_view> LogOption{
 namespace ucxx {
 /// @brief UCXX worker progress mode; one of `"blocking"`, `"polling"`,
 /// `"thread-blocking"`, `"thread-polling"`.
-inline constexpr OptionDescriptor<std::string_view> ProgressModeOption{
+inline constexpr OptionDescriptor ProgressModeOption{
     .key = "ucxx_progress_mode",
     .default_val = "thread-blocking",
 };

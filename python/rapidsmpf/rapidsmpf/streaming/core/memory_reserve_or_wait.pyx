@@ -15,6 +15,7 @@ from rapidsmpf.memory.buffer cimport MemoryType
 
 from rapidsmpf.config_defaults import DEFAULTS as _OPTION_DEFAULTS
 from rapidsmpf.config_defaults import STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT
+from rapidsmpf.utils.string import parse_boolean as _parse_boolean
 
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
@@ -608,7 +609,9 @@ async def reserve_memory(
     if allow_overbooking is None:
         allow_overbooking = ctx.options().get_or_default(
             STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT,
-            default_value=_OPTION_DEFAULTS[STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT],
+            default_value=_parse_boolean(
+                _OPTION_DEFAULTS[STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT]
+            ),
         )
 
     memory = ctx.memory(mem_type)

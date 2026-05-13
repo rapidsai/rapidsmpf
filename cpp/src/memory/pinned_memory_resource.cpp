@@ -76,8 +76,9 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
 ) {
     bool const enabled =
         options.get<bool>(pinned_memory::EnabledOption.key, [](auto const& s) {
-            return s.empty() ? pinned_memory::EnabledOption.default_val
-                             : parse_string<bool>(s);
+            return parse_string<bool>(
+                s.empty() ? pinned_memory::EnabledOption.default_val : s
+            );
         });
 
     if (enabled && is_pinned_memory_resources_supported()) {

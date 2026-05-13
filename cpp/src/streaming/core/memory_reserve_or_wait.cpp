@@ -295,8 +295,9 @@ coro::task<MemoryReservation> reserve_memory(
     if (!allow_overbooking.has_value()) {
         bool const allow_overbook_default = ctx->options().get<bool>(
             AllowOverbookingByDefaultOption.key, [](std::string const& s) {
-                return s.empty() ? AllowOverbookingByDefaultOption.default_val
-                                 : parse_string<bool>(s);
+                return parse_string<bool>(
+                    s.empty() ? AllowOverbookingByDefaultOption.default_val : s
+                );
             }
         );
         allow_overbooking =

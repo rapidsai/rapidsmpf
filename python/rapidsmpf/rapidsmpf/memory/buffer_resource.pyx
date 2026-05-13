@@ -656,7 +656,7 @@ def stream_pool_from_options(Options options not None):
     """
     cdef int pool_size = options.get_or_default(
         BUFFER_RESOURCE_NUM_STREAMS,
-        default_value=_OPTION_DEFAULTS[BUFFER_RESOURCE_NUM_STREAMS],
+        default_value=int(_OPTION_DEFAULTS[BUFFER_RESOURCE_NUM_STREAMS]),
     )
     if pool_size < 1:
         raise ValueError(

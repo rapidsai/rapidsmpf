@@ -23,6 +23,6 @@ COMMUNICATOR_LOG: Final[str]
 
 UCXX_PROGRESS_MODE: Final[str]
 
-DEFAULTS: Final[Mapping[str, str | bool | int]]
+DEFAULTS: Final[Mapping[str, str]]
 
 __all__: list[str]

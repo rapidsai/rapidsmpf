@@ -311,8 +311,9 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
 std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
     auto const num_streams = options.get<std::size_t>(
         buffer_resource::NumStreamsOption.key, [](auto const& s) {
-            return s.empty() ? buffer_resource::NumStreamsOption.default_val
-                             : parse_string<std::size_t>(s);
+            return parse_string<std::size_t>(
+                s.empty() ? buffer_resource::NumStreamsOption.default_val : s
+            );
         }
     );
     RAPIDSMPF_EXPECTS(
