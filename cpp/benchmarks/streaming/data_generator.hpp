@@ -12,6 +12,7 @@
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "../utils/random_data.hpp"
 
@@ -52,7 +53,8 @@ inline Actor random_table_generator(
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
-    auto nbytes = static_cast<std::size_t>(ncolumns * nrows) * sizeof(std::int32_t);
+    auto nbytes = rapidsmpf::safe_cast<std::size_t>(ncolumns)
+                  * rapidsmpf::safe_cast<std::size_t>(nrows) * sizeof(std::int32_t);
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
         auto res =
             ctx->br()->reserve_device_memory_and_spill(nbytes, AllowOverbooking::NO);

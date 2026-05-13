@@ -28,6 +28,7 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
@@ -263,14 +264,17 @@ rapidsmpf::Duration run(
     std::vector<rapidsmpf::streaming::Actor> actors;
     {
         auto ch1 = ctx->create_channel();
+        auto const num_columns = rapidsmpf::safe_cast<cudf::size_type>(args.num_columns);
+        auto const num_local_rows =
+            rapidsmpf::safe_cast<cudf::size_type>(args.num_local_rows);
         actors.push_back(
             rapidsmpf::streaming::actor::random_table_generator(
                 ctx,
                 stream,
                 ch1,
                 args.num_local_partitions,
-                static_cast<cudf::size_type>(args.num_columns),
-                static_cast<cudf::size_type>(args.num_local_rows),
+                num_columns,
+                num_local_rows,
                 min_val,
                 max_val
             )
