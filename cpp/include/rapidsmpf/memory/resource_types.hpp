@@ -27,7 +27,7 @@ using any_host_device_resource =
  * @return True if the resource is host-accessible, false otherwise.
  */
 template <typename... Properties>
-[[nodiscard]] inline bool is_host_accessible(
+[[nodiscard]] bool is_host_accessible(
     cuda::mr::resource_ref<Properties...> const& mr
 ) noexcept {
     // Unqualified call so ADL finds the hidden-friend `get_property` declared
@@ -51,7 +51,7 @@ template <typename... Properties>
  * @return True if the resource is device-accessible, false otherwise.
  */
 template <typename... Properties>
-[[nodiscard]] inline bool is_device_accessible(
+[[nodiscard]] bool is_device_accessible(
     cuda::mr::resource_ref<Properties...> const& mr
 ) noexcept {
     // See `is_host_accessible` for why the call is unqualified (ADL).

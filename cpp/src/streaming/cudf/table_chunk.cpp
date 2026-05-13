@@ -161,7 +161,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     //    a. DEVICE       - cudf-copy table_view() into device memory.
     //    b. PINNED_HOST  - cudf::pack table_view() directly into pinned memory.
     //    c. HOST         - cudf::pack table_view() into intermediate device
-    //                       memory and then copy to host memory.
+    //                      memory and then copy to host memory.
     //
     // 2. The chunk data is already packed (packed_data_ != nullptr).
     //    Use buffer_copy() to copy the packed data into the reservation-
