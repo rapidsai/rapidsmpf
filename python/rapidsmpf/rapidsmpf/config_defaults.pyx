@@ -51,7 +51,7 @@ cdef extern from *:
         inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key; \\
         inline constexpr T d_##SUFFIX = rapidsmpf::NS::OPT.default_val;
 
-    RMPF_STR_OPT(statistics, statistics, EnabledOption)
+    RMPF_TYPED_OPT(bool, statistics, statistics, EnabledOption)
     RMPF_TYPED_OPT(bool, pinned_memory, pinned_memory, EnabledOption)
     RMPF_STR_OPT(pinned_initial_pool_size,
                  pinned_memory, InitialPoolSizeOption)
@@ -97,7 +97,6 @@ cdef extern from *:
     const char* _k_ucxx_progress_mode \
         "rapidsmpf_options_py::k_ucxx_progress_mode"
 
-    const char* _d_statistics "rapidsmpf_options_py::d_statistics"
     const char* _d_pinned_initial_pool_size \
         "rapidsmpf_options_py::d_pinned_initial_pool_size"
     const char* _d_pinned_max_pool_size \
@@ -112,6 +111,7 @@ cdef extern from *:
     const char* _d_ucxx_progress_mode \
         "rapidsmpf_options_py::d_ucxx_progress_mode"
 
+    bool_t _d_statistics "rapidsmpf_options_py::d_statistics"
     bool_t _d_pinned_memory "rapidsmpf_options_py::d_pinned_memory"
     bool_t _d_allow_overbooking_by_default \
         "rapidsmpf_options_py::d_allow_overbooking_by_default"
@@ -156,7 +156,7 @@ UCXX_PROGRESS_MODE: Final[str] = _decode(_k_ucxx_progress_mode)
 # Read-only mapping from option key to default value. The map itself is wrapped
 # in a `MappingProxyType` so call sites cannot mutate the canonical defaults;
 DEFAULTS: Final[Mapping[str, Union[str, bool, int]]] = MappingProxyType({
-    STATISTICS_ENABLED: _decode(_d_statistics),
+    STATISTICS_ENABLED: bool(_d_statistics),
     PINNED_MEMORY_ENABLED: bool(_d_pinned_memory),
     PINNED_MEMORY_INITIAL_POOL_SIZE: _decode(_d_pinned_initial_pool_size),
     PINNED_MEMORY_MAX_POOL_SIZE: _decode(_d_pinned_max_pool_size),

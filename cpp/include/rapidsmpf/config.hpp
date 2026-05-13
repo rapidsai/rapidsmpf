@@ -413,9 +413,9 @@ struct OptionDescriptor {
 /// @brief Options for `rapidsmpf::Statistics::from_options`.
 namespace statistics {
 /// @brief Whether statistics tracking is enabled.
-inline constexpr OptionDescriptor<std::string_view> EnabledOption{
+inline constexpr OptionDescriptor<bool> EnabledOption{
     .key = "statistics",
-    .default_val = "False",
+    .default_val = false,
 };
 }  // namespace statistics
 
