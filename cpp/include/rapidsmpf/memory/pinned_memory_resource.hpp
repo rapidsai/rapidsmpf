@@ -19,7 +19,6 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/config.hpp>
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -119,15 +118,12 @@ class PinnedMemoryResource final
     /**
      * @brief Construct from configuration options.
      *
-     * Recognized options:
-     * - `pinned_memory` (bool): enables pinned memory; defaults to
-     *   `rapidsmpf::defaults::pinned_memory::Enabled`.
-     * - `pinned_initial_pool_size` (nbytes string): initial pool size; defaults to
-     *   `get_host_memory_per_gpu() *
-     *   rapidsmpf::defaults::pinned_memory::InitialPoolSizeFactor`.
-     * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size; defaults to
-     *   `get_host_memory_per_gpu() *
-     *   rapidsmpf::defaults::pinned_memory::MaxPoolSizeFactor`.
+     * Recognized options (see `rapidsmpf::pinned_memory`):
+     * - `pinned_memory` (bool): enables pinned memory.
+     * - `pinned_initial_pool_size` (nbytes string): initial pool size, applied
+     *   as `get_host_memory_per_gpu() * InitialPoolSizeFactor`.
+     * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size,
+     *   applied as `get_host_memory_per_gpu() * MaxPoolSizeFactor`.
      *
      * @param options Configuration options.
      *

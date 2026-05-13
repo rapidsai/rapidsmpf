@@ -5,8 +5,8 @@
 
 #include <utility>
 
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 
 namespace rapidsmpf::streaming {
@@ -32,10 +32,10 @@ CoroThreadPoolExecutor::CoroThreadPoolExecutor(
 )
     : CoroThreadPoolExecutor(
           options.get<std::uint32_t>(
-              "num_streaming_threads",
+              NumStreamingThreadsOption.key,
               [](std::string const& s) -> std::uint32_t {
                   if (s.empty()) {
-                      return defaults::streaming::NumStreamingThreads;
+                      return NumStreamingThreadsOption.default_value;
                   }
                   if (int v = std::stoi(s); v > 0) {
                       return static_cast<std::uint32_t>(v);

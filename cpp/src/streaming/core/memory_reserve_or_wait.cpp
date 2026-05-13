@@ -13,8 +13,8 @@
 
 #include <coro/sync_wait.hpp>
 
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -30,11 +30,14 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{options.get<Duration>("memory_reserve_timeout", [](std::string const& s) {
-          return parse_duration(
-              s.empty() ? defaults::streaming::MemoryReserveTimeout : s
-          );
-      })} {
+      timeout_{options.get<Duration>(
+          MemoryReserveTimeoutOption.key,
+          [](std::string const& s) {
+              return parse_duration(
+                  s.empty() ? MemoryReserveTimeoutOption.default_value : s
+              );
+          }
+      )} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }

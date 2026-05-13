@@ -10,11 +10,11 @@
 #include <cuda/memory_resource>
 
 #include <rapidsmpf/cuda_stream.hpp>
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -276,29 +276,31 @@ std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
 memory_available_from_options(RmmResourceAdaptor mr, config::Options options) {
     // Create a memory availability map that limits device memory based on the
     // `spill_device_limit` option.
-    return {
-        {MemoryType::DEVICE,
-         LimitAvailableMemory{
-             std::move(mr),
-             options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
-                 auto const [_, total_mem] = rmm::available_device_memory();
-                 return rmm::align_down(
-                     parse_nbytes_or_percent(
-                         s.empty() ? defaults::buffer_resource::SpillDeviceLimit : s,
-                         total_mem
-                     ),
-                     rmm::CUDA_ALLOCATION_ALIGNMENT
-                 );
-             })
-         }}
-    };
+    auto const limit = options.get<std::int64_t>(
+        buffer_resource::SpillDeviceLimitOption.key,
+        [](auto const& s) {
+            auto const [_, total_mem] = rmm::available_device_memory();
+            return rmm::align_down(
+                parse_nbytes_or_percent(
+                    s.empty() ? buffer_resource::SpillDeviceLimitOption.default_value
+                              : s,
+                    total_mem
+                ),
+                rmm::CUDA_ALLOCATION_ALIGNMENT
+            );
+        }
+    );
+    return {{MemoryType::DEVICE, LimitAvailableMemory{std::move(mr), limit}}};
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
     return options.get<std::optional<Duration>>(
-        "periodic_spill_check", [](auto const& s) -> std::optional<Duration> {
+        buffer_resource::PeriodicSpillCheckOption.key,
+        [](auto const& s) -> std::optional<Duration> {
             if (s.empty()) {
-                return parse_duration(defaults::buffer_resource::PeriodicSpillCheck);
+                return parse_duration(
+                    buffer_resource::PeriodicSpillCheckOption.default_value
+                );
             }
             if (auto val = parse_optional(s); val.has_value()) {
                 return parse_duration(val.value());
@@ -309,10 +311,13 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
 }
 
 std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
-    auto const num_streams = options.get<std::size_t>("num_streams", [](auto const& s) {
-        return s.empty() ? defaults::buffer_resource::NumStreams
-                         : parse_string<std::size_t>(s);
-    });
+    auto const num_streams = options.get<std::size_t>(
+        buffer_resource::NumStreamsOption.key,
+        [](auto const& s) {
+            return s.empty() ? buffer_resource::NumStreamsOption.default_value
+                             : parse_string<std::size_t>(s);
+        }
+    );
     RAPIDSMPF_EXPECTS(
         num_streams > 0,
         "The `num_streams` option must be greater than 0",

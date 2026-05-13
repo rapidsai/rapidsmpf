@@ -12,6 +12,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -73,26 +74,35 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
 std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
-    bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return s.empty() ? defaults::pinned_memory::Enabled : parse_string<bool>(s);
-    });
+    bool const enabled = options.get<bool>(
+        pinned_memory::EnabledOption.key,
+        [](auto const& s) {
+            return s.empty() ? pinned_memory::EnabledOption.default_value
+                             : parse_string<bool>(s);
+        }
+    );
 
-    if (pinned_memory && is_pinned_memory_resources_supported()) {
+    if (enabled && is_pinned_memory_resources_supported()) {
         auto const host_memory_per_gpu = get_host_memory_per_gpu();
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
-                "pinned_initial_pool_size",
+                pinned_memory::InitialPoolSizeFactorOption.key,
                 [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? defaults::pinned_memory::InitialPoolSizeFactor : s,
+                        s.empty()
+                            ? pinned_memory::InitialPoolSizeFactorOption.default_value
+                            : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [&](auto const& s) {
+                pinned_memory::MaxPoolSizeFactorOption.key,
+                [&](auto const& s) {
                     return parse_nbytes_or_percent(
-                        s.empty() ? defaults::pinned_memory::MaxPoolSizeFactor : s,
+                        s.empty()
+                            ? pinned_memory::MaxPoolSizeFactorOption.default_value
+                            : s,
                         safe_cast<double>(host_memory_per_gpu)
                     );
                 }

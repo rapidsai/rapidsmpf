@@ -13,8 +13,8 @@
 #include <ucxx/request.h>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -937,12 +937,13 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::optional<RemoteAddress> remote_address,
     config::Options options
 ) {
-    auto progress_mode =
-        options.get<ProgressMode>("ucxx_progress_mode", [](auto const& s) {
+    auto progress_mode = options.get<ProgressMode>(
+        ProgressModeOption.key,
+        [](auto const& s) {
             // When the option is unset, parse the default through the same
             // matching logic as user input (single source of truth: the string).
             auto const value =
-                s.empty() ? rapidsmpf::defaults::ucxx::ProgressMode : std::string_view{s};
+                s.empty() ? ProgressModeOption.default_value : std::string_view{s};
             if (value == "blocking") {
                 return ProgressMode::Blocking;
             } else if (value == "polling") {
@@ -954,7 +955,8 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             } else {
                 RAPIDSMPF_FAIL("Invalid progress mode");
             }
-        });
+        }
+    );
 
     auto create_worker = [progress_mode]() {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);

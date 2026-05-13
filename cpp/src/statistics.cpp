@@ -12,8 +12,8 @@
 #include <sstream>
 #include <unordered_set>
 
-#include <rapidsmpf/defaults.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/options.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -168,10 +168,15 @@ Statistics::~Statistics() noexcept {
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
-    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? defaults::statistics::Enabled : s);
-    });
-    return statistics ? std::make_shared<Statistics>(statistics) : Statistics::disabled();
+    bool const enabled = options.get<bool>(
+        statistics::EnabledOption.key,
+        [](auto const& s) {
+            return parse_string<bool>(
+                s.empty() ? statistics::EnabledOption.default_value : s
+            );
+        }
+    );
+    return enabled ? std::make_shared<Statistics>(enabled) : Statistics::disabled();
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
