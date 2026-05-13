@@ -7,14 +7,6 @@
 
 # This function finds cuCascade and ensures cuDF transitive dependencies are available for linking.
 #
-# NOTE: We explicitly find kvikio and nvcomp here because:
-#
-# 1. cuCascade depends on cuDF, which depends on kvikio and nvcomp
-# 2. cuCascade runs as a CMake subdirectory/subproject and needs GLOBAL targets to see dependencies
-# 3. CMake's transitive dependency handling can fail with mixed static/shared libraries
-# 4. Without explicit transitive linking, the linker cannot find cuDF's dependent libraries when
-#    building tools
-#
 # We build cuCascade as a static library to avoid packaging issues with wheels.
 function(find_and_configure_cucascade)
   rapids_cpm_find(
