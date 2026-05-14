@@ -6,6 +6,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 
 import asyncio
 import inspect
@@ -21,8 +22,6 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
-
-from rapidsmpf.streaming.core.context cimport Context
 
 
 cdef extern from * nogil:
@@ -223,12 +222,21 @@ def define_actor(*, extra_channels=()):
     return partial(decorate_actor, extra_channels)
 
 
-def sync_wait(fn):
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(fn)
-    finally:
-        loop.close()
+def sync_wait(coro):
+    """
+    Run, and wait for completion of, a coroutine.
+
+    This builds a new event loop with :class:`asyncio.Runner` and runs the
+    coroutine to completion in that event loop, shutting the loop down
+    afterwards.
+
+    Notes
+    -----
+    This should always be called from a thread we control to ensure no live
+    event loop is running.
+    """
+    with asyncio.Runner() as runner:
+        runner.run(coro)
 
 
 async def when_all(Context ctx not None, list cpp_actors):
