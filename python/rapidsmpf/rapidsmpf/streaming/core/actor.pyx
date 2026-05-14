@@ -348,5 +348,5 @@ def run_actor_network(Context ctx not None, *, actors):
     py_actors = [when_all(ctx, cpp_actors), *py_actors]
     # Need to run in a separate thread in case the cluster runtime already
     # has an async event loop.
-    executor = ThreadPoolExecutor(max_workers=1)
-    executor.submit(sync_wait, run_py_actors(py_actors)).result()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        executor.submit(sync_wait, run_py_actors(py_actors)).result()
