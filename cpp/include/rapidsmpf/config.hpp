@@ -117,6 +117,40 @@ class OptionValue {
 namespace detail {
 
 /**
+ * @brief Transparent hasher for `std::string`-keyed maps.
+ *
+ * Enables heterogeneous lookup so `find()` and friends accept
+ * `std::string_view` (and `char const*`) without first constructing a
+ * `std::string`, avoiding an allocation on every lookup.
+ */
+struct StringHash {
+    /// @brief Opt-in marker that enables heterogeneous lookup on associative
+    /// containers using this hasher (paired with `std::equal_to<>`).
+    using is_transparent = void;
+
+    /// @brief Hash a `std::string_view` (the canonical overload).
+    /// @param sv The `std::string_view` to hash.
+    /// @return The hash of the `std::string_view`.
+    [[nodiscard]] std::size_t operator()(std::string_view sv) const noexcept {
+        return std::hash<std::string_view>{}(sv);
+    }
+
+    /// @brief Hash a `std::string` via its `string_view` view.
+    /// @param s The `std::string` to hash.
+    /// @return The hash of the `std::string`.
+    [[nodiscard]] std::size_t operator()(std::string const& s) const noexcept {
+        return std::hash<std::string_view>{}(s);
+    }
+
+    /// @brief Hash a null-terminated C string via its `string_view` view.
+    /// @param s The null-terminated C string to hash.
+    /// @return The hash of the null-terminated C string.
+    [[nodiscard]] std::size_t operator()(char const* s) const noexcept {
+        return std::hash<std::string_view>{}(s);
+    }
+};
+
+/**
  * @brief Internal shared collection for the `Options` class.
  *
  * This struct is used internally by `Options` to share the options between
@@ -125,7 +159,9 @@ namespace detail {
  */
 struct SharedOptions {
     mutable std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
-    std::unordered_map<std::string, OptionValue> options;  ///< Shared options.
+    /// @brief Shared options. Uses transparent hashing/equality so reads
+    /// against descriptor keys avoid constructing a temporary `std::string`.
+    std::unordered_map<std::string, OptionValue, StringHash, std::equal_to<>> options;
 };
 }  // namespace detail
 
@@ -249,7 +285,13 @@ class Options {
     T const& get(std::string_view key, OptionFactory<T> factory) {
         auto& shared = *shared_;
         std::lock_guard<std::mutex> lock(shared.mutex);
-        auto& option = shared.options[std::string{key}];
+        // Heterogeneous lookup avoids constructing a `std::string` when the
+        // key is already present; only the first-insert path allocates.
+        auto it = shared.options.find(key);
+        if (it == shared.options.end()) {
+            it = shared.options.try_emplace(std::string{key}).first;
+        }
+        auto& option = it->second;
         if (!option.get_value().has_value()) {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
         }
@@ -402,10 +444,10 @@ std::unordered_map<std::string, std::string> get_environment_variables(
  * Both `key` and `default_val` are stored as `std::string_view`. Options are
  * always parsed from their string representation at runtime, so the default
  * is expressed as a string and fed through the same factory the call site
- * uses for user-supplied values. Descriptors must be initialized from string
- * literals so that `key.data()` and `default_val.data()` yield
- * null-terminated `char const*` pointers, which are consumed directly by the
- * Cython bindings.
+ * uses for user-supplied values. Descriptors must be initialized from
+ * string literals so that `key.data()` and `default_val.data()` yield
+ * null-terminated `char const*` pointers, which are consumed directly by
+ * the Cython bindings.
  */
 struct OptionDescriptor {
     std::string_view key;  ///< Lookup key passed to `Options::get`.
