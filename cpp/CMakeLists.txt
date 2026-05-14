@@ -314,10 +314,9 @@ endif()
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro>
+         $<TARGET_NAME_IF_EXISTS:libcoro> CUDA::cudart_static
   PRIVATE cuco::cuco
-          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
-          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
