@@ -30,10 +30,6 @@ template <typename... Properties>
 [[nodiscard]] bool is_host_accessible(
     cuda::mr::resource_ref<Properties...> const& mr
 ) noexcept {
-    // Unqualified call so ADL finds the hidden-friend `get_property` declared
-    // inside CCCL's type-erasure machinery for `resource_ref`. The qualified
-    // `cuda::mr::get_property` overload is SFINAE-disabled for type-erased
-    // wrappers via `__disable_default_dynamic_accessibility_property`.
     auto const accessibility =
         get_property(mr, cuda::mr::dynamic_accessibility_property{});
     return accessibility == cuda::mr::__memory_accessibility::__host
