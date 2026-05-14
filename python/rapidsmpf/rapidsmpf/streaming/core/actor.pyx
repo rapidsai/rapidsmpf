@@ -26,6 +26,8 @@ from rapidsmpf.streaming.core.context import Context
 
 cdef extern from * nogil:
     """
+    #include <rapidsmpf/streaming/core/coro_utils.hpp>
+
     namespace {
     coro::task<void> cpp_when_all_task(
         std::vector<rapidsmpf::streaming::Actor> actors
@@ -266,7 +268,21 @@ async def when_all(Context ctx not None, list cpp_actors):
             cpp_set_py_future,
             move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
         )
-    await ret
+    try:
+        # This shield makes sure that if a cancellation is raised, the
+        # future is not cancelled.
+        await asyncio.shield(ret)
+    except asyncio.CancelledError as cancel:
+        # The outer awaitable was cancelled, but we must still ensure the
+        # C++ future still runs to completion.
+        try:
+            # This could still fail so we catch and reraise the
+            # cancellation but recording the C++ exception as well.
+            await asyncio.shield(ret)
+        except Exception as cpp_except:
+            raise cancel from cpp_except
+        # Otherwise just reraise the cancellation
+        raise cancel
 
 
 def run_actor_network(Context ctx not None, *, actors):
