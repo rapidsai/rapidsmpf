@@ -23,6 +23,10 @@ repos:
         entry: ./cpp/scripts/run-cmake-format.sh cmake-format
         language: python
         types: [cmake]
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
         # Note that pre-commit autoupdate does not update the versions
         # of dependencies, so we'll have to update this manually.
         additional_dependencies:
@@ -34,6 +38,10 @@ repos:
         entry: ./cpp/scripts/run-cmake-format.sh cmake-lint
         language: python
         types: [cmake]
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
         # Note that pre-commit autoupdate does not update the versions
         # of dependencies, so we'll have to update this manually.
         additional_dependencies:
@@ -112,6 +120,10 @@ repos:
             dependencies[.]yaml$|
             Makefile$|
             make[.]bat$
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
       - id: verify-alpha-spec
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
