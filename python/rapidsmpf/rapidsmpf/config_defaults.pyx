@@ -32,8 +32,9 @@ from typing import Final
 # (e.g. ``EnabledOption.key``) cannot appear directly in a Cython
 # ``cdef extern`` alias, so a tiny helper namespace re-exposes each as a
 # plain identifier with a stable spelling. Both ``key`` and ``default_val``
-# are ``std::string_view``s initialised from string literals, so ``.data()``
-# yields a null-terminated ``const char*`` suitable for Cython byte decoding.
+# are owning ``std::string``s with static storage duration; ``.c_str()``
+# yields a long-lived, null-terminated ``const char*`` suitable for Cython
+# byte decoding.
 cdef extern from *:
     """
     #include <rapidsmpf/config.hpp>
@@ -41,8 +42,8 @@ cdef extern from *:
     // Exposes `k_<SUFFIX>` and `d_<SUFFIX>` as `const char*` aliases for the
     // key and default-value strings of `rapidsmpf::NS::OPT`.
     #define RMPF_OPT(SUFFIX, NS, OPT) \\
-        inline constexpr const char* k_##SUFFIX = rapidsmpf::NS::OPT.key.data(); \\
-        inline constexpr const char* d_##SUFFIX = rapidsmpf::NS::OPT.default_val.data();
+        inline char const* const k_##SUFFIX = rapidsmpf::NS::OPT.key.c_str(); \\
+        inline char const* const d_##SUFFIX = rapidsmpf::NS::OPT.default_val.c_str();
 
     RMPF_OPT(statistics, statistics, EnabledOption)
     RMPF_OPT(pinned_memory, pinned_memory, EnabledOption)

@@ -117,40 +117,6 @@ class OptionValue {
 namespace detail {
 
 /**
- * @brief Transparent hasher for `std::string`-keyed maps.
- *
- * Enables heterogeneous lookup so `find()` and friends accept
- * `std::string_view` (and `char const*`) without first constructing a
- * `std::string`, avoiding an allocation on every lookup.
- */
-struct StringHash {
-    /// @brief Opt-in marker that enables heterogeneous lookup on associative
-    /// containers using this hasher (paired with `std::equal_to<>`).
-    using is_transparent = void;
-
-    /// @brief Hash a `std::string_view` (the canonical overload).
-    /// @param sv The `std::string_view` to hash.
-    /// @return The hash of the `std::string_view`.
-    [[nodiscard]] std::size_t operator()(std::string_view sv) const noexcept {
-        return std::hash<std::string_view>{}(sv);
-    }
-
-    /// @brief Hash a `std::string` via its `string_view` view.
-    /// @param s The `std::string` to hash.
-    /// @return The hash of the `std::string`.
-    [[nodiscard]] std::size_t operator()(std::string const& s) const noexcept {
-        return std::hash<std::string_view>{}(s);
-    }
-
-    /// @brief Hash a null-terminated C string via its `string_view` view.
-    /// @param s The null-terminated C string to hash.
-    /// @return The hash of the null-terminated C string.
-    [[nodiscard]] std::size_t operator()(char const* s) const noexcept {
-        return std::hash<std::string_view>{}(s);
-    }
-};
-
-/**
  * @brief Internal shared collection for the `Options` class.
  *
  * This struct is used internally by `Options` to share the options between
@@ -159,9 +125,7 @@ struct StringHash {
  */
 struct SharedOptions {
     mutable std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
-    /// @brief Shared options. Uses transparent hashing/equality so reads
-    /// against descriptor keys avoid constructing a temporary `std::string`.
-    std::unordered_map<std::string, OptionValue, StringHash, std::equal_to<>> options;
+    std::unordered_map<std::string, OptionValue> options;  ///< Shared options.
 };
 }  // namespace detail
 
@@ -282,16 +246,10 @@ class Options {
      * the same key will result in a `std::bad_any_cast`.
      */
     template <typename T>
-    T const& get(std::string_view key, OptionFactory<T> factory) {
+    T const& get(std::string const& key, OptionFactory<T> factory) {
         auto& shared = *shared_;
         std::lock_guard<std::mutex> lock(shared.mutex);
-        // Heterogeneous lookup avoids constructing a `std::string` when the
-        // key is already present; only the first-insert path allocates.
-        auto it = shared.options.find(key);
-        if (it == shared.options.end()) {
-            it = shared.options.try_emplace(std::string{key}).first;
-        }
-        auto& option = it->second;
+        auto& option = shared.options[key];
         if (!option.get_value().has_value()) {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
         }
@@ -429,10 +387,10 @@ std::unordered_map<std::string, std::string> get_environment_variables(
 }  // namespace config
 
 /**
- * @brief Compile-time descriptor for a single configuration option.
+ * @brief Descriptor for a single configuration option.
  *
  * Couples an option's lookup key with its default value so the two cannot
- * drift apart. Instances are `inline constexpr` and live in the module
+ * drift apart. Instances are `inline const` and live in the module
  * sub-namespaces below (e.g. `rapidsmpf::statistics`,
  * `rapidsmpf::buffer_resource`); consult those for the canonical list of
  * options understood by the `from_options` factories.
@@ -441,23 +399,20 @@ std::unordered_map<std::string, std::string> get_environment_variables(
  * distinct from same-named runtime entities in its module (for example,
  * `rapidsmpf::ucxx::ProgressModeOption` vs the `enum class ProgressMode`).
  *
- * Both `key` and `default_val` are stored as `std::string_view`. Options are
- * always parsed from their string representation at runtime, so the default
- * is expressed as a string and fed through the same factory the call site
- * uses for user-supplied values. Descriptors must be initialized from
- * string literals so that `key.data()` and `default_val.data()` yield
- * null-terminated `char const*` pointers, which are consumed directly by
- * the Cython bindings.
+ * Both `key` and `default_val` are owning `std::string`s. Options are always
+ * parsed from their string representation at runtime, so the default is
+ * expressed as a string and fed through the same factory the call site uses
+ * for user-supplied values.
  */
 struct OptionDescriptor {
-    std::string_view key;  ///< Lookup key passed to `Options::get`.
-    std::string_view default_val;  ///< String form of the value used when unset.
+    std::string const key;  ///< Lookup key passed to `Options::get`.
+    std::string const default_val;  ///< String form of the value used when unset.
 };
 
 /// @brief Options for `rapidsmpf::Statistics::from_options`.
 namespace statistics {
 /// @brief Whether statistics tracking is enabled.
-inline constexpr OptionDescriptor EnabledOption{
+inline const OptionDescriptor EnabledOption{
     .key = "statistics",
     .default_val = "false",
 };
@@ -466,21 +421,21 @@ inline constexpr OptionDescriptor EnabledOption{
 /// @brief Options for `rapidsmpf::PinnedMemoryResource::from_options`.
 namespace pinned_memory {
 /// @brief Whether pinned host memory is enabled.
-inline constexpr OptionDescriptor EnabledOption{
+inline const OptionDescriptor EnabledOption{
     .key = "pinned_memory",
     .default_val = "false",
 };
 
 /// @brief Initial pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * InitialPoolSizeOption`.
-inline constexpr OptionDescriptor InitialPoolSizeOption{
+inline const OptionDescriptor InitialPoolSizeOption{
     .key = "pinned_initial_pool_size",
     .default_val = "0%",
 };
 
 /// @brief Maximum pinned-pool size, applied as
 /// `get_host_memory_per_gpu() * MaxPoolSizeOption`.
-inline constexpr OptionDescriptor MaxPoolSizeOption{
+inline const OptionDescriptor MaxPoolSizeOption{
     .key = "pinned_max_pool_size",
     .default_val = "80%",
 };
@@ -489,20 +444,20 @@ inline constexpr OptionDescriptor MaxPoolSizeOption{
 /// @brief Options for `rapidsmpf::BufferResource::from_options` and helpers.
 namespace buffer_resource {
 /// @brief Device-memory spill limit (nbytes string or percent of total).
-inline constexpr OptionDescriptor SpillDeviceLimitOption{
+inline const OptionDescriptor SpillDeviceLimitOption{
     .key = "spill_device_limit",
     .default_val = "80%",
 };
 
 /// @brief Periodic spill-check interval (duration string or
 /// disabled-sentinel).
-inline constexpr OptionDescriptor PeriodicSpillCheckOption{
+inline const OptionDescriptor PeriodicSpillCheckOption{
     .key = "periodic_spill_check",
     .default_val = "1ms",
 };
 
 /// @brief CUDA stream-pool size used by the buffer resource.
-inline constexpr OptionDescriptor NumStreamsOption{
+inline const OptionDescriptor NumStreamsOption{
     .key = "num_streams",
     .default_val = "16",
 };
@@ -511,13 +466,13 @@ inline constexpr OptionDescriptor NumStreamsOption{
 /// @brief Options for the streaming subsystem.
 namespace streaming {
 /// @brief Number of threads in the streaming coroutine pool.
-inline constexpr OptionDescriptor NumStreamingThreadsOption{
+inline const OptionDescriptor NumStreamingThreadsOption{
     .key = "num_streaming_threads",
     .default_val = "1",
 };
 
 /// @brief Per-attempt timeout for streaming memory reservations.
-inline constexpr OptionDescriptor MemoryReserveTimeoutOption{
+inline const OptionDescriptor MemoryReserveTimeoutOption{
     .key = "memory_reserve_timeout",
     .default_val = "100 ms",
 };
@@ -525,7 +480,7 @@ inline constexpr OptionDescriptor MemoryReserveTimeoutOption{
 /// @brief Whether streaming memory reservations may overbook by default.
 /// Used by `reserve_memory` when the caller does not pass an explicit
 /// `AllowOverbooking` policy.
-inline constexpr OptionDescriptor AllowOverbookingByDefaultOption{
+inline const OptionDescriptor AllowOverbookingByDefaultOption{
     .key = "allow_overbooking_by_default",
     .default_val = "true",
 };
@@ -536,7 +491,7 @@ inline constexpr OptionDescriptor AllowOverbookingByDefaultOption{
 namespace communicator {
 /// @brief Logger verbosity level (string form, one of
 /// `Logger::LOG_LEVEL_NAMES`).
-inline constexpr OptionDescriptor LogOption{
+inline const OptionDescriptor LogOption{
     .key = "log",
     .default_val = "WARN",
 };
@@ -546,7 +501,7 @@ inline constexpr OptionDescriptor LogOption{
 namespace ucxx {
 /// @brief UCXX worker progress mode; one of `"blocking"`, `"polling"`,
 /// `"thread-blocking"`, `"thread-polling"`.
-inline constexpr OptionDescriptor ProgressModeOption{
+inline const OptionDescriptor ProgressModeOption{
     .key = "ucxx_progress_mode",
     .default_val = "thread-blocking",
 };
