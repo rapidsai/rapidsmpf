@@ -9,10 +9,12 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.libcudf.types cimport null_order as cpp_null_order
 from pylibcudf.libcudf.types cimport order as cpp_order
+from pylibcudf.table cimport Table
+from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.streaming.core.message cimport Message
-from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk
+from rapidsmpf.streaming.cudf.table_chunk cimport TableChunk, cpp_TableChunk
 
 
 cdef extern from * nogil:
@@ -181,6 +183,14 @@ cdef class OrderScheme:
     def num_boundaries(self) -> int:
         """Number of boundary rows (N-1 for N partitions)."""
         return self._handle.boundaries.get().shape().first
+
+    def get_boundaries(self) -> tuple[Table, Stream]:
+        """Return the boundary rows and their CUDA stream as a zero-copy view."""
+        cdef const cpp_TableChunk* chunk = self._handle.boundaries.get()
+        cdef Stream stream = Stream._from_cudaStream_t(chunk.stream().value())
+        return Table.from_table_view_of_arbitrary(
+            chunk.table_view(), owner=self, stream=stream
+        ), stream
 
     def with_keys(self, object new_keys) -> OrderScheme:
         """Return a new ``OrderScheme`` with updated key column indices."""
