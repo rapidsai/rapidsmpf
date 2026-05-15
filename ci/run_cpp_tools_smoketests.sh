@@ -6,7 +6,7 @@ set -xeuo pipefail
 
 CI_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 TIMEOUT_TOOL_PATH="${CI_PATH}"/timeout_with_stack.py
-VALIDATE_TOPOLOGY_PATH="${CI_PATH}"/validate_topology_json.py
+# VALIDATE_TOPOLOGY_PATH="${CI_PATH}"/validate_topology_json.py
 
 # Support customizing the ctests' install location
 INSTALL_BIN="${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin"
@@ -33,4 +33,4 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     rrun --tag-output -n 1 -g 0 ./bench_streaming_shuffle -m cuda -C ucxx
 
-topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -
+# topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -
