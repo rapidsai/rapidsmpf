@@ -11,7 +11,6 @@
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/bootstrap/socket_backend.hpp>
 #include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/config.hpp>
 
 #ifdef RAPIDSMPF_HAVE_SLURM
 #include <rapidsmpf/bootstrap/slurm_backend.hpp>

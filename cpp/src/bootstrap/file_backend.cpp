@@ -22,7 +22,6 @@
 
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/bootstrap/utils.hpp>
-#include <rapidsmpf/error.hpp>
 
 // NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
 // Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
