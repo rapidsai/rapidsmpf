@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Literal, Self
 
 import pylibcudf as plc
-from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.streaming.core.message import Message
@@ -46,7 +45,7 @@ class OrderScheme:
     def strict_boundaries(self) -> bool: ...
     @property
     def num_boundaries(self) -> int: ...
-    def get_boundaries(self) -> tuple[plc.Table, Stream]: ...
+    def get_boundaries(self, br: BufferResource) -> TableChunk: ...
     def with_keys(self, new_keys: Sequence[OrderKey]) -> OrderScheme: ...
     def boundaries_aligned_with(
         self, other: OrderScheme, br: BufferResource

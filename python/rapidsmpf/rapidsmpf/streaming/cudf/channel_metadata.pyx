@@ -184,13 +184,16 @@ cdef class OrderScheme:
         """Number of boundary rows (N-1 for N partitions)."""
         return self._handle.boundaries.get().shape().first
 
-    def get_boundaries(self) -> tuple[Table, Stream]:
-        """Return the boundary rows and their CUDA stream as a zero-copy view."""
+    def get_boundaries(self, BufferResource br not None) -> TableChunk:
+        """Return the boundary rows as a zero-copy TableChunk view."""
         cdef const cpp_TableChunk* chunk = self._handle.boundaries.get()
         cdef Stream stream = Stream._from_cudaStream_t(chunk.stream().value())
-        return Table.from_table_view_of_arbitrary(
+        tbl = Table.from_table_view_of_arbitrary(
             chunk.table_view(), owner=self, stream=stream
-        ), stream
+        )
+        return TableChunk.from_pylibcudf_table(
+            tbl, stream, exclusive_view=False, br=br
+        )
 
     def with_keys(self, object new_keys) -> OrderScheme:
         """Return a new ``OrderScheme`` with updated key column indices."""

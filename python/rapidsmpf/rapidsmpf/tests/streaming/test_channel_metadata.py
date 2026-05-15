@@ -111,14 +111,12 @@ def test_order_scheme(context: Context) -> None:
 
 def test_order_scheme_get_boundaries(context: Context) -> None:
     scheme = _two_key_order_scheme(context)
-    tbl, stream = scheme.get_boundaries()
-    assert tbl.num_columns() == 2
-    assert tbl.num_rows() == 1
+    chunk = scheme.get_boundaries(context.br())
+    assert chunk.table_view().num_columns() == 2
+    assert chunk.table_view().num_rows() == 1
     scheme2 = OrderScheme(
         scheme.keys,
-        TableChunk.from_pylibcudf_table(
-            tbl, stream, exclusive_view=False, br=context.br()
-        ),
+        chunk,
         strict_boundaries=scheme.strict_boundaries,
     )
     assert scheme2.boundaries_aligned_with(scheme, context.br())
