@@ -145,15 +145,13 @@ def test_basic_allgather(
     this_rank = comm.rank
     n_ranks = comm.nranks
 
-    # Insert data from this rank
-    for i in range(n_inserts):
-        packed_data = generate_packed_data(
-            n_elements, gen_offset(i, this_rank), stream, br
-        )
-        allgather.insert(i, packed_data)
-
-    # Mark this rank as finished
-    allgather.insert_finished()
+    # Insert data from this rank and mark as finished
+    with allgather as ag:
+        for i in range(n_inserts):
+            packed_data = generate_packed_data(
+                n_elements, gen_offset(i, this_rank), stream, br
+            )
+            ag.insert(i, packed_data)
 
     # Wait for completion and extract results
     results = allgather.wait_and_extract(ordered=ordered)

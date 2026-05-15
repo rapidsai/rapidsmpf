@@ -116,6 +116,13 @@ cdef class AllGather:
         with nogil:
             deref(self._handle).insert_finished()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.insert_finished()
+        return False  # do not suppress exceptions
+
     def wait_and_extract(self, bool ordered = True, int timeout_ms = -1):
         """
         Wait for completion and extract all gathered data.

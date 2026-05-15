@@ -124,6 +124,13 @@ cdef class AllGather:
         with nogil:
             deref(self._handle).insert_finished()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.insert_finished()
+        return False  # do not suppress exceptions
+
     async def extract_all(self, Context ctx, *, bool ordered):
         """
         Suspend and extract all data from the AllGather.

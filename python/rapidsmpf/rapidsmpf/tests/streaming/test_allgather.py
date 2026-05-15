@@ -125,10 +125,10 @@ async def allgather_and_concat(
     op_id: int,
 ) -> None:
     gather = AllGather(context, comm, op_id)
-    while (msg := await ch_in.recv(context)) is not None:
-        chunk = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
-        gather.insert(msg.sequence_number, chunk)
-    gather.insert_finished()
+    with gather as ag:
+        while (msg := await ch_in.recv(context)) is not None:
+            chunk = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
+            ag.insert(msg.sequence_number, chunk)
     gathered = await gather.extract_all(context, ordered=True)
     stream = context.get_stream_from_pool()
     table = unpack_and_concat(gathered, stream, context.br())
