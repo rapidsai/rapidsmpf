@@ -20,6 +20,7 @@
 
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "utils/random_data.hpp"
 
@@ -44,7 +45,7 @@ void run_pack(
 
     // Calculate number of rows for a single-column table of the desired size
     auto const nrows =
-        static_cast<cudf::size_type>(table_size_bytes / sizeof(random_data_t));
+        rapidsmpf::safe_cast<cudf::size_type>(table_size_bytes / sizeof(random_data_t));
     auto table = random_table(1, nrows, 0, 1000, stream, table_mr);
 
     // Warm up
@@ -120,7 +121,8 @@ void run_chunked_pack(
     rmm::cuda_stream_view stream
 ) {
     // Calculate number of rows for a single-column table of the desired size
-    auto const nrows = static_cast<cudf::size_type>(table_size / sizeof(random_data_t));
+    auto const nrows =
+        rapidsmpf::safe_cast<cudf::size_type>(table_size / sizeof(random_data_t));
     auto table = random_table(1, nrows, 0, 1000, stream, table_mr);
 
     // Create the chunked_pack instance to get total output size

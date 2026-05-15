@@ -22,6 +22,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -131,9 +132,18 @@ class BufferResource {
     /**
      * @brief Get the RMM pinned host memory resource.
      *
+     * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
+
+    /**
+     * @brief Get the pinned host memory resource if available.
+     *
+     * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
+     * pinned host memory is not available.
+     */
+    [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.

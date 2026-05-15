@@ -1,6 +1,6 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
@@ -34,6 +34,5 @@ endif()
 
 unset(rapidsmpf_FOUND)
 
-set(CUDA_STATIC_RUNTIME ON)
 add_subdirectory(../../cpp librapidsmpf-cpp)
 find_package(CUDAToolkit REQUIRED)

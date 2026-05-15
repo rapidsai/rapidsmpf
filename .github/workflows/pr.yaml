@@ -323,7 +323,7 @@ jobs:
       arch: "amd64"
       # TODO: switch to {rapids-version}-latest when there are 'ray' packages for Python 3.14
       #  ref: https://github.com/rapidsai/rapidsmpf/issues/897
-      container_image: "rapidsai/ci-conda:26.06-cuda13.0.2-ubuntu22.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.08-cuda13.0.2-ubuntu22.04-py3.13"
       script: "ci/build_docs.sh"
   devcontainer:
     permissions:
@@ -336,7 +336,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
-      cuda: '["13.1"]'
+      cuda: '["13.2"]'
       python_package_manager: '["conda", "pip"]'
       node_type: "cpu8"
       env: |

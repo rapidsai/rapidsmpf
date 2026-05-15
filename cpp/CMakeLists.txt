@@ -21,7 +21,7 @@ rapids_cuda_init_architectures(RAPIDSMPF)
 project(
   RAPIDSMPF
   VERSION "${RAPIDS_VERSION}"
-  LANGUAGES C CXX CUDA
+  LANGUAGES CXX CUDA
 )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -51,8 +51,6 @@ option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
-# cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
-option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
@@ -68,7 +66,6 @@ message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
 message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
-message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
@@ -122,6 +119,7 @@ include(../cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
+
 rapids_cpm_init()
 
 rapids_find_package(
@@ -316,12 +314,11 @@ endif()
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro>
+         $<TARGET_NAME_IF_EXISTS:libcoro> CUDA::cudart_static
   PRIVATE cuco::cuco
-          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
-          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           $<TARGET_NAME_IF_EXISTS:conda_env>
@@ -342,7 +339,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
-rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
+rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
 add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
 

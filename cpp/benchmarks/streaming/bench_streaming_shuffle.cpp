@@ -28,6 +28,7 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 #include "../utils/misc.hpp"
@@ -263,14 +264,17 @@ rapidsmpf::Duration run(
     std::vector<rapidsmpf::streaming::Actor> actors;
     {
         auto ch1 = ctx->create_channel();
+        auto const num_columns = rapidsmpf::safe_cast<cudf::size_type>(args.num_columns);
+        auto const num_local_rows =
+            rapidsmpf::safe_cast<cudf::size_type>(args.num_local_rows);
         actors.push_back(
             rapidsmpf::streaming::actor::random_table_generator(
                 ctx,
                 stream,
                 ch1,
                 args.num_local_partitions,
-                static_cast<cudf::size_type>(args.num_columns),
-                static_cast<cudf::size_type>(args.num_local_rows),
+                num_columns,
+                num_local_rows,
                 min_val,
                 max_val
             )
@@ -363,13 +367,14 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = args.enable_memory_profiler
-                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr)
-                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+
+    auto pinned_mr = args.pinned_mem_disable
+                         ? rapidsmpf::PinnedMemoryResource::Disabled
+                         : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         stat_enabled_mr,
-        args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
-                                : rapidsmpf::PinnedMemoryResource::make_if_available(),
+        pinned_mr,
         std::move(memory_available),
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(
@@ -455,7 +460,17 @@ int main(int argc, char** argv) {
         }
         log.print(ss.str());
     }
-    log.print(ctx->statistics()->report("Statistics (of the last run):"));
+
+    if (args.enable_memory_profiler) {
+        log.print(ctx->statistics()->report({
+            .mr = stat_enabled_mr,
+            .pinned_mr = pinned_mr,
+            .header = "Statistics (of the last run):",
+        }));
+    } else {
+        log.print(ctx->statistics()->report({.header = "Statistics (of the last run):"}));
+    }
+
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Finalize());
     }

@@ -23,6 +23,7 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -300,7 +301,9 @@ rapidsmpf::Duration do_run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
-        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
+        if (args.enable_memory_profiler) {
+            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr(), "shuffling");
+        }
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             0,  // op_id
@@ -371,28 +374,23 @@ std::vector<InputPartitionsT> generate_input_partitions(
     rapidsmpf::BufferResource* br,
     TransformFn&& transform_fn
 ) {
+    auto const num_columns = rapidsmpf::safe_cast<cudf::size_type>(args.num_columns);
+    auto const num_local_rows =
+        rapidsmpf::safe_cast<cudf::size_type>(args.num_local_rows);
     std::int32_t const min_val = 0;
-    std::int32_t const max_val = args.num_local_rows;
+    std::int32_t const max_val = num_local_rows;
 
     std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        std::size_t size_lb = random_table_size_lower_bound(
-            static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows)
-        );
+        std::size_t size_lb = random_table_size_lower_bound(num_columns, num_local_rows);
 
         // reserve at least size_lb and spill if necessary.
         auto res = br->reserve_device_memory_and_spill(
             size_lb, args.input_data_allow_overbooking
         );
         cudf::table table = random_table(
-            static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows),
-            min_val,
-            max_val,
-            stream,
-            br->device_mr()
+            num_columns, num_local_rows, min_val, max_val, stream, br->device_mr()
         );
         input_partitions.emplace_back(transform_fn(std::move(table)));
     }
@@ -538,7 +536,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     set_current_rmm_resource(args.rmm_mr);
-    auto stat_enabled_mr = set_device_mem_resource_with_stats();
+    rapidsmpf::RmmResourceAdaptor stat_enabled_mr = set_device_mem_resource_with_stats();
 
     std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
@@ -548,11 +546,7 @@ int main(int argc, char** argv) {
         };
     }
 
-    // Create statistics (enabled from the start) and pass to BufferResource so that
-    // all components (Shuffler, SpillManager, etc.) share the same statistics object.
-    auto stats = args.enable_memory_profiler
-                     ? std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr)
-                     : std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();
@@ -682,7 +676,14 @@ int main(int argc, char** argv) {
         }
         log->print(ss.str());
     }
-    log->print(stats->report("Statistics (of the last run):"));
+
+    if (args.enable_memory_profiler) {
+        log->print(stats->report(
+            {.mr = stat_enabled_mr, .header = "Statistics (of the last run):"}
+        ));
+    } else {
+        log->print(stats->report({.header = "Statistics (of the last run):"}));
+    }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file

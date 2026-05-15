@@ -34,7 +34,7 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  rapidsmpfndsh PRIVATE rapidsmpf::rapidsmpf cuco::cuco $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+  rapidsmpfndsh PRIVATE rapidsmpf::rapidsmpf cuco::cuco $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
@@ -55,7 +55,7 @@ foreach(query IN ITEMS ${RAPIDSMPFNDSH_QUERIES})
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
   )
   target_link_libraries(
-    ${query} PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+    ${query} PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
                      $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
   )
 endforeach()

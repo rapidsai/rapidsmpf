@@ -4,11 +4,15 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 
 /**
@@ -25,7 +29,8 @@ using random_data_t = std::int32_t;
 std::size_t constexpr random_table_size_lower_bound(
     cudf::size_type ncolumns, cudf::size_type nrows
 ) {
-    return static_cast<std::size_t>(ncolumns * nrows) * sizeof(random_data_t);
+    return rapidsmpf::safe_cast<std::size_t>(ncolumns)
+           * rapidsmpf::safe_cast<std::size_t>(nrows) * sizeof(random_data_t);
 }
 
 /**
@@ -44,7 +49,7 @@ std::size_t constexpr random_table_size_lower_bound(
  * @note The function uses the specified CUDA stream for asynchronous operations.
  */
 rmm::device_uvector<std::int32_t> random_device_vector(
-    cudf::size_type nelem,
+    std::size_t nelem,
     std::int32_t min_val,
     std::int32_t max_val,
     rmm::cuda_stream_view stream,
