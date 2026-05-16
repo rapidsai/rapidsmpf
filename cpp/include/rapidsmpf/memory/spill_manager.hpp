@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -113,7 +114,11 @@ class SpillManager {
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
   private:
-    mutable std::mutex mutex_;
+    // `spill()` takes a shared lock so spill work runs in parallel; add/remove take
+    // exclusive, which drains in-flight spillers before returning -- callers rely on this
+    // for safe teardown. SpillFunctions must be safe to invoke concurrently
+    // with themselves.
+    std::shared_mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
