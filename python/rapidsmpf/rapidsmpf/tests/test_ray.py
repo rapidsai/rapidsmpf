@@ -5,25 +5,31 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import pytest
 import toolz
 from cuda.core import system
 
+import rmm
+
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
-
-import pytest
 
 ray = pytest.importorskip("ray")
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-from rapidsmpf.examples.ray.ray_shuffle_example import (  # noqa: E402
-    ShufflingActor,
+from rapidsmpf.examples.ray.bulk_ray_shuffle import (  # noqa: E402
+    _make_device_memory_resource,
+    _make_pinned_memory_resource,
 )
+from rapidsmpf.examples.ray.ray_shuffle_example import ShufflingActor  # noqa: E402
 from rapidsmpf.integrations.ray import (  # noqa: E402
     RapidsMPFActor,
     setup_ray_ucxx_cluster,
+)
+from rapidsmpf.memory.pinned_memory_resource import (  # noqa: E402
+    is_pinned_memory_resources_supported,
 )
 
 
@@ -125,6 +131,35 @@ def test_disallowed_classes(ray_cluster: None) -> None:
 
     with pytest.raises(TypeError):
         setup_ray_ucxx_cluster(NonRapidsMPFActor, 1)
+
+
+def test_bulk_ray_shuffle_default_rmm_resource() -> None:
+    mr = _make_device_memory_resource(1024 * 1024, rmm_async=False)
+    assert isinstance(mr, rmm.mr.PoolMemoryResource)
+
+
+def test_bulk_ray_shuffle_async_rmm_resource() -> None:
+    mr = _make_device_memory_resource(1024 * 1024, rmm_async=True)
+    assert isinstance(mr, rmm.mr.CudaAsyncMemoryResource)
+
+
+def test_bulk_ray_shuffle_pinned_memory_disabled() -> None:
+    mr = _make_pinned_memory_resource(
+        pinned_memory=False,
+        pinned_initial_pool_size=1024 * 1024,
+    )
+    assert mr is None
+
+
+def test_bulk_ray_shuffle_pinned_memory_enabled_when_supported() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    mr = _make_pinned_memory_resource(
+        pinned_memory=True,
+        pinned_initial_pool_size=1024 * 1024,
+    )
+    assert mr is not None
 
 
 @toolz.memoize
