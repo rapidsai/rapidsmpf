@@ -31,7 +31,6 @@ from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_data
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from concurrent.futures import ThreadPoolExecutor
 
     from rmm.pylibrmm.stream import Stream
 
@@ -114,7 +113,7 @@ def test_single_rank_shuffler(
     pull_actor, out_messages = pull_from_channel(context, ch_in=ch4)
     actors.append(pull_actor)
 
-    run_actor_network(actors=actors)
+    run_actor_network(context, actors=actors)
 
     output_chunks = [
         TableChunk.from_message(msg, br=context.br()) for msg in out_messages.release()
@@ -193,7 +192,6 @@ async def do_shuffle(
 def test_shuffler_runtime_obeys_contiguous_assignment(
     context: Context,
     comm: Communicator,
-    py_executor: ThreadPoolExecutor,
     num_partitions: int,
 ) -> None:
     if comm.nranks != 1:
@@ -221,7 +219,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     actor, deferred = pull_from_channel(context, ch_shuffled)
     actors.append(actor)
 
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
     messages = deferred.release()
     received_pids = [msg.sequence_number for msg in messages]
 
@@ -240,7 +238,6 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
 def test_shuffler_object_interface(
     context: Context,
     comm: Communicator,
-    py_executor: ThreadPoolExecutor,
 ) -> None:
     if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
@@ -266,7 +263,7 @@ def test_shuffler_object_interface(
     actor, deferred = pull_from_channel(context, ch_shuffled)
     actors.append(actor)
 
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
     messages = deferred.release()
     # TODO: single rank only assertions
     assert len(messages) == 5

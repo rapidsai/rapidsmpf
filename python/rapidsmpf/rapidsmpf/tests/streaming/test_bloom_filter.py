@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -117,7 +116,7 @@ def run_bloom_filter_pipeline(
     ]
     pull_actor, deferred = pull_from_channel(context, ch_out)
     actors.append(pull_actor)
-    run_actor_network(actors=actors, py_executor=ThreadPoolExecutor(max_workers=1))
+    run_actor_network(context, actors=actors)
     return deferred.release()
 
 
