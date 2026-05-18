@@ -79,10 +79,7 @@ default_role = "any"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "dask-cuda": ("https://docs.rapids.ai/api/dask-cuda/stable/", None),
     "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
-    "dask": ("https://docs.dask.org/en/stable/", None),
-    "distributed": ("https://distributed.dask.org/en/stable/", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
 }
 
