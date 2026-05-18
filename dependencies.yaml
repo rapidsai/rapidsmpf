@@ -13,6 +13,7 @@ files:
       - build-cpp
       - build-python
       - build-mpi
+      - build-nvml
       - build-pmix
       - checks
       - clang_tidy
@@ -42,6 +43,7 @@ files:
       - build-cpp
       - build-python
       - build-mpi
+      - build-nvml
       - build-pmix
       - checks
       - clang_tidy
