@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <rapidsmpf/config.hpp>
-
 #ifdef RAPIDSMPF_HAVE_SLURM
 
 #include <array>
