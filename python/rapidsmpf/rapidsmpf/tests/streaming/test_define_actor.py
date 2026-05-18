@@ -18,17 +18,13 @@ from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
-    from concurrent.futures import ThreadPoolExecutor
-
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
-def test_send_table_chunks(
-    context: Context, stream: Stream, py_executor: ThreadPoolExecutor
-) -> None:
+def test_send_table_chunks(context: Context, stream: Stream) -> None:
     expects = [
         cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
         for seq in range(10)
@@ -57,11 +53,11 @@ def test_send_table_chunks(
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
     run_actor_network(
+        context,
         actors=[
             actor1(context, ch_out=ch1),
             actor2,
         ],
-        py_executor=py_executor,
     )
 
     results = output.release()
@@ -71,7 +67,7 @@ def test_send_table_chunks(
         assert_eq(tbl.table_view(), expect)
 
 
-def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
+def test_shutdown(context: Context) -> None:
     @define_actor()
     async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         await ch_out.shutdown(ctx)
@@ -82,17 +78,17 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
     actor2, output = pull_from_channel(context, ch_in=ch1)
 
     run_actor_network(
+        context,
         actors=[
             actor1(context, ch_out=ch1),
             actor2,
         ],
-        py_executor=py_executor,
     )
 
     assert output.release() == []
 
 
-def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
+def test_send_error(context: Context) -> None:
     @define_actor()
     async def actor1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
@@ -107,19 +103,17 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
         )
     ):
         run_actor_network(
+            context,
             actors=[
                 actor1(context, ch_out=ch1),
                 actor2,
             ],
-            py_executor=py_executor,
         )
 
     assert output.release() == []
 
 
-def test_recv_table_chunks(
-    context: Context, stream: Stream, py_executor: ThreadPoolExecutor
-) -> None:
+def test_recv_table_chunks(context: Context, stream: Stream) -> None:
     expects = [
         cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
         for seq in range(10)
@@ -147,11 +141,11 @@ def test_recv_table_chunks(
     ch1: Channel[TableChunk] = context.create_channel()
 
     run_actor_network(
+        context,
         actors=[
             push_to_channel(context, ch_out=ch1, messages=table_chunks),
             actor1(context, ch_in=ch1),
         ],
-        py_executor=py_executor,
     )
 
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

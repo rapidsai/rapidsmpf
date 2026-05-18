@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
@@ -31,11 +30,3 @@ def context(comm: Communicator) -> Generator[Context, None, None]:
 
     with Context(comm.logger, br, options) as ctx:
         yield ctx
-
-
-@pytest.fixture(scope="session")
-def py_executor() -> ThreadPoolExecutor:
-    """
-    Fixture to get a streaming context.
-    """
-    return ThreadPoolExecutor(max_workers=1)
