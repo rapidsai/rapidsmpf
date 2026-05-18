@@ -38,7 +38,7 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     actor1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
     actor2, output = pull_from_channel(context, ch_in=ch1)
-    run_actor_network(actors=(actor1, actor2))
+    run_actor_network(context, actors=(actor1, actor2))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):

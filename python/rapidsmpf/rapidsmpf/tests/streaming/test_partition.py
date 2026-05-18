@@ -62,7 +62,7 @@ def test_partition_and_pack_unpack(
     )
 
     actor4, output = pull_from_channel(context, ch_in=ch3)
-    run_actor_network(actors=(actor1, actor2, actor3, actor4))
+    run_actor_network(context, actors=(actor1, actor2, actor3, actor4))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
