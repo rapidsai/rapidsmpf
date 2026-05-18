@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection
-from concurrent.futures import ThreadPoolExecutor
 from typing import Concatenate, ParamSpec
 
 from rapidsmpf.streaming.core.channel import Channel
@@ -22,7 +21,5 @@ def define_actor(
     Callable[Concatenate[Context, P], Awaitable[None]],
 ]: ...
 def run_actor_network(
-    *,
-    actors: Collection[CppActor | Awaitable[None]],
-    py_executor: ThreadPoolExecutor | None = None,
+    ctx: Context, *, actors: Collection[CppActor | Awaitable[None]]
 ) -> None: ...

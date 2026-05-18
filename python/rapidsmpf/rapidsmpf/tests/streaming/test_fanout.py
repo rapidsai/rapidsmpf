@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
@@ -53,11 +52,10 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
     pull_actor2, output2 = pull_from_channel(context, ch_out2)
 
     # Run pipeline
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        run_actor_network(
-            actors=[push_actor, fanout_actor, pull_actor1, pull_actor2],
-            py_executor=executor,
-        )
+    run_actor_network(
+        context,
+        actors=[push_actor, fanout_actor, pull_actor1, pull_actor2],
+    )
 
     # Verify results
     results1 = output1.release()
@@ -122,11 +120,10 @@ def test_fanout_multiple_outputs(
         outputs.append(output)
 
     # Run pipeline
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        run_actor_network(
-            actors=[push_actor, fanout_actor, *pull_actors],
-            py_executor=executor,
-        )
+    run_actor_network(
+        context,
+        actors=[push_actor, fanout_actor, *pull_actors],
+    )
 
     # Verify all outputs received the messages
     for output_idx, output in enumerate(outputs):

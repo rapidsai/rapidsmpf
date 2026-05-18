@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import cudf
@@ -47,9 +46,6 @@ def main() -> int:
         br=BufferResource(RmmResourceAdaptor(rmm.mr.get_current_device_resource())),
         options=options,
     )
-
-    # Executor for Python actors (asyncio coroutines).
-    py_executor = ThreadPoolExecutor(max_workers=1)
 
     # Create some pylibcudf tables as input to the streaming graph.
     tables = [
@@ -120,12 +116,12 @@ def main() -> int:
 
     # Run all actors. This blocks until every actor has completed.
     run_actor_network(
+        ctx,
         actors=(
             actor1,
             actor2,
             actor3,
         ),
-        py_executor=py_executor,
     )
 
     # Collect and verify results.
