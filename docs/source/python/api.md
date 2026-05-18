@@ -14,21 +14,6 @@ libraries.
    :members:
 ```
 
-(api-integration-dask)=
-### Dask
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.dask
-   :members:
-```
-
-### Single-process
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.single
-   :members:
-```
-
 ### Ray
 
 ```{eval-rst}

@@ -42,8 +42,6 @@ classifiers = [
 test = [
     "cuda-core>=0.7.0",
     "cudf==26.6.*,>=0.0.0a0",
-    "dask-cuda==26.6.*,>=0.0.0a0",
-    "dask-cudf==26.6.*,>=0.0.0a0",
     "psutil",
     "pytest",
     "ray>=2.55.1",
