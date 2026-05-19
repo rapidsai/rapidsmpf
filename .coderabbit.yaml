@@ -28,77 +28,38 @@ reviews:
   request_changes_workflow: false
   review_status: false
 
-  # Path-specific review instructions.
-  # Detailed C++/CUDA and Python review guidelines are in cpp/REVIEW_GUIDELINES.md
-  # and python/REVIEW_GUIDELINES.md and are loaded via the knowledge_base below.
+  # Path-specific review instructions. Each entry just routes a path
+  # to the authoritative review checklist; the checklists themselves
+  # (and the cross-cutting orchestration SKILL) are loaded as
+  # knowledge_base below.
   path_instructions:
     - path: "cpp/**/*"
       instructions: |
-        For C++/CUDA code:
-        - Never call `cudaMemcpyAsync` directly. Use
-          `rapidsmpf::cuda_memcpy_async` from
-          `rapidsmpf/memory/cuda_memcpy_async.hpp` (enforced by the
-          `use-rapidsmpf-cuda-memcpy-async` pre-commit hook).
-        - Every CUDA call must be wrapped in `RAPIDSMPF_CUDA_TRY` (or
-          `RAPIDSMPF_CUDA_TRY_FATAL` in destructors / noexcept paths, or
-          `RAPIDSMPF_CUDA_TRY_ALLOC` for allocations).
-        - Use `RAPIDSMPF_EXPECTS` for precondition checks and `RAPIDSMPF_FAIL`
-          for unreachable / failure paths. The `RAPIDSMPF_EXPECTS` condition
-          must be a pure predicate with no side effects.
-        - Operations must be stream-ordered; do not call
-          `cudaDeviceSynchronize()` unless absolutely required.
-        - Public headers under `cpp/include/rapidsmpf/` require Doxygen,
-          deprecation discipline for breaking changes, and stream / MR
-          parameters threaded through.
-        - For subsystem-specific rules (shuffler, communicator, streaming,
-          memory / spill, progress thread) and full CRITICAL/HIGH/MEDIUM
-          severity guidance, follow cpp/REVIEW_GUIDELINES.md.
+        Follow cpp/REVIEW_GUIDELINES.md.
     - path: "python/**/*"
       instructions: |
-        For Python and Cython code:
-        - In `.pxd` / `cdef extern`: annotate throwing C++ methods with
-          `except +`; declare long-running methods `nogil` so callers can
-          release the GIL.
-        - In `.pyx`: release the GIL (`with nogil:`) around long-running C++
-          calls (shuffler insert/wait, communicator send/recv, CUDA-bound
-          work).
-        - When taking ownership of `rmm::device_buffer` (or similar) from
-          C++, pass a Python-controlled memory resource and use
-          `DeviceBuffer.c_from_unique_ptr(..., mr=mr)` so the MR outlives
-          the buffer.
-        - Thread `rmm::cuda_stream_view` through Python bindings; do not
-          silently fall back to the per-thread default stream.
-        - For Cython `cdef class`es holding C++ `unique_ptr`s, do cleanup
-          in `__dealloc__` (not `__del__`) and do not touch Python objects
-          inside `__dealloc__`.
-        - For full CRITICAL/HIGH/MEDIUM severity guidance, follow
-          python/REVIEW_GUIDELINES.md.
+        Follow python/REVIEW_GUIDELINES.md.
     - path: "docs/**/*"
       instructions: |
-        For documentation changes, focus on:
-        - Accuracy: Verify code examples compile and run correctly
-        - Completeness: Check if API changes (parameters, return values,
-          errors) are documented
-        - Clarity: Flag confusing explanations, missing prerequisites, or
-          unclear examples
-        - Consistency: Version numbers, parameter types, and terminology
-          match code
-        - Missing docs: If a PR changes public APIs without updating docs,
-          flag as HIGH priority
+        For documentation changes, focus on accuracy (code examples
+        actually compile / run), completeness (API changes — params,
+        return values, errors — documented), clarity (no confusing
+        explanations or missing prerequisites), and consistency
+        (versions, types, terminology match code). Public-API changes
+        without a docs update are HIGH priority.
     - path: "ci/**/*"
       instructions: |
-        For CI / build scripts:
-        - Check for proper conda environment handling
-        - Verify GPU availability checks before tests that require a GPU
-        - Check for proper error handling and meaningful error messages
-        - Prefer `set -euo pipefail` (or equivalent) at the top of new shell
-          scripts
+        For CI / build scripts: verify conda environment handling,
+        check that tests requiring a GPU gate on GPU availability,
+        ensure errors are checked with meaningful messages, and
+        prefer `set -euo pipefail` (or equivalent) at the top of new
+        shell scripts.
 
 knowledge_base:
   opt_out: false
   code_guidelines:
     filePatterns:
-      - "AGENTS.md"
+      - ".agents/skills/review-rapidsmpf/SKILL.md"
       - "cpp/REVIEW_GUIDELINES.md"
       - "python/REVIEW_GUIDELINES.md"
       - "CONTRIBUTING.md"

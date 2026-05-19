@@ -13,9 +13,11 @@ via MPI / UCXX / single-process communicators. Most performance-critical
 methods take or return RMM device buffers, take `rmm::cuda_stream_view`
 parameters, and need the GIL released around long-running C++ calls.
 
-For general development guidance — build commands, test commands,
-code style, project structure, and common patterns — see the top-level
-[`AGENTS.md`](../AGENTS.md). For C++/CUDA review specifics, see
+For the overall review orchestration (how to fetch a PR, structured
+output format, project-wide conventions, key file references, test
+infrastructure for evaluating coverage), see
+[`.agents/skills/review-rapidsmpf/SKILL.md`](../.agents/skills/review-rapidsmpf/SKILL.md).
+For C++/CUDA review specifics, see
 [`cpp/REVIEW_GUIDELINES.md`](../cpp/REVIEW_GUIDELINES.md).
 
 ## IGNORE These Issues
