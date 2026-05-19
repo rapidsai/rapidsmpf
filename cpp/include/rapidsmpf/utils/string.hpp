@@ -239,8 +239,8 @@ Duration parse_duration(std::string_view text);
  * double d = parse_string<double>("3.14");    // d == 3.14
  */
 template <typename T>
-T parse_string(std::string_view text) {
-    std::stringstream sstream{std::string{text}};
+T parse_string(std::string const& text) {
+    std::stringstream sstream(text);
     T ret;
     sstream >> ret;
     if (sstream.fail()) {
@@ -264,7 +264,7 @@ T parse_string(std::string_view text) {
  * @throws std::invalid_argument If the string cannot be interpreted as a boolean.
  */
 template <>
-bool parse_string(std::string_view text);
+bool parse_string(std::string const& text);
 
 /**
  * @brief Parse an optional string value.
