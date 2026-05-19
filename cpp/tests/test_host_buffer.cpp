@@ -321,7 +321,18 @@ TEST(PinnedResource, max_pool_size_limit) {
 }
 
 TEST(PinnedResource, from_default_options) {
-    auto mr = rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
+    {
+        // disabled by default
+        auto mr =
+            rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
+        EXPECT_EQ(mr, rapidsmpf::PinnedMemoryResource::Disabled);
+    }
+
+    // check default pool values, if enabled
+    std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
+    auto mr = rapidsmpf::PinnedMemoryResource::from_options(
+        rapidsmpf::config::Options(strings)
+    );
     if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }

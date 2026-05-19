@@ -15,6 +15,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -215,6 +216,15 @@ std::unique_ptr<Buffer> BufferResource::move(
     if (upstream.value() != stream.value()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
+    }
+
+    if (is_host_accessible(data->memory_resource())) {
+        auto pinned_host_buffer = std::make_unique<HostBuffer>(
+            HostBuffer::from_rmm_device_buffer(std::move(data), stream)
+        );
+        return std::unique_ptr<Buffer>(
+            new Buffer(std::move(pinned_host_buffer), stream, MemoryType::PINNED_HOST)
+        );
     }
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }

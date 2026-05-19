@@ -82,6 +82,7 @@ target_sources(
           test_cupti_monitor.cpp
           test_error_macros.cpp
           test_host_buffer.cpp
+          test_memory_resources.cpp
           test_metadata_payload_exchange.cpp
           test_misc.cpp
           test_partition.cpp

@@ -5,11 +5,10 @@
 
 #include <utility>
 
-#include <cuda/memory>
-
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 
 namespace rapidsmpf {
 
@@ -145,8 +144,8 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     );
 
     RAPIDSMPF_EXPECTS(
-        cuda::is_host_accessible(pinned_host_buffer->data()),
-        "pinned_host_buffer must be host accessible",
+        is_host_accessible(pinned_host_buffer->memory_resource()),
+        "pinned_host_buffer's memory resource must be host accessible",
         std::logic_error
     );
 
