@@ -175,12 +175,21 @@ std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return s.empty() ? false : parse_string<bool>(s);
     });
-    return statistics ? Statistics::create() : Statistics::disabled();
+    return create(statistics);
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
     static std::shared_ptr<Statistics> ret{new Statistics(false)};
     return ret;
+}
+
+void Statistics::enable() {
+    RAPIDSMPF_EXPECTS(
+        this != Statistics::disabled().get(),
+        "cannot enable the disabled singleton returned by Statistics::disabled(); "
+        "construct an owned instance with Statistics::create() instead"
+    );
+    enabled_.store(true, std::memory_order_release);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
@@ -255,6 +264,9 @@ void Statistics::clear() {
     stats_.clear();
 }
 
+Statistics::MemoryRecorder::MemoryRecorder()
+    : stats_{Statistics::disabled()}, mr_{std::nullopt}, name_{} {}
+
 Statistics::MemoryRecorder::MemoryRecorder(
     std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
@@ -264,11 +276,15 @@ Statistics::MemoryRecorder::MemoryRecorder(
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
-    if (stats_ == nullptr || !stats_->enabled()) {
+    if (!mr_.has_value()) {
+        return;  // no-op recorder; nothing was pushed.
+    }
+    // Always pop to keep the RMM adaptor's per-thread stack balanced, even if
+    // statistics were disabled after construction (in which case skip publish).
+    auto const scope = mr_->end_scoped_memory_record();
+    if (!stats_->enabled()) {
         return;
     }
-    auto const scope = mr_->end_scoped_memory_record();
-
     std::lock_guard<std::mutex> lock(stats_->mutex_);
     auto& record = stats_->memory_records_[name_];
     ++record.num_calls;

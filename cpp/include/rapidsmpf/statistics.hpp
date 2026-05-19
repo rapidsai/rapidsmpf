@@ -156,10 +156,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
     /**
      * @brief Enable statistics tracking for this instance.
+     *
+     * @throws std::logic_error If called on the disabled singleton returned
+     * by `Statistics::disabled()`. Enabling that instance would silently
+     * activate stats collection for every other consumer in the process
+     * that obtained a handle via `disabled()` (or `create(false)`).
      */
-    void enable() noexcept {
-        enabled_.store(true, std::memory_order_release);
-    }
+    void enable();
 
     /**
      * @brief Disable statistics tracking for this instance.
@@ -562,42 +565,39 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     class MemoryRecorder {
       public:
         /**
-         * @brief Constructs a no-op MemoryRecorder (disabled state).
-         */
-        MemoryRecorder() = default;
-
-        /**
-         * @brief Constructs an active MemoryRecorder.
+         * @brief Constructs an active MemoryRecorder. Pushes a scoped record at
+         * construction; the destructor pops it and (if @p stats is still
+         * enabled) publishes it under @p name.
          *
-         * @param stats Shared pointer to the Statistics object that will store
-         * the result. Must not be null.
-         * @param mr The RMM resource adaptor providing scoped memory statistics.
+         * @param stats Owning Statistics. Must not be null.
+         * @param mr RMM resource adaptor providing scoped memory statistics.
          * @param name Name of the scope.
          */
         MemoryRecorder(
             std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
         );
 
-        /**
-         * @brief Destructor.
-         *
-         * Captures memory counters and stores them in the Statistics object.
-         */
         ~MemoryRecorder();
 
-        /// Deleted copy and move constructors/assignments
         MemoryRecorder(MemoryRecorder const&) = delete;
         MemoryRecorder& operator=(MemoryRecorder const&) = delete;
         MemoryRecorder(MemoryRecorder&&) = delete;
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        // Holds the owning Statistics so the recorder can safely outlive any
-        // raw reference the caller might have. `nullptr` indicates a no-op
-        // recorder.
+        friend class Statistics;
+
+        /// Constructs a no-op MemoryRecorder. `mr_` is `std::nullopt` so the
+        /// dtor skips the unpaired `end_scoped_memory_record()`; `stats_` is
+        /// the disabled singleton so member access is always valid.
+        MemoryRecorder();
+
+        /// Always non-null; disabled singleton for no-op recorders.
         std::shared_ptr<Statistics> stats_;
-        std::optional<RmmResourceAdaptor>
-            mr_;  // optional because RmmResourceAdaptor is not default constructible
+        /// `std::nullopt` iff no-op. When set, the active ctor called
+        /// `begin_scoped_memory_record()` and the dtor must pair it with
+        /// `end_scoped_memory_record()`.
+        std::optional<RmmResourceAdaptor> mr_;
         std::string name_;
     };
 

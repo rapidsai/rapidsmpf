@@ -38,7 +38,10 @@ class StatisticsTest : public ::testing::Test {
 
 TEST_F(StatisticsTest, Disabled) {
     auto stats = rapidsmpf::Statistics::create(false);
+    EXPECT_EQ(stats, rapidsmpf::Statistics::disabled());
     EXPECT_FALSE(stats->enabled());
+    // Enabling the disabled singleton should throw.
+    EXPECT_THROW(stats->enable(), std::logic_error);
 
     // Disabed statistics is a no-op.
     stats->add_bytes_stat("name", 1);
@@ -292,6 +295,41 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     }
     auto const& records = stats->get_memory_records();
     EXPECT_TRUE(records.empty());
+}
+
+// Exercises the recorder when `disable()` is called between construction
+// and destruction of an active `MemoryRecorder`.
+//
+// Invariants checked:
+//  1. The toggled-off recorder publishes no entry.
+//  2. The recorder still pops its scope so the `RmmResourceAdaptor`'s
+//     per-thread record stack is balanced after the scope exits. Pre-fix,
+//     the dtor early-returned and the frame stayed on the stack.
+//  3. A follow-up recorder works correctly against the balanced stack.
+TEST_F(StatisticsTest, MemoryProfilerToggledMidScope) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    auto stats = rapidsmpf::Statistics::create();
+
+    {
+        auto outer = stats->create_memory_recorder(mr, "outer");
+        void* p = mr.allocate_sync(1_MiB);
+        mr.deallocate_sync(p, 1_MiB);
+        stats->disable();
+    }
+    EXPECT_FALSE(stats->get_memory_records().contains("outer"));
+
+    stats->enable();  // re-enable statistics
+    {
+        auto next = stats->create_memory_recorder(mr, "next");
+        void* p = mr.allocate_sync(512_KiB);
+        mr.deallocate_sync(p, 512_KiB);
+    }
+    auto const& records = stats->get_memory_records();
+    EXPECT_FALSE(records.contains("outer"));
+    ASSERT_TRUE(records.contains("next"));
+    EXPECT_EQ(records.at("next").num_calls, 1);
+    EXPECT_EQ(records.at("next").scoped.peak(), 512_KiB);
+    EXPECT_EQ(records.at("next").scoped.total(), 512_KiB);
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacro) {
