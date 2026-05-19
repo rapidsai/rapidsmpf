@@ -652,9 +652,6 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
  * @note Returning by value provides clear ownership semantics. Callers that invoke
  * `statistics()` multiple times within the same scope should cache the result
  * in a local variable to avoid repeated atomic refcount operations on hot paths.
- *
- * Each provider asserts this concept via `static_assert` in its own header.
- * For example, `BufferResource`, `ProgressThread`, `streaming::Context`.
  */
 template <typename T>
 concept StatisticsProvider = requires(T const& t) {
