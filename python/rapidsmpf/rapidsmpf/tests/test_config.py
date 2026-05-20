@@ -230,14 +230,14 @@ def test_Optional_values(input_value: Any, expected: Any) -> None:
 
 def test_Optional_with_options_returns_default_value() -> None:
     opts = Options()
-    val = opts.get_or_default("dask_periodic_spill_check", default_value=Optional(42))
+    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value == 42
 
 
 def test_Optional_overrides_with_disabled_string() -> None:
-    opts = Options({"dask_periodic_spill_check": "off"})
-    val = opts.get_or_default("dask_periodic_spill_check", default_value=Optional(42))
+    opts = Options({"periodic_spill_check": "off"})
+    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value is None
 

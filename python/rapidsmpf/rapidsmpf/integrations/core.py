@@ -128,10 +128,10 @@ class WorkerContext:
         """
         Remove the Python-object spill callback from the buffer resource.
 
-        Safe to call more than once. Call this from integration teardown
-        (e.g. ``rapidsmpf.integrations.single.destroy_worker``) so the C++
-        periodic spill thread cannot invoke ``spill_func`` during interpreter
-        shutdown, when attribute access on this object may be unreliable.
+        Safe to call more than once. Call this from integration teardown so
+        the C++ periodic spill thread cannot invoke ``spill_func`` during
+        interpreter shutdown, when attribute access on this object may be
+        unreliable.
         """
         fid = self.python_object_spill_function_id
         if fid is None:
