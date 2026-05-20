@@ -18,7 +18,7 @@ from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq
+from rapidsmpf.testing import assert_eq_with_pyarrow
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -84,7 +84,7 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
 
     expect = plc.concatenate.concatenate(input_tables, stream=stream)
     stream.synchronize()
-    assert_eq(result, expect)
+    assert_eq_with_pyarrow(result, expect)
 
 
 @define_actor()
@@ -166,4 +166,4 @@ def test_allgather_object_interface(context: Context, comm: Communicator) -> Non
     )
     got = result.table_view()
     result.stream.synchronize()
-    assert_eq(expect, got)
+    assert_eq_with_pyarrow(expect, got)

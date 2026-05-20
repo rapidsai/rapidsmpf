@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import cupy
 import pytest
 
-import cudf
 import pylibcudf as plc
 
 from rapidsmpf.cuda_stream import is_equal_streams
@@ -22,8 +21,7 @@ from rapidsmpf.streaming.cudf.table_chunk import (
     TableChunk,
     make_table_chunks_available_or_wait,
 )
-from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
+from rapidsmpf.testing import assert_eq_with_pyarrow
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -33,12 +31,8 @@ if TYPE_CHECKING:
 
 def random_table(nbytes: int) -> plc.Table:
     assert nbytes % 4 == 0
-    return cudf_to_pylibcudf_table(
-        cudf.DataFrame(
-            {
-                "data": cupy.random.random(nbytes // 4, dtype=cupy.float32),
-            }
-        )
+    return plc.Table(
+        [plc.Column.from_array(cupy.random.random(nbytes // 4, dtype=cupy.float32))]
     )
 
 
@@ -56,7 +50,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert table_chunk.is_available()
     assert table_chunk.make_available_cost() == 0
     assert table_chunk.is_spillable() == exclusive_view
-    assert_eq(expect, table_chunk.table_view())
+    assert_eq_with_pyarrow(expect, table_chunk.table_view())
 
     # Message roundtrip check.
     msg1 = Message(seq, table_chunk)
@@ -81,7 +75,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert is_equal_streams(table_chunk2.stream, stream)
     assert table_chunk2.is_available()
     assert table_chunk2.make_available_cost() == 0
-    assert_eq(expect, table_chunk2.table_view())
+    assert_eq_with_pyarrow(expect, table_chunk2.table_view())
 
     # Make a copy of msg2 back to device memory.
     assert msg2.copy_cost() == 1024
@@ -100,7 +94,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert is_equal_streams(table_chunk4.stream, stream)
     assert table_chunk4.is_available()
     assert table_chunk4.make_available_cost() == 0
-    assert_eq(expect, table_chunk4.table_view())
+    assert_eq_with_pyarrow(expect, table_chunk4.table_view())
 
     # msg3 is on device (was created by copying the host msg2). During the copy this
     # is made available trivially.
@@ -113,18 +107,16 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     table_chunk6 = table_chunk5.make_available(res)
     assert table_chunk6.is_available()
     assert table_chunk6.make_available_cost() == 0
-    assert_eq(expect, table_chunk6.table_view())
+    assert_eq_with_pyarrow(expect, table_chunk6.table_view())
 
 
 def test_copy_roundtrip(context: Context, stream: Stream) -> None:
     for nrows, ncols in [(1, 1), (1000, 100), (1, 1000)]:
-        expect = cudf_to_pylibcudf_table(
-            cudf.DataFrame(
-                {
-                    f"{name}": cupy.random.random(nrows, dtype=cupy.float32)
-                    for name in range(ncols)
-                }
-            )
+        expect = plc.Table(
+            [
+                plc.Column.from_array(cupy.random.random(nrows, dtype=cupy.float32))
+                for _ in range(ncols)
+            ]
         )
 
         tbl1 = TableChunk.from_pylibcudf_table(
@@ -140,7 +132,7 @@ def test_copy_roundtrip(context: Context, stream: Stream) -> None:
             MemoryType.DEVICE, tbl2.make_available_cost(), allow_overbooking=True
         )
         tbl3 = tbl2.make_available(res)
-        assert_eq(expect, tbl3.table_view())
+        assert_eq_with_pyarrow(expect, tbl3.table_view())
 
 
 def test_spillable_messages(context: Context, stream: Stream) -> None:
@@ -238,14 +230,14 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
         MemoryType.DEVICE, df1_got.make_available_cost(), allow_overbooking=True
     )
     df1_got = df1_got.make_available(res)
-    assert_eq(df1, df1_got.table_view())
+    assert_eq_with_pyarrow(df1, df1_got.table_view())
 
     with pytest.raises(IndexError, match="Invalid key"):
         sm.extract(mid=0)
 
     df2_got = TableChunk.from_message(sm.extract(mid=1), br=context.br())
     df2_got = df2_got.make_available_and_spill(context.br(), allow_overbooking=True)
-    assert_eq(df2, df2_got.table_view())
+    assert_eq_with_pyarrow(df2, df2_got.table_view())
     assert sm.get_content_descriptions() == {}
 
 
@@ -274,7 +266,7 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
     got = TableChunk.from_message(
         context.spillable_messages().extract(mid=mid), br=context.br()
     )
-    assert_eq(expect, got.table_view())
+    assert_eq_with_pyarrow(expect, got.table_view())
 
 
 def test_make_available_or_wait_already_available(
@@ -292,7 +284,7 @@ def test_make_available_or_wait_already_available(
         result_holder.append(result)
 
     run_actor_network(context, actors=[test_actor(context)])
-    assert_eq(expect, result_holder[0].table_view())
+    assert_eq_with_pyarrow(expect, result_holder[0].table_view())
 
 
 @pytest.mark.parametrize("net_memory_delta", [0, 512])
@@ -322,7 +314,7 @@ def test_make_available_or_wait_from_host(
         result_holder.append(result)
 
     run_actor_network(context, actors=[test_actor(context)])
-    assert_eq(expect, result_holder[0].table_view())
+    assert_eq_with_pyarrow(expect, result_holder[0].table_view())
 
 
 def test_data_alloc_size(context: Context, stream: Stream) -> None:
@@ -438,7 +430,7 @@ def test_into_packed_data(context: Context, stream: Stream, from_pack: bool) -> 
     # Wrap the PackedData back into a TableChunk and verify contents.
     result_chunk = TableChunk.from_packed_data(result, br=context.br())
     assert result_chunk.is_available()
-    assert_eq(expect, result_chunk.table_view())
+    assert_eq_with_pyarrow(expect, result_chunk.table_view())
 
 
 @pytest.mark.parametrize("chunk_location", ["device", "host"])
@@ -475,7 +467,7 @@ def test_make_table_chunks_available_or_wait_single_chunk(
     run_actor_network(context, actors=[test_actor(context)])
     chunk, res = result_holder[0]
     assert chunk.is_available()
-    assert_eq(expect, chunk.table_view())
+    assert_eq_with_pyarrow(expect, chunk.table_view())
     # Reservation should be consumed by making the chunk available.
     assert res.size == 0
 
@@ -525,7 +517,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
     assert len(chunks) == num_chunks
     assert all(chunk.is_available() for chunk in chunks)
     for i, expect in enumerate(expects):
-        assert_eq(expect, chunks[i].table_view())
+        assert_eq_with_pyarrow(expect, chunks[i].table_view())
     # Reservation should be consumed.
     assert res.size == 0
 
@@ -580,7 +572,7 @@ def test_make_table_chunks_available_or_wait(
     run_actor_network(context, actors=[test_actor(context)])
     chunk, res = result_holder[0]
     assert chunk.is_available()
-    assert_eq(expect, chunk.table_view())
+    assert_eq_with_pyarrow(expect, chunk.table_view())
     # Reservation should have reserve_extra bytes remaining.
     assert res.size == reserve_extra
 
@@ -622,7 +614,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
     chunks, res = result_holder[0]
     assert len(chunks) == 2
     assert all(chunk.is_available() for chunk in chunks)
-    assert_eq(expect1, chunks[0].table_view())
-    assert_eq(expect2, chunks[1].table_view())
+    assert_eq_with_pyarrow(expect1, chunks[0].table_view())
+    assert_eq_with_pyarrow(expect2, chunks[1].table_view())
     # Only the host chunk required device memory.
     assert res.size == 0

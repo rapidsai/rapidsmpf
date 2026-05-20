@@ -14,7 +14,7 @@ import pylibcudf as plc
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.coll.sparse_alltoall import SparseAlltoall
-from rapidsmpf.testing import assert_eq
+from rapidsmpf.testing import assert_eq_with_pyarrow
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
@@ -70,13 +70,13 @@ def test_sparse_alltoall_non_participating_ranks(
         results = exchange.extract(0)
         assert len(results) == 2
         stream = context.get_stream_from_pool()
-        assert_eq(
+        assert_eq_with_pyarrow(
             unpack_table(context, results[0]),
             plc.Table(
                 [plc.Column.from_array(np.array([11], dtype=np.int32), stream=stream)]
             ),
         )
-        assert_eq(
+        assert_eq_with_pyarrow(
             unpack_table(context, results[1]),
             plc.Table(
                 [plc.Column.from_array(np.array([29], dtype=np.int32), stream=stream)]

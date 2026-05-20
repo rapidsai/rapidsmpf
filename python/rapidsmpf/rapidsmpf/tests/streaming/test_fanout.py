@@ -9,15 +9,28 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.fanout import FanoutPolicy, fanout
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
+from rapidsmpf.testing import assert_eq_with_pyarrow
+
+_INT64 = plc.DataType(plc.TypeId.INT64)
+
+
+def _ab_table(i: int) -> plc.Table:
+    return plc.Table(
+        [
+            plc.Column.from_iterable_of_py(v, _INT64)
+            for v in (
+                {"a": [i, i + 1, i + 2], "b": [i * 10, i * 10 + 1, i * 10 + 2]}
+            ).values()
+        ]
+    )
+
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -37,11 +50,8 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
     # Create test messages
     messages = []
     for i in range(5):
-        df = cudf.DataFrame(
-            {"a": [i, i + 1, i + 2], "b": [i * 10, i * 10 + 1, i * 10 + 2]}
-        )
         chunk = TableChunk.from_pylibcudf_table(
-            cudf_to_pylibcudf_table(df), stream, exclusive_view=False, br=context.br()
+            _ab_table(i), stream, exclusive_view=False, br=context.br()
         )
         messages.append(Message(i, chunk))
 
@@ -72,15 +82,10 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
         chunk1 = TableChunk.from_message(results1[i], br=context.br())
         chunk2 = TableChunk.from_message(results2[i], br=context.br())
 
-        # Expected data
-        expected_df = cudf.DataFrame(
-            {"a": [i, i + 1, i + 2], "b": [i * 10, i * 10 + 1, i * 10 + 2]}
-        )
-        expected_table = cudf_to_pylibcudf_table(expected_df)
-
         # Verify data is correct
-        assert_eq(chunk1.table_view(), expected_table)
-        assert_eq(chunk2.table_view(), expected_table)
+        expected_table = _ab_table(i)
+        assert_eq_with_pyarrow(chunk1.table_view(), expected_table)
+        assert_eq_with_pyarrow(chunk2.table_view(), expected_table)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 3, 5])
@@ -103,9 +108,14 @@ def test_fanout_multiple_outputs(
     # Create test messages
     messages = []
     for i in range(3):
-        df = cudf.DataFrame({"x": [i * 10, i * 10 + 1]})
+        table = plc.Table(
+            [
+                plc.Column.from_iterable_of_py(v, _INT64)
+                for v in ({"x": [i * 10, i * 10 + 1]}).values()
+            ]
+        )
         chunk = TableChunk.from_pylibcudf_table(
-            cudf_to_pylibcudf_table(df), stream, exclusive_view=False, br=context.br()
+            table, stream, exclusive_view=False, br=context.br()
         )
         messages.append(Message(i, chunk))
 

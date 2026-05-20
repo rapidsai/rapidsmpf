@@ -19,7 +19,6 @@ files:
       - clang_tidy
       - cuda
       - cuda_version
-      - depends_on_cudf
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -47,7 +46,6 @@ files:
       - clang_tidy
       - cuda
       - cuda_version
-      - depends_on_cudf
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -73,7 +71,6 @@ files:
     output: none
     includes:
       - cuda_version
-      - depends_on_cudf
       - depends_on_libcudf
       - depends_on_librapidsmpf
       - depends_on_librmm
@@ -180,7 +177,6 @@ files:
       table: project.optional-dependencies
       key: test
     includes:
-      - depends_on_cudf
       - depends_on_ray
       - test_python
 channels:
@@ -422,16 +418,11 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - cuda-core>=0.7.0
+          - cupy>=13.6.0
+          - numpy >=1.23,<3.0
           - psutil  # Used for timeout_with_stack.py
           - pytest
   run_rapidsmpf:
-    common:
-      - output_types: [conda, requirements, pyproject]
-        packages:
-          - numpy >=1.23,<3.0
-      - output_types: conda
-        packages:
-          - cupy>=13.6.0
     specific:
       - output_types: [conda, requirements, pyproject]
         matrices:
@@ -443,16 +434,6 @@ dependencies:
           - matrix:
             packages:
               - cuda-python>=13.0.1,<14.0
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-            packages:
-              - cupy-cuda12x>=13.6.0
-          # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
-          - matrix:
-            packages:
-              - cupy-cuda13x>=13.6.0
   depends_on_librapidsmpf:
     common:
       - output_types: conda
@@ -526,31 +507,6 @@ dependencies:
           - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton
-  depends_on_cudf:
-    common:
-      - output_types: conda
-        packages:
-          - &cudf_unsuffixed cudf==26.8.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - cudf-cu12==26.8.*,>=0.0.0a0
-          - matrix:
-              cuda: "13.*"
-              cuda_suffixed: "true"
-            packages:
-              - cudf-cu13==26.8.*,>=0.0.0a0
-          - matrix:
-            packages:
-              - *cudf_unsuffixed
   depends_on_libcudf:
     common:
       - output_types: conda
