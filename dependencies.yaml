@@ -20,8 +20,6 @@ files:
       - cuda
       - cuda_version
       - depends_on_cudf
-      - depends_on_dask_cuda
-      - depends_on_dask_cudf
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -50,8 +48,6 @@ files:
       - cuda
       - cuda_version
       - depends_on_cudf
-      - depends_on_dask_cuda
-      - depends_on_dask_cudf
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -78,8 +74,6 @@ files:
     includes:
       - cuda_version
       - depends_on_cudf
-      - depends_on_dask_cuda
-      - depends_on_dask_cudf
       - depends_on_libcudf
       - depends_on_librapidsmpf
       - depends_on_librmm
@@ -111,7 +105,6 @@ files:
     includes:
       - cuda
       - cuda_version
-      - depends_on_dask_cuda
       - depends_on_rmm
       - depends_on_ucxx
       - depends_on_librapidsmpf
@@ -188,8 +181,6 @@ files:
       key: test
     includes:
       - depends_on_cudf
-      - depends_on_dask_cuda
-      - depends_on_dask_cudf
       - depends_on_ray
       - test_python
 channels:
@@ -610,56 +601,6 @@ dependencies:
           - matrix:
             packages:
               - *pylibcudf_unsuffixed
-  depends_on_dask_cuda:
-    common:
-      - output_types: [conda, requirements, pyproject]
-        packages:
-          - &dask_cuda_unsuffixed dask-cuda==26.8.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - dask-cuda[cu12]==26.8.*,>=0.0.0a0
-          - matrix:
-              cuda: "13.*"
-              cuda_suffixed: "true"
-            packages:
-              - dask-cuda[cu13]==26.8.*,>=0.0.0a0
-          - matrix:
-            packages:
-              - *dask_cuda_unsuffixed
-  depends_on_dask_cudf:
-    common:
-      - output_types: conda
-        packages:
-          - &dask_cudf_unsuffixed dask-cudf==26.8.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - dask-cudf-cu12==26.8.*,>=0.0.0a0
-          - matrix:
-              cuda: "13.*"
-              cuda_suffixed: "true"
-            packages:
-              - dask-cudf-cu13==26.8.*,>=0.0.0a0
-          - matrix:
-            packages:
-              - *dask_cudf_unsuffixed
   depends_on_librmm:
     common:
       - output_types: conda
