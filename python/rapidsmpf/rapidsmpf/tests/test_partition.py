@@ -34,7 +34,9 @@ def test_partition_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = cudf.DataFrame(df)
+    # Pin the dtype to int64 so empty inputs don't get inferred as object/string,
+    # which would otherwise mismatch after the pylibcudf round-trip.
+    expect = cudf.DataFrame(df, dtype="int64")
     partitions = partition_and_pack(
         cudf_to_pylibcudf_table(expect),
         columns_to_hash=(1,),
@@ -66,7 +68,9 @@ def test_split_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = cudf.DataFrame(df)
+    # Pin the dtype to int64 so empty inputs don't get inferred as object/string,
+    # which would otherwise mismatch after the pylibcudf round-trip.
+    expect = cudf.DataFrame(df, dtype="int64")
     splits = np.linspace(0, len(expect), num_partitions, endpoint=False)[1:].astype(int)
     partitions = split_and_pack(
         cudf_to_pylibcudf_table(expect),
@@ -107,7 +111,9 @@ def test_spill_unspill_roundtrip(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = cudf.DataFrame(df)
+    # Pin the dtype to int64 so empty inputs don't get inferred as object/string,
+    # which would otherwise mismatch after the pylibcudf round-trip.
+    expect = cudf.DataFrame(df, dtype="int64")
     partitions = partition_and_pack(
         cudf_to_pylibcudf_table(expect),
         columns_to_hash=(1,),
