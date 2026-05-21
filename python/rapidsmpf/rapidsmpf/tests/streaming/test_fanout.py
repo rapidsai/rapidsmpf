@@ -24,10 +24,12 @@ _INT64 = plc.DataType(plc.TypeId.INT64)
 def _ab_table(i: int) -> plc.Table:
     return plc.Table(
         [
-            plc.Column.from_iterable_of_py(v, _INT64)
-            for v in (
-                {"a": [i, i + 1, i + 2], "b": [i * 10, i * 10 + 1, i * 10 + 2]}
-            ).values()
+            plc.Column.from_iterable_of_py(
+                [i, i + 1, i + 2], plc.DataType(plc.TypeId.INT64)
+            ),
+            plc.Column.from_iterable_of_py(
+                [i * 10, i * 10 + 1, i * 10 + 2], plc.DataType(plc.TypeId.INT64)
+            ),
         ]
     )
 
@@ -110,8 +112,9 @@ def test_fanout_multiple_outputs(
     for i in range(3):
         table = plc.Table(
             [
-                plc.Column.from_iterable_of_py(v, _INT64)
-                for v in ({"x": [i * 10, i * 10 + 1]}).values()
+                plc.Column.from_iterable_of_py(
+                    [i * 10, i * 10 + 1], plc.DataType(plc.TypeId.INT64)
+                ),
             ]
         )
         chunk = TableChunk.from_pylibcudf_table(

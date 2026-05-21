@@ -24,9 +24,6 @@ if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
 
 
-_INT64 = plc.DataType(plc.TypeId.INT64)
-
-
 def _write_parquet(table: plc.Table, column_names: list[str], path: str) -> None:
     metadata = plc.io.types.TableInputMetadata(table)
     for col_meta, name in zip(metadata.column_metadata, column_names, strict=True):
@@ -73,10 +70,13 @@ def test_bulk_shuffle(
             table = plc.Table(
                 [
                     plc.Column.from_iterable_of_py(
-                        list(range(i * num_rows, (i + 1) * num_rows)), _INT64
+                        list(range(i * num_rows, (i + 1) * num_rows)),
+                        plc.DataType(plc.TypeId.INT64),
                     ),
                     plc.Column.from_array(np.random.randint(0, 1000, num_rows)),
-                    plc.Column.from_iterable_of_py([i] * num_rows, _INT64),
+                    plc.Column.from_iterable_of_py(
+                        [i] * num_rows, plc.DataType(plc.TypeId.INT64)
+                    ),
                 ]
             )
             _write_parquet(
