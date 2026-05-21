@@ -23,6 +23,8 @@ from rapidsmpf.utils.cudf import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import rmm.mr
     from rmm.pylibrmm.stream import Stream
 
@@ -113,9 +115,46 @@ def gen_offset(i: int, r: int) -> int:
     return i * 10 + r
 
 
+def _allgather_as_context(
+    allgather: AllGather,
+    stream: Stream,
+    br: BufferResource,
+    n_elements: int,
+    n_inserts: int,
+) -> AllGather:
+    with allgather as ag:
+        for i in range(n_inserts):
+            packed_data = generate_packed_data(
+                n_elements, gen_offset(i, allgather.comm.rank), stream, br
+            )
+            ag.insert(i, packed_data)
+    return allgather
+
+
+def _allgather_as_non_context(
+    allgather: AllGather,
+    stream: Stream,
+    br: BufferResource,
+    n_elements: int,
+    n_inserts: int,
+) -> AllGather:
+    for i in range(n_inserts):
+        packed_data = generate_packed_data(
+            n_elements, gen_offset(i, allgather.comm.rank), stream, br
+        )
+        allgather.insert(i, packed_data)
+    allgather.insert_finished()
+    return allgather
+
+
 @pytest.mark.parametrize("n_elements", [0, 1, 10, 100])
 @pytest.mark.parametrize("n_inserts", [0, 1, 10])
 @pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize(
+    "allgather_insert",
+    [_allgather_as_context, _allgather_as_non_context],
+    ids=["context", "non-context"],
+)
 def test_basic_allgather(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
@@ -123,6 +162,9 @@ def test_basic_allgather(
     n_elements: int,
     n_inserts: int,
     ordered: bool,  # noqa: FBT001
+    allgather_insert: Callable[
+        [AllGather, Stream, BufferResource, int, int], AllGather
+    ],
 ) -> None:
     """
     Test basic AllGather functionality.
@@ -142,16 +184,9 @@ def test_basic_allgather(
         statistics=statistics,
     )
 
-    this_rank = comm.rank
     n_ranks = comm.nranks
 
-    # Insert data from this rank and mark as finished
-    with allgather as ag:
-        for i in range(n_inserts):
-            packed_data = generate_packed_data(
-                n_elements, gen_offset(i, this_rank), stream, br
-            )
-            ag.insert(i, packed_data)
+    allgather_insert(allgather, stream, br, n_elements, n_inserts)
 
     # Wait for completion and extract results
     results = allgather.wait_and_extract(ordered=ordered)
@@ -189,3 +224,20 @@ def test_basic_allgather(
                 plc_table = unpack_and_concat([result], stream, br)
                 result_df = pylibcudf_to_cudf_dataframe(plc_table)
                 assert len(result_df) == n_elements
+
+
+def test_insert_finished_raises_in_context(
+    comm: Communicator,
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    """Test that insert_finished raises when called inside a context manager."""
+    br = BufferResource(device_mr)
+    ag = AllGather(comm=comm, op_id=0, br=br)
+    with (
+        ag,
+        pytest.raises(
+            ValueError, match=r"Cannot call insert_finished.*within a context"
+        ),
+    ):
+        ag.insert_finished()
+    ag.wait_and_extract(ordered=True)

@@ -80,6 +80,7 @@ cdef class AllGather:
     """
     def __init__(self, Context ctx not None, Communicator comm not None, int32_t op_id):
         self._comm = comm
+        self.in_context = False
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 ctx._handle, comm._handle, op_id
@@ -121,13 +122,17 @@ cdef class AllGather:
         """
         Insert a finished marker into the AllGather.
         """
+        if self.in_context:
+            raise ValueError("Cannot call insert_finished() from within a context")
         with nogil:
             deref(self._handle).insert_finished()
 
     def __enter__(self):
+        self.in_context = True
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        self.in_context = False
         self.insert_finished()
         return False  # do not suppress exceptions
 

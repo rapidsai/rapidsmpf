@@ -21,7 +21,7 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable
 
     from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.core.actor import CppActor
@@ -116,7 +116,7 @@ async def generate_inputs(
 
 
 @define_actor()
-async def allgather_and_concat(
+async def allgather_and_concat_context(
     context: Context,
     comm: Communicator,
     ch_in: Channel[PackedDataChunk],
@@ -138,7 +138,42 @@ async def allgather_and_concat(
     await ch_out.drain(context)
 
 
-def test_allgather_object_interface(context: Context, comm: Communicator) -> None:
+@define_actor()
+async def allgather_and_concat_non_context(
+    context: Context,
+    comm: Communicator,
+    ch_in: Channel[PackedDataChunk],
+    ch_out: Channel[TableChunk],
+    op_id: int,
+) -> None:
+    gather = AllGather(context, comm, op_id)
+    while (msg := await ch_in.recv(context)) is not None:
+        chunk = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
+        gather.insert(msg.sequence_number, chunk)
+    gather.insert_finished()
+    gathered = await gather.extract_all(context, ordered=True)
+    stream = context.get_stream_from_pool()
+    table = unpack_and_concat(gathered, stream, context.br())
+    to_send = TableChunk.from_pylibcudf_table(
+        table, stream, exclusive_view=True, br=context.br()
+    )
+    await ch_out.send(context, Message(0, to_send))
+    await ch_out.drain(context)
+
+
+@pytest.mark.parametrize(
+    "allgather_insert",
+    [allgather_and_concat_context, allgather_and_concat_non_context],
+    ids=["context", "non-context"],
+)
+def test_allgather_object_interface(
+    context: Context,
+    comm: Communicator,
+    allgather_insert: Callable[
+        [Context, Communicator, Channel[PackedDataChunk], Channel[TableChunk], int],
+        Awaitable[None],
+    ],
+) -> None:
     if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
@@ -149,7 +184,7 @@ def test_allgather_object_interface(context: Context, comm: Communicator) -> Non
     num_chunks = 10
     op_id = 0
     actors.append(generate_inputs(context, ch_in, num_rows, num_chunks))
-    actors.append(allgather_and_concat(context, comm, ch_in, ch_out, op_id))
+    actors.append(allgather_insert(context, comm, ch_in, ch_out, op_id))
 
     actor, deferred = pull_from_channel(context, ch_out)
     actors.append(actor)
