@@ -415,13 +415,24 @@ dependencies:
           - gdb
           - mpi4py
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - cupy>=13.6.0
       - output_types: [conda, pyproject, requirements]
         packages:
           - cuda-core>=0.7.0
-          - cupy>=13.6.0
           - numpy >=1.23,<3.0
           - psutil  # Used for timeout_with_stack.py
           - pytest
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+              - cupy-cuda12x>=13.6.0,!=14.0.0
+          # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
+          - matrix:
+            packages:
+              - cupy-cuda13x>=13.6.0,!=14.0.0
   run_rapidsmpf:
     specific:
       - output_types: [conda, requirements, pyproject]
