@@ -392,7 +392,7 @@ class Optional:
 
     >>> opts = Options()
     >>> opts.get_or_default(
-    ...     "dask_periodic_spill_check",
+    ...     "periodic_spill_check",
     ...     default_value=Optional(1e-3)
     ... ).value
     0.001

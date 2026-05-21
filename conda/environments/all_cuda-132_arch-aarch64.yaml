@@ -10,7 +10,7 @@ dependencies:
 - clang-tools==20.1.8
 - clang==20.1.8
 - click >=8.1
-- cmake>=3.30.4
+- cmake>=4.0
 - cuda-core>=0.7.0
 - cuda-cudart-dev
 - cuda-cupti-dev
@@ -23,8 +23,6 @@ dependencies:
 - cudf==26.8.*,>=0.0.0a0
 - cxx-compiler
 - cython>=3.2.2
-- dask-cuda==26.8.*,>=0.0.0a0
-- dask-cudf==26.8.*,>=0.0.0a0
 - doxygen=1.9.1
 - duckdb
 - gcc_linux-aarch64=14.*

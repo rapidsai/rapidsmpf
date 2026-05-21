@@ -133,7 +133,7 @@ def test_read_parquet(
 
     consumer, deferred_messages = pull_from_channel(context, ch)
 
-    run_actor_network(actors=[producer, consumer])
+    run_actor_network(context, actors=[producer, consumer])
 
     messages = deferred_messages.release()
     assert all(

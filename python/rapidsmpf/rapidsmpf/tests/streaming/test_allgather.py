@@ -22,7 +22,6 @@ from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from concurrent.futures import ThreadPoolExecutor
 
     from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.streaming.core.actor import CppActor
@@ -72,7 +71,7 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
 
     actor, deferred = pull_from_channel(context, ch2)
     actors.append(actor)
-    run_actor_network(actors=actors)
+    run_actor_network(context, actors=actors)
 
     result = unpack_and_concat(
         (
@@ -139,9 +138,7 @@ async def allgather_and_concat(
     await ch_out.drain(context)
 
 
-def test_allgather_object_interface(
-    context: Context, comm: Communicator, py_executor: ThreadPoolExecutor
-) -> None:
+def test_allgather_object_interface(context: Context, comm: Communicator) -> None:
     if comm.nranks != 1:
         pytest.skip("Only support single-rank runs")
 
@@ -157,7 +154,7 @@ def test_allgather_object_interface(
     actor, deferred = pull_from_channel(context, ch_out)
     actors.append(actor)
 
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
     (result_msg,) = deferred.release()
     result = TableChunk.from_message(result_msg, br=context.br())
     expect = plc.Table(

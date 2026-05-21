@@ -42,8 +42,6 @@ classifiers = [
 test = [
     "cuda-core>=0.7.0",
     "cudf==26.8.*,>=0.0.0a0",
-    "dask-cuda==26.8.*,>=0.0.0a0",
-    "dask-cudf==26.8.*,>=0.0.0a0",
     "psutil",
     "pytest",
     "ray>=2.55.1",
@@ -57,7 +55,7 @@ build-backend = "scikit_build_core.build"
 dependencies-file = "../../dependencies.yaml"
 matrix-entry = "cuda_suffixed=true"
 requires = [
-    "cmake>=3.30.4",
+    "cmake>=4.0",
     "cython>=3.2.2",
     "libcudf==26.8.*,>=0.0.0a0",
     "librapidsmpf==26.8.*,>=0.0.0a0",
