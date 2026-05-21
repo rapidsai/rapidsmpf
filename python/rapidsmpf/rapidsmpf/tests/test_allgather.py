@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,8 +24,6 @@ from rapidsmpf.utils.cudf import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     import rmm.mr
     from rmm.pylibrmm.stream import Stream
 
@@ -115,45 +114,11 @@ def gen_offset(i: int, r: int) -> int:
     return i * 10 + r
 
 
-def _allgather_as_context(
-    allgather: AllGather,
-    stream: Stream,
-    br: BufferResource,
-    n_elements: int,
-    n_inserts: int,
-) -> AllGather:
-    with allgather as ag:
-        for i in range(n_inserts):
-            packed_data = generate_packed_data(
-                n_elements, gen_offset(i, allgather.comm.rank), stream, br
-            )
-            ag.insert(i, packed_data)
-    return allgather
-
-
-def _allgather_as_non_context(
-    allgather: AllGather,
-    stream: Stream,
-    br: BufferResource,
-    n_elements: int,
-    n_inserts: int,
-) -> AllGather:
-    for i in range(n_inserts):
-        packed_data = generate_packed_data(
-            n_elements, gen_offset(i, allgather.comm.rank), stream, br
-        )
-        allgather.insert(i, packed_data)
-    allgather.insert_finished()
-    return allgather
-
-
 @pytest.mark.parametrize("n_elements", [0, 1, 10, 100])
 @pytest.mark.parametrize("n_inserts", [0, 1, 10])
 @pytest.mark.parametrize("ordered", [False, True])
 @pytest.mark.parametrize(
-    "allgather_insert",
-    [_allgather_as_context, _allgather_as_non_context],
-    ids=["context", "non-context"],
+    "use_context_manager", [True, False], ids=["context", "non-context"]
 )
 def test_basic_allgather(
     comm: Communicator,
@@ -162,9 +127,7 @@ def test_basic_allgather(
     n_elements: int,
     n_inserts: int,
     ordered: bool,  # noqa: FBT001
-    allgather_insert: Callable[
-        [AllGather, Stream, BufferResource, int, int], AllGather
-    ],
+    use_context_manager: bool,  # noqa: FBT001
 ) -> None:
     """
     Test basic AllGather functionality.
@@ -179,14 +142,23 @@ def test_basic_allgather(
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
-        op_id=0,  # Use operation ID 0
+        op_id=0,
         br=br,
         statistics=statistics,
     )
 
     n_ranks = comm.nranks
+    this_rank = comm.rank
 
-    allgather_insert(allgather, stream, br, n_elements, n_inserts)
+    cm = allgather if use_context_manager else nullcontext(allgather)
+    with cm as ag:
+        for i in range(n_inserts):
+            packed_data = generate_packed_data(
+                n_elements, gen_offset(i, this_rank), stream, br
+            )
+            ag.insert(i, packed_data)
+    if not use_context_manager:
+        allgather.insert_finished()
 
     # Wait for completion and extract results
     results = allgather.wait_and_extract(ordered=ordered)
