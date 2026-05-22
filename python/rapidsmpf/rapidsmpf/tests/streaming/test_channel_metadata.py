@@ -133,6 +133,19 @@ def test_order_scheme(context: Context) -> None:
         )
 
 
+def test_order_scheme_get_boundaries(context: Context) -> None:
+    scheme = _two_key_order_scheme(context)
+    chunk = scheme.get_boundaries(context.br())
+    assert chunk.table_view().num_columns() == 2
+    assert chunk.table_view().num_rows() == 1
+    scheme2 = OrderScheme(
+        scheme.keys,
+        chunk,
+        strict_boundaries=scheme.strict_boundaries,
+    )
+    assert scheme2.boundaries_aligned_with(scheme, context.br())
+
+
 def test_order_scheme_with_keys(context: Context) -> None:
     """with_keys shares boundaries and updates column indices."""
     o1 = _two_key_order_scheme(context)
