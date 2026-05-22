@@ -53,7 +53,7 @@ class ArgumentParser {
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:LigsbxhM:")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:LigsbdxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -78,7 +78,9 @@ class ArgumentParser {
                               " unlimited)\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
-                           << "  -s         Discard output chunks to simulate streaming "
+                           << "  -s         Discard output chunks after extract and "
+                              "concat to simulate streaming (default: disabled)\n"
+                           << "  -d         Discard result after shuffle completes "
                               "(default: disabled)\n"
                            << "  -b         Disallow memory overbooking when generating "
                               "input data (default: allow memory overbooking)\n"
@@ -160,6 +162,9 @@ class ArgumentParser {
                 case 's':
                     enable_output_discard = true;
                     break;
+                case 'd':
+                    just_shuffle = true;
+                    break;
                 case 'b':
                     input_data_allow_overbooking = rapidsmpf::AllowOverbooking::NO;
                     break;
@@ -236,6 +241,9 @@ class ArgumentParser {
         if (enable_output_discard) {
             ss << "  -s (enable output discard to simulate streaming)\n";
         }
+        if (just_shuffle) {
+            ss << "  -d (only shuffle, no extraction)\n";
+        }
         if (input_data_allow_overbooking == rapidsmpf::AllowOverbooking::NO) {
             ss << "  -b (disallow memory overbooking when generating input data)\n";
         }
@@ -272,6 +280,7 @@ class ArgumentParser {
     std::int64_t device_mem_limit_mb{-1};
     bool pinned_mem_disable{false};
     bool enable_cupti_monitoring{false};
+    bool just_shuffle{false};
     std::string cupti_csv_prefix;
 };
 
@@ -316,20 +325,21 @@ rapidsmpf::Duration do_run(
         shuffle_insert_fn(shuffler);
 
         shuffler.wait();
-        for (auto finished_partition : shuffler.local_partitions()) {
-            auto packed_chunks = shuffler.extract(finished_partition);
-            auto output_partition = rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
-                ),
-                stream,
-                br
-            );
-            if (!args.enable_output_discard) {
-                output_partitions.emplace_back(std::move(output_partition));
+        if (!args.just_shuffle) {
+            for (auto finished_partition : shuffler.local_partitions()) {
+                auto packed_chunks = shuffler.extract(finished_partition);
+                auto output_partition = rapidsmpf::unpack_and_concat(
+                    rapidsmpf::unspill_partitions(
+                        std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
+                    ),
+                    stream,
+                    br
+                );
+                if (!args.enable_output_discard) {
+                    output_partitions.emplace_back(std::move(output_partition));
+                }
             }
         }
-        stream.synchronize();
     }
 
     auto const elapsed = rapidsmpf::Clock::now() - t0_elapsed;

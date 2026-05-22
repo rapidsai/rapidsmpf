@@ -140,7 +140,8 @@ void TagMetadataPayloadExchange::finish() {
     // exactly how many application messages we sent to it, so the peer can
     // stop receiving once it has them all.
     // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
-    for (Rank peer = 0; peer < nranks_; ++peer) {
+    for (Rank i = 0; i < nranks_; ++i) {
+        auto const peer = (i + rank_) % nranks_;
         if (peer == rank_) {
             continue;
         }
@@ -156,6 +157,22 @@ void TagMetadataPayloadExchange::finish() {
             comm_->send(std::move(termination), peer, metadata_tag_)
         );
     }
+}
+
+bool TagMetadataPayloadExchange::finished_polling() const {
+    if (finished_) {
+        for (Rank peer = 0; peer < nranks_; ++peer) {
+            if (peer == rank_) {
+                continue;
+            }
+            auto const p = safe_cast<std::size_t>(peer);
+            if (!peer_terminated_[p] || peer_received_[p] < peer_expected_[p]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 bool TagMetadataPayloadExchange::is_idle() const {
@@ -184,7 +201,8 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
     // Use per-peer recv_from to avoid consuming messages belonging to a future
     // collective on the same tag (see rapidsai/rapidsmpf#927).
-    for (Rank peer = 0; peer < nranks_; ++peer) {
+    for (Rank i = 0; i < nranks_; ++i) {
+        auto const peer = (i + rank_) % nranks_;
         if (peer == rank_) {
             continue;
         }
@@ -316,9 +334,6 @@ TagMetadataPayloadExchange::setup_data_receives() {
                 );
                 // Store in per-rank vector to maintain order
                 in_transit_messages_[src].push_back(std::move(tag_message));
-                // Break to ensure we don't return later messages before this one
-                // completes
-                break;
             } else {
                 // Control/metadata-only message
                 // Only return if there are no earlier in-transit messages from this rank

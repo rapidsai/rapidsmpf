@@ -208,6 +208,7 @@ class MetadataPayloadExchange {
      * @return `true` if the communication layer is idle; `false` if activity is ongoing.
      */
     [[nodiscard]] virtual bool is_idle() const = 0;
+    [[nodiscard]] virtual bool finished_polling() const = 0;
 };
 
 
