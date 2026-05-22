@@ -23,7 +23,8 @@ namespace rapidsmpf {
  * reaches the stop marker — guaranteeing that the measurement covers exactly the
  * work enqueued between the two calls, in stream order.
  *
- * If `statistics` is `Statistics::disabled()`, the entire class is a no-op.
+ * If `statistics` is disabled (e.g. constructed with
+ * `Statistics::Mode::PermanentlyDisabled`), the entire class is a no-op.
  *
  * @code
  * StreamOrderedTiming timing{stream, stats};
@@ -36,8 +37,8 @@ class StreamOrderedTiming {
     /**
      * @brief Constructs a StreamOrderedTiming and marks the start position in the stream.
      *
-     * If `statistics` is `Statistics::disabled()`, this is a no-op and subsequent
-     * calls to `stop_and_record` will also be no-ops.
+     * If `statistics` is disabled, this is a no-op and subsequent calls to
+     * `stop_and_record` will also be no-ops.
      *
      * @param stream The CUDA stream to time.
      * @param statistics The Statistics object that will receive the duration entry.

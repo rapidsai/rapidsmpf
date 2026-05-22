@@ -37,16 +37,31 @@ class StatisticsTest : public ::testing::Test {
 };
 
 TEST_F(StatisticsTest, Disabled) {
-    auto stats = rapidsmpf::Statistics::create(false);
-    EXPECT_EQ(stats, rapidsmpf::Statistics::disabled());
+    using Mode = rapidsmpf::Statistics::Mode;
+    auto stats = rapidsmpf::Statistics::create(Mode::Disabled);
     EXPECT_FALSE(stats->enabled());
-    // Enabling the disabled singleton should throw.
-    EXPECT_THROW(stats->enable(), std::logic_error);
 
     // Disabed statistics is a no-op.
     stats->add_bytes_stat("name", 1);
     EXPECT_THROW(stats->get_stat("name"), std::out_of_range);
     EXPECT_THAT(stats->report(), ::testing::HasSubstr("Statistics: disabled"));
+
+    // `Mode::Disabled` instances can be toggled back on.
+    EXPECT_NO_THROW(stats->enable());
+    EXPECT_TRUE(stats->enabled());
+}
+
+TEST_F(StatisticsTest, PermanentlyDisabled) {
+    using Mode = rapidsmpf::Statistics::Mode;
+    auto stats = rapidsmpf::Statistics::create(Mode::PermanentlyDisabled);
+    EXPECT_FALSE(stats->enabled());
+
+    // The permanently-disabled singleton refuses `enable()`.
+    EXPECT_THROW(stats->enable(), std::logic_error);
+    EXPECT_FALSE(stats->enabled());
+
+    // Repeated calls return the same cached instance.
+    EXPECT_EQ(stats, rapidsmpf::Statistics::create(Mode::PermanentlyDisabled));
 }
 
 TEST_F(StatisticsTest, Communication) {
@@ -273,7 +288,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    auto stats = rapidsmpf::Statistics::create(false);
+    auto stats = rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
     {
         auto const& records = stats->get_memory_records();
         EXPECT_TRUE(records.empty());
@@ -350,7 +365,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
 
 TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    auto stats = rapidsmpf::Statistics::create(false);
+    auto stats = rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
@@ -508,14 +523,15 @@ TEST_F(StatisticsTest, DeserializeRejectsOutOfRangeFormatter) {
 }
 
 TEST_F(StatisticsTest, SerializeRoundTripPreservesEnabledFlag) {
+    using Mode = rapidsmpf::Statistics::Mode;
     // A disabled Statistics should come back disabled after a round-trip.
-    auto disabled = rapidsmpf::Statistics::create(false);
+    auto disabled = rapidsmpf::Statistics::create(Mode::Disabled);
     auto const bytes = disabled->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
     EXPECT_FALSE(deserialized->enabled());
 
     // And an enabled one comes back enabled.
-    auto enabled = rapidsmpf::Statistics::create(true);
+    auto enabled = rapidsmpf::Statistics::create(Mode::Enabled);
     auto const bytes2 = enabled->serialize();
     auto deserialized2 = rapidsmpf::Statistics::deserialize(bytes2);
     EXPECT_TRUE(deserialized2->enabled());
@@ -691,8 +707,9 @@ TEST_F(StatisticsTest, MergeIdenticalReportEntries) {
 }
 
 TEST_F(StatisticsTest, MergeEnabledFlagPropagates) {
-    auto enabled = rapidsmpf::Statistics::create(true);
-    auto disabled = rapidsmpf::Statistics::create(false);
+    using Mode = rapidsmpf::Statistics::Mode;
+    auto enabled = rapidsmpf::Statistics::create(Mode::Enabled);
+    auto disabled = rapidsmpf::Statistics::create(Mode::Disabled);
 
     // disabled + disabled -> disabled.
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> both_off{disabled, disabled};

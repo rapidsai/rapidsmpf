@@ -109,13 +109,35 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     };
 
     /**
+     * @brief Construction mode for `Statistics::create()`.
+     *
+     * Selects between an enabled instance, a regular disabled instance, and
+     * the process-wide permanently-disabled singleton. The singleton is
+     * intended for cheap "no stats" defaults (e.g. default arguments) where
+     * the caller has no need to ever flip recording on.
+     */
+    enum class Mode : std::uint8_t {
+        /// Tracking is active.
+        Enabled,
+        /// Tracking is off, but may be turned on later via `enable()`.
+        /// Each call to `create(Mode::Disabled)` returns a fresh instance.
+        Disabled,
+        /// Tracking is off and cannot be turned on. All calls to
+        /// `create(Mode::PermanentlyDisabled)` return the same process-wide
+        /// cached singleton, avoiding allocation on hot paths.
+        PermanentlyDisabled,
+    };
+
+    /**
      * @brief Creates a Statistics instance.
      *
-     * @param enabled If true, enables tracking of statistics. If false, all operations
-     * are no-ops.
-     * @return A shared pointer to a new Statistics instance.
+     * @param mode Selects the construction mode. See `Mode`.
+     * @return A shared pointer to a Statistics instance. With
+     * `Mode::PermanentlyDisabled`, the same cached instance is returned on
+     * every call; with `Mode::Enabled` and `Mode::Disabled`, a freshly
+     * allocated instance is returned.
      */
-    static std::shared_ptr<Statistics> create(bool enabled = true);
+    static std::shared_ptr<Statistics> create(Mode mode = Mode::Enabled);
 
     /**
      * @brief Construct from configuration options.
@@ -123,27 +145,19 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      * @param options Configuration options.
      *
      * @return A shared pointer to the constructed Statistics instance.
+     * When the configured value disables statistics, the returned instance
+     * is the `Mode::PermanentlyDisabled` singleton.
      */
     static std::shared_ptr<Statistics> from_options(config::Options options);
 
     ~Statistics() noexcept;
 
-    // `Statistics` is owned exclusively through `std::shared_ptr`. Use `create()`,
-    // `disabled()`, or `from_options()` to construct instances.
+    // `Statistics` is owned exclusively through `std::shared_ptr`. Use
+    // `create()` or `from_options()` to construct instances.
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
     Statistics(Statistics&&) = delete;
     Statistics& operator=(Statistics&&) = delete;
-
-    /**
-     * @brief Returns a shared pointer to a disabled (no-op) Statistics instance.
-     *
-     * Useful when you need to pass a Statistics reference but do not want to
-     * collect any data.
-     *
-     * @return A shared pointer to a Statistics instance with tracking disabled.
-     */
-    static std::shared_ptr<Statistics> disabled();
 
     /**
      * @brief Checks if statistics tracking is enabled.
@@ -157,10 +171,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     /**
      * @brief Enable statistics tracking for this instance.
      *
-     * @throws std::logic_error If called on the disabled singleton returned
-     * by `Statistics::disabled()`. Enabling that instance would silently
-     * activate stats collection for every other consumer in the process
-     * that obtained a handle via `disabled()` (or `create(false)`).
+     * @throws std::logic_error If called on the cached singleton returned by
+     * `Statistics::create(Mode::PermanentlyDisabled)`. That instance is
+     * shared across the process and intended for callers that explicitly
+     * opted out of stats.
      */
     void enable();
 
@@ -630,6 +644,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
     explicit Statistics(bool enabled);
 
+    /// Returns the process-wide cached `Mode::PermanentlyDisabled` instance.
+    /// Initialized on first use and immortal; the raw address is stable for
+    /// the lifetime of the process and is used by `enable()` to refuse
+    /// flipping the singleton on.
+    [[nodiscard]] static std::shared_ptr<Statistics> const&
+    permanently_disabled_singleton();
+
     mutable std::mutex mutex_;
     std::atomic<bool> enabled_;
     std::map<std::string, Stat> stats_;
@@ -677,8 +698,9 @@ concept StatisticsProvider = requires(T const& t) {
  * @endcode
  *
  * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass
- * `Statistics::disabled()` to disable recording (`create_memory_recorder` returns
- * a no-op recorder when the statistics instance is disabled).
+ * `Statistics::create(Statistics::Mode::PermanentlyDisabled)` to disable
+ * recording (`create_memory_recorder` returns a no-op recorder when the
+ * statistics instance is disabled).
  * The second argument is the device memory resource. Recording is only active
  * when the underlying resource is an `RmmResourceAdaptor`; other device
  * resources yield a no-op recorder.

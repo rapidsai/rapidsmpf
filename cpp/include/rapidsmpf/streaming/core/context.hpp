@@ -105,7 +105,8 @@ class Context {
         RmmResourceAdaptor mr,
         std::shared_ptr<Communicator::Logger> logger,
         config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::PermanentlyDisabled)
     );
 
     // No copy constructor and assignment operator.

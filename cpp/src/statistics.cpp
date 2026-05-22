@@ -164,30 +164,41 @@ Statistics::~Statistics() noexcept {
 
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
-std::shared_ptr<Statistics> Statistics::create(bool enabled) {
-    if (!enabled) {
-        return disabled();
+std::shared_ptr<Statistics> const& Statistics::permanently_disabled_singleton() {
+    // Process-wide cached `Mode::PermanentlyDisabled` instance. Initialized on
+    // first use and immortal for the lifetime of the process, so its raw
+    // address is stable and can be compared in `enable()`'s guard without a
+    // refcount bump.
+    static std::shared_ptr<Statistics> const inst{new Statistics(false)};
+    return inst;
+}
+
+std::shared_ptr<Statistics> Statistics::create(Mode mode) {
+    switch (mode) {
+    case Mode::Enabled:
+        return std::shared_ptr<Statistics>(new Statistics(true));
+    case Mode::Disabled:
+        return std::shared_ptr<Statistics>(new Statistics(false));
+    case Mode::PermanentlyDisabled:
+        return permanently_disabled_singleton();
     }
-    return std::shared_ptr<Statistics>(new Statistics(true));
+    RAPIDSMPF_FAIL("Statistics::create: unknown Mode");
 }
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return s.empty() ? false : parse_string<bool>(s);
     });
-    return create(statistics);
-}
-
-std::shared_ptr<Statistics> Statistics::disabled() {
-    static std::shared_ptr<Statistics> ret{new Statistics(false)};
-    return ret;
+    // When stats are config-disabled, return the cached singleton so callers
+    // don't pay an allocation per `from_options` invocation.
+    return create(statistics ? Mode::Enabled : Mode::PermanentlyDisabled);
 }
 
 void Statistics::enable() {
     RAPIDSMPF_EXPECTS(
-        this != Statistics::disabled().get(),
-        "cannot enable the disabled singleton returned by Statistics::disabled(); "
-        "construct an owned instance with Statistics::create() instead"
+        this != permanently_disabled_singleton().get(),
+        "cannot enable a Statistics instance constructed with "
+        "Mode::PermanentlyDisabled; construct one with Mode::Disabled instead"
     );
     enabled_.store(true, std::memory_order_release);
 }
@@ -265,7 +276,7 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder()
-    : stats_{Statistics::disabled()}, mr_{std::nullopt}, name_{} {}
+    : stats_{Statistics::create(Mode::PermanentlyDisabled)}, mr_{std::nullopt}, name_{} {}
 
 Statistics::MemoryRecorder::MemoryRecorder(
     std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
@@ -506,7 +517,9 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 
 std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto ret = Statistics::create(enabled());
+    // Always allocate a fresh instance — `copy()` mutates `stats_` and
+    // `report_entries_` below, so we must not alias the cached singleton.
+    auto ret = Statistics::create(enabled() ? Mode::Enabled : Mode::Disabled);
     ret->stats_ = stats_;
     ret->report_entries_ = report_entries_;
     return ret;
@@ -600,7 +613,9 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
 
     std::uint8_t enabled{};
     data = read_pod(data, enabled);
-    auto ret = Statistics::create(enabled != 0);
+    // Fresh instance: `ret->stats_` and `ret->report_entries_` are mutated
+    // below, so the cached `Mode::PermanentlyDisabled` singleton is unsafe.
+    auto ret = Statistics::create(enabled != 0 ? Mode::Enabled : Mode::Disabled);
 
     std::uint64_t num_stats{};
     data = read_pod(data, num_stats);
@@ -677,7 +692,9 @@ std::shared_ptr<Statistics> Statistics::merge(
 
     bool const any_enabled =
         std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
-    auto ret = Statistics::create(any_enabled);
+    // Fresh instance: the merged data below mutates `ret`'s internal maps,
+    // so the cached `Mode::PermanentlyDisabled` singleton is unsafe here.
+    auto ret = Statistics::create(any_enabled ? Mode::Enabled : Mode::Disabled);
 
     for (auto const& snap : snapshots) {
         for (auto const& [name, stat] : snap.stats) {

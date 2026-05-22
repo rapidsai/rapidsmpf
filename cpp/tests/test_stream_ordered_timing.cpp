@@ -22,7 +22,7 @@ using namespace rapidsmpf;
 TEST(StreamOrderedTiming, Disabled) {
     // With disabled statistics, stop_and_record is a no-op: no stat is written.
     rmm::cuda_stream stream;
-    auto stats = Statistics::disabled();
+    auto stats = Statistics::create(Statistics::Mode::PermanentlyDisabled);
     StreamOrderedTiming timing{stream.view(), stats};
     timing.stop_and_record("test");
     stream.synchronize();

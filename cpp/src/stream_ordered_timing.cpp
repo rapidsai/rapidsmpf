@@ -103,9 +103,9 @@ StreamOrderedTiming::StreamOrderedTiming(
     : stream_{stream}, statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
     if (!statistics_->enabled()) {
-        // Reset to nullptr to make the disabled state permanent for this instance.
-        // Otherwise, statistics could be re-enabled between now and stop_and_record().
-        statistics_ = nullptr;
+        // Reset to permanently-disabled state. Otherwise, statistics could be re-enabled
+        // between now and stop_and_record().
+        statistics_ = Statistics::create(Statistics::Mode::PermanentlyDisabled);
         return;
     }
     TimePoint const now = Clock::now();
@@ -122,7 +122,7 @@ StreamOrderedTiming::StreamOrderedTiming(
 void StreamOrderedTiming::stop_and_record(
     std::string const& name, std::optional<std::string> stream_delay_name
 ) {
-    if (statistics_ == nullptr) {
+    if (!statistics_->enabled()) {
         return;
     }
     {

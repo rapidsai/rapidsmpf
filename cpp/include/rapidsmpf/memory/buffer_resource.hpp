@@ -94,7 +94,8 @@ class BufferResource {
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::PermanentlyDisabled)
     );
 
     /**
@@ -113,7 +114,8 @@ class BufferResource {
     static std::shared_ptr<BufferResource> from_options(
         RmmResourceAdaptor mr,
         config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::PermanentlyDisabled)
     );
 
     ~BufferResource() noexcept = default;
