@@ -17,6 +17,7 @@ from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.statistics import Statistics
+from rapidsmpf.testing import assert_eq_with_plc
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -96,11 +97,15 @@ def validate_packed_data(
         # Basic validation - check that we have the expected structure
         assert result_table.num_columns() == 1
 
-        # Convert to numpy for validation
-        result_values = result_table.to_arrow().column(0).to_numpy(zero_copy_only=False)
-        expected_values = np.arange(offset, offset + n_elements, dtype=np.int32)
-
-        np.testing.assert_array_equal(result_values, expected_values)
+        expected_table = plc.Table(
+            [
+                plc.Column.from_array(
+                    np.arange(offset, offset + n_elements, dtype=np.int32),
+                    stream=stream,
+                )
+            ]
+        )
+        assert_eq_with_plc(result_table, expected_table)
 
 
 def gen_offset(i: int, r: int) -> int:
