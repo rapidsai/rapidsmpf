@@ -185,7 +185,19 @@ cdef class OrderScheme:
         return self._handle.boundaries.get().shape().first
 
     def get_boundaries(self, BufferResource br not None) -> TableChunk:
-        """Return the boundary rows as a zero-copy TableChunk view."""
+        """
+        Return the boundary rows.
+
+        Parameters
+        ----------
+        br
+            Buffer resource to associate with the returned table chunk.
+
+        Returns
+        -------
+        TableChunk
+            A non-exclusive view of the boundary rows owned by this scheme.
+        """
         cdef const cpp_TableChunk* chunk = self._handle.boundaries.get()
         cdef Stream stream = Stream._from_cudaStream_t(chunk.stream().value())
         tbl = Table.from_table_view_of_arbitrary(
