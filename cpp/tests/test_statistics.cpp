@@ -278,9 +278,10 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
         auto const& records = stats->get_memory_records();
         EXPECT_TRUE(records.empty());
     }
-    // Outer scope — pass nullopt so the recorder is a no-op.
+    // Outer scope — disabled stats make the recorder a no-op even when an
+    // `RmmResourceAdaptor` is provided.
     {
-        auto outer = stats->create_memory_recorder(std::nullopt, "outer");
+        auto outer = stats->create_memory_recorder(mr, "outer");
         void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
         void* ptr2 = mr.allocate_sync(1_MiB);  // +2 MiB
         mr.deallocate_sync(ptr1, 1_MiB);
@@ -288,7 +289,7 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
 
         // Nested scope
         {
-            auto inner = stats->create_memory_recorder(std::nullopt, "inner");
+            auto inner = stats->create_memory_recorder(mr, "inner");
             void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
             mr.deallocate_sync(ptr3, 1_MiB);
         }
@@ -351,7 +352,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create(false);
     {
-        RAPIDSMPF_MEMORY_PROFILE(stats, std::nullopt);
+        RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     auto const& records = stats->get_memory_records();

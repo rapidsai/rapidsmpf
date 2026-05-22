@@ -604,16 +604,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     /**
      * @brief Creates a scoped memory recorder for the given name.
      *
-     * When @p mr is `std::nullopt`, returns a no-op recorder.
-     *
-     * @param mr Optional RMM resource adaptor for tracking allocations. Pass
-     * `std::nullopt` to get a no-op recorder.
+     * @param mr Type-erased device memory resource. Recording is only active
+     * when the underlying resource is an `RmmResourceAdaptor`.
      * @param name Name of the scope.
-     * @return A MemoryRecorder instance.
+     * @return A MemoryRecorder instance. If `!enabled()` or @p mr is not backed by an
+     * `RmmResourceAdaptor`, returns a no-op recorder.
      */
-    MemoryRecorder create_memory_recorder(
-        std::optional<any_device_resource> mr, std::string name
-    );
+    MemoryRecorder create_memory_recorder(any_device_resource mr, std::string name);
 
     /**
      * @brief Retrieves all memory profiling records stored by this instance.
@@ -682,7 +679,9 @@ concept StatisticsProvider = requires(T const& t) {
  * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass
  * `Statistics::disabled()` to disable recording (`create_memory_recorder` returns
  * a no-op recorder when the statistics instance is disabled).
- * The second argument is the RMM resource adaptor (or `std::nullopt` for no-op).
+ * The second argument is the device memory resource. Recording is only active
+ * when the underlying resource is an `RmmResourceAdaptor`; other device
+ * resources yield a no-op recorder.
  * The third argument (optional) is a custom function name string to use instead of
  * __func__.
  */
