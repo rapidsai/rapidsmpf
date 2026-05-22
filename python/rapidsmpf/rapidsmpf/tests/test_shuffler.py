@@ -145,12 +145,16 @@ def test_shuffler_uniform(
     # Slice df and submit local slices to shuffler
     stride = math.ceil(num_rows / comm.nranks)
     local_df = plc.copying.slice(
-        df, [comm.rank * stride, (comm.rank + 1) * stride], stream=stream
+        df,
+        [comm.rank * stride, min((comm.rank + 1) * stride, num_rows)],
+        stream=stream,
     )[0]
     num_rows_local = local_df.num_rows()
     batch_size = batch_size or num_rows_local
     for i in range(0, num_rows_local, batch_size):
-        batch = plc.copying.slice(local_df, [i, i + batch_size], stream=stream)[0]
+        batch = plc.copying.slice(
+            local_df, [i, min(i + batch_size, num_rows_local)], stream=stream
+        )[0]
         packed_inputs = partition_and_pack(
             batch,
             columns_to_hash=columns_to_hash,
