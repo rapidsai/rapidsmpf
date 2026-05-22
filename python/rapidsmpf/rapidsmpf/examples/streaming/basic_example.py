@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import cudf
+import pylibcudf
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
@@ -25,7 +25,6 @@ from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -49,7 +48,14 @@ def main() -> int:
 
     # Create some pylibcudf tables as input to the streaming graph.
     tables = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
+        pylibcudf.Table(
+            [
+                pylibcudf.Column.from_iterable_of_py(
+                    [1 * seq, 2 * seq, 3 * seq],
+                    pylibcudf.DataType(pylibcudf.TypeId.INT64),
+                )
+            ]
+        )
         for seq in range(10)
     ]
 

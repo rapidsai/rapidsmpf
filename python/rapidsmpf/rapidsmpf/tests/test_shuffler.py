@@ -20,7 +20,7 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import (
     Shuffler,
 )
-from rapidsmpf.testing import assert_eq_with_pyarrow
+from rapidsmpf.testing import assert_eq_with_plc
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -84,7 +84,7 @@ def test_shuffler_single_nonempty_partition(
     # Each rank has `df` thus each rank contribute to the rows of `df` to the expected result.
     expect = plc.concatenate.concatenate([df] * comm.nranks)
     if res.num_rows() > 0:
-        assert_eq_with_pyarrow(res, expect, sort_rows=0)
+        assert_eq_with_plc(res, expect, sort_rows=0)
 
 
 @pytest.mark.parametrize("batch_size", [None, 10])
@@ -166,7 +166,7 @@ def test_shuffler_uniform(
             br=br,
             stream=DEFAULT_STREAM,
         )
-        assert_eq_with_pyarrow(
+        assert_eq_with_plc(
             partition,
             expected[partition_id],
             sort_rows=0,

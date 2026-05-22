@@ -16,7 +16,7 @@ from rapidsmpf.streaming.core.fanout import FanoutPolicy, fanout
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq_with_pyarrow
+from rapidsmpf.testing import assert_eq_with_plc
 
 _INT64 = plc.DataType(plc.TypeId.INT64)
 
@@ -86,8 +86,8 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
 
         # Verify data is correct
         expected_table = _ab_table(i)
-        assert_eq_with_pyarrow(chunk1.table_view(), expected_table)
-        assert_eq_with_pyarrow(chunk2.table_view(), expected_table)
+        assert_eq_with_plc(chunk1.table_view(), expected_table)
+        assert_eq_with_plc(chunk2.table_view(), expected_table)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 3, 5])

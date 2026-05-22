@@ -18,7 +18,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.testing import assert_eq_with_pyarrow
+from rapidsmpf.testing import assert_eq_with_plc
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -54,7 +54,7 @@ def test_partition_and_pack_unpack(
         stream=DEFAULT_STREAM,
     )
     # Since the row order isn't preserved, we sort the rows by the first column.
-    assert_eq_with_pyarrow(expect, got, sort_rows=0)
+    assert_eq_with_plc(expect, got, sort_rows=0)
 
 
 @pytest.mark.parametrize(
@@ -86,7 +86,7 @@ def test_split_and_pack_unpack(
         stream=DEFAULT_STREAM,
     )
 
-    assert_eq_with_pyarrow(expect, got)
+    assert_eq_with_plc(expect, got)
 
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
@@ -130,4 +130,4 @@ def test_spill_unspill_roundtrip(
         stream=DEFAULT_STREAM,
     )
     # Since the row order isn't preserved, we sort the rows by the first column.
-    assert_eq_with_pyarrow(expect, got, sort_rows=0)
+    assert_eq_with_plc(expect, got, sort_rows=0)

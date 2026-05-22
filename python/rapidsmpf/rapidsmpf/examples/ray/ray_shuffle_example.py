@@ -10,7 +10,7 @@ import math
 import numpy as np
 import ray
 
-import cudf
+import pylibcudf as plc
 import rmm
 
 from rapidsmpf.integrations.cudf.partition import (
@@ -21,11 +21,7 @@ from rapidsmpf.integrations.cudf.partition import (
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import (
-    cudf_to_pylibcudf_table,
-    pylibcudf_to_cudf_dataframe,
-)
+from rapidsmpf.testing import assert_eq_with_plc
 
 
 class ShufflingActor(RapidsMPFActor):
@@ -56,26 +52,31 @@ class ShufflingActor(RapidsMPFActor):
         self._batch_size: int = batch_size
         self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
 
-    def _gen_cudf(self) -> cudf.DataFrame:
+    def _gen_table(self) -> plc.Table:
         """
-        Generate a dummy dataframe.
+        Generate a dummy table with three columns ("a", "b", "c").
 
         Returns
         -------
-        cudf.DataFrame
-            The input dataframe.
+        plc.Table
+            The input table.
         """
-        # Every rank creates the full input dataframe and all the expected partitions
+        # Every rank creates the full input table and all the expected partitions
         # (also partitions this rank might not get after the shuffle).
 
-        np.random.seed(42)  # Make sure all ranks create the same input dataframe.
+        np.random.seed(42)  # Make sure all ranks create the same input table.
 
-        return cudf.DataFrame(
-            {
-                "a": range(self._num_rows),
-                "b": np.random.randint(0, 1000, self._num_rows),
-                "c": ["cat", "dog"] * (self._num_rows // 2),
-            }
+        return plc.Table(
+            [
+                plc.Column.from_iterable_of_py(
+                    list(range(self._num_rows)), plc.DataType(plc.TypeId.INT64)
+                ),
+                plc.Column.from_array(np.random.randint(0, 1000, self._num_rows)),
+                plc.Column.from_iterable_of_py(
+                    ["cat", "dog"] * (self._num_rows // 2),
+                    plc.DataType(plc.TypeId.STRING),
+                ),
+            ]
         )
 
     def run(self) -> None:
@@ -84,9 +85,8 @@ class ShufflingActor(RapidsMPFActor):
         # and it is not serializable. Therefore, we need to import it here.
         from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-        df = self._gen_cudf()
-        columns_to_hash = (df.columns.get_loc("b"),)
-        column_names = list(df.columns)
+        df = self._gen_table()
+        columns_to_hash = (1,)
 
         mr = rmm.mr.get_current_device_resource()
         br = BufferResource(mr)
@@ -94,16 +94,13 @@ class ShufflingActor(RapidsMPFActor):
 
         # Calculate the expected output partitions on all ranks
         expected = {
-            partition_id: pylibcudf_to_cudf_dataframe(
-                unpack_and_concat(
-                    [packed],
-                    br=br,
-                    stream=stream,
-                ),
-                column_names=column_names,
+            partition_id: unpack_and_concat(
+                [packed],
+                br=br,
+                stream=stream,
             )
             for partition_id, packed in partition_and_pack(
-                cudf_to_pylibcudf_table(df),
+                df,
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
                 br=br,
@@ -120,12 +117,21 @@ class ShufflingActor(RapidsMPFActor):
 
         # Slice df and submit local slices to shuffler
         stride = math.ceil(self._num_rows / self.comm.nranks)
-        local_df = df.iloc[self.comm.rank * stride : (self.comm.rank + 1) * stride]
-        num_rows_local = len(local_df)
+        local_df = plc.copying.slice(
+            df,
+            [
+                self.comm.rank * stride,
+                min((self.comm.rank + 1) * stride, self._num_rows),
+            ],
+        )[0]
+        num_rows_local = local_df.num_rows()
         self._batch_size = num_rows_local if self._batch_size < 0 else self._batch_size
         for i in range(0, num_rows_local, self._batch_size):
+            batch = plc.copying.slice(
+                local_df, [i, min(i + self._batch_size, num_rows_local)]
+            )[0]
             packed_inputs = partition_and_pack(
-                cudf_to_pylibcudf_table(local_df.iloc[i : i + self._batch_size]),
+                batch,
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
                 br=br,
@@ -145,10 +151,10 @@ class ShufflingActor(RapidsMPFActor):
                 br=br,
                 stream=stream,
             )
-            assert_eq(
-                pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
+            assert_eq_with_plc(
+                partition,
                 expected[partition_id],
-                sort_rows="a",
+                sort_rows=0,
             )
 
         shuffler.shutdown()

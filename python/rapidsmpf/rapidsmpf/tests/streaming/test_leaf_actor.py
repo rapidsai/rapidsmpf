@@ -11,7 +11,7 @@ from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq_with_pyarrow
+from rapidsmpf.testing import assert_eq_with_plc
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -49,4 +49,4 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         assert result.sequence_number == seq
         tbl = TableChunk.from_message(result, br=context.br())
-        assert_eq_with_pyarrow(tbl.table_view(), expect)
+        assert_eq_with_plc(tbl.table_view(), expect)
