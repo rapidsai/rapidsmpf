@@ -12,6 +12,10 @@
 
 namespace rapidsmpf::streaming {
 
+namespace {
+using config::streaming::NumStreamingThreadsOption;
+}  // namespace
+
 CoroThreadPoolExecutor::CoroThreadPoolExecutor(
     std::uint32_t num_streaming_threads, std::shared_ptr<Statistics> statistics
 )

@@ -40,10 +40,12 @@ cdef extern from *:
     #include <rapidsmpf/config.hpp>
     namespace rapidsmpf_options_py {
     // Exposes `k_<SUFFIX>` and `d_<SUFFIX>` as `const char*` aliases for the
-    // key and default-value strings of `rapidsmpf::NS::OPT`.
+    // key and default-value strings of `rapidsmpf::config::NS::OPT`.
     #define RMPF_OPT(SUFFIX, NS, OPT) \\
-        inline char const* const k_##SUFFIX = rapidsmpf::NS::OPT.key.c_str(); \\
-        inline char const* const d_##SUFFIX = rapidsmpf::NS::OPT.default_val.c_str();
+        inline char const* const k_##SUFFIX = \\
+            rapidsmpf::config::NS::OPT.key.c_str(); \\
+        inline char const* const d_##SUFFIX = \\
+            rapidsmpf::config::NS::OPT.default_val.c_str();
 
     RMPF_OPT(statistics, statistics, EnabledOption)
     RMPF_OPT(pinned_memory, pinned_memory, EnabledOption)

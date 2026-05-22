@@ -937,6 +937,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::optional<RemoteAddress> remote_address,
     config::Options options
 ) {
+    using config::ucxx::ProgressModeOption;
     auto progress_mode =
         options.get<ProgressMode>(ProgressModeOption.key, [](auto const& s) {
             // When the option is unset, parse the default through the same

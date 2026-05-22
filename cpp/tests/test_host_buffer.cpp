@@ -336,17 +336,19 @@ TEST(PinnedResource, from_default_options) {
     if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
+    using rapidsmpf::config::pinned_memory::InitialPoolSizeOption;
+    using rapidsmpf::config::pinned_memory::MaxPoolSizeOption;
     EXPECT_EQ(
         mr->properties().initial_pool_size,
         rapidsmpf::parse_nbytes_or_percent(
-            rapidsmpf::pinned_memory::InitialPoolSizeOption.default_val,
+            InitialPoolSizeOption.default_val,
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
     EXPECT_EQ(
         mr->properties().max_pool_size.value(),
         rapidsmpf::parse_nbytes_or_percent(
-            rapidsmpf::pinned_memory::MaxPoolSizeOption.default_val,
+            MaxPoolSizeOption.default_val,
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );

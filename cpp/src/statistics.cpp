@@ -168,12 +168,10 @@ Statistics::~Statistics() noexcept {
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
-    bool const enabled =
-        options.get<bool>(statistics::EnabledOption.key, [](auto const& s) {
-            return parse_string<bool>(
-                s.empty() ? statistics::EnabledOption.default_val : s
-            );
-        });
+    using config::statistics::EnabledOption;
+    bool const enabled = options.get<bool>(EnabledOption.key, [](auto const& s) {
+        return parse_string<bool>(s.empty() ? EnabledOption.default_val : s);
+    });
     return enabled ? std::make_shared<Statistics>(enabled) : Statistics::disabled();
 }
 

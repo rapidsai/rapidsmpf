@@ -21,6 +21,11 @@
 
 namespace rapidsmpf::streaming {
 
+namespace {
+using config::streaming::AllowOverbookingByDefaultOption;
+using config::streaming::MemoryReserveTimeoutOption;
+}  // namespace
+
 MemoryReserveOrWait::MemoryReserveOrWait(
     config::Options options,
     MemoryType mem_type,

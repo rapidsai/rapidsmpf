@@ -384,20 +384,20 @@ std::unordered_map<std::string, std::string> get_environment_variables(
     std::string const& key_regex = "RAPIDSMPF_(.*)"
 );
 
-}  // namespace config
-
 /**
  * @brief Descriptor for a single configuration option.
  *
  * Couples an option's lookup key with its default value so the two cannot
  * drift apart. Instances are `inline const` and live in the module
- * sub-namespaces below (e.g. `rapidsmpf::statistics`,
- * `rapidsmpf::buffer_resource`); consult those for the canonical list of
- * options understood by the `from_options` factories.
+ * sub-namespaces below (e.g. `rapidsmpf::config::statistics`,
+ * `rapidsmpf::config::buffer_resource`); consult those for the canonical
+ * list of options understood by the `from_options` factories.
  *
  * Each descriptor's variable name is suffixed with `Option` to keep it
  * distinct from same-named runtime entities in its module (for example,
- * `rapidsmpf::ucxx::ProgressModeOption` vs the `enum class ProgressMode`).
+ * `rapidsmpf::config::ucxx::ProgressModeOption` vs the `enum class
+ * ProgressMode`). Call sites typically pull the descriptor into the local
+ * scope with a `using` declaration so the descriptor name stays short.
  *
  * Both `key` and `default_val` are owning `std::string`s. Options are always
  * parsed from their string representation at runtime, so the default is
@@ -506,5 +506,7 @@ inline const OptionDescriptor ProgressModeOption{
     .default_val = "thread-blocking",
 };
 }  // namespace ucxx
+
+}  // namespace config
 
 }  // namespace rapidsmpf
