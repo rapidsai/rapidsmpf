@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 import pylibcudf as plc
-from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
@@ -24,6 +23,7 @@ from rapidsmpf.testing import assert_eq_with_plc
 
 if TYPE_CHECKING:
     import rmm.mr
+    from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
+    stream: Stream,
     total_num_partitions: int,
 ) -> None:
     br = BufferResource(device_mr)
@@ -45,9 +46,11 @@ def test_shuffler_single_nonempty_partition(
 
     df = plc.Table(
         [
-            plc.Column.from_iterable_of_py([1, 2, 3], plc.DataType(plc.TypeId.INT64)),
             plc.Column.from_iterable_of_py(
-                [42, 42, 42], plc.DataType(plc.TypeId.INT64)
+                [1, 2, 3], plc.DataType(plc.TypeId.INT64), stream=stream
+            ),
+            plc.Column.from_iterable_of_py(
+                [42, 42, 42], plc.DataType(plc.TypeId.INT64), stream=stream
             ),
         ]
     )
@@ -56,7 +59,7 @@ def test_shuffler_single_nonempty_partition(
         columns_to_hash=(1,),
         num_partitions=total_num_partitions,
         br=br,
-        stream=DEFAULT_STREAM,
+        stream=stream,
     )
     shuffler.insert_chunks(packed_inputs)
     shuffler.insert_finished()
@@ -72,7 +75,7 @@ def test_shuffler_single_nonempty_partition(
         partition = unpack_and_concat(
             unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
             br=br,
-            stream=DEFAULT_STREAM,
+            stream=stream,
         )
         local_outputs.append(partition)
     shuffler.shutdown()
@@ -82,7 +85,7 @@ def test_shuffler_single_nonempty_partition(
         return
     res = plc.concatenate.concatenate(local_outputs)
     # Each rank has `df` thus each rank contribute to the rows of `df` to the expected result.
-    expect = plc.concatenate.concatenate([df] * comm.nranks)
+    expect = plc.concatenate.concatenate([df] * comm.nranks, stream=stream)
     if res.num_rows() > 0:
         assert_eq_with_plc(res, expect, sort_rows=0)
 
@@ -92,6 +95,7 @@ def test_shuffler_single_nonempty_partition(
 def test_shuffler_uniform(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
+    stream: Stream,
     batch_size: int | None,
     total_num_partitions: int,
 ) -> None:
@@ -104,11 +108,13 @@ def test_shuffler_uniform(
     df = plc.Table(
         [
             plc.Column.from_iterable_of_py(
-                list(range(num_rows)), plc.DataType(plc.TypeId.INT64)
+                list(range(num_rows)), plc.DataType(plc.TypeId.INT64), stream=stream
             ),
-            plc.Column.from_array(np.random.randint(0, 1000, num_rows)),
+            plc.Column.from_array(np.random.randint(0, 1000, num_rows), stream=stream),
             plc.Column.from_iterable_of_py(
-                ["cat", "dog"] * (num_rows // 2), plc.DataType(plc.TypeId.STRING)
+                ["cat", "dog"] * (num_rows // 2),
+                plc.DataType(plc.TypeId.STRING),
+                stream=stream,
             ),
         ]
     )
@@ -118,14 +124,14 @@ def test_shuffler_uniform(
         partition_id: unpack_and_concat(
             [packed],
             br=br,
-            stream=DEFAULT_STREAM,
+            stream=stream,
         )
         for partition_id, packed in partition_and_pack(
             df,
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             br=br,
-            stream=DEFAULT_STREAM,
+            stream=stream,
         ).items()
     }
 
@@ -138,17 +144,19 @@ def test_shuffler_uniform(
 
     # Slice df and submit local slices to shuffler
     stride = math.ceil(num_rows / comm.nranks)
-    local_df = plc.copying.slice(df, [comm.rank * stride, (comm.rank + 1) * stride])[0]
+    local_df = plc.copying.slice(
+        df, [comm.rank * stride, (comm.rank + 1) * stride], stream=stream
+    )[0]
     num_rows_local = local_df.num_rows()
     batch_size = batch_size or num_rows_local
     for i in range(0, num_rows_local, batch_size):
-        batch = plc.copying.slice(local_df, [i, i + batch_size])[0]
+        batch = plc.copying.slice(local_df, [i, i + batch_size], stream=stream)[0]
         packed_inputs = partition_and_pack(
             batch,
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             br=br,
-            stream=DEFAULT_STREAM,
+            stream=stream,
         )
         shuffler.insert_chunks(packed_inputs)
 
@@ -164,7 +172,7 @@ def test_shuffler_uniform(
         partition = unpack_and_concat(
             unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
             br=br,
-            stream=DEFAULT_STREAM,
+            stream=stream,
         )
         assert_eq_with_plc(
             partition,
