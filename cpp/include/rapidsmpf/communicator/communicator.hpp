@@ -17,6 +17,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -620,11 +621,23 @@ class Communicator {
     progress_thread() const = 0;
 
     /**
+     * @brief Retrieves the statistics instance associated with this communicator.
+     *
+     * Satisfies the `StatisticsProvider` concept. Implementations typically
+     * forward to `progress_thread()->statistics()`.
+     *
+     * @return Shared pointer to the statistics instance (never null).
+     */
+    [[nodiscard]] virtual std::shared_ptr<Statistics> statistics() const noexcept = 0;
+
+    /**
      * @brief Provides a string representation of the communicator.
      * @return A string describing the communicator.
      */
     [[nodiscard]] virtual std::string str() const = 0;
 };
+
+static_assert(StatisticsProvider<Communicator>);
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
 #ifdef RAPIDSMPF_HAVE_UCXX

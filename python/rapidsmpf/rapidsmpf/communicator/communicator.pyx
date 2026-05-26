@@ -6,6 +6,7 @@ from libcpp.string cimport string
 from libcpp.utility cimport move
 
 from rapidsmpf.progress_thread cimport ProgressThread
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef class Logger:
@@ -178,6 +179,19 @@ cdef class Communicator:
         cdef ProgressThread pt = ProgressThread.__new__(ProgressThread)
         pt._handle = deref(self._handle).progress_thread()
         return pt
+
+    @property
+    def statistics(self):
+        """
+        Get the statistics instance associated with this communicator.
+
+        Returns
+        -------
+            The Statistics instance.
+        """
+        cdef Statistics stats = Statistics.__new__(Statistics)
+        stats._handle = deref(self._handle).statistics()
+        return stats
 
     def get_str(self):
         """

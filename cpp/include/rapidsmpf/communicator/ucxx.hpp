@@ -302,6 +302,13 @@ class UCXX final : public Communicator {
     }
 
     /**
+     * @copydoc Communicator::statistics
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept override {
+        return progress_thread_->statistics();
+    }
+
+    /**
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;
@@ -346,5 +353,7 @@ class UCXX final : public Communicator {
 };
 
 }  // namespace ucxx
+
+static_assert(StatisticsProvider<ucxx::UCXX>);
 
 }  // namespace rapidsmpf
