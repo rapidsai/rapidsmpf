@@ -34,6 +34,10 @@ import asyncio
 # decisions.
 missing_net_memory_delta = cpp_missing_net_memory_delta
 
+# Default value for the "allow_overbooking_by_default" option.
+_ALLOW_OVERBOOKING_BY_DEFAULT: bool = _parse_boolean(
+    _OPTION_DEFAULTS[STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT]
+)
 
 cdef extern from * nogil:
     """
@@ -609,9 +613,7 @@ async def reserve_memory(
     if allow_overbooking is None:
         allow_overbooking = ctx.options().get_or_default(
             STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT,
-            default_value=_parse_boolean(
-                _OPTION_DEFAULTS[STREAMING_ALLOW_OVERBOOKING_BY_DEFAULT]
-            ),
+            default_value=_ALLOW_OVERBOOKING_BY_DEFAULT,
         )
 
     memory = ctx.memory(mem_type)
