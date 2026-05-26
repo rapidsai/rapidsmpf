@@ -25,7 +25,7 @@ from rapidsmpf.streaming.cudf.partition import (
     unpack_and_concat as streaming_unpack_and_concat,
 )
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq_with_plc
+from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -122,7 +122,7 @@ def test_single_rank_shuffler(
     result = plc.concatenate.concatenate(
         [chunk.table_view() for chunk in output_chunks]
     )
-    assert_eq_with_plc(result, df, sort_rows=0)
+    assert_eq(result, df, sort_rows=0)
 
 
 @define_actor()
@@ -286,4 +286,4 @@ def test_shuffler_object_interface(
         )
         got = table.table_view()
         table.stream.synchronize()
-        assert_eq_with_plc(plc.Table([expect]), got, sort_rows=0)
+        assert_eq(plc.Table([expect]), got, sort_rows=0)

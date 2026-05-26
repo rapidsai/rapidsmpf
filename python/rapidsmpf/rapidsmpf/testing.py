@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
 
-def assert_eq_with_plc(
+def assert_eq(
     left: pylibcudf.Table,
     right: pylibcudf.Table,
     *,

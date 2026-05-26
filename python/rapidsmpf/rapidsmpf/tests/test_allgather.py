@@ -17,7 +17,7 @@ from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.statistics import Statistics
-from rapidsmpf.testing import assert_eq_with_plc
+from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -105,7 +105,7 @@ def validate_packed_data(
                 )
             ]
         )
-        assert_eq_with_plc(result_table, expected_table)
+        assert_eq(result_table, expected_table)
 
 
 def gen_offset(i: int, r: int) -> int:

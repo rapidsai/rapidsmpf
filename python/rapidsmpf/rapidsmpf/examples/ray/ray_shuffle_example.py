@@ -21,7 +21,7 @@ from rapidsmpf.integrations.cudf.partition import (
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.testing import assert_eq_with_plc
+from rapidsmpf.testing import assert_eq
 
 
 class ShufflingActor(RapidsMPFActor):
@@ -151,7 +151,7 @@ class ShufflingActor(RapidsMPFActor):
                 br=br,
                 stream=stream,
             )
-            assert_eq_with_plc(
+            assert_eq(
                 partition,
                 expected[partition_id],
                 sort_rows=0,

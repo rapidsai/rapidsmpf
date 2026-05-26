@@ -11,7 +11,7 @@ import pytest
 import pylibcudf as plc
 
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.testing import assert_eq_with_plc
+from rapidsmpf.testing import assert_eq
 
 MPI = pytest.importorskip("mpi4py.MPI")
 from rapidsmpf.examples.bulk_mpi_shuffle import bulk_mpi_shuffle  # noqa: E402
@@ -112,5 +112,5 @@ def test_bulk_shuffle(
         shuffled_paths = sorted(map(str, Path(output_dir).glob("**/*")))
         df_original = _read_parquet(input_paths)
         df_shuffled = _read_parquet(shuffled_paths)
-        assert_eq_with_plc(df_original, df_shuffled, sort_rows=0)
+        assert_eq(df_original, df_shuffled, sort_rows=0)
     mpi_comm.barrier()
