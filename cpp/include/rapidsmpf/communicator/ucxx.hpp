@@ -304,9 +304,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::statistics
      */
-    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept override {
-        return progress_thread_->statistics();
-    }
+    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept override;
 
     /**
      * @copydoc Communicator::str

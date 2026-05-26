@@ -1455,6 +1455,10 @@ std::string UCXX::str() const {
     return ss.str();
 }
 
+std::shared_ptr<Statistics> UCXX::statistics() const noexcept {
+    return progress_thread_->statistics();
+}
+
 UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");

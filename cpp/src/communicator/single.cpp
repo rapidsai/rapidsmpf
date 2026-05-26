@@ -83,4 +83,8 @@ std::string Single::str() const {
     ss << "Uni(rank=0, nranks: 1)";
     return ss.str();
 }
+
+std::shared_ptr<Statistics> Single::statistics() const noexcept {
+    return progress_thread_->statistics();
+}
 }  // namespace rapidsmpf

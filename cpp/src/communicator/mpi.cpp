@@ -388,4 +388,8 @@ std::string MPI::str() const {
        << "." << subversion << ")";
     return ss.str();
 }
+
+std::shared_ptr<Statistics> MPI::statistics() const noexcept {
+    return progress_thread_->statistics();
+}
 }  // namespace rapidsmpf
