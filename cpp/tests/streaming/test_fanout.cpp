@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <iostream>
+#include <unordered_set>
 #include <vector>
 
 #include <gmock/gmock.h>

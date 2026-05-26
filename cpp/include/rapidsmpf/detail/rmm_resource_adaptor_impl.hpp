@@ -8,11 +8,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
-#include <optional>
 #include <stack>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 #include <cuda_runtime_api.h>
@@ -33,39 +31,30 @@ namespace rapidsmpf::detail {
 /**
  * @brief Implementation class for RmmResourceAdaptor.
  *
- * Holds all mutable state for memory tracking and fallback allocation.
- * This class satisfies the CCCL `cuda::mr::resource` concept and is held by
- * `RmmResourceAdaptor` via `cuda::mr::shared_resource` for
- * reference-counted ownership.
+ * Holds all mutable state for memory tracking. This class satisfies the CCCL
+ * `cuda::mr::resource` concept and is held by `RmmResourceAdaptor` via
+ * `cuda::mr::shared_resource` for reference-counted ownership.
  *
  * @tparam PrimaryMR The type of the primary memory resource. Use a concrete
  * resource type (e.g. `cuda::pinned_memory_pool`) to store the resource
  * directly inside the shared control block, avoiding an extra heap allocation.
- * @tparam FallbackMR The type of the optional fallback memory resource, used
- * when the primary resource throws `rmm::out_of_memory`. Defaults to
- * `cuda::mr::any_resource<cuda::mr::device_accessible>` for type-erased use.
  */
-template <
-    cuda::mr::resource_with<cuda::mr::device_accessible> PrimaryMR,
-    cuda::mr::resource_with<cuda::mr::device_accessible> FallbackMR =
-        cuda::mr::any_resource<cuda::mr::device_accessible>>
+template <cuda::mr::resource_with<cuda::mr::device_accessible> PrimaryMR>
 class RmmResourceAdaptorImpl {
   public:
     /**
-     * @brief Construct with a primary and optional fallback memory resource.
+     * @brief Construct with a primary memory resource.
      *
      * @param primary_mr The primary memory resource (moved in).
-     * @param fallback_mr Optional fallback memory resource.
      */
     // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape): false positive — primary_mr
-    // and fallback_mr are moved into a heap-allocated control block inside
-    // make_shared_resource; the analyzer incorrectly traces the forwarding
-    // reference chain back to the outer caller's stack frame.
-    RmmResourceAdaptorImpl(  // NOLINT(clang-analyzer-core.StackAddressEscape)
-        PrimaryMR primary_mr,
-        std::optional<FallbackMR> fallback_mr = std::nullopt
+    // is moved into a heap-allocated control block inside make_shared_resource;
+    // the analyzer incorrectly traces the forwarding reference chain back to the
+    // outer caller's stack frame.
+    explicit RmmResourceAdaptorImpl(  // NOLINT(clang-analyzer-core.StackAddressEscape)
+        PrimaryMR primary_mr
     )
-        : primary_mr_{std::move(primary_mr)}, fallback_mr_{std::move(fallback_mr)} {}
+        : primary_mr_{std::move(primary_mr)} {}
 
     // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
@@ -80,7 +69,7 @@ class RmmResourceAdaptorImpl {
      */
     template <typename... Args>
     explicit RmmResourceAdaptorImpl(std::in_place_t, Args&&... args)
-        : primary_mr_{std::forward<Args>(args)...}, fallback_mr_{std::nullopt} {}
+        : primary_mr_{std::forward<Args>(args)...} {}
 
     ~RmmResourceAdaptorImpl() = default;
 
@@ -105,16 +94,6 @@ class RmmResourceAdaptorImpl {
      */
     [[nodiscard]] PrimaryMR const& get_upstream_resource() const noexcept {
         return primary_mr_;
-    }
-
-    /**
-     * @brief Returns a const reference to the optional fallback resource.
-     * @return Const reference to the optional fallback resource, or `std::nullopt` if
-     * no fallback is configured.
-     */
-    [[nodiscard]] std::optional<FallbackMR> const&
-    get_fallback_resource() const noexcept {
-        return fallback_mr_;
     }
 
     /// @copydoc RmmResourceAdaptor::get_main_record
@@ -165,32 +144,14 @@ class RmmResourceAdaptorImpl {
         std::size_t bytes,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) {
-        constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
-        constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
-
-        void* ret{};
-        auto alloc_type = PRIMARY;
-        try {
-            ret = primary_mr_.allocate(stream, bytes, alignment);
-        } catch (rmm::out_of_memory const& e) {
-            if (fallback_mr_.has_value()) {
-                alloc_type = FALLBACK;
-                ret = fallback_mr_->allocate(stream, bytes, alignment);
-                std::lock_guard<std::mutex> lock(mutex_);
-                fallback_allocations_.insert(ret);
-            } else {
-                throw;
-            }
-        }
+        void* ret = primary_mr_.allocate(stream, bytes, alignment);
         std::lock_guard<std::mutex> lock(mutex_);
-        main_record_.record_allocation(alloc_type, safe_cast<std::int64_t>(bytes));
+        main_record_.record_allocation(safe_cast<std::int64_t>(bytes));
         if (!record_stacks_.empty()) {
             auto const thread_id = std::this_thread::get_id();
             auto& record = record_stacks_[thread_id];
             if (!record.empty()) {
-                record.top().record_allocation(
-                    alloc_type, safe_cast<std::int64_t>(bytes)
-                );
+                record.top().record_allocation(safe_cast<std::int64_t>(bytes));
                 RAPIDSMPF_EXPECTS(
                     allocating_threads_.insert({ret, thread_id}).second,
                     "duplicate memory pointer"
@@ -214,32 +175,21 @@ class RmmResourceAdaptorImpl {
         std::size_t bytes,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) noexcept {
-        constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
-        constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
-
-        ScopedMemoryRecord::AllocType alloc_type;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
-            main_record_.record_deallocation(alloc_type, safe_cast<std::int64_t>(bytes));
+            main_record_.record_deallocation(safe_cast<std::int64_t>(bytes));
             if (!allocating_threads_.empty()) {
                 auto const node = allocating_threads_.extract(ptr);
                 if (node) {
                     auto thread_id = node.mapped();
                     auto& record = record_stacks_[thread_id];
                     if (!record.empty()) {
-                        record.top().record_deallocation(
-                            alloc_type, safe_cast<std::int64_t>(bytes)
-                        );
+                        record.top().record_deallocation(safe_cast<std::int64_t>(bytes));
                     }
                 }
             }
         }
-        if (alloc_type == PRIMARY) {
-            primary_mr_.deallocate(stream, ptr, bytes, alignment);
-        } else {
-            fallback_mr_->deallocate(stream, ptr, bytes, alignment);
-        }
+        primary_mr_.deallocate(stream, ptr, bytes, alignment);
     }
 
     /**
@@ -280,8 +230,6 @@ class RmmResourceAdaptorImpl {
   private:
     mutable std::mutex mutex_;
     PrimaryMR primary_mr_;
-    std::optional<FallbackMR> fallback_mr_;
-    std::unordered_set<void*> fallback_allocations_;
 
     ScopedMemoryRecord main_record_;
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;

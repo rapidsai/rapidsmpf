@@ -109,64 +109,38 @@ struct throw_at_limit_resource
     }
 };
 
-TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
-    throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+TEST(RmmResourceAdaptor, TracksAllocations) {
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
+    RmmResourceAdaptor mr{primary_mr};
 
     EXPECT_EQ(mr.current_allocated(), 0);
 
     void* p1 = mr.allocate_sync(1_MiB);
     EXPECT_EQ(primary_mr.allocs(), std::unordered_set<void*>{p1});
-    EXPECT_TRUE(fallback_mr.allocs().empty());
     EXPECT_EQ(mr.current_allocated(), 1_MiB);
 
     mr.deallocate_sync(p1, 1_MiB);
     EXPECT_TRUE(primary_mr.allocs().empty());
     EXPECT_EQ(mr.current_allocated(), 0);
-
-    void* p2 = mr.allocate_sync(2_MiB);
-    EXPECT_TRUE(primary_mr.allocs().empty());
-    EXPECT_EQ(fallback_mr.allocs(), std::unordered_set<void*>{p2});
-    EXPECT_EQ(mr.current_allocated(), 2_MiB);
-
-    mr.deallocate_sync(p2, 2_MiB);
-    EXPECT_TRUE(fallback_mr.allocs().empty());
-    EXPECT_EQ(mr.current_allocated(), 0);
 }
 
-TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
-    throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
-
-    void* ptr = mr.allocate_sync(1_MiB);
-    EXPECT_EQ(primary_mr.allocs().count(ptr), 1);
-    EXPECT_TRUE(fallback_mr.allocs().empty());
-
-    mr.deallocate_sync(ptr, 1_MiB);
-}
-
-TEST(RmmResourceAdaptor, NoFallbackProvidedThrowsOnOOM) {
+TEST(RmmResourceAdaptor, OOMPropagates) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
     RmmResourceAdaptor mr{primary_mr};
 
     EXPECT_THROW((void)mr.allocate_sync(8_MiB), rmm::out_of_memory);
 }
 
-TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
+TEST(RmmResourceAdaptor, PropagatesNonOutOfMemoryExceptions) {
     throw_at_limit_resource<std::logic_error> primary_mr{1_MiB};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    RmmResourceAdaptor mr{primary_mr};
 
     EXPECT_THROW(std::ignore = mr.allocate_sync(2_MiB), std::logic_error);
-    EXPECT_TRUE(fallback_mr.allocs().empty());
 }
 
 TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
-    throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
+    RmmResourceAdaptor mr{primary_mr};
 
     auto main_record_before = mr.get_main_record();
     EXPECT_EQ(main_record_before.num_total_allocs(), 0);
@@ -174,49 +148,29 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     EXPECT_EQ(main_record_before.total(), 0);
     EXPECT_EQ(main_record_before.peak(), 0);
 
-    // Allocate from primary
     void* p1 = mr.allocate_sync(1_MiB);
     auto main_record_after_p1 = mr.get_main_record();
 
-    EXPECT_EQ(
-        main_record_after_p1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 1
-    );
     EXPECT_EQ(main_record_after_p1.num_total_allocs(), 1);
-    EXPECT_EQ(
-        main_record_after_p1.current(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB
-    );
     EXPECT_EQ(main_record_after_p1.current(), 1_MiB);
-    EXPECT_EQ(main_record_after_p1.total(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
     EXPECT_EQ(main_record_after_p1.total(), 1_MiB);
-    EXPECT_EQ(main_record_after_p1.peak(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
     EXPECT_EQ(main_record_after_p1.peak(), 1_MiB);
 
     mr.deallocate_sync(p1, 1_MiB);
     auto main_record_after_d1 = mr.get_main_record();
-    EXPECT_EQ(main_record_after_d1.current(ScopedMemoryRecord::AllocType::PRIMARY), 0);
     EXPECT_EQ(main_record_after_d1.current(), 0);
     EXPECT_EQ(main_record_after_d1.peak(), 1_MiB);  // Peak remains
 
-    // Allocate from fallback
     void* p2 = mr.allocate_sync(2_MiB);
     auto main_record_after_p2 = mr.get_main_record();
 
-    EXPECT_EQ(
-        main_record_after_p2.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 1
-    );
-    EXPECT_EQ(main_record_after_p2.num_total_allocs(), 2);  // PRIMARY + FALLBACK
-    EXPECT_EQ(
-        main_record_after_p2.current(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB
-    );
+    EXPECT_EQ(main_record_after_p2.num_total_allocs(), 2);
     EXPECT_EQ(main_record_after_p2.current(), 2_MiB);
-    EXPECT_EQ(main_record_after_p2.total(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
     EXPECT_EQ(main_record_after_p2.total(), 3_MiB);
-    EXPECT_EQ(main_record_after_p2.peak(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
     EXPECT_EQ(main_record_after_p2.peak(), 2_MiB);
 
     mr.deallocate_sync(p2, 2_MiB);
     auto main_record_final = mr.get_main_record();
-    EXPECT_EQ(main_record_final.current(ScopedMemoryRecord::AllocType::FALLBACK), 0);
     EXPECT_EQ(main_record_final.current(), 0);
     EXPECT_EQ(main_record_final.num_total_allocs(), 2);
     EXPECT_EQ(main_record_final.total(), 3_MiB);
@@ -227,94 +181,42 @@ TEST(ScopedMemoryRecord, AddSubscopeMergesNestedScopeCorrectly) {
     ScopedMemoryRecord parent;
     ScopedMemoryRecord subscope;
 
-    // Parent: Allocate and deallocate
-    parent.record_allocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 300
-    );  // parant-peak: 300
-    parent.record_allocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 400
-    );  // parant-peak: 400
-    parent.record_deallocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 20
-    );  // parant-current: 280
-    parent.record_deallocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 50
-    );  // parant-current: 350
+    // Parent: allocate then partially deallocate.
+    parent.record_allocation(300);
+    parent.record_deallocation(20);
 
-    // Subscope: Allocate and deallocate
-    subscope.record_allocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 100
-    );  // parant-peak: 280+100, child-peak: 100
-    subscope.record_allocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 50
-    );  // parant-peak: 280+150, child-peak: 150
-    subscope.record_allocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 200
-    );  // parant-peak: 350+200, child-peak: 200
-    subscope.record_deallocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 30
-    );  // child-current: 120
-    subscope.record_deallocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 80
-    );  // child-current: 120
+    // Subscope: allocate then partially deallocate.
+    subscope.record_allocation(100);
+    subscope.record_allocation(50);
+    subscope.record_deallocation(30);
 
     // Merge subscope into parent
     parent.add_subscope(subscope);
 
-    // Expect current (after merge) is sum of currents
-    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::PRIMARY), 280 + 120);
-    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::FALLBACK), 350 + 120);
-
-    // Expect totals to accumulate
-    EXPECT_EQ(parent.total(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
-    EXPECT_EQ(parent.total(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
-
-    // Alloc count
-    EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 3);
-    EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
-
-    // Corrected peak logic: parent current at time of merge + subscope peak
-    EXPECT_EQ(parent.peak(ScopedMemoryRecord::AllocType::PRIMARY), 280 + 150);
-    EXPECT_EQ(parent.peak(ScopedMemoryRecord::AllocType::FALLBACK), 350 + 200);
+    EXPECT_EQ(parent.current(), 280 + 120);
+    EXPECT_EQ(parent.total(), 300 + 150);
+    EXPECT_EQ(parent.num_total_allocs(), 3);
+    // Peak: parent current at merge time + subscope peak.
+    EXPECT_EQ(parent.peak(), 280 + 150);
 }
 
 TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
     ScopedMemoryRecord scope1;
     ScopedMemoryRecord scope2;
 
-    // Simulate allocations in scope1
-    scope1.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
-    scope1.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 200);
-    // Deallocate from scope1
-    scope1.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, 30);
-    scope1.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, 50);
+    scope1.record_allocation(100);
+    scope1.record_deallocation(30);
 
-    // Simulate allocations in scope2
-    scope2.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 50);
-    scope2.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);
-    // Deallocate from scope2 (note: large dealloc triggers negative current)
-    scope2.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, 600);
+    scope2.record_allocation(50);
 
-    // Merge scope2 into scope1 as peer scope
+    // Merge scope2 into scope1 as a peer scope.
     scope1.add_scope(scope2);
 
-    // Peaks should be max of peaks from each scope
-    EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::PRIMARY), std::max(100, 50));
-    EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::FALLBACK), std::max(200, 400));
-
-    // Currents are summed
-    // PRIMARY: 100 - 30 + 50 = 120
-    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::PRIMARY), 120);
-    // FALLBACK: 200 - 50 + 400 - 600 = -50
-    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::FALLBACK), -50);
-
-    // Totals are additive
-    EXPECT_EQ(scope1.total(ScopedMemoryRecord::AllocType::PRIMARY), 100 + 50);
-    EXPECT_EQ(scope1.total(ScopedMemoryRecord::AllocType::FALLBACK), 200 + 400);
-
-    // Allocation counts are summed
-    EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 2);
-    EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
+    EXPECT_EQ(scope1.peak(), std::max(100, 50));
+    // 100 - 30 + 50 = 120
+    EXPECT_EQ(scope1.current(), 120);
+    EXPECT_EQ(scope1.total(), 100 + 50);
+    EXPECT_EQ(scope1.num_total_allocs(), 2);
 }
 
 TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
