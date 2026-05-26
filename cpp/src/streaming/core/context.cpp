@@ -109,6 +109,7 @@ std::shared_ptr<Context> Context::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
+    RAPIDSMPF_EXPECTS(statistics != nullptr, "the statistics pointer cannot be NULL");
     return std::make_shared<Context>(
         options,
         std::move(logger),

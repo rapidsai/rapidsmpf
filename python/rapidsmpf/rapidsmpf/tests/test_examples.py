@@ -11,6 +11,7 @@ import pytest
 import pylibcudf as plc
 
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 MPI = pytest.importorskip("mpi4py.MPI")
@@ -93,7 +94,7 @@ def test_bulk_shuffle(
     output_dir = str(mpi_tmpdir.join("output"))
 
     # Use a default buffer resource.
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     # Perform a the shuffle
     bulk_mpi_shuffle(

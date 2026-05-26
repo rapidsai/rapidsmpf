@@ -156,6 +156,7 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr) {
     );
 
     auto br = std::make_shared<BufferResource>(
+        statistics,
         std::move(mr),
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
                                         : PinnedMemoryResource::make_if_available(),
@@ -163,8 +164,7 @@ create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr) {
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(
             arguments.num_streams, rmm::cuda_stream::flags::non_blocking
-        ),
-        statistics
+        )
     );
     auto environment = config::get_environment_variables();
     environment["NUM_STREAMING_THREADS"] =

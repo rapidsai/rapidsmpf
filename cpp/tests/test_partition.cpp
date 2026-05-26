@@ -44,7 +44,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     std::int64_t const seed = 42;
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{mr()};
+    BufferResource br{Statistics::disabled(), mr()};
 
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
@@ -72,7 +72,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
     int const num_rows = std::get<1>(GetParam());
     std::int64_t const seed = 42;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
+    BufferResource br{Statistics::disabled(), cudf::get_current_device_resource_ref()};
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
@@ -99,7 +99,9 @@ TEST_P(NumOfPartitions, split_and_pack) {
 class SpillingTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = std::make_unique<BufferResource>(
+            Statistics::disabled(), cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
     }
 

@@ -16,6 +16,7 @@ from rapidsmpf.coll import AllGather
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
@@ -130,7 +131,7 @@ def test_basic_allgather(
     Each rank inserts n_inserts pieces of data, then all ranks
     should receive all data from all ranks.
     """
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     # Create AllGather instance
     allgather = AllGather(

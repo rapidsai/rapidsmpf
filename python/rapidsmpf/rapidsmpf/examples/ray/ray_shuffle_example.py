@@ -21,6 +21,7 @@ from rapidsmpf.integrations.cudf.partition import (
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import Shuffler
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 
@@ -89,7 +90,7 @@ class ShufflingActor(RapidsMPFActor):
         columns_to_hash = (1,)
 
         mr = rmm.mr.get_current_device_resource()
-        br = BufferResource(mr)
+        br = BufferResource(Statistics.disabled(), mr)
         stream = DEFAULT_STREAM  # use the default stream
 
         # Calculate the expected output partitions on all ranks

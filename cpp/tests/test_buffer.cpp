@@ -21,6 +21,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "utils.hpp"
 
@@ -54,6 +55,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
         }
 
         br = std::make_unique<BufferResource>(
+            Statistics::disabled(),
             cudf::get_current_device_resource_ref(),
             PinnedMemoryResource::make_if_available(),
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},

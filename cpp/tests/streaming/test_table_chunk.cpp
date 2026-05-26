@@ -29,36 +29,22 @@ using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 
 class StreamingTableChunk : public BaseStreamingFixture,
-                            public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
+                            public ::testing::WithParamInterface<MemoryType> {
   protected:
     void SetUp() override {
-        rapidsmpf::config::Options options(
-            rapidsmpf::config::get_environment_variables()
-        );
+        config::Options options(config::get_environment_variables());
 
-        std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
-            memory_available{};
-        auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        );
         stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(
-            mr_cuda,  // device_mr
-            rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
-            memory_available,  // memory_available
-            std::chrono::milliseconds{1},  // periodic_spill_check
-            stream_pool,  // stream_pool
-            Statistics::disabled()  // statistics
+        br = std::make_shared<BufferResource>(
+            Statistics::disabled(), mr_cuda, PinnedMemoryResource::make_if_available()
         );
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_->logger(), br
-        );
+        ctx = std::make_shared<Context>(options, GlobalEnvironment->comm_->logger(), br);
     }
 
     rmm::cuda_stream_view stream;
     rmm::mr::cuda_memory_resource mr_cuda;
-    std::shared_ptr<rapidsmpf::BufferResource> br;
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx;
+    std::shared_ptr<BufferResource> br;
+    std::shared_ptr<Context> ctx;
 };
 
 TEST_F(StreamingTableChunk, FromTable) {

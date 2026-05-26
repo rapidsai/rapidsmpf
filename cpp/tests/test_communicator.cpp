@@ -15,6 +15,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -24,7 +25,9 @@ class BaseCommunicatorTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), *mr
+        );
         stream = rmm::cuda_stream_default;
     }
 

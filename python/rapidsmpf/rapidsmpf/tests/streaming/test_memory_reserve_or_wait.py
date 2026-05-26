@@ -18,6 +18,7 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
@@ -33,9 +34,11 @@ def make_context(
     if overwrite_options is not None:
         env.update(overwrite_options)
     options = Options(env)
-    comm = single_process_comm(options, ProgressThread())
+    stats = Statistics.from_options(options)
+    comm = single_process_comm(options, ProgressThread(stats))
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
+        stats,
         mr,
         memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=dev_limit)},
     )

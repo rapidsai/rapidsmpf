@@ -23,6 +23,7 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "environment.hpp"
@@ -32,7 +33,9 @@ extern Environment* GlobalEnvironment;
 
 TEST(ReceivedChunks, spill_skips_control_messages) {
     auto mr = cudf::get_current_device_resource_ref();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
 
     rapidsmpf::shuffler::detail::ReceivedChunks received;
 
@@ -49,7 +52,9 @@ TEST(ReceivedChunks, spill_skips_control_messages) {
 
 TEST(ReceivedChunks, spill_respects_amount) {
     auto mr = cudf::get_current_device_resource_ref();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
     auto stream = cudf::get_default_stream();
 
     rapidsmpf::shuffler::detail::ReceivedChunks received;
@@ -75,7 +80,9 @@ TEST(ReceivedChunks, spill_respects_amount) {
 TEST(MetadataMessage, round_trip) {
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
 
     auto metadata = iota_vector<std::uint8_t>(100);
 
@@ -239,7 +246,10 @@ class MemoryAvailable_NumPartition
         total_num_partitions = std::get<1>(GetParam());
         total_num_rows = std::get<2>(GetParam());
         br = std::make_unique<rapidsmpf::BufferResource>(
-            mr(), rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+            rapidsmpf::Statistics::disabled(),
+            mr(),
+            rapidsmpf::PinnedMemoryResource::Disabled,
+            memory_available
         );
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
@@ -310,7 +320,9 @@ class ConcurrentShuffleTest
             static_cast<rapidsmpf::shuffler::PartID>(std::get<1>(GetParam()));
 
         // these resources will be used by multiple threads to instantiate shufflers
-        br = std::make_unique<rapidsmpf::BufferResource>(mr());
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), mr()
+        );
         stream = cudf::get_default_stream();
     }
 
@@ -411,6 +423,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // through the variable `device_memory_available`.
     std::int64_t device_memory_available{0};
     rapidsmpf::BufferResource br{
+        rapidsmpf::Statistics::disabled(),
         mr,
         rapidsmpf::PinnedMemoryResource::Disabled,
         {{rapidsmpf::MemoryType::DEVICE,
@@ -678,7 +691,9 @@ TEST(Shuffler, ShutdownWhilePaused) {
     auto progress_thread = GlobalEnvironment->comm_->progress_thread();
     auto mr = cudf::get_current_device_resource_ref();
 
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
 
     auto shuffler =
         rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, br.get());
@@ -713,7 +728,9 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
 
     void SetUp() override {
         stream = cudf::get_default_stream();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr());
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), mr()
+        );
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
             GlobalEnvironment->comm_, 0, nparts, br.get()
@@ -812,7 +829,9 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
 
 TEST(ShufflerTest, multiple_shutdowns) {
     auto& comm = GlobalEnvironment->comm_;
-    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+    rapidsmpf::BufferResource br(
+        rapidsmpf::Statistics::disabled(), cudf::get_current_device_resource_ref()
+    );
     auto shuffler =
         std::make_unique<rapidsmpf::shuffler::Shuffler>(comm, 0, comm->nranks(), &br);
 
@@ -836,7 +855,9 @@ TEST(ShufflerTest, multiple_shutdowns) {
 TEST(Shuffler, concurrent_wait) {
     auto const& comm = GlobalEnvironment->comm_;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+    rapidsmpf::BufferResource br(
+        rapidsmpf::Statistics::disabled(), cudf::get_current_device_resource_ref()
+    );
 
     // Use more partitions than ranks so each rank owns multiple partitions, ensuring
     // multiple threads call wait() concurrently on the same shuffler.
@@ -940,7 +961,9 @@ TEST(Shuffler, opid_reuse) {
     constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
 
     // On rank 0, wrap the device MR with a delayed version for the shuffler.
     std::unique_ptr<DelayedMemoryResource> delayed_mr;
@@ -949,7 +972,9 @@ TEST(Shuffler, opid_reuse) {
     if (comm->rank() == 0) {
         delayed_mr =
             std::make_unique<DelayedMemoryResource>(mr, std::chrono::milliseconds(500));
-        delayed_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
+        delayed_br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), *delayed_mr
+        );
         shuffler_br = delayed_br.get();
     }
 
@@ -1047,7 +1072,9 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
-    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), mr
+    );
 
     // On rank 0, wrap the device MR with a delayed version for the shuffler.
     std::unique_ptr<DelayedMemoryResource> delayed_mr;
@@ -1056,7 +1083,9 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     if (comm->rank() == 0) {
         delayed_mr =
             std::make_unique<DelayedMemoryResource>(mr, std::chrono::milliseconds(500));
-        delayed_br = std::make_unique<rapidsmpf::BufferResource>(*delayed_mr);
+        delayed_br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), *delayed_mr
+        );
         shuffler_br = delayed_br.get();
     }
 

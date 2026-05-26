@@ -95,7 +95,7 @@ class WorkerContext:
     br
         The buffer resource used by the worker exclusively.
     statistics
-        The statistics used by the worker. If None, statistics is disabled.
+        The statistics used by the worker.
     comm
         The communicator connected to all other workers.
     spill_collection
@@ -739,7 +739,7 @@ def rmpf_worker_local_setup(
 
     # use options to create the buffer resource
     statistics = Statistics.from_options(options)
-    br = BufferResource.from_options(mr, options, statistics)
+    br = BufferResource.from_options(statistics, mr, options)
 
     # If enabled, create a staging device buffer for the spilling to reduce
     # device memory pressure.

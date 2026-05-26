@@ -10,6 +10,7 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "../environment.hpp"
 
@@ -36,7 +37,11 @@ void Environment::SetUp() {
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = rapidsmpf::ucxx::init_using_mpi(
-        MPI_COMM_WORLD, options_, std::make_shared<rapidsmpf::ProgressThread>()
+        MPI_COMM_WORLD,
+        options_,
+        std::make_shared<rapidsmpf::ProgressThread>(
+            rapidsmpf::Statistics::from_options(options_)
+        )
     );
 }
 

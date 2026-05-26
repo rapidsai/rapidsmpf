@@ -24,6 +24,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 
@@ -105,7 +106,9 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
 class SparseAlltoallTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), rmm::mr::cuda_memory_resource{}
+        );
     }
 
     std::unique_ptr<rapidsmpf::BufferResource> br;
