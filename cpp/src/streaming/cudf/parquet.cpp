@@ -105,8 +105,7 @@ class FileCache {
      * @return The cached message, or std::nullopt if the key is not present.
      */
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
-        auto stats_ptr = ctx->statistics();
-        auto& stats = *stats_ptr;
+        auto& stats = *ctx->statistics();
 
         stats.add_report_entry(
             "unbounded_file_read_cache hits",
