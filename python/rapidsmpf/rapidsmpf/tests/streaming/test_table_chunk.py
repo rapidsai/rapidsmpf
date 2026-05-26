@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import cupy
 import pytest
 
-import cudf
 import pylibcudf as plc
 
 from rapidsmpf.cuda_stream import is_equal_streams
@@ -23,11 +22,8 @@ from rapidsmpf.streaming.cudf.table_chunk import (
     make_table_chunks_available_or_wait,
 )
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
-    from concurrent.futures import ThreadPoolExecutor
-
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.streaming.core.context import Context
@@ -35,12 +31,8 @@ if TYPE_CHECKING:
 
 def random_table(nbytes: int) -> plc.Table:
     assert nbytes % 4 == 0
-    return cudf_to_pylibcudf_table(
-        cudf.DataFrame(
-            {
-                "data": cupy.random.random(nbytes // 4, dtype=cupy.float32),
-            }
-        )
+    return plc.Table(
+        [plc.Column.from_array(cupy.random.random(nbytes // 4, dtype=cupy.float32))]
     )
 
 
@@ -120,13 +112,11 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
 
 def test_copy_roundtrip(context: Context, stream: Stream) -> None:
     for nrows, ncols in [(1, 1), (1000, 100), (1, 1000)]:
-        expect = cudf_to_pylibcudf_table(
-            cudf.DataFrame(
-                {
-                    f"{name}": cupy.random.random(nrows, dtype=cupy.float32)
-                    for name in range(ncols)
-                }
-            )
+        expect = plc.Table(
+            [
+                plc.Column.from_array(cupy.random.random(nrows, dtype=cupy.float32))
+                for _ in range(ncols)
+            ]
         )
 
         tbl1 = TableChunk.from_pylibcudf_table(
@@ -280,7 +270,7 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
 
 
 def test_make_available_or_wait_already_available(
-    context: Context, stream: Stream, py_executor: ThreadPoolExecutor
+    context: Context, stream: Stream
 ) -> None:
     expect = random_table(1024)
     chunk = TableChunk.from_pylibcudf_table(
@@ -293,7 +283,7 @@ def test_make_available_or_wait_already_available(
         result = await chunk.make_available_or_wait(ctx, net_memory_delta=0)
         result_holder.append(result)
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -301,7 +291,6 @@ def test_make_available_or_wait_already_available(
 def test_make_available_or_wait_from_host(
     context: Context,
     stream: Stream,
-    py_executor: ThreadPoolExecutor,
     *,
     net_memory_delta: int,
 ) -> None:
@@ -324,7 +313,7 @@ def test_make_available_or_wait_from_host(
         )
         result_holder.append(result)
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     assert_eq(expect, result_holder[0].table_view())
 
 
@@ -448,7 +437,6 @@ def test_into_packed_data(context: Context, stream: Stream, from_pack: bool) -> 
 def test_make_table_chunks_available_or_wait_single_chunk(
     context: Context,
     stream: Stream,
-    py_executor: ThreadPoolExecutor,
     *,
     chunk_location: str,
 ) -> None:
@@ -476,7 +464,7 @@ def test_make_table_chunks_available_or_wait_single_chunk(
         )
         result_holder.append((result_chunk, res))
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -488,7 +476,6 @@ def test_make_table_chunks_available_or_wait_single_chunk(
 def test_make_table_chunks_available_or_wait_multiple_chunks(
     context: Context,
     stream: Stream,
-    py_executor: ThreadPoolExecutor,
     *,
     num_chunks: int,
 ) -> None:
@@ -525,7 +512,7 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
         )
         result_holder.append((chunks, res))
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     chunks, res = result_holder[0]
     assert len(chunks) == num_chunks
     assert all(chunk.is_available() for chunk in chunks)
@@ -554,7 +541,6 @@ def test_make_table_chunks_available_or_wait_multiple_chunks(
 def test_make_table_chunks_available_or_wait(
     context: Context,
     stream: Stream,
-    py_executor: ThreadPoolExecutor,
     *,
     reserve_extra: int,
     net_memory_delta: int,
@@ -583,7 +569,7 @@ def test_make_table_chunks_available_or_wait(
         )
         result_holder.append((chunk, res))
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     chunk, res = result_holder[0]
     assert chunk.is_available()
     assert_eq(expect, chunk.table_view())
@@ -592,7 +578,7 @@ def test_make_table_chunks_available_or_wait(
 
 
 def test_make_table_chunks_available_or_wait_mixed_availability(
-    context: Context, stream: Stream, py_executor: ThreadPoolExecutor
+    context: Context, stream: Stream
 ) -> None:
     expect1 = random_table(1024)
     expect2 = random_table(2048)
@@ -624,7 +610,7 @@ def test_make_table_chunks_available_or_wait_mixed_availability(
         )
         result_holder.append((chunks, res))
 
-    run_actor_network(actors=[test_actor(context)], py_executor=py_executor)
+    run_actor_network(context, actors=[test_actor(context)])
     chunks, res = result_holder[0]
     assert len(chunks) == 2
     assert all(chunk.is_available() for chunk in chunks)

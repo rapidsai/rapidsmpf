@@ -152,24 +152,29 @@ bool TableChunk::is_spillable() const {
 }
 
 TableChunk TableChunk::copy(MemoryReservation& reservation) const {
-    // This method handles the three possible cases:
+    // This method handles the two possible cases. Note that
+    // `!is_available() && packed_data_ == nullptr` is an invalid state, so the
+    // remaining valid combinations collapse into:
     //
-    // 1. The chunk is available and the reservation specifies device memory.
-    //    In this case, we can directly use cudf to create a deep copy of the
-    //    table by copying the table_view() into device memory.
+    // 1. The chunk is available and not yet packed. The table is copied/packed
+    //    into the reservation-specified memory type using libcudf:
+    //    a. DEVICE       - cudf-copy table_view() into device memory.
+    //    b. PINNED_HOST  - cudf::pack table_view() directly into pinned memory.
+    //    c. HOST         - cudf::pack table_view() into intermediate device
+    //                      memory and then copy to host memory.
     //
-    // 2. The chunk is available and the data is a generic cudf table that is
-    //    not already packed. In this case, the table data must first be packed
-    //    before copying it to host or pinned memory.
-    //
-    // 3. The chunk data is already packed (packed_data_ != nullptr).
-    //    In this case, we simply use buffer_copy() to copy the packed data
-    //    into the reservation-specified memory type. The original memory
-    //    type of the chunk does not matter.
+    // 2. The chunk data is already packed (packed_data_ != nullptr).
+    //    Use buffer_copy() to copy the packed data into the reservation-
+    //    specified memory type. The original memory type of the chunk does
+    //    not matter.
     BufferResource* br = reservation.br();
-    if (is_available()) {
+
+    // If the table view is available and the table is not packed, we can use libcudf to
+    // copy the table in device memory, or pack it to pinned/ host memory. Else, fall
+    // through to case 2 (ie. use buffer_copy).
+    if (is_available() && packed_data_ == nullptr) {
         switch (reservation.mem_type()) {
-        case MemoryType::DEVICE:  // Case 1.
+        case MemoryType::DEVICE:  // Case 1a.
             {
                 // Use libcudf to copy the table_view().
                 auto const nbytes = data_alloc_size(MemoryType::DEVICE);
@@ -184,10 +189,28 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 br->release(reservation, nbytes);
                 return TableChunk(std::move(table), stream());
             }
-        case MemoryType::HOST:
-        case MemoryType::PINNED_HOST:
-            // Case 2.
-            if (packed_data_ == nullptr) {
+        case MemoryType::PINNED_HOST:  // Case 1b.
+            {
+                StreamOrderedTiming timing{stream(), br->statistics()};
+
+                // use cudf pack with pinned mr
+                auto packed_pinned = cudf::pack(table_view(), stream(), br->pinned_mr());
+                auto nbytes = packed_pinned.gpu_data->size();
+
+                br->statistics()->record_copy(
+                    MemoryType::DEVICE, MemoryType::PINNED_HOST, nbytes, std::move(timing)
+                );
+                // update the provided `reservation`
+                br->release(reservation, nbytes);
+                auto host_buffer = br->move(std::move(packed_pinned.gpu_data), stream());
+                return TableChunk(
+                    std::make_unique<PackedData>(
+                        std::move(packed_pinned.metadata), std::move(host_buffer)
+                    )
+                );
+            }
+        case MemoryType::HOST:  // Case 1c.
+            {
                 // We use libcudf's pack() to serialize `table_view()` into a
                 // packed_columns and then we move the packed_columns' gpu_data to a
                 // new host buffer.
@@ -218,18 +241,19 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 packed_data->data = br->move(std::move(packed_data->data), reservation);
                 return TableChunk(std::move(packed_data));
             }
-            break;
         default:
             RAPIDSMPF_FAIL("MemoryType: unknown");
         }
     }
-    // Note, `is_available() == false` implies `packed_data_ != nullptr`.
+    // `!is_available() && packed_data_ == nullptr` is an invalid state, so
+    // reaching this point implies `packed_data_ != nullptr`.
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
-    // Case 3.
+    // Case 2. The chunk data is already packed (packed_data_ != nullptr). We need
+    // to copy the packed data into the reservation-specified memory type.
     auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
-    auto data = br->allocate(nbytes, packed_data_->stream(), reservation);
+    auto data = br->make_buffer(nbytes, packed_data_->stream(), reservation);
     buffer_copy(br->statistics(), *data, *packed_data_->data, nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }

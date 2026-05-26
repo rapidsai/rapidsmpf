@@ -30,7 +30,7 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 addopts = [
-  "--import-mode=importlib", # Dask subprocesses fail to import RAPIDSMPF otherwise
+  "--import-mode=importlib",
 ]
 
 [tool.ruff]

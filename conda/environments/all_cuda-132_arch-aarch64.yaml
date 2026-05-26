@@ -20,11 +20,9 @@ dependencies:
 - cuda-nvtx-dev
 - cuda-sanitizer-api
 - cuda-version=13.2
-- cudf==26.8.*,>=0.0.0a0
+- cupy>=13.6.0
 - cxx-compiler
 - cython>=3.2.2
-- dask-cuda==26.8.*,>=0.0.0a0
-- dask-cudf==26.8.*,>=0.0.0a0
 - doxygen=1.9.1
 - duckdb
 - gcc_linux-aarch64=14.*
@@ -41,6 +39,7 @@ dependencies:
 - myst-parser
 - ninja
 - numpy
+- numpy >=1.23,<3.0
 - numpydoc
 - openmpi >=5.0
 - pip

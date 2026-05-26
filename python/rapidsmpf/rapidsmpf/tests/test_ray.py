@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import functools
 import os
 from typing import TYPE_CHECKING
 
-import toolz
 from cuda.core import system
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
@@ -127,7 +127,7 @@ def test_disallowed_classes(ray_cluster: None) -> None:
         setup_ray_ucxx_cluster(NonRapidsMPFActor, 1)
 
 
-@toolz.memoize
+@functools.cache
 def get_gpu_count() -> int:
     return system.get_num_devices()  # type: ignore
 

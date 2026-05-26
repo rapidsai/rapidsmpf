@@ -288,7 +288,7 @@ class BufferResource {
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
     );
 
@@ -302,21 +302,25 @@ class BufferResource {
      * @param reservation The memory reservation to consume for the allocation.
      * @return A unique pointer to the allocated Buffer.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         rmm::cuda_stream_view stream, MemoryReservation&& reservation
     );
 
     /**
-     * @brief Move device buffer data into a Buffer.
+     * @brief Move device or pinned host buffer data into a Buffer.
      *
-     * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * device memory.
+     * This operation is cheap; no copy is performed.
+     *
+     * The resulting Buffer's memory type is inferred from @p data's memory
+     * resource: if the resource is host-accessible (e.g. pinned host memory),
+     * the Buffer is created with `MemoryType::PINNED_HOST`; otherwise it is
+     * created with `MemoryType::DEVICE`.
      *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
      *
-     * @param data Unique pointer to the device buffer.
+     * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
      * @return Unique pointer to the resulting Buffer.

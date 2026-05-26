@@ -5,14 +5,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -23,7 +22,13 @@ if TYPE_CHECKING:
 
 def test_roundtrip(context: Context, stream: Stream) -> None:
     expects = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py(
+                    [1 * seq, 2 * seq, 3 * seq], plc.DataType(plc.TypeId.INT64)
+                )
+            ]
+        )
         for seq in range(10)
     ]
     table_chunks = [
@@ -38,7 +43,7 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
     actor1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
     actor2, output = pull_from_channel(context, ch_in=ch1)
-    run_actor_network(actors=(actor1, actor2))
+    run_actor_network(context, actors=(actor1, actor2))
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
