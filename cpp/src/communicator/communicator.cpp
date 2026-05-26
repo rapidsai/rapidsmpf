@@ -3,10 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdexcept>
+#include <utility>
+
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
+
+Communicator::Communicator(std::shared_ptr<Statistics> statistics)
+    : statistics_{std::move(statistics)} {
+    RAPIDSMPF_EXPECTS(
+        statistics_ != nullptr,
+        "Communicator statistics cannot be null",
+        std::invalid_argument
+    );
+}
+
 namespace {
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
     if (str.empty()) {

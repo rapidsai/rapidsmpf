@@ -1131,7 +1131,8 @@ UCXX::UCXX(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : shared_resources_(ucxx_initialized_rank->shared_resources_),
+    : Communicator{progress_thread->statistics()},
+      shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
       logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
       progress_thread_{std::move(progress_thread)} {
@@ -1453,10 +1454,6 @@ std::string UCXX::str() const {
        << ", nranks=" << shared_resources_->nranks() << ", ucx-version=" << major << "."
        << minor << "." << release << ")";
     return ss.str();
-}
-
-std::shared_ptr<Statistics> UCXX::statistics() const noexcept {
-    return progress_thread_->statistics();
 }
 
 UCXX::~UCXX() noexcept {

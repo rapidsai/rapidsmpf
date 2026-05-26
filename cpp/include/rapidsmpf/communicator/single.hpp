@@ -200,11 +200,6 @@ class Single final : public Communicator {
     }
 
     /**
-     * @copydoc Communicator::statistics
-     */
-    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept override;
-
-    /**
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;

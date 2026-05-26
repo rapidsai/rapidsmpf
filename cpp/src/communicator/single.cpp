@@ -12,7 +12,8 @@ namespace rapidsmpf {
 
 
 Single::Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread)
-    : logger_{std::make_shared<Logger>(0, std::move(options))},
+    : Communicator{progress_thread->statistics()},
+      logger_{std::make_shared<Logger>(0, std::move(options))},
       progress_thread_{std::move(progress_thread)} {}
 
 std::unique_ptr<Communicator::Future> Single::send(
@@ -82,9 +83,5 @@ std::string Single::str() const {
     std::stringstream ss;
     ss << "Uni(rank=0, nranks: 1)";
     return ss.str();
-}
-
-std::shared_ptr<Statistics> Single::statistics() const noexcept {
-    return progress_thread_->statistics();
 }
 }  // namespace rapidsmpf

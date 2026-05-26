@@ -102,7 +102,8 @@ MPI::MPI(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : comm_{comm},
+    : Communicator{progress_thread->statistics()},
+      comm_{comm},
       rank_{[comm]() {
           int r;
           RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
@@ -387,9 +388,5 @@ std::string MPI::str() const {
     ss << "MPI(rank=" << rank_ << ", nranks: " << nranks_ << ", mpi-version=" << version
        << "." << subversion << ")";
     return ss.str();
-}
-
-std::shared_ptr<Statistics> MPI::statistics() const noexcept {
-    return progress_thread_->statistics();
 }
 }  // namespace rapidsmpf
