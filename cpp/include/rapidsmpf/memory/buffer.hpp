@@ -380,7 +380,7 @@ class Buffer {
  * @p dst_offset.
  *
  * @param statistics Statistics object used to record the copy operation. Use
- * a disabled statistics instance to skip recording.
+ * `Statistics::disabled()` to skip recording.
  * @param dst Destination buffer.
  * @param src Source buffer.
  * @param size Number of bytes to copy.

@@ -59,13 +59,7 @@ AllReduce::AllReduce(
     out_buffer_->rebind_stream(in_buffer_->stream());
     // Note: after this copy, we must check out_buffer's write event before receiving into
     // in_buffer. See StartPreRemainder in the event loop.
-    // TODO: make communicator a statistics provider and pass the statistics instance.
-    buffer_copy(
-        Statistics::create(Statistics::Mode::PermanentlyDisabled),
-        *out_buffer_,
-        *in_buffer_,
-        in_buffer_->size
-    );
+    buffer_copy(Statistics::disabled(), *out_buffer_, *in_buffer_, in_buffer_->size);
 
     auto const rank = comm_->rank();
     if (rank < 2 * non_pow2_remainder_) {
