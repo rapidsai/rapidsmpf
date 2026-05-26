@@ -136,12 +136,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     Statistics& operator=(Statistics&&) = delete;
 
     /**
-     * @brief Returns a shared pointer to a disabled (no-op) Statistics instance.
+     * @brief Constructs a new disabled (no-op) Statistics instance.
      *
-     * Useful when you need to pass a Statistics reference but do not want to
-     * collect any data.
+     * Equivalent to `create(false)`. Useful when you need to pass a Statistics
+     * reference but do not want to collect any data.
      *
-     * @return A shared pointer to a Statistics instance with tracking disabled.
+     * @return A shared pointer to a newly constructed Statistics instance
+     * with tracking disabled.
      */
     static std::shared_ptr<Statistics> disabled();
 
@@ -156,13 +157,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
     /**
      * @brief Enable statistics tracking for this instance.
-     *
-     * @throws std::logic_error If called on the disabled singleton returned
-     * by `Statistics::disabled()`. Enabling that instance would silently
-     * activate stats collection for every other consumer in the process
-     * that obtained a handle via `disabled()` (or `create(false)`).
      */
-    void enable();
+    void enable() noexcept {
+        enabled_.store(true, std::memory_order_release);
+    }
 
     /**
      * @brief Disable statistics tracking for this instance.
@@ -589,10 +587,11 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
         /// Constructs a no-op MemoryRecorder. `mr_` is `std::nullopt` so the
         /// dtor skips the unpaired `end_scoped_memory_record()`; `stats_` is
-        /// the disabled singleton so member access is always valid.
+        /// a freshly constructed disabled instance so member access is always
+        /// valid.
         MemoryRecorder();
 
-        /// Always non-null; disabled singleton for no-op recorders.
+        /// Always non-null; a disabled Statistics for no-op recorders.
         std::shared_ptr<Statistics> stats_;
         /// `std::nullopt` iff no-op. When set, the active ctor called
         /// `begin_scoped_memory_record()` and the dtor must pair it with

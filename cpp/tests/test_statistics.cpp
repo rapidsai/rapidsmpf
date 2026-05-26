@@ -38,15 +38,16 @@ class StatisticsTest : public ::testing::Test {
 
 TEST_F(StatisticsTest, Disabled) {
     auto stats = rapidsmpf::Statistics::create(false);
-    EXPECT_EQ(stats, rapidsmpf::Statistics::disabled());
     EXPECT_FALSE(stats->enabled());
-    // Enabling the disabled singleton should throw.
-    EXPECT_THROW(stats->enable(), std::logic_error);
 
-    // Disabed statistics is a no-op.
+    // Disabled statistics is a no-op.
     stats->add_bytes_stat("name", 1);
     EXPECT_THROW(stats->get_stat("name"), std::out_of_range);
     EXPECT_THAT(stats->report(), ::testing::HasSubstr("Statistics: disabled"));
+
+    // `disabled()` returns fresh instances; each can be toggled on independently.
+    stats->enable();
+    EXPECT_TRUE(stats->enabled());
 }
 
 TEST_F(StatisticsTest, Communication) {

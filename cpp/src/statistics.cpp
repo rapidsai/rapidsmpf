@@ -165,10 +165,7 @@ Statistics::~Statistics() noexcept {
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
 std::shared_ptr<Statistics> Statistics::create(bool enabled) {
-    if (!enabled) {
-        return disabled();
-    }
-    return std::shared_ptr<Statistics>(new Statistics(true));
+    return std::shared_ptr<Statistics>(new Statistics(enabled));
 }
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
@@ -179,17 +176,7 @@ std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
 }
 
 std::shared_ptr<Statistics> Statistics::disabled() {
-    static std::shared_ptr<Statistics> ret{new Statistics(false)};
-    return ret;
-}
-
-void Statistics::enable() {
-    RAPIDSMPF_EXPECTS(
-        this != Statistics::disabled().get(),
-        "cannot enable the disabled singleton returned by Statistics::disabled(); "
-        "construct an owned instance with Statistics::create() instead"
-    );
-    enabled_.store(true, std::memory_order_release);
+    return create(false);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
