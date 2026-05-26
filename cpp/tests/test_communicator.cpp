@@ -79,7 +79,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     }
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
-    auto send_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
+    auto send_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
     send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(
@@ -91,7 +91,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     rapidsmpf::Tag tag{0, 0};
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
 
-    auto recv_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
+    auto recv_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
     recv_buf->stream().synchronize();
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     std::ignore = comm->wait(std::move(send_fut));
