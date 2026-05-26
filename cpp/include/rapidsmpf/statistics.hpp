@@ -583,19 +583,14 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
       private:
         friend class Statistics;
 
-        /// Constructs a no-op MemoryRecorder. `mr_` is `std::nullopt` so the
-        /// dtor skips the unpaired `end_scoped_memory_record()`; `stats_` is
-        /// a freshly constructed disabled instance so member access is always
-        /// valid.
-        MemoryRecorder();
+        /// Constructs a no-op MemoryRecorder.The dtor short-circuits on
+        /// `!mr_.has_value()` so the null `stats_` is never dereferenced.
+        MemoryRecorder() = default;
 
-        /// Always non-null; a disabled Statistics for no-op recorders.
-        std::shared_ptr<Statistics> stats_;
-        /// `std::nullopt` iff no-op. When set, the active ctor called
-        /// `begin_scoped_memory_record()` and the dtor must pair it with
-        /// `end_scoped_memory_record()`.
-        std::optional<RmmResourceAdaptor> mr_;
-        std::string name_;
+        /// No-op recorder iff `stats_` is null and `mr_` is `std::nullopt`.
+        std::shared_ptr<Statistics> stats_{nullptr};
+        std::optional<RmmResourceAdaptor> mr_{std::nullopt};
+        std::string name_{};
     };
 
     /**

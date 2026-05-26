@@ -247,9 +247,6 @@ void Statistics::clear() {
     stats_.clear();
 }
 
-Statistics::MemoryRecorder::MemoryRecorder()
-    : stats_{nullptr}, mr_{std::nullopt}, name_{} {}
-
 Statistics::MemoryRecorder::MemoryRecorder(
     std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
