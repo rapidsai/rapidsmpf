@@ -24,6 +24,7 @@
 
 using namespace rapidsmpf::config;
 using namespace rapidsmpf;
+namespace streaming = rapidsmpf::streaming;
 
 TEST(OptionsTest, EnvReturnsMatchingVariables) {
     // Set environment variables for testing
