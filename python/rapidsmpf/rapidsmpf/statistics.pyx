@@ -48,7 +48,7 @@ cdef extern from *:
         );
     }
     inline std::shared_ptr<rapidsmpf::Statistics> cpp_disabled() {
-        return rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
+        return rapidsmpf::Statistics::disabled();
     }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,

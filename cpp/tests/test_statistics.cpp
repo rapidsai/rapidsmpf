@@ -37,8 +37,7 @@ class StatisticsTest : public ::testing::Test {
 };
 
 TEST_F(StatisticsTest, Disabled) {
-    using Mode = rapidsmpf::Statistics::Mode;
-    auto stats = rapidsmpf::Statistics::create(Mode::Disabled);
+    auto stats = rapidsmpf::Statistics::disabled();
     EXPECT_FALSE(stats->enabled());
 
     // Disabled statistics is a no-op.
@@ -275,7 +274,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    auto stats = rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
+    auto stats = rapidsmpf::Statistics::disabled();
     {
         auto const& records = stats->get_memory_records();
         EXPECT_TRUE(records.empty());
@@ -352,7 +351,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
 
 TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-    auto stats = rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
+    auto stats = rapidsmpf::Statistics::disabled();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
@@ -512,7 +511,7 @@ TEST_F(StatisticsTest, DeserializeRejectsOutOfRangeFormatter) {
 TEST_F(StatisticsTest, SerializeRoundTripPreservesEnabledFlag) {
     using Mode = rapidsmpf::Statistics::Mode;
     // A disabled Statistics should come back disabled after a round-trip.
-    auto disabled = rapidsmpf::Statistics::create(Mode::Disabled);
+    auto disabled = rapidsmpf::Statistics::disabled();
     auto const bytes = disabled->serialize();
     auto deserialized = rapidsmpf::Statistics::deserialize(bytes);
     EXPECT_FALSE(deserialized->enabled());
@@ -696,7 +695,7 @@ TEST_F(StatisticsTest, MergeIdenticalReportEntries) {
 TEST_F(StatisticsTest, MergeEnabledFlagPropagates) {
     using Mode = rapidsmpf::Statistics::Mode;
     auto enabled = rapidsmpf::Statistics::create(Mode::Enabled);
-    auto disabled = rapidsmpf::Statistics::create(Mode::Disabled);
+    auto disabled = rapidsmpf::Statistics::disabled();
 
     // disabled + disabled -> disabled.
     std::vector<std::shared_ptr<rapidsmpf::Statistics>> both_off{disabled, disabled};
