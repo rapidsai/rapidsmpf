@@ -50,7 +50,7 @@ PackedData make_payload(
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
-    auto data = br->allocate(stream, br->reserve_or_fail(sizeof(int), mem_type));
+    auto data = br->make_buffer(stream, br->reserve_or_fail(sizeof(int), mem_type));
     data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(

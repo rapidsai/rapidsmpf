@@ -253,7 +253,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     // to copy the packed data into the reservation-specified memory type.
     auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
-    auto data = br->allocate(nbytes, packed_data_->stream(), reservation);
+    auto data = br->make_buffer(nbytes, packed_data_->stream(), reservation);
     buffer_copy(br->statistics(), *data, *packed_data_->data, nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }

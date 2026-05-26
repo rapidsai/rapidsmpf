@@ -59,7 +59,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
         rmm::cuda_stream_view stream = br.stream_pool().get_stream();
         auto const cd = msg.content_description();
-        auto buf_cpy = br.allocate(cd.content_size(), stream, res);
+        auto buf_cpy = br.make_buffer(cd.content_size(), stream, res);
         // cd needs to be updated to reflect the new buffer
         ContentDescription new_cd{
             {{buf_cpy->mem_type(), buf_cpy->size}}, ContentDescription::Spillable::YES

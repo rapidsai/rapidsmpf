@@ -96,7 +96,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
-    auto buffer1 = br->allocate(buffer_size, stream1, reserve1);
+    auto buffer1 = br->make_buffer(buffer_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
     EXPECT_EQ(buffer1->stream().value(), stream1.value());
 
@@ -115,7 +115,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 
     auto [reserve2, overbooking2] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
-    auto buffer2 = br->allocate(buffer_size, stream2, reserve2);
+    auto buffer2 = br->make_buffer(buffer_size, stream2, reserve2);
     EXPECT_EQ(buffer2->mem_type(), mem_type);
     EXPECT_EQ(buffer2->stream().value(), stream2.value());
 
@@ -143,7 +143,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer1 = br->allocate(test_size, stream1, reserve1);
+    auto buffer1 = br->make_buffer(test_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
 
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
@@ -179,7 +179,7 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
 
     constexpr std::size_t test_size = 2_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer = br->allocate(test_size, stream1, reserve);
+    auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
     buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
@@ -220,7 +220,7 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
 
     constexpr std::size_t test_size = 1_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer = br->allocate(test_size, stream1, reserve);
+    auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
     auto* ptr = buffer->exclusive_data_access();

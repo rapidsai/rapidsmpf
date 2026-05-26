@@ -288,7 +288,7 @@ class BufferResource {
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
     );
 
@@ -302,7 +302,7 @@ class BufferResource {
      * @param reservation The memory reservation to consume for the allocation.
      * @return A unique pointer to the allocated Buffer.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         rmm::cuda_stream_view stream, MemoryReservation&& reservation
     );
 
