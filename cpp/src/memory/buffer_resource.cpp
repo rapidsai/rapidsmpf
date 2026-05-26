@@ -168,7 +168,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
     return reservation.size_ -= size;
 }
 
-std::unique_ptr<Buffer> BufferResource::allocate(
+std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
@@ -203,10 +203,10 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return ret;
 }
 
-std::unique_ptr<Buffer> BufferResource::allocate(
+std::unique_ptr<Buffer> BufferResource::make_buffer(
     rmm::cuda_stream_view stream, MemoryReservation&& reservation
 ) {
-    return allocate(reservation.size(), stream, reservation);
+    return make_buffer(reservation.size(), stream, reservation);
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -234,7 +234,7 @@ std::unique_ptr<Buffer> BufferResource::move(
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto const nbytes = buffer->size;
-        auto ret = allocate(nbytes, buffer->stream(), reservation);
+        auto ret = make_buffer(nbytes, buffer->stream(), reservation);
         buffer_copy(statistics_, *ret, *buffer, nbytes);
         return ret;
     }

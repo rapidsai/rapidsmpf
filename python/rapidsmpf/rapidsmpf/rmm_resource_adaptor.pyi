@@ -10,8 +10,6 @@ class RmmResourceAdaptor(DeviceMemoryResource):
     def __init__(
         self,
         upstream_mr: DeviceMemoryResource,
-        *,
-        fallback_mr: DeviceMemoryResource | None = None,
     ): ...
     @property
     def get_upstream(self) -> DeviceMemoryResource: ...

@@ -9,7 +9,6 @@ import cupy as cp
 import numpy as np
 import pytest
 
-import cudf
 import pylibcudf as plc
 
 from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
@@ -27,7 +26,6 @@ from rapidsmpf.streaming.cudf.partition import (
 )
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -56,11 +54,13 @@ def test_single_rank_shuffler(
     chunk_size = num_rows // num_chunks
     op_id = 0
     # We start a full dataframe.
-    df = cudf.DataFrame(
-        {
-            "idx": cp.arange(num_rows, dtype=cp.int32),
-            "val": cp.random.randint(0, 10, size=num_rows, dtype=cp.int32),
-        }
+    df = plc.Table(
+        [
+            plc.Column.from_array(cp.arange(num_rows, dtype=cp.int32)),
+            plc.Column.from_array(
+                cp.random.randint(0, 10, size=num_rows, dtype=cp.int32)
+            ),
+        ]
     )
 
     # That we slice into chunks and wrap as TableChunk (sequence_number=i).
@@ -68,9 +68,9 @@ def test_single_rank_shuffler(
     for i in range(num_chunks):
         lo = i * chunk_size
         hi = (i + 1) * chunk_size
-        df_chunk = df.iloc[lo:hi]
+        df_chunk = plc.copying.slice(df, [lo, hi])[0]
         chunk = TableChunk.from_pylibcudf_table(
-            table=cudf_to_pylibcudf_table(df_chunk),
+            table=df_chunk,
             stream=stream,
             exclusive_view=False,
             br=context.br(),
@@ -90,7 +90,7 @@ def test_single_rank_shuffler(
             context,
             ch_in=ch1,
             ch_out=ch2,
-            columns_to_hash=(df.columns.get_loc("val"),),
+            columns_to_hash=(1,),
             num_partitions=num_partitions,
         )
     )
@@ -119,14 +119,10 @@ def test_single_rank_shuffler(
         TableChunk.from_message(msg, br=context.br()) for msg in out_messages.release()
     ]
 
-    result = cudf.concat(
-        [
-            pylibcudf_to_cudf_dataframe(chunk.table_view(), column_names=df.columns)
-            for chunk in output_chunks
-        ],
-        ignore_index=True,
+    result = plc.concatenate.concatenate(
+        [chunk.table_view() for chunk in output_chunks]
     )
-    assert_eq(result, df, sort_rows="idx")
+    assert_eq(result, df, sort_rows=0)
 
 
 @define_actor()
@@ -290,4 +286,4 @@ def test_shuffler_object_interface(
         )
         got = table.table_view()
         table.stream.synchronize()
-        assert_eq(plc.Table([expect]), got, sort_rows="0")
+        assert_eq(plc.Table([expect]), got, sort_rows=0)

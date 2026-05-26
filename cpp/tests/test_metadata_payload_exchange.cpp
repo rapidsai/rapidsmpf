@@ -51,8 +51,9 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     ) {
         std::unique_ptr<Buffer> data_buffer = nullptr;
         if (data_size > 0) {
-            data_buffer =
-                br->allocate(stream, br->reserve_or_fail(data_size, MemoryType::DEVICE));
+            data_buffer = br->make_buffer(
+                stream, br->reserve_or_fail(data_size, MemoryType::DEVICE)
+            );
             // Fill with test data
             data_buffer->write_access(
                 [data_size](std::byte* ptr, rmm::cuda_stream_view stream) {
@@ -72,7 +73,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     }
 
     std::unique_ptr<Buffer> allocate_receive_buffer(std::size_t size) {
-        return br->allocate(stream, br->reserve_or_fail(size, MemoryType::DEVICE));
+        return br->make_buffer(stream, br->reserve_or_fail(size, MemoryType::DEVICE));
     }
 
     void wait_for_communication_complete() {

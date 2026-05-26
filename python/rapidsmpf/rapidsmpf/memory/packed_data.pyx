@@ -44,7 +44,7 @@ cdef extern from *:
 
         // Allocate host buffer and copy data into it
         auto reservation = br->reserve_or_fail(size, rapidsmpf::MemoryType::HOST);
-        auto buffer = br->allocate(
+        auto buffer = br->make_buffer(
             rmm::cuda_stream_default, std::move(reservation)
         );
 

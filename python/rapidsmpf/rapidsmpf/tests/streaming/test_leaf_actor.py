@@ -5,14 +5,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -23,7 +22,13 @@ if TYPE_CHECKING:
 
 def test_roundtrip(context: Context, stream: Stream) -> None:
     expects = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py(
+                    [1 * seq, 2 * seq, 3 * seq], plc.DataType(plc.TypeId.INT64)
+                )
+            ]
+        )
         for seq in range(10)
     ]
     table_chunks = [

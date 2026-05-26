@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import cupy
 import pytest
 
-import cudf
 import pylibcudf as plc
 
 from rapidsmpf.cuda_stream import is_equal_streams
@@ -23,7 +22,6 @@ from rapidsmpf.streaming.cudf.table_chunk import (
     make_table_chunks_available_or_wait,
 )
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -33,12 +31,8 @@ if TYPE_CHECKING:
 
 def random_table(nbytes: int) -> plc.Table:
     assert nbytes % 4 == 0
-    return cudf_to_pylibcudf_table(
-        cudf.DataFrame(
-            {
-                "data": cupy.random.random(nbytes // 4, dtype=cupy.float32),
-            }
-        )
+    return plc.Table(
+        [plc.Column.from_array(cupy.random.random(nbytes // 4, dtype=cupy.float32))]
     )
 
 
@@ -118,13 +112,11 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
 
 def test_copy_roundtrip(context: Context, stream: Stream) -> None:
     for nrows, ncols in [(1, 1), (1000, 100), (1, 1000)]:
-        expect = cudf_to_pylibcudf_table(
-            cudf.DataFrame(
-                {
-                    f"{name}": cupy.random.random(nrows, dtype=cupy.float32)
-                    for name in range(ncols)
-                }
-            )
+        expect = plc.Table(
+            [
+                plc.Column.from_array(cupy.random.random(nrows, dtype=cupy.float32))
+                for _ in range(ncols)
+            ]
         )
 
         tbl1 = TableChunk.from_pylibcudf_table(
