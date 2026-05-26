@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import cudf
 import pylibcudf as plc
 
 from rapidsmpf.streaming.core.message import Message
@@ -20,16 +19,15 @@ from rapidsmpf.streaming.cudf import (
     Partitioning,
     TableChunk,
 )
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from rapidsmpf.streaming.core.context import Context
 
 
-def _make_boundaries(context: Context, df: cudf.DataFrame) -> TableChunk:
+def _make_boundaries(context: Context, table: plc.Table) -> TableChunk:
     stream = context.get_stream_from_pool()
     return TableChunk.from_pylibcudf_table(
-        cudf_to_pylibcudf_table(df),
+        table,
         stream,
         exclusive_view=False,
         br=context.br(),
@@ -41,7 +39,15 @@ def _two_key_order_scheme(
 ) -> OrderScheme:
     """Two-key OrderScheme with a 1-row boundary table (2 partitions)."""
     boundaries = _make_boundaries(
-        context, cudf.DataFrame({"key1": [100], "key2": ["abc"]})
+        context,
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py([100], plc.DataType(plc.TypeId.INT64)),
+                plc.Column.from_iterable_of_py(
+                    ["abc"], plc.DataType(plc.TypeId.STRING)
+                ),
+            ]
+        ),
     )
     return OrderScheme(
         [
@@ -99,14 +105,45 @@ def test_order_scheme(context: Context) -> None:
     with pytest.raises(TypeError, match="OrderKey"):
         OrderScheme(
             [(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE)],  # type: ignore[arg-type, list-item]
-            _make_boundaries(context, cudf.DataFrame({"k": [0]})),
+            _make_boundaries(
+                context,
+                plc.Table(
+                    [
+                        plc.Column.from_iterable_of_py(
+                            [0], plc.DataType(plc.TypeId.INT64)
+                        )
+                    ]
+                ),
+            ),
         )
 
     with pytest.raises(ValueError, match="empty"):
         OrderScheme(
             [],
-            _make_boundaries(context, cudf.DataFrame({"k": [0]})),
+            _make_boundaries(
+                context,
+                plc.Table(
+                    [
+                        plc.Column.from_iterable_of_py(
+                            [0], plc.DataType(plc.TypeId.INT64)
+                        )
+                    ]
+                ),
+            ),
         )
+
+
+def test_order_scheme_get_boundaries(context: Context) -> None:
+    scheme = _two_key_order_scheme(context)
+    chunk = scheme.get_boundaries(context.br())
+    assert chunk.table_view().num_columns() == 2
+    assert chunk.table_view().num_rows() == 1
+    scheme2 = OrderScheme(
+        scheme.keys,
+        chunk,
+        strict_boundaries=scheme.strict_boundaries,
+    )
+    assert scheme2.boundaries_aligned_with(scheme, context.br())
 
 
 def test_order_scheme_with_keys(context: Context) -> None:
@@ -127,7 +164,14 @@ def test_order_scheme_with_keys(context: Context) -> None:
 
 def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
     """boundaries_aligned_with performs value-level boundary comparison, ignoring key indices."""
-    df = cudf.DataFrame({"key1": [100, 200], "key2": ["abc", "xyz"]})
+    df = plc.Table(
+        [
+            plc.Column.from_iterable_of_py([100, 200], plc.DataType(plc.TypeId.INT64)),
+            plc.Column.from_iterable_of_py(
+                ["abc", "xyz"], plc.DataType(plc.TypeId.STRING)
+            ),
+        ]
+    )
     keys = [
         OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),
         OrderKey(1, plc.types.Order.DESCENDING, plc.types.NullOrder.AFTER),
@@ -145,7 +189,14 @@ def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
     assert o1.boundaries_aligned_with(o_shifted, context.br())
 
     # Different boundary values → not aligned (shape matches, values differ)
-    df_diff = cudf.DataFrame({"key1": [100, 300], "key2": ["abc", "xyz"]})
+    df_diff = plc.Table(
+        [
+            plc.Column.from_iterable_of_py([100, 300], plc.DataType(plc.TypeId.INT64)),
+            plc.Column.from_iterable_of_py(
+                ["abc", "xyz"], plc.DataType(plc.TypeId.STRING)
+            ),
+        ]
+    )
     o3 = OrderScheme(keys, _make_boundaries(context, df_diff))
     assert not o1.boundaries_aligned_with(o3, context.br())
 
@@ -156,7 +207,12 @@ def test_order_scheme_boundaries_aligned_with(context: Context) -> None:
 
 def test_order_scheme_key_column_mismatch(context: Context) -> None:
     """OrderScheme rejects key/column count mismatch."""
-    boundaries = _make_boundaries(context, cudf.DataFrame({"k": [0]}))
+    boundaries = _make_boundaries(
+        context,
+        plc.Table(
+            [plc.Column.from_iterable_of_py([0], plc.DataType(plc.TypeId.INT64))]
+        ),
+    )
     with pytest.raises(ValueError, match="keys must match"):
         OrderScheme(
             [
@@ -254,8 +310,15 @@ def test_message_roundtrip() -> None:
 
 def test_message_roundtrip_with_order_scheme(context: Context) -> None:
     """Test ChannelMetadata with OrderScheme can round-trip through Message."""
-    df = cudf.DataFrame({"key1": [100, 200], "key2": ["abc", "xyz"]})
-    boundaries = _make_boundaries(context, df)
+    table = plc.Table(
+        [
+            plc.Column.from_iterable_of_py([100, 200], plc.DataType(plc.TypeId.INT64)),
+            plc.Column.from_iterable_of_py(
+                ["abc", "xyz"], plc.DataType(plc.TypeId.STRING)
+            ),
+        ]
+    )
+    boundaries = _make_boundaries(context, table)
     order_scheme = OrderScheme(
         [
             OrderKey(0, plc.types.Order.ASCENDING, plc.types.NullOrder.BEFORE),

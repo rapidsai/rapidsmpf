@@ -59,7 +59,7 @@ TEST(ReceivedChunks, spill_respects_amount) {
         auto metadata =
             std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
         auto res = br->reserve_or_fail(chunk_size, rapidsmpf::MemoryType::DEVICE);
-        auto data = br->allocate(chunk_size, stream, res);
+        auto data = br->make_buffer(chunk_size, stream, res);
         received.insert(
             rapidsmpf::shuffler::detail::Chunk::from_packed_data(
                 0, pid, rapidsmpf::PackedData{std::move(metadata), std::move(data)}

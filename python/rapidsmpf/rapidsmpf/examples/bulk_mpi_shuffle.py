@@ -30,7 +30,6 @@ from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
-from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 try:
@@ -104,10 +103,15 @@ def write_table(
         List of column names.
     """
     path = f"{output_path}/part.{id}.parquet"
-    pylibcudf_to_cudf_dataframe(
-        table,
-        column_names=column_names,
-    ).to_parquet(path)
+    builder = plc.io.parquet.ParquetWriterOptions.builder(
+        plc.io.SinkInfo([path]), table
+    )
+    if column_names is not None:
+        metadata = plc.io.types.TableInputMetadata(table)
+        for col_meta, name in zip(metadata.column_metadata, column_names, strict=True):
+            col_meta.set_name(name)
+        builder = builder.metadata(metadata)
+    plc.io.parquet.write_parquet(builder.build())
 
 
 def bulk_mpi_shuffle(

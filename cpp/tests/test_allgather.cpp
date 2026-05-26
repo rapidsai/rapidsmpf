@@ -371,7 +371,7 @@ TEST(PostBox, spill_uses_remaining_amount) {
         auto metadata =
             std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
         auto res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DEVICE);
-        auto data = br->allocate(size, stream, res);
+        auto data = br->make_buffer(size, stream, res);
         return rapidsmpf::coll::detail::Chunk::from_packed_data(
             0,
             0,

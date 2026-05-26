@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
@@ -15,7 +15,21 @@ from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_chann
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
+
+
+@pytest.fixture
+def expects() -> list[plc.Table]:
+    return [
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py(
+                    [1 * seq, 2 * seq, 3 * seq], plc.DataType(plc.TypeId.INT64)
+                )
+            ]
+        )
+        for seq in range(10)
+    ]
+
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -24,12 +38,9 @@ if TYPE_CHECKING:
     from rapidsmpf.streaming.core.context import Context
 
 
-def test_send_table_chunks(context: Context, stream: Stream) -> None:
-    expects = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
-        for seq in range(10)
-    ]
-
+def test_send_table_chunks(
+    context: Context, stream: Stream, expects: list[plc.Table]
+) -> None:
     ch1: Channel[TableChunk] = context.create_channel()
 
     # The actor access `ch1` both through the `ch_out` parameter and the closure.
@@ -113,11 +124,9 @@ def test_send_error(context: Context) -> None:
     assert output.release() == []
 
 
-def test_recv_table_chunks(context: Context, stream: Stream) -> None:
-    expects = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1 * seq, 2 * seq, 3 * seq]}))
-        for seq in range(10)
-    ]
+def test_recv_table_chunks(
+    context: Context, stream: Stream, expects: list[plc.Table]
+) -> None:
     table_chunks = [
         Message(
             seq,

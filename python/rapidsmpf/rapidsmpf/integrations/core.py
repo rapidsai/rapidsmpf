@@ -712,17 +712,7 @@ def rmpf_worker_local_setup(
         New local worker context
     """
     # Insert RMM resource adaptor on top of the current RMM resource stack.
-    mr = RmmResourceAdaptor(
-        upstream_mr=rmm.mr.get_current_device_resource(),
-        fallback_mr=(
-            # Use a managed memory resource if OOM protection is enabled.
-            rmm.mr.ManagedMemoryResource()
-            if options.get_or_default(
-                f"{option_prefix}oom_protection", default_value=False
-            )
-            else None
-        ),
-    )
+    mr = RmmResourceAdaptor(upstream_mr=rmm.mr.get_current_device_resource())
     rmm.mr.set_current_device_resource(mr)
 
     options_map = options.get_strings()
