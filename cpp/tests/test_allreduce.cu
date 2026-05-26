@@ -153,7 +153,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     auto const nbytes = count * sizeof(T);
     auto stream = br->stream_pool().get_stream();
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
-    auto buffer = br->allocate(stream, std::move(reservation));
+    auto buffer = br->make_buffer(stream, std::move(reservation));
 
     RAPIDSMPF_EXPECTS(
         buffer->mem_type() == mem_type, "make_buffer: buffer memory type mismatch"
@@ -228,13 +228,15 @@ TEST_F(BaseAllReduceTest, timeout_interleaved) {
     auto in_buffer1 =
         make_buffer<int>(br.get(), data1.data(), data1.size(), MemoryType::HOST);
     auto reservation = br->reserve_or_fail(in_buffer1->size, in_buffer1->mem_type());
-    auto out_buffer1 = br->allocate(in_buffer1->size, in_buffer1->stream(), reservation);
+    auto out_buffer1 =
+        br->make_buffer(in_buffer1->size, in_buffer1->stream(), reservation);
 
     std::vector<float> data2(1, rank + 7);
     auto in_buffer2 =
         make_buffer<float>(br.get(), data2.data(), data2.size(), MemoryType::DEVICE);
     reservation = br->reserve_or_fail(in_buffer2->size, in_buffer2->mem_type());
-    auto out_buffer2 = br->allocate(in_buffer2->size, in_buffer2->stream(), reservation);
+    auto out_buffer2 =
+        br->make_buffer(in_buffer2->size, in_buffer2->stream(), reservation);
 
     if (rank % 2 == 0) {
         AllReduce allreduce1(
@@ -340,7 +342,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
 
     auto in_buffer = make_buffer<int>(br.get(), data.data(), data.size(), mem_type);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
@@ -446,7 +448,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
     auto in_buffer = make_buffer<T>(this->br.get(), data.data(), data.size(), mem_type);
     auto reservation = this->br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
     auto out_buffer =
-        this->br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+        this->br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
@@ -512,7 +514,7 @@ TEST_P(AllReduceCustomTypeTest, custom_struct_allreduce) {
     auto in_buffer =
         make_buffer<CustomValue>(br.get(), data.data(), data.size(), mem_type);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
@@ -574,7 +576,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
     }
     auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::HOST);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
 
     std::mutex m;
     std::condition_variable cv;
@@ -622,7 +624,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
     }
     auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::DEVICE);
     auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->allocate(in_buffer->size, in_buffer->stream(), reservation);
+    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,

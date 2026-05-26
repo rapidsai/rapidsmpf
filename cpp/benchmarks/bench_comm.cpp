@@ -219,10 +219,10 @@ Duration run(
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] =
                 br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
-            auto buf = br->allocate(args.msg_size, stream, res);
+            auto buf = br->make_buffer(args.msg_size, stream, res);
             random_fill(*buf, br->device_mr());
             send_bufs.push_back(std::move(buf));
-            recv_bufs.push_back(br->allocate(args.msg_size, stream, res));
+            recv_bufs.push_back(br->make_buffer(args.msg_size, stream, res));
         }
     }
 

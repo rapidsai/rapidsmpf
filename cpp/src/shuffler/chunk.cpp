@@ -95,7 +95,7 @@ Chunk Chunk::deserialize(
         RAPIDSMPF_EXPECTS(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
-        data = br->allocate(
+        data = br->make_buffer(
             br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
         );
         if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {

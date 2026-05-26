@@ -7,7 +7,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 
 #include <cuda/memory_resource>
 
@@ -21,9 +20,8 @@ namespace rapidsmpf {
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
- * This adaptor implements:
- * - Memory usage tracking.
- * - Fallback memory resource support upon out-of-memory in the primary resource.
+ * This adaptor wraps a primary device memory resource and adds memory usage
+ * tracking (lifetime stats plus per-thread scoped records).
  *
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
@@ -42,15 +40,12 @@ class RmmResourceAdaptor
     ) noexcept {}
 
     /**
-     * @brief Construct with specified primary and optional fallback memory resource.
+     * @brief Construct with the specified primary memory resource.
      *
      * @param primary_mr The primary memory resource.
-     * @param fallback_mr Optional fallback memory resource.
      */
-    RmmResourceAdaptor(
-        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr,
-        std::optional<cuda::mr::any_resource<cuda::mr::device_accessible>> fallback_mr =
-            std::nullopt
+    explicit RmmResourceAdaptor(
+        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
     );
 
     ~RmmResourceAdaptor() = default;
@@ -75,16 +70,6 @@ class RmmResourceAdaptor
     [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept;
 
     /**
-     * @brief Get a reference to the fallback upstream resource.
-     *
-     * This resource is used if the primary resource throws `rmm::out_of_memory`.
-     *
-     * @return Optional reference to the fallback RMM memory resource.
-     */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_resource() const noexcept;
-
-    /**
      * @brief Returns a copy of the main memory record.
      *
      * The main record tracks memory statistics for the lifetime of the resource.
@@ -94,7 +79,7 @@ class RmmResourceAdaptor
     [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
     /**
-     * @brief Get the total current allocated memory from both primary and fallback.
+     * @brief Get the total current allocated memory through this resource.
      *
      * @return Total number of currently allocated bytes.
      */

@@ -105,11 +105,8 @@ requirements:
       then: cuda-python >=12.9.2,<13.0
       else: cuda-python >=13.0.1,<14.0
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
-    - cudf =${{ minor_version }}
-    - cupy >=13.6.0
     - librapidsmpf =${{ version }}
     - mpi4py
-    - numpy >=1.23,<3.0
     - openmpi >=5.0
     - pylibcudf =${{ minor_version }}
     - python

@@ -72,7 +72,7 @@ TEST_P(StreamingAllGather, basic) {
         }
 
         auto br = ctx->br();
-        auto buf = br->allocate(
+        auto buf = br->make_buffer(
             br->stream_pool().get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
@@ -143,7 +143,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
         }
 
         auto br = ctx->br();
-        auto buf = br->allocate(
+        auto buf = br->make_buffer(
             br->stream_pool().get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );

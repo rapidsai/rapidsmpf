@@ -145,7 +145,7 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         id,
         Chunk::INVALID_RANK,
         std::move(metadata),
-        br->allocate(
+        br->make_buffer(
             br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
         )
     ));
