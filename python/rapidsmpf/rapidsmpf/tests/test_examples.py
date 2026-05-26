@@ -70,7 +70,7 @@ def test_bulk_shuffle(
             table = plc.Table(
                 [
                     plc.Column.from_iterable_of_py(
-                        list(range(i * num_rows, (i + 1) * num_rows)),
+                        range(i * num_rows, (i + 1) * num_rows),
                         plc.DataType(plc.TypeId.INT64),
                     ),
                     plc.Column.from_array(np.random.randint(0, 1000, num_rows)),

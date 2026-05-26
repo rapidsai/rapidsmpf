@@ -108,7 +108,7 @@ def test_shuffler_uniform(
     df = plc.Table(
         [
             plc.Column.from_iterable_of_py(
-                list(range(num_rows)), plc.DataType(plc.TypeId.INT64), stream=stream
+                range(num_rows), plc.DataType(plc.TypeId.INT64), stream=stream
             ),
             plc.Column.from_array(np.random.randint(0, 1000, num_rows), stream=stream),
             plc.Column.from_iterable_of_py(

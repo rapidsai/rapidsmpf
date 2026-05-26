@@ -69,7 +69,7 @@ class ShufflingActor(RapidsMPFActor):
         return plc.Table(
             [
                 plc.Column.from_iterable_of_py(
-                    list(range(self._num_rows)), plc.DataType(plc.TypeId.INT64)
+                    range(self._num_rows), plc.DataType(plc.TypeId.INT64)
                 ),
                 plc.Column.from_array(np.random.randint(0, 1000, self._num_rows)),
                 plc.Column.from_iterable_of_py(

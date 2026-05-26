@@ -24,23 +24,23 @@ if TYPE_CHECKING:
     import rmm.mr
 
 
-def _make_table(df: dict[str, list[int]]) -> plc.Table:
+def _make_table(cols: list[list[int]]) -> plc.Table:
     # Assigns empty column inputs as int64
     return plc.Table(
         [
-            plc.Column.from_iterable_of_py(v, plc.DataType(plc.TypeId.INT64))
-            for v in df.values()
+            plc.Column.from_iterable_of_py(col, plc.DataType(plc.TypeId.INT64))
+            for col in cols
         ]
     )
 
 
-@pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
+@pytest.mark.parametrize("cols", [[[1, 2, 3], [2, 2, 1]], [[], []]])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_partition_and_pack_unpack(
-    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+    device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = _make_table(df)
+    expect = _make_table(cols)
     partitions = partition_and_pack(
         expect,
         columns_to_hash=(1,),
@@ -58,19 +58,19 @@ def test_partition_and_pack_unpack(
 
 
 @pytest.mark.parametrize(
-    "df",
+    "cols",
     [
-        {"0": [1, 2, 3], "1": [2, 2, 1]},
-        {"0": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]},
-        {"0": [], "1": []},
+        [[1, 2, 3], [2, 2, 1]],
+        [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]],
+        [[], []],
     ],
 )
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_split_and_pack_unpack(
-    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+    device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = _make_table(df)
+    expect = _make_table(cols)
     splits = np.linspace(0, expect.num_rows(), num_partitions, endpoint=False)[
         1:
     ].astype(int)
@@ -89,13 +89,13 @@ def test_split_and_pack_unpack(
     assert_eq(expect, got)
 
 
-@pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
+@pytest.mark.parametrize("cols", [[[1, 2, 3], [2, 2, 1]], [[], []]])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_split_and_pack_unpack_out_of_range(
-    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+    device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = _make_table({"0": [], "1": []})
+    expect = _make_table(cols)
     with pytest.raises(IndexError):
         split_and_pack(
             expect,
@@ -105,13 +105,13 @@ def test_split_and_pack_unpack_out_of_range(
         )
 
 
-@pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
+@pytest.mark.parametrize("cols", [[[1, 2, 3], [2, 2, 1]], [[], []]])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
 def test_spill_unspill_roundtrip(
-    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+    device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
     br = BufferResource(device_mr)
-    expect = _make_table(df)
+    expect = _make_table(cols)
     partitions = partition_and_pack(
         expect,
         columns_to_hash=(1,),
