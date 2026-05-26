@@ -41,7 +41,7 @@ std::unique_ptr<Buffer> zeros(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    auto ret = br.allocate(size, stream, reservation);
+    auto ret = br.make_buffer(size, stream, reservation);
     if (size > 0) {
         ret->write_access([&](std::byte* ptr, rmm::cuda_stream_view s) {
             RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0, size, s));
@@ -308,22 +308,22 @@ TEST(BufferResource, AllocStatistics) {
     // Allocate device memory twice.
     {
         auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
-        br.allocate(device_size, stream, r);
+        br.make_buffer(device_size, stream, r);
     }
     {
         auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
-        br.allocate(device_size, stream, r);
+        br.make_buffer(device_size, stream, r);
     }
     // Allocate pinned_host memory once (if available).
     if (pinned_mr != PinnedMemoryResource::Disabled) {
         auto [r, _] =
             br.reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
-        br.allocate(pinned_size, stream, r);
+        br.make_buffer(pinned_size, stream, r);
     }
     // Allocate host memory once.
     {
         auto [r, _] = br.reserve(MemoryType::HOST, host_size, AllowOverbooking::YES);
-        br.allocate(host_size, stream, r);
+        br.make_buffer(host_size, stream, r);
     }
 
     stream.synchronize();
@@ -437,7 +437,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
     ) {
         auto [alloc_reserve, alloc_overbooking] =
             br->reserve(mem_type, size, AllowOverbooking::NO);
-        auto buf = br->allocate(size, stream, alloc_reserve);
+        auto buf = br->make_buffer(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
         // copy the host pattern to the Buffer
         buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
@@ -474,7 +474,7 @@ class BufferResourceCopySliceTest
         std::size_t const offset,
         std::size_t const length
     ) {
-        auto slice = br->allocate(stream, br->reserve_or_fail(length, dest_type));
+        auto slice = br->make_buffer(stream, br->reserve_or_fail(length, dest_type));
         buffer_copy(
             br->statistics(),
             *slice,
@@ -594,7 +594,7 @@ TEST_P(BufferResourceCopyToTest, CopyTo) {
     auto source = create_and_initialize_buffer(source_type, params.source_size);
     auto [dest_reserve, dest_overbooking] =
         br->reserve(dest_type, buffer_size, AllowOverbooking::NO);
-    auto dest = br->allocate(buffer_size, stream, dest_reserve);
+    auto dest = br->make_buffer(buffer_size, stream, dest_reserve);
     EXPECT_EQ(dest->mem_type(), dest_type);
 
     copy_and_verify(source, dest, params.dest_offset);
@@ -654,7 +654,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
     std::unique_ptr<Buffer> create_source_buffer() {
         auto [reserv1, ob1] =
             br1->reserve(MemoryType::DEVICE, buffer_size, AllowOverbooking::NO);
-        auto buf1 = br1->allocate(buffer_size, stream, reserv1);
+        auto buf1 = br1->make_buffer(buffer_size, stream, reserv1);
         EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
         EXPECT_EQ(buf1->size, buffer_size);
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
@@ -696,7 +696,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     auto res2 = br2->reserve_or_fail(slice_length, MEMORY_TYPES);
 
     // Create slice of buf1 on br2
-    auto buf2 = br2->allocate(slice_length, stream, res2);
+    auto buf2 = br2->make_buffer(slice_length, stream, res2);
     buffer_copy(
         br2->statistics(),
         *buf2,
@@ -718,7 +718,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf1 = create_source_buffer();
 
     // Create copy of buf1 on br2
-    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
+    auto buf2 = br2->make_buffer(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
     buffer_copy(br2->statistics(), *buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->stream().synchronize();
@@ -733,7 +733,7 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
     constexpr std::size_t N = 1024;
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
-    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+    auto dst = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Negative offsets
     EXPECT_THROW(
@@ -776,7 +776,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
     constexpr std::size_t N = 128;
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
-    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+    auto dst = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Pre-fill dst with a sentinel pattern
     std::vector<std::uint8_t> sent(N, 0xCD);
@@ -796,7 +796,7 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
     // Matches current implementation which rejects &dst == &src.
     constexpr std::size_t N = 64;
 
-    auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+    auto buf = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     EXPECT_THROW(
         buffer_copy(br->statistics(), *buf, *buf, 16, 0, 0), std::invalid_argument

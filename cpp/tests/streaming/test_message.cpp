@@ -78,7 +78,7 @@ TEST_F(StreamingMessage, ContentSize) {
 TEST_F(StreamingMessage, CopyWithoutCallbacks) {
     Message m{
         0,
-        br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)),
+        br->make_buffer(stream, br->reserve_or_fail(10, MemoryType::HOST)),
         ContentDescription{}
     };
     {
@@ -96,7 +96,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
                                        MemoryReservation& reservation) -> Message {
         EXPECT_TRUE(msg.holds<Buffer>());
         auto const& src = msg.get<Buffer>();
-        auto dst = reservation.br()->allocate(src.size, src.stream(), reservation);
+        auto dst = reservation.br()->make_buffer(src.size, src.stream(), reservation);
         buffer_copy(reservation.br()->statistics(), *dst, src, src.size);
         ContentDescription cd{
             {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
@@ -109,7 +109,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         };
         Message m1{
             42,
-            br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)),
+            br->make_buffer(stream, br->reserve_or_fail(10, MemoryType::HOST)),
             cd,
             copy_cb
         };
@@ -126,7 +126,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         };
         Message m1{
             42,
-            br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)),
+            br->make_buffer(stream, br->reserve_or_fail(10, MemoryType::DEVICE)),
             cd,
             copy_cb
         };

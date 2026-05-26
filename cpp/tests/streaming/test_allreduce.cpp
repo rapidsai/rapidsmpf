@@ -33,7 +33,7 @@ std::unique_ptr<Buffer> make_buffer(
     auto const nbytes = count * sizeof(T);
     auto stream = br->stream_pool().get_stream();
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
-    auto buffer = br->allocate(stream, std::move(reservation));
+    auto buffer = br->make_buffer(stream, std::move(reservation));
     buffer->write_access([&](std::byte* buf_data, rmm::cuda_stream_view s) {
         RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(buf_data, data, nbytes, s));
     });
@@ -87,7 +87,7 @@ TEST_F(StreamingAllReduce, basic_sum) {
         auto input =
             make_buffer<int>(ctx->br(), data.data(), data.size(), MemoryType::HOST);
         auto reservation = ctx->br()->reserve_or_fail(input->size, input->mem_type());
-        auto output = ctx->br()->allocate(input->size, input->stream(), reservation);
+        auto output = ctx->br()->make_buffer(input->size, input->stream(), reservation);
 
         auto reduce_op = coll::detail::make_host_reduce_operator<int>(std::plus<int>{});
 
@@ -116,7 +116,7 @@ TEST_F(StreamingAllReduce, empty_buffer) {
         std::vector<int> empty;
         auto input = make_buffer<int>(ctx->br(), empty.data(), 0, MemoryType::HOST);
         auto reservation = ctx->br()->reserve_or_fail(input->size, input->mem_type());
-        auto output = ctx->br()->allocate(input->size, input->stream(), reservation);
+        auto output = ctx->br()->make_buffer(input->size, input->stream(), reservation);
 
         auto reduce_op = coll::detail::make_host_reduce_operator<int>(std::plus<int>{});
 
@@ -148,7 +148,7 @@ TEST_F(StreamingAllReduce, concurrent_allreduces) {
         auto input =
             make_buffer<int>(ctx->br(), data.data(), data.size(), MemoryType::HOST);
         auto reservation = ctx->br()->reserve_or_fail(input->size, input->mem_type());
-        auto output = ctx->br()->allocate(input->size, input->stream(), reservation);
+        auto output = ctx->br()->make_buffer(input->size, input->stream(), reservation);
 
         auto reduce_op = coll::detail::make_host_reduce_operator<int>(std::plus<int>{});
 
