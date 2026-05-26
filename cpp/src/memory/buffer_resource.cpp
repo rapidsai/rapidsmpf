@@ -20,62 +20,74 @@
 
 namespace rapidsmpf {
 
-namespace {
-/// @brief Helper that adds missing functions to the `memory_available` argument.
-auto add_missing_availability_functions(
-    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available,
-    bool pinned_mr_is_not_available
-) {
-    for (MemoryType mem_type : MEMORY_TYPES) {
-        // Add missing memory availability functions.
-        memory_available.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
-    }
-    if (pinned_mr_is_not_available) {
-        memory_available[MemoryType::PINNED_HOST] = []() -> std::int64_t { return 0; };
-    }
-    return memory_available;
-}
-}  // namespace
-
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
-    std::unordered_map<MemoryType, MemoryAvailable> memory_available,
+    std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
-    : device_mr_{std::move(device_mr)},
+    : device_adaptor_{std::move(device_mr)},
+      device_mr_{device_adaptor_},  // any_resource shares state via shared_resource
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
-      memory_available_{add_missing_availability_functions(
-          std::move(memory_available), pinned_mr_ == PinnedMemoryResource::Disabled
-      )},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
+    // Default every limit to unlimited, then apply caller overrides.
+    for (auto& limit : memory_limits_) {
+        limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
+    }
+    for (auto const& [mem_type, limit] : memory_limits) {
+        memory_limits_[static_cast<std::size_t>(mem_type)].store(
+            limit, std::memory_order_relaxed
+        );
+    }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    RmmResourceAdaptor mr, config::Options options
+    cuda::mr::any_resource<cuda::mr::device_accessible> mr, config::Options options
 ) {
     auto pinned_mr = PinnedMemoryResource::from_options(options);
-    auto mem_available = memory_available_from_options(mr, options);
-
-    if (pinned_mr != PinnedMemoryResource::Disabled) {
-        mem_available[MemoryType::PINNED_HOST] = pinned_mr->get_memory_available_cb();
-    }
-
+    std::unordered_map<MemoryType, std::int64_t> memory_limits{
+        {MemoryType::DEVICE, device_limit_from_options(options)}
+    };
     auto statistics = Statistics::from_options(options);
     return std::make_shared<BufferResource>(
         std::move(mr),
         std::move(pinned_mr),
-        std::move(mem_available),
+        std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         std::move(statistics)
+    );
+}
+
+std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcept {
+    std::int64_t const limit = memory_limits_[static_cast<std::size_t>(mem_type)].load(
+        std::memory_order_acquire
+    );
+    switch (mem_type) {
+    case MemoryType::DEVICE:
+        return limit - device_adaptor_.current_allocated();
+    case MemoryType::PINNED_HOST:
+        if (pinned_mr_ == PinnedMemoryResource::Disabled) {
+            return 0;
+        } else {
+            return limit - pinned_mr_->current_allocated();
+        }
+    case MemoryType::HOST:
+        return limit;
+    }
+    return std::numeric_limits<std::int64_t>::max();
+}
+
+void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
+    memory_limits_[static_cast<std::size_t>(mem_type)].store(
+        limit, std::memory_order_release
     );
 }
 
@@ -112,13 +124,13 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
         std::invalid_argument
     );
 
-    auto const& available = memory_available(mem_type);
+    std::int64_t const available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
 
     // Calculate the available memory _after_ the memory has been reserved.
     std::int64_t headroom =
-        available() - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
+        available - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
     // If negative, we are overbooking.
     std::size_t overbooking =
         headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
@@ -281,23 +293,14 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
 }
 
-std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
-memory_available_from_options(RmmResourceAdaptor mr, config::Options options) {
-    // Create a memory availability map that limits device memory based on the
-    // `spill_device_limit` option.
-    return {
-        {MemoryType::DEVICE,
-         LimitAvailableMemory{
-             std::move(mr),
-             options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
-                 auto const [_, total_mem] = rmm::available_device_memory();
-                 return rmm::align_down(
-                     parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
-                     rmm::CUDA_ALLOCATION_ALIGNMENT
-                 );
-             })
-         }}
-    };
+std::int64_t device_limit_from_options(config::Options options) {
+    return options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
+        auto const [_, total_mem] = rmm::available_device_memory();
+        return rmm::align_down(
+            parse_nbytes_or_percent(s.empty() ? "80%" : s, total_mem),
+            rmm::CUDA_ALLOCATION_ALIGNMENT
+        );
+    });
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {

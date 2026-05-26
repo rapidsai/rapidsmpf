@@ -648,10 +648,8 @@ int main(int argc, char** argv) {
     cudaFree(nullptr);
     cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
-    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
-    auto [ctx, comm] =
-        rapidsmpf::ndsh::create_context(arguments, std::move(stats_wrapper));
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(arguments, std::move(mr));
     std::string output_path = arguments.output_file;
     std::vector<double> timings;
     int l2size;
