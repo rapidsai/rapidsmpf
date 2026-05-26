@@ -109,13 +109,22 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     };
 
     /**
+     * @brief Selects whether a newly constructed `Statistics` instance
+     * tracks data or is a no-op.
+     */
+    enum class Mode : std::uint8_t {
+        Enabled,  ///< Statistics tracking is active.
+        Disabled,  ///< All operations are no-ops; can be toggled on via `enable()`.
+    };
+
+    /**
      * @brief Creates a Statistics instance.
      *
-     * @param enabled If true, enables tracking of statistics. If false, all operations
-     * are no-ops.
-     * @return A shared pointer to a new Statistics instance.
+     * @param mode Selects whether tracking starts enabled or disabled. See
+     * `Mode`. Disabled instances can be toggled on later via `enable()`.
+     * @return A shared pointer to a newly constructed Statistics instance.
      */
-    static std::shared_ptr<Statistics> create(bool enabled = true);
+    static std::shared_ptr<Statistics> create(Mode mode = Mode::Enabled);
 
     /**
      * @brief Construct from configuration options.
@@ -128,23 +137,12 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
 
     ~Statistics() noexcept;
 
-    // `Statistics` is owned exclusively through `std::shared_ptr`. Use `create()`,
-    // `disabled()`, or `from_options()` to construct instances.
+    // `Statistics` is owned exclusively through `std::shared_ptr`. Use
+    // `create()` or `from_options()` to construct instances.
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
     Statistics(Statistics&&) = delete;
     Statistics& operator=(Statistics&&) = delete;
-
-    /**
-     * @brief Constructs a new disabled (no-op) Statistics instance.
-     *
-     * Equivalent to `create(false)`. Useful when you need to pass a Statistics
-     * reference but do not want to collect any data.
-     *
-     * @return A shared pointer to a newly constructed Statistics instance
-     * with tracking disabled.
-     */
-    static std::shared_ptr<Statistics> disabled();
 
     /**
      * @brief Checks if statistics tracking is enabled.
@@ -675,9 +673,10 @@ concept StatisticsProvider = requires(T const& t) {
  * }
  * @endcode
  *
- * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass
- * `Statistics::disabled()` to disable recording (`create_memory_recorder` returns
- * a no-op recorder when the statistics instance is disabled).
+ * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass an
+ * instance created with `Statistics::create(Statistics::Mode::Disabled)` to
+ * disable recording (`create_memory_recorder` returns a no-op recorder when
+ * the statistics instance is disabled).
  * The second argument is the device memory resource. Recording is only active
  * when the underlying resource is an `RmmResourceAdaptor`; other device
  * resources yield a no-op recorder.

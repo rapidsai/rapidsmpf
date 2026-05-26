@@ -47,7 +47,8 @@ class CoroThreadPoolExecutor {
      */
     CoroThreadPoolExecutor(
         std::uint32_t num_streaming_threads,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::Disabled)
     );
 
     /**
@@ -67,7 +68,8 @@ class CoroThreadPoolExecutor {
      */
     CoroThreadPoolExecutor(
         config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::Disabled)
     );
 
     ~CoroThreadPoolExecutor() noexcept;

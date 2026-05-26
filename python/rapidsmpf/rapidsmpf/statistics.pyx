@@ -27,14 +27,6 @@ import os
 
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
-    cdef shared_ptr[cpp_Statistics] cpp_create \
-        "rapidsmpf::Statistics::create"(
-            bool_t enabled,
-        ) except +ex_handler
-
-    cdef shared_ptr[cpp_Statistics] cpp_disabled \
-        "rapidsmpf::Statistics::disabled"() except +ex_handler
-
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
             cpp_Options options,
@@ -46,6 +38,18 @@ cdef extern from *:
     #include <filesystem>
     #include <optional>
     #include <sstream>
+    // Cython-friendly wrappers around `Statistics::create(Mode)`. Cython has
+    // limited support for nested C++ enums, so we keep a Python-facing
+    // `bool` signature and translate to the `Mode` enum here.
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_create(bool enabled) {
+        return rapidsmpf::Statistics::create(
+            enabled ? rapidsmpf::Statistics::Mode::Enabled
+                    : rapidsmpf::Statistics::Mode::Disabled
+        );
+    }
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_disabled() {
+        return rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
+    }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
         rapidsmpf::RmmResourceAdaptor* mr_ptr,
@@ -116,6 +120,8 @@ cdef extern from *:
         );
     }
     """
+    shared_ptr[cpp_Statistics] cpp_create(bool_t enabled) except +ex_handler nogil
+    shared_ptr[cpp_Statistics] cpp_disabled() except +ex_handler nogil
     string cpp_report(
         cpp_Statistics stats,
         cpp_RmmResourceAdaptor* mr_ptr,

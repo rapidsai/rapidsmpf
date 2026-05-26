@@ -164,19 +164,15 @@ Statistics::~Statistics() noexcept {
 
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
-std::shared_ptr<Statistics> Statistics::create(bool enabled) {
-    return std::shared_ptr<Statistics>(new Statistics(enabled));
+std::shared_ptr<Statistics> Statistics::create(Mode mode) {
+    return std::shared_ptr<Statistics>(new Statistics(mode == Mode::Enabled));
 }
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return s.empty() ? false : parse_string<bool>(s);
     });
-    return create(statistics);
-}
-
-std::shared_ptr<Statistics> Statistics::disabled() {
-    return create(false);
+    return create(statistics ? Mode::Enabled : Mode::Disabled);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
@@ -252,7 +248,7 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder()
-    : stats_{Statistics::disabled()}, mr_{std::nullopt}, name_{} {}
+    : stats_{nullptr}, mr_{std::nullopt}, name_{} {}
 
 Statistics::MemoryRecorder::MemoryRecorder(
     std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
@@ -493,7 +489,7 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 
 std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto ret = Statistics::create(enabled());
+    auto ret = Statistics::create(enabled() ? Mode::Enabled : Mode::Disabled);
     ret->stats_ = stats_;
     ret->report_entries_ = report_entries_;
     return ret;
@@ -587,7 +583,7 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
 
     std::uint8_t enabled{};
     data = read_pod(data, enabled);
-    auto ret = Statistics::create(enabled != 0);
+    auto ret = Statistics::create(enabled != 0 ? Mode::Enabled : Mode::Disabled);
 
     std::uint64_t num_stats{};
     data = read_pod(data, num_stats);
@@ -664,7 +660,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 
     bool const any_enabled =
         std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
-    auto ret = Statistics::create(any_enabled);
+    auto ret = Statistics::create(any_enabled ? Mode::Enabled : Mode::Disabled);
 
     for (auto const& snap : snapshots) {
         for (auto const& [name, stat] : snap.stats) {

@@ -124,7 +124,8 @@ class ProgressThread {
      * progress.
      */
     ProgressThread(
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::shared_ptr<Statistics> statistics =
+            Statistics::create(Statistics::Mode::Disabled),
         Duration sleep = std::chrono::microseconds{1}
     );
 

@@ -284,7 +284,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // We'll only measure the last run, so start disabled.
-    auto stats = rapidsmpf::Statistics::disabled();
+    auto stats = rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Disabled);
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
