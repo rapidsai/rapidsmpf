@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import cudf
+import pylibcudf as plc
 
 from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
@@ -15,7 +15,6 @@ from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
-from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -30,8 +29,22 @@ def test_partition_and_pack_unpack(
     context: Context, stream: Stream, num_partitions: int
 ) -> None:
     expects = [
-        cudf_to_pylibcudf_table(cudf.DataFrame({"0": [1, 2, 3], "1": [2, 2, 1]})),
-        cudf_to_pylibcudf_table(cudf.DataFrame({"0": [], "1": []})),
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py(
+                    [1, 2, 3], plc.DataType(plc.TypeId.INT64)
+                ),
+                plc.Column.from_iterable_of_py(
+                    [2, 1, 1], plc.DataType(plc.TypeId.INT64)
+                ),
+            ]
+        ),
+        plc.Table(
+            [
+                plc.Column.from_iterable_of_py([], plc.DataType(plc.TypeId.INT64)),
+                plc.Column.from_iterable_of_py([], plc.DataType(plc.TypeId.INT64)),
+            ]
+        ),
     ]
     table_chunks = [
         Message(
@@ -68,4 +81,4 @@ def test_partition_and_pack_unpack(
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         assert result.sequence_number == seq
         tbl = TableChunk.from_message(result, br=context.br())
-        assert_eq(tbl.table_view(), expect, sort_rows="0")
+        assert_eq(tbl.table_view(), expect, sort_rows=0)

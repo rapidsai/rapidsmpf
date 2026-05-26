@@ -1,64 +1,64 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 """Submodule for testing."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
-import cudf
-import cudf.testing
 import pylibcudf
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
+if TYPE_CHECKING:
+    from rmm.pylibrmm.stream import Stream
 
 
 def assert_eq(
-    left: Any,
-    right: Any,
+    left: pylibcudf.Table,
+    right: pylibcudf.Table,
     *,
-    ignore_index: bool = True,
-    sort_rows: str | None = None,
-    **kwargs: dict[str, Any],
+    sort_rows: int | None = None,
+    stream: Stream | None = None,
 ) -> None:
     """
-    Assert that two cudf/pylibcudf-like things are equivalent.
+    Assert that two tables are equivalent using pylibcudf.
 
     Parameters
     ----------
-    left : dataframe-like
-        Object to compare.
-    right : dataframe-like
-        Object to compare.
-    ignore_index
-        Ignore the index when comparing.
+    left
+        plc.Table to compare.
+    right
+        plc.Table to compare.
     sort_rows
-        If not None, sort the rows by the specified column before comparing.
-    **kwargs
-        Keyword arguments to control behavior of comparisons. See
-        :func:`assert_frame_equal`, :func:`assert_series_equal`, and
-        :func:`assert_index_equal`.
+        If not None, sort both tables by this column before comparing.
+        An ``int`` is treated as a column index.
+    stream
+        CUDA stream to use for the comparison.
 
     Raises
     ------
     AssertionError
-        If the two objects do not compare equal.
-
-    Notes
-    -----
-    This equality test works for pandas/cudf dataframes/series/indexes/scalars
-    in the same way, and so makes it easier to perform parametrized testing
-    without switching between assert_frame_equal/assert_series_equal/...
-    functions.
+        If the two tables do not compare equal.
     """
-    if isinstance(left, pylibcudf.Table):
-        left = pylibcudf_to_cudf_dataframe(left)
-    if isinstance(right, pylibcudf.Table):
-        right = pylibcudf_to_cudf_dataframe(right)
-    if ignore_index:
-        left = left.reset_index(drop=True)
-        right = right.reset_index(drop=True)
+    if stream is None:
+        stream = DEFAULT_STREAM
+
     if sort_rows is not None:
-        left = left.sort_values(by=sort_rows, ignore_index=ignore_index)
-        right = right.sort_values(by=sort_rows, ignore_index=ignore_index)
-    cudf.testing.assert_eq(left, right, **kwargs)
+        column_order = [pylibcudf.types.Order.ASCENDING]
+        null_precedence = [pylibcudf.types.NullOrder.BEFORE]
+        left = pylibcudf.sorting.stable_sort_by_key(
+            left,
+            pylibcudf.Table([left.columns()[sort_rows]]),
+            column_order,
+            null_precedence,
+            stream=stream,
+        )
+        right = pylibcudf.sorting.stable_sort_by_key(
+            right,
+            pylibcudf.Table([right.columns()[sort_rows]]),
+            column_order,
+            null_precedence,
+            stream=stream,
+        )
+    if not pylibcudf.table_equality.tables_equal(left, right, stream=stream):
+        raise AssertionError(f"Table are not equal with {sort_rows=}")
