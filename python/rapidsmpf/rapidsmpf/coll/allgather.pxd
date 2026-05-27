@@ -45,3 +45,4 @@ cdef class AllGather:
     cdef unique_ptr[cpp_AllGather] _handle
     cdef BufferResource _br
     cdef Communicator _comm
+    cdef bint in_context

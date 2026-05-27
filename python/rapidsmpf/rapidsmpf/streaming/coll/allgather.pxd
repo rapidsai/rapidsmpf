@@ -36,3 +36,4 @@ cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
 cdef class AllGather:
     cdef unique_ptr[cpp_AllGather] _handle
     cdef Communicator _comm
+    cdef bint in_context
