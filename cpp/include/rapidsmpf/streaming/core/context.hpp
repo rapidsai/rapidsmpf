@@ -84,8 +84,7 @@ class Context {
      * @param options Configuration options used to initialize the Context and its
      * components.
      * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
-     * to opt out of statistics collection. The caller is responsible for creating and
-     * owning this object.
+     * to opt out of statistics collection.
      * @return A fully initialized Context.
      *
      * @throws std::invalid_argument If an option value is invalid.

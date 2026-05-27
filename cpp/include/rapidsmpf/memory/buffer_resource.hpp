@@ -59,12 +59,14 @@ class BufferResource {
     /**
      * @brief Constructs a buffer resource.
      *
-     * The function should return the current available memory of a specific type and
-     * must be thread-safe iff used by multiple `BufferResource` instances concurrently.
+     * Memory availability is computed per `MemoryType` as `limit - allocated`.
      *
-     * @warning Calling any `BufferResource` instance methods in the function might result
-     * in a deadlock. This is because the buffer resource is locked when the function is
-     * called.
+     * Device and pinned-host allocations routed through this BufferResource are tracked
+     * automatically. Host memory allocations are not tracked, so the available memory
+     * always equals the configured limit.
+     *
+     * If pinned-host memory is disabled, available pinned-host memory is always reported
+     * as zero regardless of the configured limit.
      *
      * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
      * to opt out of statistics collection.
@@ -101,8 +103,7 @@ class BufferResource {
      * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
      * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
-     * to opt out of statistics collection. The caller is responsible for creating and
-     * owning this object.
+     * to opt out of statistics collection.
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.

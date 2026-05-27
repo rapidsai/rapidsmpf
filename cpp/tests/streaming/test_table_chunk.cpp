@@ -34,18 +34,11 @@ class StreamingTableChunk : public BaseStreamingFixture,
     void SetUp() override {
         config::Options options(config::get_environment_variables());
 
-        std::unordered_map<MemoryType, std::int64_t> memory_limits{};
-        auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        );
         stream = cudf::get_default_stream();
         br = std::make_shared<rapidsmpf::BufferResource>(
-            Statistics::disabled(),  // statistics
-            mr_cuda,  // device_mr
-            rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
-            memory_limits,  // memory_limits
-            std::chrono::milliseconds{1},  // periodic_spill_check
-            stream_pool  // stream_pool
+            Statistics::disabled(),
+            mr_cuda,
+            rapidsmpf::PinnedMemoryResource::make_if_available()
         );
         ctx = std::make_shared<Context>(options, GlobalEnvironment->comm_->logger(), br);
     }
