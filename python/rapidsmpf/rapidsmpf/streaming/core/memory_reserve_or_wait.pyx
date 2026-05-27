@@ -12,9 +12,6 @@ from libcpp.utility cimport move
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
-
-from rapidsmpf.utils.string import parse_boolean as _parse_boolean
-
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -23,6 +20,8 @@ from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 import asyncio
+
+import rapidsmpf.utils.string
 
 # Sentinel indicating that net_memory_delta estimation has not yet been implemented.
 #
@@ -607,7 +606,7 @@ async def reserve_memory(
         allow_overbooking = ctx.options().get(
             "allow_overbooking_by_default",
             return_type=bool,
-            factory=_parse_boolean,
+            factory=rapidsmpf.utils.string.parse_boolean,
         )
 
     memory = ctx.memory(mem_type)

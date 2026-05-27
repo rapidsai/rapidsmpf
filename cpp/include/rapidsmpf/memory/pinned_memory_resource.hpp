@@ -117,16 +117,17 @@ class PinnedMemoryResource final
     /**
      * @brief Construct from configuration options.
      *
-     * Recognized options (see `rapidsmpf::pinned_memory`):
-     * - `pinned_memory` (bool): enables pinned memory.
-     * - `pinned_initial_pool_size` (nbytes string): initial pool size, applied
-     *   as `get_host_memory_per_gpu() * InitialPoolSize`.
-     * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size,
-     *   applied as `get_host_memory_per_gpu() * MaxPoolSize`.
+     * Recognized options:
+     * - "pinned_memory": enable pinned memory.
+     * - "pinned_initial_pool_size" (bytes or percentage): initial pool size.
+     *   - Byte values (e.g. "1 MiB") are applied literally.
+     *   - Percentages (e.g. "10%") are relative to `get_host_memory_per_gpu()`.
+     * - "pinned_max_pool_size" (bytes, percentage, or disabled): maximum pool size.
+     *   - Byte and percentages uses the same parsing rules as "pinned_initial_pool_size".
+     *   - A disabled value (e.g. "off") leaves the pool unbounded.
      *
      * @param options Configuration options.
-     *
-     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported,
+     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported;
      * otherwise `std::nullopt`.
      */
     static std::optional<PinnedMemoryResource> from_options(config::Options options);
