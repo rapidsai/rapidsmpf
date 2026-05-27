@@ -347,4 +347,6 @@ class UCXX final : public Communicator {
 
 }  // namespace ucxx
 
+static_assert(StatisticsProvider<ucxx::UCXX>);
+
 }  // namespace rapidsmpf

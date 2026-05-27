@@ -31,7 +31,7 @@ class Context:
         logger: Logger,
         mr: RmmResourceAdaptor,
         options: Options,
-        statistics: Statistics | None = None,
+        statistics: Statistics,
     ) -> Self: ...
     def __enter__(self) -> Context: ...
     def __exit__(

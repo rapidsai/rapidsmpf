@@ -19,7 +19,8 @@ cdef class ProgressThread:
     Parameters
     ----------
     statistics
-        The statistics instance to use. If None, statistics is disabled.
+        The statistics instance to use. Required. Pass
+        ``Statistics.disabled()`` for a no-op recorder.
 
     Notes
     -----
@@ -29,11 +30,8 @@ cdef class ProgressThread:
     """
     def __init__(
         self,
-        Statistics statistics = None,
+        Statistics statistics not None,
     ):
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
-
         with nogil:
             self._handle = make_shared[cpp_ProgressThread](statistics._handle)
 

@@ -102,7 +102,8 @@ MPI::MPI(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : comm_{comm},
+    : Communicator{progress_thread->statistics()},
+      comm_{comm},
       rank_{[comm]() {
           int r;
           RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));

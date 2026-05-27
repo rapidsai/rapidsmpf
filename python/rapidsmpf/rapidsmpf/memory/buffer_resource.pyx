@@ -136,18 +136,18 @@ cdef class BufferResource:
         will be created. Must be an instance of
         ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
     statistics
-        The statistics instance to use. If None, a disabled statistics instance
-        will be created.
+        The statistics instance to use. Required. Pass
+        ``Statistics.disabled()`` for a no-op recorder.
     """
     def __cinit__(
         self,
+        Statistics statistics not None,
         DeviceMemoryResource device_mr not None,
         *,
         PinnedMemoryResource pinned_mr = None,
         memory_limits = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
-        statistics = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -181,13 +181,9 @@ cdef class BufferResource:
             )
         )
 
-        if statistics is None:
-            statistics = Statistics(enable=False)
-
         # Keep statistics alive
         self._statistics = statistics
-        # checked cast requires the GIL
-        stats_handle = (<Statistics?>statistics)._handle
+        stats_handle = statistics._handle
 
         # Stored for the Python device_mr/pinned_mr property accessors.
         # The C++ BufferResource owns the resource via any_resource.
@@ -198,21 +194,21 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
+                stats_handle,
                 make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,
                 cpp_stream_pool,
-                stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
     def from_options(
         cls,
+        Statistics statistics not None,
         DeviceMemoryResource mr not None,
         Options options not None,
-        statistics=None,
     ):
         """
         Construct a BufferResource from configuration options.
@@ -223,28 +219,26 @@ cdef class BufferResource:
 
         Parameters
         ----------
+        statistics
+            The statistics instance to use. The caller is responsible for creating and
+            owning this object. Pass ``Statistics.disabled()`` for a no-op recorder.
         mr
             A device-accessible RMM memory resource.
         options
             Configuration options.
-        statistics
-            The statistics instance to use. The caller is responsible for creating and
-            owning this object. Defaults to ``Statistics.disabled()``.
 
         Returns
         -------
         A BufferResource instance configured according to the options.
         """
-        if statistics is None:
-            statistics = Statistics.disabled()
         cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
         return cls(
+            statistics=statistics,
             device_mr=mr,
             pinned_mr=pinned_mr,
             memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=statistics,
         )
 
     def __dealloc__(self):

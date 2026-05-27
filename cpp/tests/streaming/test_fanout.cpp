@@ -547,13 +547,11 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {
             {MemoryType::DEVICE, 0},
         };
-        br = std::make_shared<rapidsmpf::BufferResource>(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_limits
+        br = std::make_shared<BufferResource>(
+            Statistics::disabled(), mr_cuda, PinnedMemoryResource::Disabled, memory_limits
         );
         auto options = ctx->options();
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_->logger(), br
-        );
+        ctx = std::make_shared<Context>(options, GlobalEnvironment->comm_->logger(), br);
     }
 };
 

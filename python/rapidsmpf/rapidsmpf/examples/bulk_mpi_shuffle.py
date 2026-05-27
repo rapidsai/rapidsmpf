@@ -162,7 +162,7 @@ def bulk_mpi_shuffle(
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
     statistics
-        The statistics instance to use. If None, statistics is disabled.
+        The statistics instance to use. If None, ``Statistics.disabled()`` is used.
 
     Notes
     -----
@@ -196,7 +196,10 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
-        br = BufferResource(rmm.mr.get_current_device_resource())
+        br = BufferResource(
+            statistics or Statistics.disabled(),
+            rmm.mr.get_current_device_resource(),
+        )
         shuffler = Shuffler(
             comm,
             op_id=0,
@@ -316,9 +319,8 @@ def setup_and_run(args: argparse.Namespace) -> None:
     memory_limits = (
         None if args.spill_device is None else {MemoryType.DEVICE: args.spill_device}
     )
-    br = BufferResource(mr, memory_limits=memory_limits)
-
     stats = Statistics(enable=args.statistics)
+    br = BufferResource(stats, mr, memory_limits=memory_limits)
 
     progress_thread = ProgressThread(stats)
     if args.cluster_type == "mpi":

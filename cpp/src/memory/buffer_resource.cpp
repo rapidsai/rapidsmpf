@@ -21,12 +21,12 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
+    std::shared_ptr<Statistics> statistics,
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool
 )
     : device_adaptor_{std::move(device_mr)},
       device_mr_{device_adaptor_},  // any_resource shares state via shared_resource
@@ -59,12 +59,12 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     };
 
     return std::make_shared<BufferResource>(
+        std::move(statistics),
         std::move(mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
-        stream_pool_from_options(options),
-        std::move(statistics)
+        stream_pool_from_options(options)
     );
 }
 

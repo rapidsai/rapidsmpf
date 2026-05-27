@@ -59,15 +59,15 @@ class BufferResource {
     /**
      * @brief Constructs a buffer resource.
      *
-     * Memory availability is computed per `MemoryType` as `limit - allocated`.
+     * The function should return the current available memory of a specific type and
+     * must be thread-safe iff used by multiple `BufferResource` instances concurrently.
      *
-     * Device and pinned-host allocations routed through this BufferResource are tracked
-     * automatically. Host memory allocations are not tracked, so the available memory
-     * always equals the configured limit.
+     * @warning Calling any `BufferResource` instance methods in the function might result
+     * in a deadlock. This is because the buffer resource is locked when the function is
+     * called.
      *
-     * If pinned-host memory is disabled, available pinned-host memory is always reported
-     * as zero regardless of the configured limit.
-     *
+     * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
+     * to opt out of statistics collection.
      * @param device_mr The RMM device memory resource used for device allocations.
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
      * allocations. If disabled, pinned host allocations are unavailable regardless of
@@ -80,16 +80,15 @@ class BufferResource {
      * periodic spill checking is performed.
      * @param stream_pool Pool of CUDA streams used throughout RapidsMPF for operations
      * that do not take an explicit CUDA stream.
-     * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
+        std::shared_ptr<Statistics> statistics,
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
-            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
     /**
@@ -101,7 +100,9 @@ class BufferResource {
      *
      * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
+     * to opt out of statistics collection. The caller is responsible for creating and
+     * owning this object.
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
@@ -109,7 +110,7 @@ class BufferResource {
     static std::shared_ptr<BufferResource> from_options(
         cuda::mr::any_resource<cuda::mr::device_accessible> mr,
         config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics
     );
 
     ~BufferResource() noexcept = default;

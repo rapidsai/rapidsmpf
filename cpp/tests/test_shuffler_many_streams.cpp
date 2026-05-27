@@ -17,6 +17,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -50,7 +51,9 @@ TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
     constexpr std::size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
-    auto br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+    auto br = std::make_unique<BufferResource>(
+        Statistics::disabled(), cudf::get_current_device_resource_ref()
+    );
 
     // Create a CUDA stream for each partition.
     // To stress-test stream handling, assign random priorities so streams are more

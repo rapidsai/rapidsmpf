@@ -32,6 +32,9 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
             cpp_Options options,
         ) except +ex_handler
 
+    cdef shared_ptr[cpp_Statistics] cpp_disabled \
+        "rapidsmpf::Statistics::disabled"() except +ex_handler
+
 
 cdef extern from *:
     """
@@ -186,14 +189,14 @@ cdef class Statistics:
     @classmethod
     def disabled(cls):
         """
-        Returns a disabled (no-op) Statistics instance.
+        Get a shared, no-op Statistics instance.
 
-        Useful when you need to pass a Statistics argument but do not want to
-        collect any data.
+        Returns the same disabled instance on every call. Use this when an API
+        requires a Statistics object but no recording is desired.
 
         Returns
         -------
-        A Statistics instance with tracking disabled.
+        A disabled Statistics instance.
         """
         cdef Statistics ret = cls.__new__(cls)
         with nogil:

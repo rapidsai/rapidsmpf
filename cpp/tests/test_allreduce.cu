@@ -28,6 +28,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 
@@ -207,7 +208,9 @@ class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), *mr
+        );
         comm = GlobalEnvironment->comm_.get();
     }
 

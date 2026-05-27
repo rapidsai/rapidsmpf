@@ -11,6 +11,7 @@ import rmm.mr
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.context import Context
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ def context(comm: Communicator) -> Generator[Context, None, None]:
     """
     options = Options(get_environment_variables())
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource(mr)
+    br = BufferResource(Statistics.from_options(options), mr)
 
     with Context(comm.logger, br, options) as ctx:
         yield ctx

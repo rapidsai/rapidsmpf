@@ -135,7 +135,7 @@ def test_basic_allgather(
     Each rank inserts n_inserts pieces of data, then all ranks
     should receive all data from all ranks.
     """
-    br = BufferResource(device_mr)
+    br = BufferResource(comm.statistics, device_mr)
 
     # Create AllGather instance
     allgather = AllGather(
@@ -197,7 +197,7 @@ def test_insert_finished_raises_in_context(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     """Test that insert_finished raises when called inside a context manager."""
-    br = BufferResource(device_mr)
+    br = BufferResource(comm.statistics, device_mr)
     ag = AllGather(comm=comm, op_id=0, br=br)
     with (
         ag,

@@ -89,7 +89,7 @@ TEST_P(ProgressThreadEvents, events) {
 }
 
 TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
-    ProgressThread progress_thread{};
+    ProgressThread progress_thread{rapidsmpf::Statistics::disabled()};
 
     // add a function to the progress thread that never completes
     auto id = progress_thread.add_function([] {

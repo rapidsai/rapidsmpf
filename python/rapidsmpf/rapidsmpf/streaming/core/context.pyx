@@ -15,12 +15,12 @@ from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
+from rapidsmpf.statistics cimport Statistics
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     MemoryReserveOrWait
 
 from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
-from rapidsmpf.statistics import Statistics
 
 
 @no_gc_clear
@@ -99,13 +99,11 @@ cdef class Context:
         Logger logger not None,
         RmmResourceAdaptor mr not None,
         Options options not None,
-        statistics=None,
+        Statistics statistics not None,
     ):
-        if statistics is None:
-            statistics = Statistics.disabled()
         return cls(
             logger=logger,
-            br=BufferResource.from_options(mr, options, statistics),
+            br=BufferResource.from_options(statistics, mr, options),
             options=options,
         )
 

@@ -1131,7 +1131,8 @@ UCXX::UCXX(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : shared_resources_(ucxx_initialized_rank->shared_resources_),
+    : Communicator{progress_thread->statistics()},
+      shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
       logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
       progress_thread_{std::move(progress_thread)} {

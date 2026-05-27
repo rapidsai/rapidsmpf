@@ -16,6 +16,7 @@ from rapidsmpf.communicator.single import (
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.actor import (
     define_actor,
     run_actor_network,
@@ -38,10 +39,11 @@ def main() -> int:
     options = Options(get_environment_variables())
 
     # Create a communicator and context that will be used by all streaming actors.
-    comm = single_process_comm(options, ProgressThread())
+    stats = Statistics.from_options(options)
+    comm = single_process_comm(options, ProgressThread(stats))
     ctx = Context(
         logger=comm.logger,
-        br=BufferResource(rmm.mr.get_current_device_resource()),
+        br=BufferResource(stats, rmm.mr.get_current_device_resource()),
         options=options,
     )
 
