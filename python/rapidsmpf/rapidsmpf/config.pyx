@@ -143,7 +143,10 @@ cdef class Options:
         Raises
         ------
         ValueError
-            If the stored option value cannot be parsed to the required type.
+            If the stored option value cannot be parsed to the required type,
+            or if ``key`` has a canonical default registered in
+            ``rapidsmpf.config_defaults.DEFAULTS`` (call :meth:`get` instead
+            for those options and let the registered default apply).
         TypeError
             If the option has already been accessed with a different return type.
 
@@ -162,13 +165,6 @@ cdef class Options:
         1.5
         >>> opts.get_or_default("level", default_value="info")
         'info'
-
-        Raises
-        ------
-        ValueError
-            If ``key`` has a canonical default registered in
-            ``rapidsmpf.config_defaults.DEFAULTS``. For those options, call
-            :meth:`get` instead and let the registered default apply.
         """
         if key in _CPP_DEFAULTS:
             raise ValueError(
