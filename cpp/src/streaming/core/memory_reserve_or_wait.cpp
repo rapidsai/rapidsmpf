@@ -21,11 +21,6 @@
 
 namespace rapidsmpf::streaming {
 
-namespace {
-using config::streaming::AllowOverbookingByDefaultOption;
-using config::streaming::MemoryReserveTimeoutOption;
-}  // namespace
-
 MemoryReserveOrWait::MemoryReserveOrWait(
     config::Options options,
     MemoryType mem_type,
@@ -35,13 +30,7 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{
-          options.get<Duration>(MemoryReserveTimeoutOption.key, [](std::string const& s) {
-              return parse_duration(
-                  s.empty() ? MemoryReserveTimeoutOption.default_val : s
-              );
-          })
-      } {
+      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }
@@ -298,13 +287,8 @@ coro::task<MemoryReservation> reserve_memory(
 ) {
     // If allow_overbooking is not specified, get it from the configuration options.
     if (!allow_overbooking.has_value()) {
-        bool const allow_overbook_default = ctx->options().get<bool>(
-            AllowOverbookingByDefaultOption.key, [](std::string const& s) {
-                return parse_string<bool>(
-                    s.empty() ? AllowOverbookingByDefaultOption.default_val : s
-                );
-            }
-        );
+        bool const allow_overbook_default =
+            ctx->options().get<bool>("allow_overbooking_by_default", parse_string<bool>);
         allow_overbooking =
             allow_overbook_default ? AllowOverbooking::YES : AllowOverbooking::NO;
     }

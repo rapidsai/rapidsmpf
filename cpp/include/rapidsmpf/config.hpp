@@ -16,11 +16,11 @@
 #include <string_view>
 #include <unordered_map>
 
+#include <rapidsmpf/config_defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
-namespace rapidsmpf {
-namespace config {
+namespace rapidsmpf::config {
 
 /**
  * @brief Type alias for a factory function that constructs options from strings.
@@ -251,7 +251,14 @@ class Options {
         std::lock_guard<std::mutex> lock(shared.mutex);
         auto& option = shared.options[key];
         if (!option.get_value().has_value()) {
-            option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
+            // If the user did not supply a value and `DEFAULTS` contains one
+            // for `key`, pass that default to the factory. Otherwise, pass
+            // the empty string to the factory parser.
+            std::string const& stored = option.get_value_as_string();
+            auto it = DEFAULTS.find(key);
+            std::string const& effective =
+                (stored.empty() && it != DEFAULTS.end()) ? it->second : stored;
+            option.set_value(std::make_any<T>(factory(effective)));
         }
         try {
             return std::any_cast<T const&>(option.get_value());
@@ -384,129 +391,4 @@ std::unordered_map<std::string, std::string> get_environment_variables(
     std::string const& key_regex = "RAPIDSMPF_(.*)"
 );
 
-/**
- * @brief Descriptor for a single configuration option.
- *
- * Couples an option's lookup key with its default value so the two cannot
- * drift apart. Instances are `inline const` and live in the module
- * sub-namespaces below (e.g. `rapidsmpf::config::statistics`,
- * `rapidsmpf::config::buffer_resource`); consult those for the canonical
- * list of options understood by the `from_options` factories.
- *
- * Each descriptor's variable name is suffixed with `Option` to keep it
- * distinct from same-named runtime entities in its module (for example,
- * `rapidsmpf::config::ucxx::ProgressModeOption` vs the `enum class
- * ProgressMode`). Call sites typically pull the descriptor into the local
- * scope with a `using` declaration so the descriptor name stays short.
- *
- * Both `key` and `default_val` are owning `std::string`s. Options are always
- * parsed from their string representation at runtime, so the default is
- * expressed as a string and fed through the same factory the call site uses
- * for user-supplied values.
- */
-struct OptionDescriptor {
-    std::string const key;  ///< Lookup key passed to `Options::get`.
-    std::string const default_val;  ///< String form of the value used when unset.
-};
-
-/// @brief Options for `rapidsmpf::Statistics::from_options`.
-namespace statistics {
-/// @brief Whether statistics tracking is enabled.
-inline const OptionDescriptor EnabledOption{
-    .key = "statistics",
-    .default_val = "false",
-};
-}  // namespace statistics
-
-/// @brief Options for `rapidsmpf::PinnedMemoryResource::from_options`.
-namespace pinned_memory {
-/// @brief Whether pinned host memory is enabled.
-inline const OptionDescriptor EnabledOption{
-    .key = "pinned_memory",
-    .default_val = "false",
-};
-
-/// @brief Initial pinned-pool size, applied as
-/// `get_host_memory_per_gpu() * InitialPoolSizeOption`.
-inline const OptionDescriptor InitialPoolSizeOption{
-    .key = "pinned_initial_pool_size",
-    .default_val = "0%",
-};
-
-/// @brief Maximum pinned-pool size, applied as
-/// `get_host_memory_per_gpu() * MaxPoolSizeOption`.
-inline const OptionDescriptor MaxPoolSizeOption{
-    .key = "pinned_max_pool_size",
-    .default_val = "80%",
-};
-}  // namespace pinned_memory
-
-/// @brief Options for `rapidsmpf::BufferResource::from_options` and helpers.
-namespace buffer_resource {
-/// @brief Device-memory spill limit (nbytes string or percent of total).
-inline const OptionDescriptor SpillDeviceLimitOption{
-    .key = "spill_device_limit",
-    .default_val = "80%",
-};
-
-/// @brief Periodic spill-check interval (duration string or
-/// disabled-sentinel).
-inline const OptionDescriptor PeriodicSpillCheckOption{
-    .key = "periodic_spill_check",
-    .default_val = "1ms",
-};
-
-/// @brief CUDA stream-pool size used by the buffer resource.
-inline const OptionDescriptor NumStreamsOption{
-    .key = "num_streams",
-    .default_val = "16",
-};
-}  // namespace buffer_resource
-
-/// @brief Options for the streaming subsystem.
-namespace streaming {
-/// @brief Number of threads in the streaming coroutine pool.
-inline const OptionDescriptor NumStreamingThreadsOption{
-    .key = "num_streaming_threads",
-    .default_val = "1",
-};
-
-/// @brief Per-attempt timeout for streaming memory reservations.
-inline const OptionDescriptor MemoryReserveTimeoutOption{
-    .key = "memory_reserve_timeout",
-    .default_val = "100 ms",
-};
-
-/// @brief Whether streaming memory reservations may overbook by default.
-/// Used by `reserve_memory` when the caller does not pass an explicit
-/// `AllowOverbooking` policy.
-inline const OptionDescriptor AllowOverbookingByDefaultOption{
-    .key = "allow_overbooking_by_default",
-    .default_val = "true",
-};
-
-}  // namespace streaming
-
-/// @brief Options consumed by `rapidsmpf::Communicator::Logger`.
-namespace communicator {
-/// @brief Logger verbosity level (string form, one of
-/// `Logger::LOG_LEVEL_NAMES`).
-inline const OptionDescriptor LogOption{
-    .key = "log",
-    .default_val = "WARN",
-};
-}  // namespace communicator
-
-/// @brief Options consumed by `rapidsmpf::ucxx::init`.
-namespace ucxx {
-/// @brief UCXX worker progress mode; one of `"blocking"`, `"polling"`,
-/// `"thread-blocking"`, `"thread-polling"`.
-inline const OptionDescriptor ProgressModeOption{
-    .key = "ucxx_progress_mode",
-    .default_val = "thread-blocking",
-};
-}  // namespace ucxx
-
-}  // namespace config
-
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::config

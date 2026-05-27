@@ -9,18 +9,16 @@
 
 namespace rapidsmpf {
 namespace {
-using config::communicator::LogOption;
-
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
-    auto const value = to_upper(trim(str.empty() ? LogOption.default_val : str));
+    auto const trimmed = to_upper(trim(str));
     for (std::uint32_t i = 0; i < Communicator::Logger::LOG_LEVEL_NAMES.size(); ++i) {
         auto level = static_cast<Communicator::Logger::LOG_LEVEL>(i);
-        if (value == Communicator::Logger::level_name(level)) {
+        if (trimmed == Communicator::Logger::level_name(level)) {
             return level;
         }
     }
     std::stringstream ss;
-    ss << "RAPIDSMPF_LOG - unknown value: \"" << value << "\", valid choices: { ";
+    ss << "RAPIDSMPF_LOG - unknown value: \"" << trimmed << "\", valid choices: { ";
     for (auto const& name : Communicator::Logger::LOG_LEVEL_NAMES) {
         ss << name << " ";
     }
@@ -30,7 +28,7 @@ Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
 }  // namespace
 
 Communicator::Logger::Logger(Rank rank, config::Options options)
-    : rank_{rank}, level_(options.get<LOG_LEVEL>(LogOption.key, level_from_string)) {};
+    : rank_{rank}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {};
 
 
 }  // namespace rapidsmpf

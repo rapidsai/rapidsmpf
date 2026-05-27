@@ -937,20 +937,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::optional<RemoteAddress> remote_address,
     config::Options options
 ) {
-    using config::ucxx::ProgressModeOption;
     auto progress_mode =
-        options.get<ProgressMode>(ProgressModeOption.key, [](auto const& s) {
-            // When the option is unset, parse the default through the same
-            // matching logic as user input (single source of truth: the string).
-            auto const value =
-                s.empty() ? ProgressModeOption.default_val : std::string_view{s};
-            if (value == "blocking") {
+        options.get<ProgressMode>("ucxx_progress_mode", [](auto const& s) {
+            if (s == "blocking") {
                 return ProgressMode::Blocking;
-            } else if (value == "polling") {
+            } else if (s == "polling") {
                 return ProgressMode::Polling;
-            } else if (value == "thread-blocking") {
+            } else if (s == "thread-blocking") {
                 return ProgressMode::ThreadBlocking;
-            } else if (value == "thread-polling") {
+            } else if (s == "thread-polling") {
                 return ProgressMode::ThreadPolling;
             } else {
                 RAPIDSMPF_FAIL("Invalid progress mode");

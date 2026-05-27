@@ -39,10 +39,6 @@ cuda::memory_pool_properties get_memory_pool_properties(
     };
 }
 
-using config::pinned_memory::EnabledOption;
-using config::pinned_memory::InitialPoolSizeOption;
-using config::pinned_memory::MaxPoolSizeOption;
-
 }  // namespace
 
 PinnedMemoryResource::PinnedMemoryResource(
@@ -78,29 +74,19 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
 std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
-    bool const enabled = options.get<bool>(EnabledOption.key, [](auto const& s) {
-        return parse_string<bool>(s.empty() ? EnabledOption.default_val : s);
-    });
+    bool const pinned_memory = options.get<bool>("pinned_memory", parse_string<bool>);
 
-    if (enabled && is_pinned_memory_resources_supported()) {
+    if (pinned_memory && is_pinned_memory_resources_supported()) {
         auto const host_memory_per_gpu = get_host_memory_per_gpu();
+        auto const total = safe_cast<double>(host_memory_per_gpu);
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
-                InitialPoolSizeOption.key,
-                [&](auto const& s) {
-                    return parse_nbytes_or_percent(
-                        s.empty() ? InitialPoolSizeOption.default_val : s,
-                        safe_cast<double>(host_memory_per_gpu)
-                    );
-                }
+                "pinned_initial_pool_size",
+                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                MaxPoolSizeOption.key, [&](auto const& s) {
-                    return parse_nbytes_or_percent(
-                        s.empty() ? MaxPoolSizeOption.default_val : s,
-                        safe_cast<double>(host_memory_per_gpu)
-                    );
-                }
+                "pinned_max_pool_size",
+                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
             )
         };
         return PinnedMemoryResource{get_current_numa_node(), std::move(pool_properties)};

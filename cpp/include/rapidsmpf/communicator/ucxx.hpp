@@ -86,12 +86,10 @@ class InitializedRank {
  * @param worker The UCXX worker, or nullptr to create one internally.
  * @param nranks The number of ranks requested for the cluster.
  * @param remote_address Host/port pair or worker address identifying the remote UCXX
- *                       listener or worker. Used only by non-root ranks to connect to a
- *                       previously initialized root rank, for which the default
- *                       `std::nullopt` is specified.
+ * listener or worker. Used only by non-root ranks to connect to a previously initialized
+ * root rank, for which the default `std::nullopt` is specified.
  * @param options The options to use for the communicator, currently supports only
- *                `"ucxx_progress_mode"`.
- *
+ * `"ucxx_progress_mode"`.
  * @return a unique pointer to an InitializedRank object.
  *
  * @throws std::logic_error if the `remote_address` is an invalid object.

@@ -13,10 +13,6 @@ import rmm.mr
 
 from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
-from rapidsmpf.config_defaults import (
-    BUFFER_RESOURCE_NUM_STREAMS,
-    STATISTICS_ENABLED,
-)
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     AvailableMemoryMap,
@@ -230,16 +226,22 @@ def test_Optional_values(input_value: Any, expected: Any) -> None:
 
 def test_Optional_with_options_returns_default_value() -> None:
     opts = Options()
-    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
+    val = opts.get_or_default("my_config_option", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value == 42
 
 
 def test_Optional_overrides_with_disabled_string() -> None:
-    opts = Options({"periodic_spill_check": "off"})
-    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
+    opts = Options({"my_config_option": "off"})
+    val = opts.get_or_default("my_config_option", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value is None
+
+
+def test_get_or_default_raises_for_registered_key() -> None:
+    opts = Options()
+    with pytest.raises(ValueError, match="canonical default"):
+        opts.get_or_default("periodic_spill_check", default_value=Optional(42))
 
 
 def test_Optional_default_can_be_none() -> None:
@@ -603,14 +605,14 @@ def test_context_from_options_can_create_channel() -> None:
 
 
 def test_option_keys_round_trip_through_options() -> None:
-    """An Options built using key constants from ``rapidsmpf.config_defaults`` is
-    read by ``from_options`` as expected (smoke test that the keys are wired the
+    """An Options built with the canonical option keys is read by
+    ``from_options`` as expected (smoke test that the keys are wired the
     same in C++ and Python).
     """
     opts = Options(
         {
-            STATISTICS_ENABLED: "True",
-            BUFFER_RESOURCE_NUM_STREAMS: "8",
+            "statistics": "True",
+            "num_streams": "8",
         }
     )
     assert Statistics.from_options(opts).enabled is True

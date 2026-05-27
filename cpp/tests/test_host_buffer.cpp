@@ -17,6 +17,7 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/config_defaults.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -336,19 +337,17 @@ TEST(PinnedResource, from_default_options) {
     if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
-    using rapidsmpf::config::pinned_memory::InitialPoolSizeOption;
-    using rapidsmpf::config::pinned_memory::MaxPoolSizeOption;
     EXPECT_EQ(
         mr->properties().initial_pool_size,
         rapidsmpf::parse_nbytes_or_percent(
-            InitialPoolSizeOption.default_val,
+            rapidsmpf::config::DEFAULTS.at("pinned_initial_pool_size"),
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
     EXPECT_EQ(
         mr->properties().max_pool_size.value(),
         rapidsmpf::parse_nbytes_or_percent(
-            MaxPoolSizeOption.default_val,
+            rapidsmpf::config::DEFAULTS.at("pinned_max_pool_size"),
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
