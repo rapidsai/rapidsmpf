@@ -36,11 +36,12 @@ void Environment::SetUp() {
     );
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
+    // enable statistics globally in the communicator
     comm_ = rapidsmpf::ucxx::init_using_mpi(
         MPI_COMM_WORLD,
         options_,
         std::make_shared<rapidsmpf::ProgressThread>(
-            rapidsmpf::Statistics::from_options(options_)
+            rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Enabled)
         )
     );
 }

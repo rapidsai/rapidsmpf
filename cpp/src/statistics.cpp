@@ -742,4 +742,26 @@ void Statistics::record_alloc(
     );
 }
 
+void Statistics::record_send(MemoryType src, std::size_t nbytes) {
+    static auto const names = [] {
+        std::array<std::string, MEMORY_TYPE_NAMES.size()> ret;
+        std::ranges::transform(MEMORY_TYPE_NAMES, ret.begin(), [](char const* n) {
+            return std::format("send-from-{}", n);
+        });
+        return ret;
+    }();
+    add_stat(names[static_cast<std::size_t>(src)], static_cast<double>(nbytes));
+}
+
+void Statistics::record_recv(MemoryType dst, std::size_t nbytes) {
+    static auto const names = [] {
+        std::array<std::string, MEMORY_TYPE_NAMES.size()> ret;
+        std::ranges::transform(MEMORY_TYPE_NAMES, ret.begin(), [](char const* n) {
+            return std::format("recv-to-{}", n);
+        });
+        return ret;
+    }();
+    add_stat(names[static_cast<std::size_t>(dst)], static_cast<double>(nbytes));
+}
+
 }  // namespace rapidsmpf

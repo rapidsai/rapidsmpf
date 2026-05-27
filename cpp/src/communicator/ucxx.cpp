@@ -1221,6 +1221,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
         msg->size(),
         tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
     );
+    statistics_->record_send(MemoryType::HOST, msg->size());
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -1232,6 +1233,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
+    statistics_->record_send(msg->mem_type(), msg->size);
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -1250,6 +1252,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
         tag_with_rank(rank, tag),
         ::ucxx::TagMaskFull
     );
+    statistics_->record_recv(recv_buffer->mem_type(), recv_buffer->size);
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
@@ -1265,6 +1268,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
         tag_with_rank(rank, tag),
         ::ucxx::TagMaskFull
     );
+    statistics_->record_recv(MemoryType::HOST, synced_buffer->size());
     return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
@@ -1290,6 +1294,7 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag t
     }
     req->checkError();
 
+    statistics_->record_recv(MemoryType::HOST, msg->size());
     return {std::move(msg), sender_rank};
 }
 
@@ -1314,6 +1319,7 @@ std::unique_ptr<std::vector<std::uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
     }
     req->checkError();
 
+    statistics_->record_recv(MemoryType::HOST, msg->size());
     return msg;
 }
 

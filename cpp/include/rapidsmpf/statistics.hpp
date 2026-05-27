@@ -538,6 +538,22 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     );
 
     /**
+     * @brief Record byte count for a send operation.
+     *
+     * @param src Source memory type.
+     * @param nbytes Number of bytes sent.
+     */
+    void record_send(MemoryType src, std::size_t nbytes);
+
+    /**
+     * @brief Record byte count for a receive operation.
+     *
+     * @param dst Destination memory type.
+     * @param nbytes Number of bytes received.
+     */
+    void record_recv(MemoryType dst, std::size_t nbytes);
+
+    /**
      * @brief Get the names of all statistics.
      *
      * @return A vector of all statistic names.

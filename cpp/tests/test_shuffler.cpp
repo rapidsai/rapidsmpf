@@ -1155,3 +1155,73 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     validate_results(shuffle1, 42);
     validate_results(shuffle2, 123);
 }
+
+// Test that send-from-DEVICE and recv-to-DEVICE statistics record the correct number of
+// bytes for a remote-only shuffle with deterministic sizes.
+//
+// Design: nranks partitions with round-robin ownership. Each rank r inserts one chunk of
+// N bytes for partition (r+1) % nranks, which is always owned by a different rank. This
+// produces exactly one remote DEVICE send and one remote DEVICE recv per rank with no
+// self-transfers going through the communicator.
+TEST(ShufflerStats, stats_egress_ingress) {
+    auto const& comm = GlobalEnvironment->comm_;
+    if (comm->nranks() == 1) {
+        GTEST_SKIP()
+            << "Stats test requires multiple ranks (no network traffic on 1 rank)";
+    }
+
+    auto stats = comm->statistics();
+    stats->clear();  // clear any previous stats since communicator stats are global
+
+    auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
+        16, rmm::cuda_stream::flags::non_blocking
+    );
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        stats, cudf::get_current_device_resource_ref()
+    );
+    auto stream = stream_pool->get_stream();
+
+    constexpr int n_elements = 10;
+    auto const nranks = comm->nranks();
+    auto const total_num_partitions = static_cast<rapidsmpf::shuffler::PartID>(nranks);
+
+    rapidsmpf::shuffler::Shuffler shuffler{comm, 0, total_num_partitions, br.get()};
+
+    // Each rank inserts into the partition owned by the next rank — always remote.
+    auto remote_part =
+        static_cast<rapidsmpf::shuffler::PartID>((comm->rank() + 1) % nranks);
+    auto packed =
+        generate_packed_data(n_elements, comm->rank() * n_elements, stream, *br);
+    auto data_bytes = packed.data->size;
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    chunks.emplace(remote_part, std::move(packed));
+    shuffler.insert(std::move(chunks));
+    shuffler.insert_finished();
+    EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
+
+    auto received = shuffler.extract(comm->rank());
+    EXPECT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0].data->size, data_bytes);
+    auto metadata_bytes = received[0].metadata->size();
+    // 1 data msg + n-1 finish msgs -> nranks application msgs total
+    // Plus (nranks-1) MPE termination markers (sizeof(uint64_t) + sizeof(size_t) each),
+    // which are now counted by the communicator's send() statistics.
+    auto expected_metadata_bytes =
+        metadata_bytes  // data msg metadata
+        + nranks
+              * (rapidsmpf::shuffler::detail::Chunk::metadata_message_header_size()
+                 + 2 * sizeof(size_t))
+        + (nranks - 1) * (sizeof(std::uint64_t) + sizeof(std::size_t));
+
+    // Coarse shuffler-level stats: payload bytes submitted to and received from the MPE.
+    EXPECT_DOUBLE_EQ(stats->get_stat("shuffle-payload-send").value(), data_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("shuffle-payload-recv").value(), data_bytes);
+
+    // Fine-grained communicator-level stats from TagMetadataPayloadExchange.
+    EXPECT_DOUBLE_EQ(stats->get_stat("send-from-DEVICE").value(), data_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("recv-to-DEVICE").value(), data_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("send-from-HOST").value(), expected_metadata_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("recv-to-HOST").value(), expected_metadata_bytes);
+
+    stats->clear();
+}
