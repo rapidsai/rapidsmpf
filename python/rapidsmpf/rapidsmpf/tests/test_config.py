@@ -15,8 +15,8 @@ from rapidsmpf.communicator import single as single_comm
 from rapidsmpf.config import Optional, OptionalBytes, Options
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
-    AvailableMemoryMap,
     BufferResource,
+    device_limit_from_options,
     periodic_spill_check_from_options,
     stream_pool_from_options,
 )
@@ -424,18 +424,16 @@ def test_pinned_memory_resource_from_options(
         assert pmr is None
 
 
-def test_available_memory_map_from_options_creates_map() -> None:
+def test_device_limit_from_options_returns_configured_limit() -> None:
     opts = Options({"spill_device_limit": "1GiB"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    mem_map = AvailableMemoryMap.from_options(mr, opts)
-    assert mem_map is not None
+    assert device_limit_from_options(opts) == 1024 * 1024 * 1024
 
 
-def test_available_memory_map_from_options_uses_default() -> None:
+def test_device_limit_from_options_uses_default() -> None:
     opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    mem_map = AvailableMemoryMap.from_options(mr, opts)
-    assert mem_map is not None
+    # The default is 80% of total device memory, which we can't predict exactly;
+    # just check it's a sensible positive value.
+    assert device_limit_from_options(opts) > 0
 
 
 @pytest.mark.parametrize(
@@ -487,8 +485,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "num_streams": "8",
         }
     )
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource.from_options(mr, opts, Statistics.from_options(opts))
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts))
 
     assert br.statistics.enabled
     assert br.stream_pool_size() == 8
@@ -498,8 +495,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
 
 def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
     opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource.from_options(mr, opts)
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
 
     assert not br.statistics.enabled
     assert br.stream_pool_size() == 16
@@ -511,16 +507,14 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
 
 def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "ON"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource.from_options(mr, opts, Statistics.from_options(opts))
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts))
 
     assert br.statistics.enabled
 
 
 def test_buffer_resource_from_options_accepts_percentage_for_device_limit() -> None:
     opts = Options({"spill_device_limit": "50%"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource.from_options(mr, opts)
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
 
     # Verify device memory limit is set (exact value depends on system memory)
     mem_avail = br.memory_available(MemoryType.DEVICE)
@@ -532,8 +526,7 @@ def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> 
         pytest.skip("Pinned memory not supported on this system")
 
     opts = Options({"pinned_memory": "True"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource.from_options(mr, opts)
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
     assert br.pinned_mr is not None
 
 

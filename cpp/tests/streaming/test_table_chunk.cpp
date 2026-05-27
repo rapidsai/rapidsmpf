@@ -36,8 +36,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
             rapidsmpf::config::get_environment_variables()
         );
 
-        std::unordered_map<MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
-            memory_available{};
+        std::unordered_map<MemoryType, std::int64_t> memory_limits{};
         auto stream_pool = std::make_shared<rmm::cuda_stream_pool>(
             16, rmm::cuda_stream::flags::non_blocking
         );
@@ -45,7 +44,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
         br = std::make_shared<rapidsmpf::BufferResource>(
             mr_cuda,  // device_mr
             rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
-            memory_available,  // memory_available
+            memory_limits,  // memory_limits
             std::chrono::milliseconds{1},  // periodic_spill_check
             stream_pool,  // stream_pool
             Statistics::disabled()  // statistics

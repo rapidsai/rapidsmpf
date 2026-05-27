@@ -24,25 +24,27 @@
 using namespace rapidsmpf;
 
 TEST(SpillManager, SpillFunction) {
-    // Create a buffer resource that report `mem_available` as the available memory.
+    // Drive available device memory by adjusting the DEVICE limit at runtime.
+    // No real allocations occur in this test, so memory_available equals the
+    // currently configured limit.
     std::int64_t mem_available = 10_KiB;
     BufferResource br{
         cudf::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryResource::Disabled,
-        {{MemoryType::DEVICE,
-          [&mem_available]() -> std::int64_t { return mem_available; }}}
+        {{MemoryType::DEVICE, mem_available}}
     };
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 10_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 10_KiB);
 
     // Spill function that increases the available memory perfectly.
     SpillManager::SpillFunction func1 =
-        [&mem_available](std::size_t amount) -> std::size_t {
-        mem_available += amount;
+        [&br, &mem_available](std::size_t amount) -> std::size_t {
+        mem_available += safe_cast<std::int64_t>(amount);
+        br.set_memory_limit(MemoryType::DEVICE, mem_available);
         return amount;
     };
     br.spill_manager().add_spill_function(func1, /* priority = */ 1);
     EXPECT_EQ(br.spill_manager().spill(10_KiB), 10_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 20_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 20_KiB);
 
     // Spill function that never spill any memory but has a higher priority.
     bool func2_called = false;
@@ -54,23 +56,23 @@ TEST(SpillManager, SpillFunction) {
     EXPECT_EQ(br.spill_manager().spill(10_KiB), 10_KiB);
     EXPECT_TRUE(func2_called);
     func2_called = false;
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 30_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 30_KiB);
 
     // Removing `func2` means it shouldn't run.
     br.spill_manager().remove_spill_function(fid2);
     EXPECT_EQ(br.spill_manager().spill(10_KiB), 10_KiB);
     EXPECT_FALSE(func2_called);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 40_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom is already there, no spilling should be happening.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(10_KiB), 0);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 40_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom isn't there, we should spill to get the headroom.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(100_KiB), 60_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 100_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 100_KiB);
 
     // A negative headroom is allowed.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(-100_KiB), 0);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 100_KiB);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 100_KiB);
 }

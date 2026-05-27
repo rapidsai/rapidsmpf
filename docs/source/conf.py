@@ -141,8 +141,6 @@ def setup(app):
 
 
 nitpick_ignore_regex = [
-    # Cython turns __call__ into a slot_wrapper that autodoc doesn't understand.
-    ("py:obj", "rapidsmpf.memory.buffer_resource.LimitAvailableMemory.__call__"),
     # We're subclassing this from RMM, and sphinx can't find these methods.
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),

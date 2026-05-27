@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 
 #include <cuda.h>
@@ -228,15 +227,6 @@ class PinnedMemoryResource final
     [[nodiscard]] constexpr PinnedPoolProperties const& properties() const noexcept {
         return pool_properties_;
     }
-
-    /**
-     * @brief Returns a memory-availability callback for the pinned pool, if the pool has
-     * a configured maximum size.
-     *
-     * @return A callable `std::int64_t()`. If no maximum pool size is configured, returns
-     * `std::numeric_limits<std::int64_t>::%max` (unbounded).
-     */
-    [[nodiscard]] std::function<std::int64_t()> get_memory_available_cb() const;
 
     /**
      * @brief Enables the `cuda::mr::host_accessible` property.
