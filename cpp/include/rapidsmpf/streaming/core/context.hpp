@@ -83,8 +83,8 @@ class Context {
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
-     * @param statistics The statistics instance to use (disabled by default). The caller
-     * is responsible for creating and owning this object.
+     * @param statistics The statistics instance to use (disabled by default).
+     *
      * @return A fully initialized Context.
      *
      * @throws std::invalid_argument If an option value is invalid.
