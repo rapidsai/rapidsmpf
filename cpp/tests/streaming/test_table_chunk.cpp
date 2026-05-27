@@ -48,7 +48,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
             memory_available,  // memory_available
             std::chrono::milliseconds{1},  // periodic_spill_check
             stream_pool,  // stream_pool
-            Statistics::create(Statistics::Mode::Disabled)  // statistics
+            Statistics::disabled()  // statistics
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             options, GlobalEnvironment->comm_->logger(), br

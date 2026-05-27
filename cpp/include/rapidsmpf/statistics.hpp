@@ -127,6 +127,15 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     static std::shared_ptr<Statistics> create(Mode mode = Mode::Enabled);
 
     /**
+     * @brief Returns a disabled Statistics instance which can be enabled later.
+     *
+     * @return A Statistics instance with tracking disabled.
+     */
+    static std::shared_ptr<Statistics> disabled() {
+        return create(Mode::Disabled);
+    }
+
+    /**
      * @brief Construct from configuration options.
      *
      * @param options Configuration options.
@@ -631,7 +640,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
  * @brief Satisfied by any type that exposes a `statistics()` method returning
  *        `std::shared_ptr<Statistics>` by value.
  *
- * Classes satisfying this concept are *statistics providers* — secondary
+ * Classes satisfying this concept are *statistics providers*. Secondary
  * classes that receive a provider as a constructor argument should derive their
  * `Statistics` instance by calling `.statistics()` on it rather than accepting
  * a separate `std::shared_ptr<Statistics>` argument.
@@ -667,9 +676,9 @@ concept StatisticsProvider = requires(T const& t) {
  * @endcode
  *
  * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass an
- * instance created with `Statistics::create(Statistics::Mode::Disabled)` to
- * disable recording (`create_memory_recorder` returns a no-op recorder when
- * the statistics instance is disabled).
+ * instance created with `Statistics::disabled()` to disable recording
+ * (`create_memory_recorder` returns a no-op recorder when the statistics
+ * instance is disabled).
  * The second argument is the device memory resource. Recording is only active
  * when the underlying resource is an `RmmResourceAdaptor`; other device
  * resources yield a no-op recorder.
