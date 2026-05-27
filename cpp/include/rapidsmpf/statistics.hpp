@@ -560,6 +560,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      */
     class MemoryRecorder {
       public:
+        /// @brief Constructs a no-op MemoryRecorder.
+        MemoryRecorder() = default;
+
         /**
          * @brief Constructs an active MemoryRecorder. Pushes a scoped record at
          * construction; the destructor pops it and (if @p stats is still
@@ -581,15 +584,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        friend class Statistics;
-
-        /// Constructs a no-op MemoryRecorder.The dtor short-circuits on
-        /// `!mr_.has_value()` so the null `stats_` is never dereferenced.
-        MemoryRecorder() = default;
-
-        /// No-op recorder iff `stats_` is null and `mr_` is `std::nullopt`.
-        std::shared_ptr<Statistics> stats_{nullptr};
+        /// No-op recorder iff `mr_` is `std::nullopt`.
         std::optional<RmmResourceAdaptor> mr_{std::nullopt};
+        /// stats_ != nullptr iff `mr_.has_value()`.
+        std::shared_ptr<Statistics> stats_{nullptr};
         std::string name_{};
     };
 

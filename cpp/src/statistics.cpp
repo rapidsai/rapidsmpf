@@ -250,7 +250,7 @@ void Statistics::clear() {
 Statistics::MemoryRecorder::MemoryRecorder(
     std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
-    : stats_{std::move(stats)}, mr_{std::move(mr)}, name_{std::move(name)} {
+    : mr_{std::move(mr)}, stats_{std::move(stats)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     mr_->begin_scoped_memory_record();
 }
