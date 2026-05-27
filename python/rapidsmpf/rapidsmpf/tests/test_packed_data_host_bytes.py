@@ -12,13 +12,14 @@ if TYPE_CHECKING:
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.statistics import Statistics
 
 
 def test_packed_data_host_bytes_roundtrip(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     """Test creating PackedData from host bytes and extracting them back."""
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     # Test with raw bytes
     original = b"hello world"
@@ -38,7 +39,7 @@ def test_packed_data_empty_bytes(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     """Test creating PackedData from empty bytes."""
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     original = b""
     packed = PackedData.from_host_bytes(original, br)
     result = packed.to_host_bytes()

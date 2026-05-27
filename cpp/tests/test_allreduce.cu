@@ -28,6 +28,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 
@@ -207,7 +208,9 @@ class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), *mr
+        );
         comm = GlobalEnvironment->comm_.get();
     }
 
@@ -302,6 +305,45 @@ class AllReduceIntSumTest
         mem_type = std::get<1>(GetParam());
     }
 
+    void run_basic_allreduce_sum_int_test() {
+        auto this_rank = comm->rank();
+        auto nranks = comm->nranks();
+
+        // Choose operator based on reduction type
+        ReduceOperator kernel =
+            mem_type == MemoryType::DEVICE
+                ? rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
+                : rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{});
+
+        std::vector<int> data(std::max(0, n_elements));
+        for (int j = 0; j < n_elements; j++) {
+            data[j] = this_rank;
+        }
+
+        auto in_buffer = make_buffer<int>(br.get(), data.data(), data.size(), mem_type);
+        auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+        auto out_buffer =
+            br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
+
+        AllReduce allreduce(
+            GlobalEnvironment->comm_,
+            std::move(in_buffer),
+            std::move(out_buffer),
+            OpID{0},
+            std::move(kernel)
+        );
+
+        auto [in_result, out_result] = allreduce.wait_and_extract();
+
+        auto reduced = unpack_to_host<int>(*out_result);
+        ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
+        // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
+        int const expected_value = (nranks * (nranks - 1)) / 2;
+        EXPECT_THAT(reduced, ::testing::Each(expected_value));
+
+        EXPECT_TRUE(allreduce.finished());
+    }
+
     int n_elements{};
     MemoryType mem_type{};
 };
@@ -326,41 +368,67 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
-    auto this_rank = comm->rank();
-    auto nranks = comm->nranks();
+    EXPECT_NO_THROW(run_basic_allreduce_sum_int_test());
+}
 
-    // Choose operator based on reduction type
-    ReduceOperator kernel =
-        mem_type == MemoryType::DEVICE
-            ? rapidsmpf::coll::detail::make_device_reduce_operator<int>(SumOp<int>{})
-            : rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{});
-
-    std::vector<int> data(std::max(0, n_elements));
-    for (int j = 0; j < n_elements; j++) {
-        data[j] = this_rank;
+TEST_P(AllReduceIntSumTest, stats_egress_ingress) {
+    if (comm->nranks() == 1) {
+        GTEST_SKIP()
+            << "Stats test requires multiple ranks (no network traffic on 1 rank)";
     }
 
-    auto in_buffer = make_buffer<int>(br.get(), data.data(), data.size(), mem_type);
-    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
-    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
+    auto stats = comm->statistics();
+    stats->clear();  // clear any previous stats since communicator stats are global
 
-    AllReduce allreduce(
-        GlobalEnvironment->comm_,
-        std::move(in_buffer),
-        std::move(out_buffer),
-        OpID{0},
-        std::move(kernel)
+    EXPECT_NO_THROW(run_basic_allreduce_sum_int_test());
+
+    auto const rank = comm->rank();
+    auto const nranks = comm->nranks();
+    auto const data_bytes = static_cast<double>(n_elements * sizeof(int));
+
+    // Compute the butterfly round count and pre-remainder size.
+    // nearest_pow2 = largest power of 2 <= nranks
+    // remainder    = nranks - nearest_pow2
+    // butterfly_rounds = log2(nearest_pow2)
+    auto const nearest_pow2 =
+        static_cast<int>(std::bit_floor(static_cast<unsigned>(nranks)));
+    auto const remainder = nranks - nearest_pow2;
+    // bit_width of a power-of-2 n is log2(n)+1, so subtract 1 to get log2.
+    auto const butterfly_rounds =
+        static_cast<int>(std::bit_width(static_cast<unsigned>(nearest_pow2))) - 1;
+
+    // Expected traffic per rank:
+    //   Even pre-remainder (rank < 2*r, even): 1 pre-send + 1 post-recv  → 1×D each
+    //   Odd  pre-remainder (rank < 2*r, odd):  1 pre-recv + B butterfly
+    //                                           + 1 post-send             → (1+B)×D each
+    //   Non-remainder      (rank >= 2*r):       B butterfly rounds        → B×D each
+    double expected_egress{};
+    double expected_ingress{};
+    if (rank < 2 * remainder) {
+        if (rank % 2 == 0) {
+            expected_egress = data_bytes;
+            expected_ingress = data_bytes;
+        } else {
+            expected_egress = (1 + butterfly_rounds) * data_bytes;
+            expected_ingress = (1 + butterfly_rounds) * data_bytes;
+        }
+    } else {
+        expected_egress = butterfly_rounds * data_bytes;
+        expected_ingress = butterfly_rounds * data_bytes;
+    }
+
+    EXPECT_DOUBLE_EQ(
+        stats->get_stat(std::format("send-from-{}", rapidsmpf::to_string(mem_type)))
+            .value(),
+        expected_egress
+    );
+    EXPECT_DOUBLE_EQ(
+        stats->get_stat(std::format("recv-to-{}", rapidsmpf::to_string(mem_type)))
+            .value(),
+        expected_ingress
     );
 
-    auto [in_result, out_result] = allreduce.wait_and_extract();
-
-    auto reduced = unpack_to_host<int>(*out_result);
-    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
-    // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
-    int const expected_value = (nranks * (nranks - 1)) / 2;
-    EXPECT_THAT(reduced, ::testing::Each(expected_value));
-
-    EXPECT_TRUE(allreduce.finished());
+    stats->clear();
 }
 
 template <typename T, typename Op, MemoryType MemType>

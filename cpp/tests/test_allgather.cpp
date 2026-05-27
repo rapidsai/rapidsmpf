@@ -34,7 +34,9 @@ class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), rmm::mr::cuda_memory_resource{}
+        );
     }
 
     void TearDown() override {
@@ -269,6 +271,67 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     }
 }
 
+// Test that send/recv statistics record correct byte counts when allgather is run with an
+// enabled Statistics object.
+//
+// In the ring allgather each data chunk travels (nranks-1) hops. Every forwarding rank
+// records one DEVICE send and the receiving rank records one DEVICE recv, so the
+// aggregate per-rank totals are both (nranks-1) * data_bytes.
+TEST_F(BaseAllGatherTest, stats_egress_ingress) {
+    auto const& comm = GlobalEnvironment->comm_;
+    if (comm->nranks() == 1) {
+        GTEST_SKIP()
+            << "Stats test requires multiple ranks (no network traffic on 1 rank)";
+    }
+
+    constexpr int n_elements = 10;
+    constexpr std::size_t data_bytes = n_elements * sizeof(int);
+
+    // Note: there is split-brain scenario here because communicator and br have their own
+    // statistics objects
+    auto stats = comm->statistics();
+    EXPECT_TRUE(stats->enabled());
+
+    stats->clear();  // clear any previous stats since communicator stats are global
+
+    AllGather allgather{comm, 0, br.get()};
+
+    allgather.insert(
+        0, generate_packed_data(n_elements, comm->rank() * n_elements, stream, *br)
+    );
+    allgather.insert_finished();
+
+    std::vector<rapidsmpf::PackedData> results;
+    EXPECT_NO_THROW(
+        results =
+            allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30})
+    );
+
+    auto const nranks = comm->nranks();
+    ASSERT_EQ(results.size(), static_cast<std::size_t>(nranks));
+    for (auto const& result : results) {
+        EXPECT_EQ(result.data->size, data_bytes);
+    }
+    auto const metadata_bytes = results[0].metadata->size();
+
+    // DEVICE: exact — each chunk does (nranks-1) hops
+    auto const expected_device_bytes = static_cast<double>((nranks - 1) * data_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("send-from-DEVICE").value(), expected_device_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("recv-to-DEVICE").value(), expected_device_bytes);
+
+    // HOST: lower bound — at minimum (nranks-1) data-chunk sends/recvs, each carrying
+    // at least metadata_bytes of user content (ChunkID and data_size fields add more).
+    auto const host_lower_bound = static_cast<double>((nranks - 1) * metadata_bytes);
+    auto const sent_host_bytes = stats->get_stat("send-from-HOST").value();
+    auto const recv_host_bytes = stats->get_stat("recv-to-HOST").value();
+    // metadata sends and recieves are symmetric
+    EXPECT_GT(sent_host_bytes, host_lower_bound);
+    EXPECT_GT(recv_host_bytes, host_lower_bound);
+    EXPECT_DOUBLE_EQ(sent_host_bytes, recv_host_bytes);
+
+    stats->clear();
+}
+
 // Test that reusing an OpID after a completed allgather doesn't cause cross-matching of
 // messages between the old and new collective.
 //
@@ -295,6 +358,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     if (this_rank == 0) {
         // Recreate the buffer resource and allgather with the delayed MR.
         delay_br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(),
             DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
         );
         allgather =
@@ -363,7 +427,9 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 TEST(PostBox, spill_uses_remaining_amount) {
     auto stream = cudf::get_default_stream();
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+    auto br = std::make_unique<rapidsmpf::BufferResource>(
+        rapidsmpf::Statistics::disabled(), *mr
+    );
 
     rapidsmpf::coll::detail::PostBox postbox;
 

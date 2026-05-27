@@ -41,7 +41,9 @@ namespace bootstrap {
  * @throws std::runtime_error if initialization fails.
  *
  * @code
- * auto progress = std::make_shared<rapidsmpf::ProgressThread>();
+ * auto progress = std::make_shared<rapidsmpf::ProgressThread>(
+ *     rapidsmpf::Statistics::disabled()
+ * );
  * auto comm = rapidsmpf::bootstrap::create_ucxx_comm(progress);
  * comm->logger().print("Hello from rank " + std::to_string(comm->rank()));
  * @endcode

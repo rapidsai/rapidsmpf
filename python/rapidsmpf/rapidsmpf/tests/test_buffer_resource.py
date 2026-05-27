@@ -57,10 +57,18 @@ def test_buffer_resource() -> None:
         NotImplementedError,
         match="only accept `LimitAvailableMemory` as memory available functions",
     ):
-        BufferResource(mr, memory_available={MemoryType.DEVICE: lambda: 42})
+        BufferResource(
+            Statistics.disabled(),
+            mr,
+            memory_available={MemoryType.DEVICE: lambda: 42},
+        )
 
     mem_available = LimitAvailableMemory(mr, limit=KiB(100))
-    br = BufferResource(mr, memory_available={MemoryType.DEVICE: mem_available})
+    br = BufferResource(
+        Statistics.disabled(),
+        mr,
+        memory_available={MemoryType.DEVICE: mem_available},
+    )
     assert br.memory_reserved(MemoryType.DEVICE) == 0
     assert br.memory_reserved(MemoryType.HOST) == 0
 
@@ -76,7 +84,9 @@ def test_buffer_resource() -> None:
 def test_memory_reservation(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))},
     )
     res1, ob = br.reserve(mem_type, KiB(100), allow_overbooking=False)
     assert res1.br is br
@@ -126,12 +136,12 @@ def test_stream_pool() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
 
     # Test with default stream pool size (16)
-    br_default = BufferResource(mr)
+    br_default = BufferResource(Statistics.disabled(), mr)
     assert br_default.stream_pool_size() == 16
 
     # Test with custom stream pool
     custom_pool = rmm.pylibrmm.cuda_stream_pool.CudaStreamPool(pool_size=32)
-    br_custom = BufferResource(mr, stream_pool=custom_pool)
+    br_custom = BufferResource(Statistics.disabled(), mr, stream_pool=custom_pool)
     assert br_custom.stream_pool_size() == 32
 
 
@@ -139,13 +149,13 @@ def test_statistics() -> None:
     """Test that statistics parameter can be configured."""
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
 
-    # Disabled by default
-    br_default = BufferResource(mr)
+    # Disabled
+    br_default = BufferResource(Statistics.disabled(), mr)
     assert not br_default.statistics.enabled
 
     # Test with enabled statistics (with memory profiling)
     stats = Statistics(enable=True)
-    br_with_mr = BufferResource(mr, statistics=stats)
+    br_with_mr = BufferResource(stats, mr)
     assert br_with_mr.statistics is stats
 
 
@@ -153,7 +163,9 @@ def test_statistics() -> None:
 def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))},
     )
 
     res, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
@@ -170,7 +182,9 @@ def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
 def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))},
     )
 
     res, _ = br.reserve(mem_type, KiB(60), allow_overbooking=False)
@@ -186,7 +200,9 @@ def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
 def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))},
     )
 
     res1, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
@@ -210,7 +226,9 @@ def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None
 def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(200))},
     )
 
     res1, _ = br.reserve(mem_type, KiB(40), allow_overbooking=False)
@@ -234,7 +252,9 @@ def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
 def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr, memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))}
+        Statistics.disabled(),
+        mr,
+        memory_available={mem_type: LimitAvailableMemory(mr, limit=KiB(100))},
     )
 
     res, _ = br.reserve(mem_type, KiB(80), allow_overbooking=False)
@@ -253,6 +273,7 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
 def test_reserve_or_fail() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
+        Statistics.disabled(),
         mr,
         memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=KiB(100))},
     )

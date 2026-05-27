@@ -102,7 +102,8 @@ MPI::MPI(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : comm_{comm},
+    : Communicator{progress_thread->statistics()},
+      comm_{comm},
       rank_{[comm]() {
           int r;
           RAPIDSMPF_MPI(MPI_Comm_rank(comm, &r));
@@ -126,6 +127,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_MPI(MPI_Isend(
         msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, rank, tag, comm_, &req
     ));
+    statistics_->record_send(MemoryType::HOST, msg->size());
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -138,6 +140,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_MPI(MPI_Isend(
         msg->data(), safe_cast<int>(msg->size), MPI_UINT8_T, rank, tag, comm_, &req
     ));
+    statistics_->record_send(msg->mem_type(), msg->size);
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -166,6 +169,7 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     mpi_recv_impl(
         rank, tag, recv_buffer->exclusive_data_access(), recv_buffer->size, comm_, &req
     );
+    statistics_->record_recv(recv_buffer->mem_type(), recv_buffer->size);
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
@@ -179,6 +183,7 @@ std::unique_ptr<Communicator::Future> MPI::recv_sync_host_data(
     );
     MPI_Request req;
     mpi_recv_impl(rank, tag, synced_buffer->data(), synced_buffer->size(), comm_, &req);
+    statistics_->record_recv(MemoryType::HOST, synced_buffer->size());
     return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
@@ -210,6 +215,7 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> MPI::recv_any(Tag ta
         safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
+    statistics_->record_recv(MemoryType::HOST, msg->size());
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
@@ -239,6 +245,7 @@ std::unique_ptr<std::vector<std::uint8_t>> MPI::recv_from(Rank src, Tag tag) {
         safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
+    statistics_->record_recv(MemoryType::HOST, msg->size());
     return msg;
 }
 

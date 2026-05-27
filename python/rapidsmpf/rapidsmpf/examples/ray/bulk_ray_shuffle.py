@@ -97,9 +97,10 @@ class BulkRayShufflerActor(RapidsMPFActor):
                 )
             }
         )
-        br = BufferResource(self.mr, memory_available=memory_available)
+        stats = Statistics(enable=enable_statistics)
+        br = BufferResource(stats, self.mr, memory_available=memory_available)
         self.br = br
-        super().__init__(nranks, Statistics(enable=enable_statistics))
+        super().__init__(nranks, stats)
 
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """

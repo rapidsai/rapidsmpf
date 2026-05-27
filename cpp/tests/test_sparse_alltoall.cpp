@@ -24,6 +24,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 
@@ -105,7 +106,9 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
 class SparseAlltoallTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            rapidsmpf::Statistics::disabled(), rmm::mr::cuda_memory_resource{}
+        );
     }
 
     std::unique_ptr<rapidsmpf::BufferResource> br;
@@ -148,7 +151,57 @@ TEST_F(SparseAlltoallTest, validate_constructor) {
 
 class SparseAlltoallMemoryTest
     : public SparseAlltoallTest,
-      public ::testing::WithParamInterface<rapidsmpf::MemoryType> {};
+      public ::testing::WithParamInterface<rapidsmpf::MemoryType> {
+  protected:
+    void run_basic_ring_exchange_test() {
+        auto const& comm = GlobalEnvironment->comm_;
+        auto [srcs, dsts] = ring_peers(comm);
+        int callback_count{0};
+        std::mutex mutex;
+        std::condition_variable cv;
+        rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts, [&]() {
+            {
+                std::lock_guard lk{mutex};
+                callback_count++;
+            }
+            cv.notify_one();
+        });
+
+        auto const mem_type = GetParam();
+        if (!dsts.empty()) {
+            auto const dst = dsts.front();
+            for (int i = 0; i < 3; ++i) {
+                exchange.insert(
+                    dst,
+                    make_payload(
+                        comm->rank() * 10 + i,
+                        comm->rank() * 100 + i,
+                        mem_type,
+                        *br,
+                        br->stream_pool().get_stream()
+                    )
+                );
+            }
+        }
+        exchange.insert_finished();
+        {
+            std::unique_lock lk{mutex};
+            cv.wait_for(lk, std::chrono::seconds{30}, [&]() {
+                return callback_count > 0;
+            });
+        }
+        EXPECT_EQ(callback_count, 1);
+        if (!srcs.empty()) {
+            auto received = exchange.extract(srcs.front());
+            ASSERT_EQ(received.size(), 3);
+            auto const src = srcs.front();
+            for (int i = 0; i < 3; ++i) {
+                EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
+                EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
+            }
+        }
+    }
+};
 
 INSTANTIATE_TEST_SUITE_P(
     SparseAlltoall,
@@ -160,50 +213,64 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
+    EXPECT_NO_THROW(run_basic_ring_exchange_test());
+}
+
+TEST_P(SparseAlltoallMemoryTest, stats_egress_ingress) {
     auto const& comm = GlobalEnvironment->comm_;
-    auto [srcs, dsts] = ring_peers(comm);
-    int callback_count{0};
-    std::mutex mutex;
-    std::condition_variable cv;
-    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts, [&]() {
-        {
-            std::lock_guard lk{mutex};
-            callback_count++;
-        }
-        cv.notify_one();
-    });
+    if (comm->nranks() == 1) {
+        GTEST_SKIP()
+            << "Stats test requires multiple ranks (no network traffic on 1 rank)";
+    }
 
     auto const mem_type = GetParam();
-    if (!dsts.empty()) {
-        auto const dst = dsts.front();
-        for (int i = 0; i < 3; ++i) {
-            exchange.insert(
-                dst,
-                make_payload(
-                    comm->rank() * 10 + i,
-                    comm->rank() * 100 + i,
-                    mem_type,
-                    *br,
-                    br->stream_pool().get_stream()
-                )
-            );
-        }
+    auto stats = comm->statistics();
+    stats->clear();  // clear any previous stats since communicator stats are global
+
+    EXPECT_NO_THROW(run_basic_ring_exchange_test());
+
+    // 3 data inserts + 1 finish message are sent to (and received from) one ring peer.
+    //
+    // Chunk::serialize() sizes:
+    //   data chunk:   8 (ChunkID) + 8 (data_size_) + sizeof(int) (metadata) = 20 bytes
+    //   finish chunk: 8 (ChunkID) only                                       =  8 bytes
+    // Data payload:   sizeof(int) = 4 bytes per chunk
+    constexpr double kDataChunkSerialBytes =
+        sizeof(std::uint64_t) + sizeof(std::uint64_t) + sizeof(int);  // 20
+    constexpr double kFinishChunkSerialBytes = sizeof(std::uint64_t);  // 8
+    constexpr double kPayloadBytes = sizeof(int);  // 4
+    constexpr int kNMessages = 3;
+
+    // HOST bytes that flow regardless of mem_type: metadata for 3 data chunks + 1 finish.
+    double const host_meta_bytes =
+        kNMessages * kDataChunkSerialBytes + kFinishChunkSerialBytes;
+    // Bytes that flow in mem_type: the 3 data payloads.
+    double const typed_data_bytes = kNMessages * kPayloadBytes;
+
+    // Recv side is always the same regardless of sender mem_type:
+    //   - Metadata arrives as a HOST vector          → recv-to-HOST
+    //   - Data buffer is allocated via MEMORY_TYPES = {DEVICE, PINNED_HOST, HOST},
+    //     so on a GPU machine the receive buffer is always DEVICE regardless of what
+    //     the sender used                            → recv-to-DEVICE
+    EXPECT_DOUBLE_EQ(stats->get_stat("recv-to-HOST").value(), host_meta_bytes);
+    EXPECT_DOUBLE_EQ(stats->get_stat("recv-to-DEVICE").value(), typed_data_bytes);
+
+    // Send side: metadata is always a HOST vector; data payload uses the sender's
+    // mem_type. When mem_type == HOST both fold into the same send-from-HOST stat.
+    if (mem_type == rapidsmpf::MemoryType::HOST) {
+        EXPECT_DOUBLE_EQ(
+            stats->get_stat("send-from-HOST").value(), host_meta_bytes + typed_data_bytes
+        );
+    } else {
+        EXPECT_DOUBLE_EQ(stats->get_stat("send-from-HOST").value(), host_meta_bytes);
+        EXPECT_DOUBLE_EQ(
+            stats->get_stat(std::format("send-from-{}", rapidsmpf::to_string(mem_type)))
+                .value(),
+            typed_data_bytes
+        );
     }
-    exchange.insert_finished();
-    {
-        std::unique_lock lk{mutex};
-        cv.wait_for(lk, std::chrono::seconds{30}, [&]() { return callback_count > 0; });
-    }
-    EXPECT_EQ(callback_count, 1);
-    if (!srcs.empty()) {
-        auto received = exchange.extract(srcs.front());
-        ASSERT_EQ(received.size(), 3);
-        auto const src = srcs.front();
-        for (int i = 0; i < 3; ++i) {
-            EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
-            EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
-        }
-    }
+
+    stats->clear();
 }
 
 TEST_F(SparseAlltoallTest, zero_message_edge_and_callback) {

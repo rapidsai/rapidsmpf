@@ -131,15 +131,13 @@ def test_basic_allgather(
     Each rank inserts n_inserts pieces of data, then all ranks
     should receive all data from all ranks.
     """
-    br = BufferResource(device_mr)
-    statistics = Statistics(enable=False)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
         op_id=0,  # Use operation ID 0
         br=br,
-        statistics=statistics,
     )
 
     this_rank = comm.rank

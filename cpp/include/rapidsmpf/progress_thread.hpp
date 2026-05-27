@@ -117,14 +117,15 @@ class ProgressThread {
     /**
      * @brief Construct a new progress thread that can handle multiple functions.
      *
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
+     * to opt out of statistics collection.
      * @param sleep The duration to sleep between each progress loop iteration.
      * If 0, the thread yields execution instead of sleeping. Anecdotally, a 1 us
      * sleep time (the default) is sufficient to avoid starvation and get smooth
      * progress.
      */
     ProgressThread(
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::shared_ptr<Statistics> statistics,
         Duration sleep = std::chrono::microseconds{1}
     );
 
@@ -204,5 +205,7 @@ class ProgressThread {
     // before all other members have been fully initialized.
     detail::PausableThreadLoop thread_;
 };
+
+static_assert(StatisticsProvider<ProgressThread>);
 
 }  // namespace rapidsmpf

@@ -324,7 +324,8 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
+    auto stats = rapidsmpf::Statistics::from_options(options);
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
@@ -367,20 +368,11 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-
     auto pinned_mr = args.pinned_mem_disable
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stat_enabled_mr,
-        pinned_mr,
-        std::move(memory_available),
-        std::nullopt,
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
-        stats
+        stats, stat_enabled_mr, pinned_mr, std::move(memory_available), std::nullopt
     );
 
     auto& log = *comm->logger();
@@ -414,7 +406,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Clear statistics before the last run so only the final run is reported.
         if (i == total_num_runs - 1) {
-            ctx->statistics()->clear();
+            stats->clear();
         }
         double const elapsed = run(ctx, comm, args, stream).count();
         std::stringstream ss;
@@ -461,14 +453,15 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
+    auto statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
-        log.print(ctx->statistics()->report({
+        log.print(stats->report({
             .mr = stat_enabled_mr,
             .pinned_mr = pinned_mr,
             .header = "Statistics (of the last run):",
         }));
     } else {
-        log.print(ctx->statistics()->report({.header = "Statistics (of the last run):"}));
+        log.print(stats->report({.header = "Statistics (of the last run):"}));
     }
 
     if (!use_bootstrap) {

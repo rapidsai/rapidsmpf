@@ -18,6 +18,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ def _make_table(cols: list[list[int]]) -> plc.Table:
 def test_partition_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     expect = _make_table(cols)
     partitions = partition_and_pack(
         expect,
@@ -69,7 +70,7 @@ def test_partition_and_pack_unpack(
 def test_split_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     expect = _make_table(cols)
     splits = np.linspace(0, expect.num_rows(), num_partitions, endpoint=False)[
         1:
@@ -94,7 +95,7 @@ def test_split_and_pack_unpack(
 def test_split_and_pack_unpack_out_of_range(
     device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     expect = _make_table(cols)
     with pytest.raises(IndexError):
         split_and_pack(
@@ -110,7 +111,7 @@ def test_split_and_pack_unpack_out_of_range(
 def test_spill_unspill_roundtrip(
     device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     expect = _make_table(cols)
     partitions = partition_and_pack(
         expect,

@@ -19,6 +19,7 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import (
     Shuffler,
 )
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ def test_shuffler_single_nonempty_partition(
     stream: Stream,
     total_num_partitions: int,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     shuffler = Shuffler(
         comm,
@@ -99,7 +100,7 @@ def test_shuffler_uniform(
     batch_size: int | None,
     total_num_partitions: int,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     # Every rank creates the full input dataframe and all the expected partitions
     # (also partitions this rank might not get after the shuffle).

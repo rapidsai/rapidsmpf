@@ -27,7 +27,11 @@ class Context:
     ) -> None: ...
     @classmethod
     def from_options(
-        cls: type[Self], logger: Logger, mr: RmmResourceAdaptor, options: Options
+        cls: type[Self],
+        logger: Logger,
+        mr: RmmResourceAdaptor,
+        options: Options,
+        statistics: Statistics,
     ) -> Self: ...
     def __enter__(self) -> Context: ...
     def __exit__(

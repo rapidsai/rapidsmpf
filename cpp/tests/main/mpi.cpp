@@ -7,6 +7,8 @@
 #include <mpi.h>
 
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "../environment.hpp"
 
@@ -25,8 +27,13 @@ void Environment::SetUp() {
 
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
 
+    // enable statistics globally in the communicator
     comm_ = std::make_shared<rapidsmpf::MPI>(
-        mpi_comm_, options_, std::make_shared<rapidsmpf::ProgressThread>()
+        mpi_comm_,
+        options_,
+        std::make_shared<rapidsmpf::ProgressThread>(
+            rapidsmpf::Statistics::create(rapidsmpf::Statistics::Mode::Enabled)
+        )
     );
 }
 

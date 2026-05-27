@@ -27,6 +27,7 @@ TEST(SpillManager, SpillFunction) {
     // Create a buffer resource that report `mem_available` as the available memory.
     std::int64_t mem_available = 10_KiB;
     BufferResource br{
+        Statistics::disabled(),
         cudf::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE,

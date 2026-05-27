@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = std::make_shared<rapidsmpf::Statistics>();
+    auto stats = rapidsmpf::Statistics::create();
 
     // The communicator has a progress thread where the shuffler event loop executes. A
     // single progress thread may be used by multiple shufflers simultaneously.
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmpf::BufferResource br{mr};
+    rapidsmpf::BufferResource br{stats, mr};
 
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank

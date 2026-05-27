@@ -54,6 +54,7 @@ TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always have 10 KiB of available device memory.
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
+        Statistics::disabled(),
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, dev_mem_available}}
@@ -122,6 +123,7 @@ TEST(BufferResource, ReservationReleasing) {
     // memory.
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
     BufferResource br{
+        Statistics::disabled(),
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, dev_mem_available}, {MemoryType::HOST, dev_mem_available}}
@@ -177,7 +179,10 @@ TEST(BufferResource, LimitAvailableMemory) {
     // Create a buffer resource that limit available device memory to 10 KiB.
     LimitAvailableMemory dev_mem_available{mr, 10_KiB};
     BufferResource br{
-        mr, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, dev_mem_available}}
+        Statistics::disabled(),
+        mr,
+        PinnedMemoryResource::Disabled,
+        {{MemoryType::DEVICE, dev_mem_available}}
     };
     EXPECT_EQ(dev_mem_available(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
@@ -262,7 +267,10 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     ASSERT_NE(pinned_mr, PinnedMemoryResource::Disabled);
 
     BufferResource br{
-        mr, pinned_mr, {{MemoryType::PINNED_HOST, pinned_mr->get_memory_available_cb()}}
+        Statistics::disabled(),
+        mr,
+        pinned_mr,
+        {{MemoryType::PINNED_HOST, pinned_mr->get_memory_available_cb()}}
     };
 
     // First 1 KiB reservation always succeeds.
@@ -289,15 +297,15 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     RmmResourceAdaptor mr{mr_cuda};
-    auto stats = std::make_shared<Statistics>(/* enable = */ true);
+    auto stats = Statistics::create();
     auto pinned_mr = PinnedMemoryResource::make_if_available();
     BufferResource br{
+        stats,
         mr,
         pinned_mr,
         {},
         std::nullopt,
-        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
-        stats
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking)
     };
     auto stream = cudf::get_default_stream();
 
@@ -358,6 +366,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
         // host memory.
         mr = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
         br = std::make_unique<BufferResource>(
+            Statistics::disabled(),
             *mr,
             PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
@@ -422,7 +431,9 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = std::make_unique<BufferResource>(
+            Statistics::disabled(), cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
 
         // initialize the host pattern
@@ -644,11 +655,11 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 
         // Setup br1 with statistics for its device memory
         mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = std::make_unique<BufferResource>(*mr1);
+        br1 = std::make_unique<BufferResource>(Statistics::disabled(), *mr1);
 
         // Setup br2 with statistics for its device memory
         mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = std::make_unique<BufferResource>(*mr2);
+        br2 = std::make_unique<BufferResource>(Statistics::disabled(), *mr2);
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -734,40 +745,29 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
     auto dst = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
+    auto statistics = br->statistics();
 
     // Negative offsets
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *dst, *src, 10, -1, 0), std::invalid_argument
-    );
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *dst, *src, 10, 0, -1), std::invalid_argument
-    );
+    EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, -1, 0), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, 0, -1), std::invalid_argument);
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0
-        ),
+        buffer_copy(statistics, *dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)
-        ),
+        buffer_copy(statistics, *dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0
-        ),
+        buffer_copy(statistics, *dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(
-            br->statistics(), *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)
-        ),
+        buffer_copy(statistics, *dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
         std::invalid_argument
     );
 }

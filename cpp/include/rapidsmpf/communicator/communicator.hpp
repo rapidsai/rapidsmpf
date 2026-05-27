@@ -17,6 +17,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 /**
  * @namespace rapidsmpf
@@ -403,7 +404,21 @@ class Communicator {
     };
 
   protected:
-    Communicator() = default;
+    /**
+     * @brief Construct the base Communicator with a statistics instance.
+     *
+     * Derived classes typically forward `progress_thread->statistics()` here so
+     * that the communicator and its progress thread share the same `Statistics`
+     * instance.
+     *
+     * @param statistics The statistics instance to associate with this
+     * communicator. Must not be null.
+     *
+     * @throws std::invalid_argument If @p statistics is null.
+     */
+    explicit Communicator(std::shared_ptr<Statistics> statistics);
+
+    std::shared_ptr<Statistics> statistics_;  ///< Statistics instance. Never null.
 
   public:
     virtual ~Communicator() noexcept = default;
@@ -620,11 +635,26 @@ class Communicator {
     progress_thread() const = 0;
 
     /**
+     * @brief Retrieves the statistics instance associated with this communicator.
+     *
+     * Satisfies the `StatisticsProvider` concept. Returns the instance supplied
+     * to the protected `Communicator` constructor by the concrete implementation
+     * (typically the same instance owned by `progress_thread()`).
+     *
+     * @return Shared pointer to the statistics instance (never null).
+     */
+    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept {
+        return statistics_;
+    }
+
+    /**
      * @brief Provides a string representation of the communicator.
      * @return A string describing the communicator.
      */
     [[nodiscard]] virtual std::string str() const = 0;
 };
+
+static_assert(StatisticsProvider<Communicator>);
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
 #ifdef RAPIDSMPF_HAVE_UCXX

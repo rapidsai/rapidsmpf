@@ -18,6 +18,7 @@ from rapidsmpf.statistics import Statistics
 class BufferResource:
     def __init__(
         self,
+        statistics: Statistics,
         device_mr: DeviceMemoryResource,
         *,
         pinned_mr: PinnedMemoryResource | None = None,
@@ -26,11 +27,13 @@ class BufferResource:
         | None = None,
         periodic_spill_check: float | None = 1e-3,
         stream_pool: CudaStreamPool | None = None,
-        statistics: Statistics | None = None,
     ) -> None: ...
     @classmethod
     def from_options(
-        cls: type[Self], mr: RmmResourceAdaptor, options: Options
+        cls: type[Self],
+        statistics: Statistics,
+        mr: RmmResourceAdaptor,
+        options: Options,
     ) -> Self: ...
     @property
     def device_mr(self) -> DeviceMemoryResource: ...

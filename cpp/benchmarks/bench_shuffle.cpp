@@ -546,20 +546,16 @@ int main(int argc, char** argv) {
         };
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = rapidsmpf::Statistics::create();
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();
     rapidsmpf::BufferResource br{
+        stats,
         stat_enabled_mr,
         args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
-        std::move(memory_available),
-        std::chrono::milliseconds{1},
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
-        stats
+        std::move(memory_available)
     };
 
     std::shared_ptr<rapidsmpf::Communicator> comm;

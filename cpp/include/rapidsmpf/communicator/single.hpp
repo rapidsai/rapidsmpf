@@ -209,5 +209,6 @@ class Single final : public Communicator {
     std::shared_ptr<ProgressThread> progress_thread_;
 };
 
+static_assert(StatisticsProvider<Single>);
 
 }  // namespace rapidsmpf

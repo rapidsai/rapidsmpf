@@ -166,7 +166,9 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
 class StreamingChannelMetadataGPU : public ::testing::Test {
   protected:
     rmm::cuda_stream_view stream{cudf::get_default_stream()};
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource br{
+        rapidsmpf::Statistics::disabled(), cudf::get_current_device_resource_ref()
+    };
 
     std::shared_ptr<TableChunk> make_chunk(std::vector<int32_t> vals) {
         rmm::device_buffer buf(vals.data(), vals.size() * sizeof(int32_t), stream);

@@ -14,7 +14,6 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
-from rapidsmpf.statistics cimport cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/coll/allgather.hpp>" namespace \
@@ -31,7 +30,6 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             int32_t op_id,
             cpp_BufferResource *br,
-            shared_ptr[cpp_Statistics] statistics
         ) except +ex_handler
         void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
             except +ex_handler

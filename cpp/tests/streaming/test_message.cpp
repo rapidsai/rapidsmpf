@@ -9,6 +9,7 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -18,7 +19,9 @@ using namespace rapidsmpf::streaming;
 class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = std::make_unique<BufferResource>(
+            Statistics::disabled(), cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
     }
 

@@ -69,6 +69,8 @@ class BufferResource {
     /**
      * @brief Constructs a buffer resource.
      *
+     * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
+     * to opt out of statistics collection.
      * @param device_mr The RMM device memory resource used for device allocations.
      * Ownership is transferred to the BufferResource.
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
@@ -85,16 +87,15 @@ class BufferResource {
      * If `std::nullopt`, no periodic spill check is performed.
      * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
      * that do not take an explicit CUDA stream.
-     * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
+        std::shared_ptr<Statistics> statistics,
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
-            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
     /**
@@ -105,12 +106,17 @@ class BufferResource {
      *
      * @param mr The RMM resource adaptor.
      * @param options Configuration options.
+     * @param statistics The statistics instance to use. Pass `Statistics::disabled()`
+     * to opt out of statistics collection. The caller is responsible for creating and
+     * owning this object.
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        RmmResourceAdaptor mr, config::Options options
+        RmmResourceAdaptor mr,
+        config::Options options,
+        std::shared_ptr<Statistics> statistics
     );
 
     ~BufferResource() noexcept = default;
@@ -404,7 +410,7 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
     std::mutex mutex_;
@@ -418,6 +424,8 @@ class BufferResource {
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
+
+static_assert(StatisticsProvider<BufferResource>);
 
 /**
  * @brief A functor for querying the remaining available memory within a defined limit

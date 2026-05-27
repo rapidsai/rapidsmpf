@@ -15,6 +15,7 @@ from rapidsmpf.coll.sparse_alltoall import SparseAlltoall
 from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ def test_basic(
     Each rank sends `n_inserts` messages to each adjacent rank and then checks
     that extraction by source returns the expected number of payloads.
     """
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     srcs, dsts = expected_peers(comm)
     sparse_alltoall = SparseAlltoall(
         comm=comm,
@@ -123,7 +124,7 @@ def test_non_participating_ranks(
     if comm.nranks < 2:
         pytest.skip("Need at least two ranks")
 
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
 
     if comm.rank == 0:
         srcs = []
@@ -173,7 +174,7 @@ def test_invalid_peers_raise(
 ) -> None:
     rank = comm.rank
     size = comm.nranks
-    br = BufferResource(device_mr)
+    br = BufferResource(Statistics.disabled(), device_mr)
     for src, dst in [([], [rank]), ([rank], []), ([], [size]), ([size], [])]:
         with pytest.raises(
             IndexError, match=r"SparseAlltoall invalid (source|destination) rank"
