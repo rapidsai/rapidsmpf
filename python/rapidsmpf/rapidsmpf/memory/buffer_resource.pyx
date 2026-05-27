@@ -28,19 +28,6 @@ from rapidsmpf.statistics cimport Statistics
 
 cdef extern from *:
     """
-    std::function<std::int64_t()> to_MemoryAvailable(
-        std::shared_ptr<rapidsmpf::LimitAvailableMemory> functor
-    ) {
-        return *functor;
-    }
-
-    std::int64_t _call_memory_available(
-        rapidsmpf::BufferResource* resource,
-        rapidsmpf::MemoryType mem_type
-    ) {
-        return resource->memory_available(mem_type)();
-    }
-
     // Helper function to create a non-owning shared_ptr from a raw pointer
     // The Python object retains ownership via its unique_ptr
     std::shared_ptr<rmm::cuda_stream_pool> make_non_owning_stream_pool_ref(
@@ -51,13 +38,6 @@ cdef extern from *:
         );
     }
     """
-    cpp_MemoryAvailable to_MemoryAvailable(
-        shared_ptr[cpp_LimitAvailableMemory]
-    ) except +ex_handler
-    int64_t _call_memory_available(
-        cpp_BufferResource* resource,
-        MemoryType mem_type
-    ) except +ex_handler nogil
     shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
         cuda_stream_pool* ptr
     ) except +ex_handler
@@ -134,23 +114,21 @@ cdef class BufferResource:
     Parameters
     ----------
     device_mr
-        Reference to the RMM device memory resource used for device allocations.
+        The RMM device memory resource used for device allocations. The
+        BufferResource transparently wraps this resource in an internal RMM
+        adaptor for allocation tracking — callers don't need to wrap it
+        themselves.
     pinned_mr
         The pinned host memory resource used for :attr:`~.MemoryType.PINNED_HOST`
         allocations. If None, pinned host allocations are disabled. In that case,
-        any attempt to allocate pinned memory will fail regardless of what
-        `memory_available` reports.
-    memory_available
-        Optional memory availability functions. Memory types without availability
-        functions are unlimited. A function must return the current available
-        memory of a specific type. It must be thread-safe if used by multiple
-        `BufferResource` instances concurrently.
-        Warning: calling any `BufferResource` instance methods within the function
-        might result in a deadlock. This is because the buffer resource is locked
-        when the function is called.
+        any attempt to allocate pinned memory will fail regardless of any
+        ``memory_limits`` entry for ``PINNED_HOST``.
+    memory_limits
+        Optional mapping from :class:`~.MemoryType` to an integer byte limit.
+        Memory types not present in the mapping are treated as unlimited.
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks and
-        perform spilling based on the memory availability functions. The value of
+        performs spilling based on memory availability. The value of
         ``periodic_spill_check`` is used as the pause between checks (in seconds).
         If None, no periodic spill check is performed.
     stream_pool
@@ -166,24 +144,15 @@ cdef class BufferResource:
         DeviceMemoryResource device_mr not None,
         *,
         PinnedMemoryResource pinned_mr = None,
-        memory_available = None,
+        memory_limits = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
         statistics = None,
     ):
-        cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
-        if isinstance(memory_available, AvailableMemoryMap):
-            _mem_available = move((<AvailableMemoryMap>memory_available)._handle)
-        elif memory_available is not None:
-            for mem_type, func in memory_available.items():
-                if not isinstance(func, LimitAvailableMemory):
-                    raise NotImplementedError(
-                        "Currently, BufferResource only accept `LimitAvailableMemory` "
-                        "as memory available functions."
-                    )
-                _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
-                    (<LimitAvailableMemory?>func)._handle
-                )
+        cdef unordered_map[MemoryType, int64_t] _mem_limits
+        if memory_limits is not None:
+            for mem_type, limit in memory_limits.items():
+                _mem_limits[<MemoryType?>mem_type] = <int64_t>limit
         cdef optional[cpp_Duration] period
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
@@ -231,7 +200,7 @@ cdef class BufferResource:
             self._handle = make_shared[cpp_BufferResource](
                 make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
-                move(_mem_available),
+                move(_mem_limits),
                 period,
                 cpp_stream_pool,
                 stats_handle,
@@ -239,17 +208,18 @@ cdef class BufferResource:
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+    def from_options(cls, DeviceMemoryResource mr not None, Options options not None):
         """
         Construct a BufferResource from configuration options.
 
         This factory method creates a BufferResource using configuration options to
-        initialize all components.
+        initialize all components. The supplied device memory resource is wrapped
+        internally for allocation tracking — callers don't need to pre-wrap it.
 
         Parameters
         ----------
         mr
-            RMM resource adaptor. The adaptor must outlive the returned BufferResource.
+            A device-accessible RMM memory resource.
         options
             Configuration options.
 
@@ -261,7 +231,7 @@ cdef class BufferResource:
         return cls(
             device_mr=mr,
             pinned_mr=pinned_mr,
-            memory_available=AvailableMemoryMap.from_options(mr, options),
+            memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
             statistics=Statistics.from_options(options),
@@ -337,11 +307,32 @@ cdef class BufferResource:
         Get the current available memory of the specified memory type.
         """
         cdef int64_t ret
-        cdef cpp_BufferResource* resource_ptr = self.ptr()
-        # Use inline C++ to handle the function object call
         with nogil:
-            ret = _call_memory_available(resource_ptr, mem_type)
+            ret = deref(self._handle).memory_available(mem_type)
         return ret
+
+    def set_memory_limit(self, MemoryType mem_type, int64_t limit):
+        """
+        Set the byte limit for the specified memory type.
+
+        The store is atomic, but readers (e.g. ``memory_available()`` and
+        ``reserve()``) observe the limit and the allocation count independently.
+        A concurrent ``set_memory_limit()`` call can change the limit between a
+        caller's read of ``memory_available()`` and a subsequent allocation
+        decision; callers that need a coherent view must serialize updates with
+        higher-level synchronization.
+
+        Parameters
+        ----------
+        mem_type
+            The memory type whose limit is being updated.
+        limit
+            The new byte limit. Negative values are allowed; they make
+            ``memory_available(mem_type)`` always negative and so trigger
+            continuous spilling.
+        """
+        with nogil:
+            deref(self._handle).set_memory_limit(mem_type, limit)
 
     def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
         """
@@ -501,118 +492,39 @@ cdef class BufferResource:
         return self._statistics
 
 
-cdef class LimitAvailableMemory:
-    """
-    A callback class for querying the remaining available memory within a defined
-    limit from an RMM resource adaptor.
-
-    This class is primarily designed to simulate constrained memory environments
-    or prevent memory allocation beyond a specific threshold. It provides
-    information about the available memory by subtracting the memory currently
-    used (as reported by the RMM resource adaptor) from a user-defined limit.
-
-    It is typically used in the context of memory management operations such as
-    with `BufferResource`.
-
-    Parameters
-    ----------
-    mr
-        A statistics resource adaptor that tracks memory usage and provides
-        statistics about the memory consumption. The `LimitAvailableMemory`
-        instance keeps a reference to ``mr`` to keep it alive.
-    limit
-        The maximum memory limit (in bytes). Used to calculate the remaining
-        available memory.
-
-    Notes
-    -----
-    The ``mr`` resource must not be destroyed while this object is
-    still in use.
-
-    Examples
-    --------
-    >>> mr = RmmResourceAdaptor(...)
-    >>> memory_limiter = LimitAvailableMemory(mr, limit=1_000_000)
-    """
-    def __init__(self, RmmResourceAdaptor mr not None, int64_t limit):
-        self._mr = mr  # Keep a copy of mr alive.
-        cdef cpp_RmmResourceAdaptor* handle = mr.get_handle()
-        with nogil:
-            self._handle = make_shared[cpp_LimitAvailableMemory](deref(handle), limit)
-
-    def __call__(self):
-        """
-        Returns the remaining available memory within the defined limit.
-
-        This method queries the ``rmm_statistics_resource`` to determine the memory
-        currently in use and calculates the remaining memory as:
-        ``limit - used_memory``.
-
-        Returns
-        -------
-        int
-            The remaining memory in bytes.
-        """
-        cdef int64_t ret
-        with nogil:
-            ret = deref(self._handle)()
-        return ret
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
-
-
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
-    cdef unordered_map[MemoryType, cpp_MemoryAvailable] \
-        cpp_memory_available_from_options \
-        "rapidsmpf::memory_available_from_options"(
-            cpp_RmmResourceAdaptor mr, cpp_Options options
+    cdef int64_t cpp_device_limit_from_options \
+        "rapidsmpf::device_limit_from_options"(
+            cpp_Options options
         ) except +ex_handler
 
-
-cdef class AvailableMemoryMap:
-    """
-    Map of functions reporting available memory for different memory types.
-
-    This class acts as an opaque handle to C++ memory-availability functions
-    that cannot be directly represented or exposed in Python. It enables
-    RapidsMPF to configure and use such functions from Python while keeping
-    the implementation in C++.
-
-    Instances of this class should be constructed from configuration options
-    using the :meth:`from_options` factory method.
-    """
-
-    @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
-        """
-        Construct an AvailableMemoryMap from configuration options.
-
-        Parameters
-        ----------
-        mr
-            Pointer to a memory resource adaptor.
-        options
-            Configuration options.
-
-        Returns
-        -------
-        The constructed map of memory-available functions.
-        """
-        cdef AvailableMemoryMap ret = cls.__new__(cls)
-        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        with nogil:
-            ret._handle = cpp_memory_available_from_options(deref(mr_handle),
-                                                            options._handle)
-        return ret
-
-
-cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
         "rapidsmpf::periodic_spill_check_from_options"(
             cpp_Options options
         ) except +ex_handler
+
+
+def device_limit_from_options(Options options not None):
+    """
+    Get the ``spill_device_limit`` parameter from configuration options.
+
+    Reads the ``spill_device_limit`` option, falling back to 80% of total device
+    memory when unset.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    int
+        The device memory limit in bytes.
+    """
+    cdef int64_t ret
+    with nogil:
+        ret = cpp_device_limit_from_options(options._handle)
+    return ret
 
 
 def periodic_spill_check_from_options(Options options not None):

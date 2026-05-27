@@ -107,23 +107,22 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_EQ(metadata, *result.release_metadata_buffer());
 }
 
-using MemoryAvailableMap =
-    std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>;
+using MemoryLimitsMap = std::unordered_map<rapidsmpf::MemoryType, std::int64_t>;
 
-// Help function to get the `memory_available` argument for a `BufferResource`
+// Help function to get the `memory_limits` argument for a `BufferResource`
 // that prioritizes the specified memory type.
-MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
+MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
     using namespace rapidsmpf;
 
-    // We set all memory types to use an available function that is unlimited.
-    MemoryAvailableMap ret = {
-        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
-        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}
+    // We set all memory types to be unlimited.
+    MemoryLimitsMap ret = {
+        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max()},
+        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max()}
     };
 
     // And then set device memory to zero if it isn't prioritized.
     if (priorities != MemoryType::DEVICE) {
-        ret.at(MemoryType::DEVICE) = []() -> std::int64_t { return 0; };
+        ret.at(MemoryType::DEVICE) = 0;
     }
     // Note, we never set host memory to zero because it is used to allocate
     // stuff like metadata and control messages.
@@ -229,17 +228,17 @@ void test_shuffler(
     }
 }
 
-class MemoryAvailable_NumPartition
+class MemoryLimits_NumPartition
     : public cudf::test::BaseFixtureWithParam<
-          std::tuple<MemoryAvailableMap, rapidsmpf::shuffler::PartID, std::size_t>> {
+          std::tuple<MemoryLimitsMap, rapidsmpf::shuffler::PartID, std::size_t>> {
   public:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        memory_available = std::get<0>(GetParam());
+        memory_limits = std::get<0>(GetParam());
         total_num_partitions = std::get<1>(GetParam());
         total_num_rows = std::get<2>(GetParam());
         br = std::make_unique<rapidsmpf::BufferResource>(
-            mr(), rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+            mr(), rapidsmpf::PinnedMemoryResource::Disabled, memory_limits
         );
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
@@ -255,7 +254,7 @@ class MemoryAvailable_NumPartition
     }
 
   protected:
-    MemoryAvailableMap memory_available;
+    MemoryLimitsMap memory_limits;
     rapidsmpf::shuffler::PartID total_num_partitions;
     std::size_t total_num_rows;
     std::int64_t seed = 42;
@@ -268,23 +267,23 @@ class MemoryAvailable_NumPartition
 // test different `memory_available` and `total_num_partitions`.
 INSTANTIATE_TEST_SUITE_P(
     Shuffler,
-    MemoryAvailable_NumPartition,
+    MemoryLimits_NumPartition,
     testing::Combine(
         testing::ValuesIn(
-            {get_memory_available_map(rapidsmpf::MemoryType::HOST),
-             get_memory_available_map(rapidsmpf::MemoryType::DEVICE)}
+            {get_memory_limits_map(rapidsmpf::MemoryType::HOST),
+             get_memory_limits_map(rapidsmpf::MemoryType::DEVICE)}
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
         testing::Values(1, 9, 100, 100'000)  // total_num_rows
     ),
-    [](const testing::TestParamInfo<MemoryAvailable_NumPartition::ParamType>& info) {
+    [](const testing::TestParamInfo<MemoryLimits_NumPartition::ParamType>& info) {
         return std::to_string(info.index) + "__nparts_"
                + std::to_string(std::get<1>(info.param)) + "__nrows_"
                + std::to_string(std::get<2>(info.param));
     }
 );
 
-TEST_P(MemoryAvailable_NumPartition, round_trip) {
+TEST_P(MemoryLimits_NumPartition, round_trip) {
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
         GlobalEnvironment->comm_,
         *shuffler,
@@ -317,7 +316,7 @@ class ConcurrentShuffleTest
     void TearDown() override {}
 
     // test run for each thread. The test follows the same logic as
-    // `MemoryAvailable_NumPartition` test, but without any memory limitations
+    // `MemoryLimits_NumPartition` test, but without any memory limitations
     template <typename InsertFn, typename InsertFinishedFn>
     void RunTest(int t_id, InsertFn&& insert_fn, InsertFinishedFn&& insert_finished_fn) {
         rapidsmpf::shuffler::Shuffler shuffler(
@@ -404,24 +403,23 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
 
-    // Use RapidsMPF's memory resource adaptor.
+    // Use RapidsMPF's memory resource adaptor so the test can observe per-rank
+    // allocation counts via `get_main_record().num_current_allocs()`.
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
 
-    // Create a buffer resource with an available device memory we can control
-    // through the variable `device_memory_available`.
-    std::int64_t device_memory_available{0};
+    // Control spilling by adjusting the DEVICE memory limit at runtime.
+    // `memory_available(DEVICE)` is computed as `limit - current_allocated()`, so a
+    // sufficiently large positive limit reliably keeps available memory > 0 (no spill),
+    // while a sufficiently large negative limit reliably keeps available memory < 0
+    // (force spill), regardless of how many bytes are currently allocated from `mr`.
+    constexpr std::int64_t k_no_spill_limit = (1LL << 40);
+    constexpr std::int64_t k_force_spill_limit = -(1LL << 40);
     rapidsmpf::BufferResource br{
         mr,
         rapidsmpf::PinnedMemoryResource::Disabled,
-        {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t {
-              return device_memory_available;
-          }}},
+        {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
         std::nullopt  // disable periodic spill check
     };
-    EXPECT_EQ(
-        br.memory_available(rapidsmpf::MemoryType::DEVICE)(), device_memory_available
-    );
 
     // Create a communicator of size 1, such that each shuffler will run locally.
     auto comm = GlobalEnvironment->split_comm();
@@ -454,7 +452,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Let's force spilling.
-    device_memory_available = -1000;
+    br.set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_force_spill_limit);
 
     {
         // Now extract triggers spilling of the partition not being extracted.
@@ -481,7 +479,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
-    device_memory_available = 1000;
+    br.set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_no_spill_limit);
     {
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
         chunk.emplace(0, std::move(out0.at(0)));
@@ -492,7 +490,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // Enable spilling and insert the second partition, which should trigger spilling
     // of both the first partition already in the shuffler and the second partition
     // that are being inserted.
-    device_memory_available = -1000;
+    br.set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_force_spill_limit);
     {
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
         chunk.emplace(1, std::move(out1.at(0)));

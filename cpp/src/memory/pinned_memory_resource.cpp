@@ -103,15 +103,4 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     return PinnedMemoryResource::Disabled;
 }
 
-std::function<std::int64_t()> PinnedMemoryResource::get_memory_available_cb() const {
-    auto const max_pool_size = pool_properties_.max_pool_size.value_or(0);
-    if (max_pool_size > 0) {
-        auto const limit = safe_cast<std::int64_t>(max_pool_size);
-        return [tracker = *this, limit]() {
-            return limit - tracker.get().current_allocated();
-        };
-    }
-    return std::numeric_limits<std::int64_t>::max;
-}
-
 }  // namespace rapidsmpf

@@ -44,8 +44,8 @@ cdef class PinnedMemoryResource:
     through CUDA streams. Pinned memory enables higher bandwidth and lower
     latency for device transfers compared to regular pageable host memory.
 
-    The pool has no maximum size. To limit its growth, use
-    ``LimitAvailableMemory`` or a similar mechanism.
+    The pool has no maximum size. To limit its growth, pass an explicit
+    ``PINNED_HOST`` entry in :class:`BufferResource`'s ``memory_limits``.
 
     Parameters
     ----------
