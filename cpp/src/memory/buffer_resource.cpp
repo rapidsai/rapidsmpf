@@ -49,13 +49,15 @@ BufferResource::BufferResource(
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    cuda::mr::any_resource<cuda::mr::device_accessible> mr, config::Options options, std::shared_ptr<Statistics> statistics
+    cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+    config::Options options,
+    std::shared_ptr<Statistics> statistics
 ) {
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
-    auto statistics = Statistics::from_options(options);
+
     return std::make_shared<BufferResource>(
         std::move(mr),
         std::move(pinned_mr),

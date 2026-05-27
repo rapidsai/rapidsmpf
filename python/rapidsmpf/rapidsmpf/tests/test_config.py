@@ -485,7 +485,9 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "num_streams": "8",
         }
     )
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts))
+    br = BufferResource.from_options(
+        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
+    )
 
     assert br.statistics.enabled
     assert br.stream_pool_size() == 8
@@ -507,7 +509,9 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
 
 def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "ON"})
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts))
+    br = BufferResource.from_options(
+        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
+    )
 
     assert br.statistics.enabled
 
