@@ -7,7 +7,6 @@ from typing import Any
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.statistics import Statistics
 
 class AllGather:
     def __init__(
@@ -15,7 +14,6 @@ class AllGather:
         comm: Communicator,
         op_id: int,
         br: BufferResource,
-        statistics: Statistics | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

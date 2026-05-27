@@ -543,7 +543,7 @@ int main(int argc, char** argv) {
         memory_limits[rapidsmpf::MemoryType::DEVICE] = args.device_mem_limit_mb << 20;
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = rapidsmpf::Statistics::create();
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();

@@ -27,7 +27,10 @@ class BufferResource:
     ) -> None: ...
     @classmethod
     def from_options(
-        cls: type[Self], mr: DeviceMemoryResource, options: Options
+        cls: type[Self],
+        mr: DeviceMemoryResource,
+        options: Options,
+        statistics: Statistics | None = None,
     ) -> Self: ...
     @property
     def device_mr(self) -> DeviceMemoryResource: ...

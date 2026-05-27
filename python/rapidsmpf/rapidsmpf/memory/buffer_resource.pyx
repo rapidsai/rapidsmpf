@@ -208,7 +208,12 @@ cdef class BufferResource:
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
-    def from_options(cls, DeviceMemoryResource mr not None, Options options not None):
+    def from_options(
+        cls,
+        DeviceMemoryResource mr not None,
+        Options options not None,
+        statistics=None,
+    ):
         """
         Construct a BufferResource from configuration options.
 
@@ -222,11 +227,16 @@ cdef class BufferResource:
             A device-accessible RMM memory resource.
         options
             Configuration options.
+        statistics
+            The statistics instance to use. The caller is responsible for creating and
+            owning this object. Defaults to ``Statistics.disabled()``.
 
         Returns
         -------
         A BufferResource instance configured according to the options.
         """
+        if statistics is None:
+            statistics = Statistics.disabled()
         cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
         return cls(
             device_mr=mr,
@@ -234,7 +244,7 @@ cdef class BufferResource:
             memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=Statistics.from_options(options),
+            statistics=statistics,
         )
 
     def __dealloc__(self):

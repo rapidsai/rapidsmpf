@@ -7,7 +7,7 @@ from cython.operator cimport preincrement
 from libc.stdint cimport uint8_t
 from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
@@ -38,6 +38,18 @@ cdef extern from *:
     #include <filesystem>
     #include <optional>
     #include <sstream>
+    // Cython-friendly wrappers around `Statistics::create(Mode)`. Cython has
+    // limited support for nested C++ enums, so we keep a Python-facing
+    // `bool` signature and translate to the `Mode` enum here.
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_create(bool enabled) {
+        return rapidsmpf::Statistics::create(
+            enabled ? rapidsmpf::Statistics::Mode::Enabled
+                    : rapidsmpf::Statistics::Mode::Disabled
+        );
+    }
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_disabled() {
+        return rapidsmpf::Statistics::disabled();
+    }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
         rapidsmpf::RmmResourceAdaptor* mr_ptr,
@@ -108,6 +120,8 @@ cdef extern from *:
         );
     }
     """
+    shared_ptr[cpp_Statistics] cpp_create(bool_t enabled) except +ex_handler nogil
+    shared_ptr[cpp_Statistics] cpp_disabled() except +ex_handler nogil
     string cpp_report(
         cpp_Statistics stats,
         cpp_RmmResourceAdaptor* mr_ptr,
@@ -148,7 +162,7 @@ cdef class Statistics:
     """
     def __init__(self, *, bool_t enable):
         with nogil:
-            self._handle = make_shared[cpp_Statistics](enable)
+            self._handle = cpp_create(enable)
 
     @classmethod
     def from_options(cls, Options options not None):
@@ -167,6 +181,23 @@ cdef class Statistics:
         cdef Statistics ret = cls.__new__(cls)
         with nogil:
             ret._handle = cpp_from_options(options._handle)
+        return ret
+
+    @classmethod
+    def disabled(cls):
+        """
+        Returns a disabled (no-op) Statistics instance.
+
+        Useful when you need to pass a Statistics argument but do not want to
+        collect any data.
+
+        Returns
+        -------
+        A Statistics instance with tracking disabled.
+        """
+        cdef Statistics ret = cls.__new__(cls)
+        with nogil:
+            ret._handle = cpp_disabled()
         return ret
 
     def __dealloc__(self):
@@ -673,7 +704,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), deref(mr), self._name
+                self._stats._handle, deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

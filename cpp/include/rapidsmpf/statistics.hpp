@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <filesystem>
 #include <initializer_list>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
@@ -69,7 +71,7 @@ class StreamOrderedTiming;
  * std::cout << stats.report();
  * @endcode
  */
-class Statistics {
+class Statistics : public std::enable_shared_from_this<Statistics> {
   public:
     /**
      * @brief Identifies a predefined formatter used by `report()`.
@@ -107,12 +109,31 @@ class Statistics {
     };
 
     /**
-     * @brief Constructs a Statistics object without memory profiling.
-     *
-     * @param enabled If true, enables tracking of statistics. If false, all operations
-     * are no-ops.
+     * @brief Selects whether a newly constructed `Statistics` instance
+     * tracks data or is a no-op.
      */
-    Statistics(bool enabled = true);
+    enum class Mode : std::uint8_t {
+        Enabled,  ///< Statistics tracking is active.
+        Disabled,  ///< All operations are no-ops; can be toggled on via `enable()`.
+    };
+
+    /**
+     * @brief Creates a Statistics instance.
+     *
+     * @param mode Selects whether tracking starts enabled or disabled. See
+     * `Mode`. Disabled instances can be toggled on later via `enable()`.
+     * @return A shared pointer to a newly constructed Statistics instance.
+     */
+    static std::shared_ptr<Statistics> create(Mode mode = Mode::Enabled);
+
+    /**
+     * @brief Returns a disabled Statistics instance which can be enabled later.
+     *
+     * @return A Statistics instance with tracking disabled.
+     */
+    static std::shared_ptr<Statistics> disabled() {
+        return create(Mode::Disabled);
+    }
 
     /**
      * @brief Construct from configuration options.
@@ -125,22 +146,12 @@ class Statistics {
 
     ~Statistics() noexcept;
 
-    // `Statistics` is owned exclusively through `std::shared_ptr` (see `disabled()` and
-    // `from_options()`).
+    // `Statistics` is owned exclusively through `std::shared_ptr`. Use
+    // `create()` or `from_options()` to construct instances.
     Statistics(Statistics const&) = delete;
     Statistics& operator=(Statistics const&) = delete;
     Statistics(Statistics&&) = delete;
     Statistics& operator=(Statistics&&) = delete;
-
-    /**
-     * @brief Returns a shared pointer to a disabled (no-op) Statistics instance.
-     *
-     * Useful when you need to pass a Statistics reference but do not want to
-     * collect any data.
-     *
-     * @return A shared pointer to a Statistics instance with tracking disabled.
-     */
-    static std::shared_ptr<Statistics> disabled();
 
     /**
      * @brief Checks if statistics tracking is enabled.
@@ -558,55 +569,47 @@ class Statistics {
      */
     class MemoryRecorder {
       public:
-        /**
-         * @brief Constructs a no-op MemoryRecorder (disabled state).
-         */
+        /// @brief Constructs a no-op MemoryRecorder.
         MemoryRecorder() = default;
 
         /**
-         * @brief Constructs an active MemoryRecorder.
+         * @brief Constructs an active MemoryRecorder. Pushes a scoped record at
+         * construction; the destructor pops it and (if @p stats is still
+         * enabled) publishes it under @p name.
          *
-         * @param stats Pointer to Statistics object that will store the result.
-         * @param mr The RMM resource adaptor providing scoped memory statistics.
+         * @param stats Owning Statistics. Must not be null.
+         * @param mr RMM resource adaptor providing scoped memory statistics.
          * @param name Name of the scope.
          */
-        MemoryRecorder(Statistics* stats, RmmResourceAdaptor mr, std::string name);
+        MemoryRecorder(
+            std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+        );
 
-        /**
-         * @brief Destructor.
-         *
-         * Captures memory counters and stores them in the Statistics object.
-         */
         ~MemoryRecorder();
 
-        /// Deleted copy and move constructors/assignments
         MemoryRecorder(MemoryRecorder const&) = delete;
         MemoryRecorder& operator=(MemoryRecorder const&) = delete;
         MemoryRecorder(MemoryRecorder&&) = delete;
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        Statistics* stats_{
-            nullptr
-        };  // TODO: make this shared_ptr using make_shared_from_this
-        std::optional<RmmResourceAdaptor>
-            mr_;  // optional because RmmResourceAdaptor is not default constructible
-        std::string name_;
+        /// No-op recorder iff `mr_` is `std::nullopt`.
+        std::optional<RmmResourceAdaptor> mr_{std::nullopt};
+        /// stats_ != nullptr iff `mr_.has_value()`.
+        std::shared_ptr<Statistics> stats_{nullptr};
+        std::string name_{};
     };
 
     /**
      * @brief Creates a scoped memory recorder for the given name.
      *
-     * When @p mr is `std::nullopt`, returns a no-op recorder.
-     *
-     * @param mr Optional RMM resource adaptor for tracking allocations. Pass
-     * `std::nullopt` to get a no-op recorder.
+     * @param mr Type-erased device memory resource. Recording is only active
+     * when the underlying resource is an `RmmResourceAdaptor`.
      * @param name Name of the scope.
-     * @return A MemoryRecorder instance.
+     * @return A MemoryRecorder instance. If `!enabled()` or @p mr is not backed by an
+     * `RmmResourceAdaptor`, returns a no-op recorder.
      */
-    MemoryRecorder create_memory_recorder(
-        std::optional<any_device_resource> mr, std::string name
-    );
+    MemoryRecorder create_memory_recorder(any_device_resource mr, std::string name);
 
     /**
      * @brief Retrieves all memory profiling records stored by this instance.
@@ -624,11 +627,33 @@ class Statistics {
         Formatter formatter;
     };
 
+    explicit Statistics(bool enabled);
+
     mutable std::mutex mutex_;
     std::atomic<bool> enabled_;
     std::map<std::string, Stat> stats_;
     std::map<std::string, ReportEntry> report_entries_;
     std::unordered_map<std::string, MemoryRecord> memory_records_;
+};
+
+/**
+ * @brief Satisfied by any type that exposes a `statistics()` method returning
+ *        `std::shared_ptr<Statistics>` by value.
+ *
+ * Classes satisfying this concept are *statistics providers*. Secondary
+ * classes that receive a provider as a constructor argument should derive their
+ * `Statistics` instance by calling `.statistics()` on it rather than accepting
+ * a separate `std::shared_ptr<Statistics>` argument.
+ *
+ * @note Returning by value provides clear ownership semantics. Callers that invoke
+ * `statistics()` multiple times within the same scope should cache the result
+ * in a local variable to avoid repeated atomic refcount operations on hot paths.
+ */
+template <typename T>
+concept StatisticsProvider = requires(T const& t) {
+    {
+        t.statistics()
+    } noexcept -> std::same_as<std::shared_ptr<Statistics>>;
 };
 
 /**
@@ -644,14 +669,19 @@ class Statistics {
  *
  * Example usage:
  * @code
- * void foo(Statistics& stats, RmmResourceAdaptor& mr) {
+ * void foo(std::shared_ptr<Statistics> stats, RmmResourceAdaptor& mr) {
  *     RAPIDSMPF_MEMORY_PROFILE(stats, mr);
  *     RAPIDSMPF_MEMORY_PROFILE(stats, mr, "custom_name");
  * }
  * @endcode
  *
- * The first argument is a reference or pointer to a Statistics object.
- * The second argument is the RMM resource adaptor (or `std::nullopt` for no-op).
+ * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass an
+ * instance created with `Statistics::disabled()` to disable recording
+ * (`create_memory_recorder` returns a no-op recorder when the statistics
+ * instance is disabled).
+ * The second argument is the device memory resource. Recording is only active
+ * when the underlying resource is an `RmmResourceAdaptor`; other device
+ * resources yield a no-op recorder.
  * The third argument (optional) is a custom function name string to use instead of
  * __func__.
  */
@@ -670,17 +700,17 @@ class Statistics {
 
 // Version with custom function name
 #define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                                 \
-    auto&& RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__) = (stats);                     \
+    auto const& RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) = (stats); \
+    RAPIDSMPF_EXPECTS(                                                                  \
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) != nullptr,        \
+        "RAPIDSMPF_MEMORY_PROFILE: stats must not be null"                              \
+    );                                                                                  \
     auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                \
-        (rapidsmpf::detail::to_pointer(RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)))  \
-            ? rapidsmpf::detail::to_pointer(                                            \
-                  RAPIDSMPF_CONCAT(_rapidsmpf_stats_, __LINE__)                         \
-              )                                                                         \
-                  -> create_memory_recorder(                                            \
-                      (mr),                                                             \
-                      std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-                          + std::string(funcname) + ")"                                 \
-                  )                                                                     \
-            : rapidsmpf::Statistics::MemoryRecorder {}
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__)                    \
+            -> create_memory_recorder(                                                  \
+                (mr),                                                                   \
+                std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "("       \
+                    + std::string(funcname) + ")"                                       \
+            )
 
 }  // namespace rapidsmpf
