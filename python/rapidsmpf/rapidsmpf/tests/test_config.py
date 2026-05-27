@@ -606,8 +606,7 @@ def test_context_from_options_can_create_channel() -> None:
 
 def test_option_keys_round_trip_through_options() -> None:
     """An Options built with the canonical option keys is read by
-    ``from_options`` as expected (smoke test that the keys are wired the
-    same in C++ and Python).
+    ``from_options`` as expected.
     """
     opts = Options(
         {

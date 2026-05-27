@@ -33,7 +33,7 @@ inline const std::unordered_map<std::string, std::string> DEFAULTS{
     {"periodic_spill_check", "1ms"},
     {"num_streams", "16"},
     {"num_streaming_threads", "1"},
-    {"memory_reserve_timeout", "100 ms"},
+    {"memory_reserve_timeout", "100ms"},
     {"allow_overbooking_by_default", "true"},
     {"log", "WARN"},
     {"ucxx_progress_mode", "thread-blocking"},
