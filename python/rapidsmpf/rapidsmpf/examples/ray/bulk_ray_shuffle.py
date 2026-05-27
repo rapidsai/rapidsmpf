@@ -23,7 +23,7 @@ from rapidsmpf.integrations.cudf.partition import (
 )
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
@@ -88,16 +88,12 @@ class BulkRayShufflerActor(RapidsMPFActor):
         )
         rmm.mr.set_current_device_resource(self.mr)
         # Create a buffer resource that limits device memory if `--spill-device`
-        memory_available = (
+        memory_limits = (
             None
             if self.spill_device is None
-            else {
-                MemoryType.DEVICE: LimitAvailableMemory(
-                    self.mr, limit=self.spill_device
-                )
-            }
+            else {MemoryType.DEVICE: self.spill_device}
         )
-        br = BufferResource(self.mr, memory_available=memory_available)
+        br = BufferResource(self.mr, memory_limits=memory_limits)
         self.br = br
         super().__init__(nranks, Statistics(enable=enable_statistics))
 

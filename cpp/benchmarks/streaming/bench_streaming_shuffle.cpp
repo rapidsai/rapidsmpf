@@ -359,12 +359,9 @@ int main(int argc, char** argv) {
 
     set_current_rmm_resource(args.rmm_mr);
     auto stat_enabled_mr = set_device_mem_resource_with_stats();
-    std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
-        memory_available{};
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits{};
     if (args.device_mem_limit_mb >= 0) {
-        memory_available[rapidsmpf::MemoryType::DEVICE] = rapidsmpf::LimitAvailableMemory{
-            stat_enabled_mr, args.device_mem_limit_mb << 20
-        };
+        memory_limits[rapidsmpf::MemoryType::DEVICE] = args.device_mem_limit_mb << 20;
     }
 
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
@@ -375,7 +372,7 @@ int main(int argc, char** argv) {
     auto br = std::make_shared<rapidsmpf::BufferResource>(
         stat_enabled_mr,
         pinned_mr,
-        std::move(memory_available),
+        std::move(memory_limits),
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(
             16, rmm::cuda_stream::flags::non_blocking
