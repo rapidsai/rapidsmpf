@@ -24,7 +24,6 @@
 
 using namespace rapidsmpf::config;
 using namespace rapidsmpf;
-namespace streaming = rapidsmpf::streaming;
 
 TEST(OptionsTest, EnvReturnsMatchingVariables) {
     // Set environment variables for testing
@@ -727,7 +726,7 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
     RmmResourceAdaptor mr{cuda_mr};
     auto comm =
         std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
-    auto ctx = streaming::Context::from_options(mr, comm->logger(), opts);
+    auto ctx = rapidsmpf::streaming::Context::from_options(mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_TRUE(ctx->statistics()->enabled());
@@ -741,7 +740,7 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
     RmmResourceAdaptor mr{cuda_mr};
     auto comm =
         std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
-    auto ctx = streaming::Context::from_options(mr, comm->logger(), opts);
+    auto ctx = rapidsmpf::streaming::Context::from_options(mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_FALSE(ctx->statistics()->enabled());
@@ -756,7 +755,7 @@ TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
     RmmResourceAdaptor mr{cuda_mr};
     auto comm =
         std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
-    auto ctx = streaming::Context::from_options(mr, comm->logger(), opts);
+    auto ctx = rapidsmpf::streaming::Context::from_options(mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_TRUE(ctx->statistics()->enabled());
@@ -769,7 +768,7 @@ TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
     RmmResourceAdaptor mr{cuda_mr};
     auto comm =
         std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
-    auto ctx = streaming::Context::from_options(mr, comm->logger(), opts);
+    auto ctx = rapidsmpf::streaming::Context::from_options(mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
 }
@@ -781,7 +780,7 @@ TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
     RmmResourceAdaptor mr{cuda_mr};
     auto comm =
         std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
-    auto ctx = streaming::Context::from_options(mr, comm->logger(), opts);
+    auto ctx = rapidsmpf::streaming::Context::from_options(mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_NE(ctx->executor(), nullptr);
