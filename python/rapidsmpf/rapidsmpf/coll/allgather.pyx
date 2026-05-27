@@ -53,8 +53,6 @@ cdef class AllGather:
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
         self.in_context = False
         with nogil:
             self._handle = make_unique[cpp_AllGather](
