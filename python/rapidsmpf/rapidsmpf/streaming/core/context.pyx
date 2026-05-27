@@ -12,9 +12,9 @@ from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.config import get_environment_variables
 
 from libcpp.memory cimport make_shared
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     MemoryReserveOrWait
@@ -97,7 +97,7 @@ cdef class Context:
     def from_options(
         cls,
         Logger logger not None,
-        RmmResourceAdaptor mr not None,
+        DeviceMemoryResource device_mr not None,
         Options options not None,
         statistics=None,
     ):
@@ -105,7 +105,7 @@ cdef class Context:
             statistics = Statistics.disabled()
         return cls(
             logger=logger,
-            br=BufferResource.from_options(mr, options, statistics),
+            br=BufferResource.from_options(device_mr, options, statistics),
             options=options,
         )
 

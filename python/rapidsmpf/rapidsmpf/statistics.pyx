@@ -17,11 +17,11 @@ from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+                                               cpp_BufferResource)
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
-from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
-                                             cpp_RmmResourceAdaptor)
 
 import os
 
@@ -52,21 +52,21 @@ cdef extern from *:
     }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
-        rapidsmpf::RmmResourceAdaptor* mr_ptr,
+        rapidsmpf::BufferResource* br_ptr,
         std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr
     ) {
-        std::optional<rapidsmpf::RmmResourceAdaptor> mr =
-            mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
+        std::optional<rapidsmpf::BufferResource> mr =
+            br_ptr ? std::make_optional(*br_ptr) : std::nullopt;
         return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr});
     }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
-        rapidsmpf::RmmResourceAdaptor* mr_ptr,
+        rapidsmpf::BufferResource* br_ptr,
         std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr,
         std::string const& header
     ) {
-        std::optional<rapidsmpf::RmmResourceAdaptor> mr =
-            mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
+        std::optional<rapidsmpf::BufferResource> mr =
+            br_ptr ? std::make_optional(*br_ptr) : std::nullopt;
         return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr,
             .header = header});
     }
@@ -124,12 +124,12 @@ cdef extern from *:
     shared_ptr[cpp_Statistics] cpp_disabled() except +ex_handler nogil
     string cpp_report(
         cpp_Statistics stats,
-        cpp_RmmResourceAdaptor* mr_ptr,
+        cpp_BufferResource* br_ptr,
         optional[cpp_PinnedMemoryResource] pinned_mr,
     ) except +ex_handler nogil
     string cpp_report(
         cpp_Statistics stats,
-        cpp_RmmResourceAdaptor* mr_ptr,
+        cpp_BufferResource* br_ptr,
         optional[cpp_PinnedMemoryResource] pinned_mr,
         string header,
     ) except +ex_handler nogil
@@ -220,7 +220,7 @@ cdef class Statistics:
     def report(
         self,
         *,
-        RmmResourceAdaptor mr = None,
+        BufferResource br = None,
         PinnedMemoryResource pinned_mr = None,
         header = None,
     ):
@@ -231,7 +231,7 @@ cdef class Statistics:
 
         Parameters
         ----------
-        mr
+        br
             When provided, a memory profiling section is included in the
             report. When ``None``, the memory profiling section shows
             "Disabled".
@@ -247,20 +247,20 @@ cdef class Statistics:
         A string representing the formatted statistics report.
         """
         cdef string ret
-        cdef cpp_RmmResourceAdaptor* mr_ptr = NULL
+        cdef cpp_BufferResource* br_ptr = NULL
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned
         cdef string cpp_header
-        if mr is not None:
-            mr_ptr = mr.get_handle()
+        if br is not None:
+            br_ptr = br.ptr()
         if pinned_mr is not None:
             cpp_pinned = pinned_mr._handle
         if header is None:
             with nogil:
-                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned)
+                ret = cpp_report(deref(self._handle), br_ptr, cpp_pinned)
         else:
             cpp_header = header.encode()
             with nogil:
-                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned, cpp_header)
+                ret = cpp_report(deref(self._handle), br_ptr, cpp_pinned, cpp_header)
         return ret.decode('UTF-8')
 
     def get_stat(self, name):
@@ -439,12 +439,12 @@ cdef class Statistics:
             preincrement(it)
         return ret
 
-    def memory_profiling(self, RmmResourceAdaptor mr, name):
+    def memory_profiling(self, BufferResource br, name):
         """
         Create a scoped memory profiling context for a named code region.
 
         Returns a context manager that tracks memory allocations and
-        deallocations made through the associated memory resource while
+        deallocations made through the associated `BufferResource` while
         the context is active. The profiling data is aggregated under
         the provided ``name`` and made available via
         :meth:`Statistics.get_memory_records()`.
@@ -454,12 +454,12 @@ cdef class Statistics:
         - Global peak memory usage during the scope (``global_peak``)
         - Number of times the named scope was entered (``num_calls``)
 
-        Pass ``mr=None`` to get a no-op recorder.
+        Pass ``br=None`` to get a no-op recorder.
 
         Parameters
         ----------
-        mr
-            The memory resource through which allocations are tracked.
+        br
+            The `BufferResource` through which allocations are tracked.
             Pass ``None`` to get a no-op recorder.
         name
             A unique identifier for the profiling scope. Used as a key
@@ -472,12 +472,12 @@ cdef class Statistics:
         Examples
         --------
         >>> import rmm
-        >>> mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+        >>> br = BufferResource(rmm.mr.CudaMemoryResource())
         >>> stats = Statistics(enable=True)
-        >>> with stats.memory_profiling(mr, "outer"):
-        ...     b1 = rmm.DeviceBuffer(size=1024, mr=mr)
-        ...     with stats.memory_profiling(mr, "inner"):
-        ...         b2 = rmm.DeviceBuffer(size=1024, mr=mr)
+        >>> with stats.memory_profiling(br, "outer"):
+        ...     b1 = rmm.DeviceBuffer(size=1024, mr=br)
+        ...     with stats.memory_profiling(br, "inner"):
+        ...         b2 = rmm.DeviceBuffer(size=1024, mr=br)
         >>> inner = stats.get_memory_records()["inner"]
         >>> print(inner.scoped.peak())
         1024
@@ -485,7 +485,7 @@ cdef class Statistics:
         >>> print(outer.scoped.peak())
         2048
         """
-        return MemoryRecorder(self, mr, name)
+        return MemoryRecorder(self, br, name)
 
     def clear(self) -> None:
         """
@@ -685,30 +685,30 @@ cdef class MemoryRecorder:
     ----------
     stats
         The statistics object responsible for aggregating memory profiling data.
-    mr
-        The memory resource through which allocations are tracked.
+    br
+        The `BufferResource` through which allocations are tracked.
     name
         The name of the profiling scope. Used as a key in the statistics record.
     """
     def __cinit__(
-        self, Statistics stats not None, RmmResourceAdaptor mr not None, name
+        self, Statistics stats not None, BufferResource br not None, name
     ):
         self._stats = stats
-        self._mr = mr
+        self._br = br
         self._name = str.encode(name)
 
     def __enter__(self):
-        if self._mr is None:
+        if self._br is None:
             return
 
-        cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
+        cdef shared_ptr[cpp_BufferResource] br = self._br._handle
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle, deref(mr), self._name
+                self._stats._handle, br, self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._mr is not None:
+        if self._br is not None:
             with nogil:
                 self._handle.reset()
         return False  # do not suppress exceptions

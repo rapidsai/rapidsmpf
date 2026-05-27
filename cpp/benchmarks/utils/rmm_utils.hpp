@@ -6,6 +6,8 @@
 
 #include <string>
 
+#include <cuda/memory_resource>
+
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
@@ -13,7 +15,6 @@
 #include <rmm/mr/pool_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 /**
  * @brief Create and set a RMM memory resource as the current device resource.
@@ -45,13 +46,18 @@ inline void set_current_rmm_resource(std::string const& name) {
 }
 
 /**
- * @brief Create a statistics-enabled device memory resource wrapping the current
- * device resource, and set it as the current device resource.
+ * @brief Return the current device resource as a CCCL `any_resource`.
  *
- * @return A RmmResourceAdaptor (shared ownership) for accessing statistics.
+ * Compatibility shim for benchmarks that previously wrapped the current device
+ * resource in `RmmResourceAdaptor` to gain statistics. Tracking is now part of
+ * `BufferResource` itself, so callers pass the returned `any_resource` directly
+ * to a `BufferResource` constructor.
+ *
+ * @return The current device resource as a type-erased CCCL resource.
  */
-[[nodiscard]] inline rapidsmpf::RmmResourceAdaptor set_device_mem_resource_with_stats() {
-    rapidsmpf::RmmResourceAdaptor adaptor{rmm::mr::get_current_device_resource_ref()};
-    rmm::mr::set_current_device_resource(adaptor);
-    return adaptor;
+[[nodiscard]] inline cuda::mr::any_resource<cuda::mr::device_accessible>
+set_device_mem_resource_with_stats() {
+    return cuda::mr::any_resource<cuda::mr::device_accessible>{
+        rmm::mr::get_current_device_resource_ref()
+    };
 }

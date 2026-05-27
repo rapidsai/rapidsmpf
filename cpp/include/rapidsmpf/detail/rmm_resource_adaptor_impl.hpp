@@ -29,11 +29,12 @@
 namespace rapidsmpf::detail {
 
 /**
- * @brief Implementation class for RmmResourceAdaptor.
+ * @brief Implementation class for instrumented RMM memory resources.
  *
  * Holds all mutable state for memory tracking. This class satisfies the CCCL
- * `cuda::mr::resource` concept and is held by `RmmResourceAdaptor` via
- * `cuda::mr::shared_resource` for reference-counted ownership.
+ * `cuda::mr::resource` concept and is the building block used internally by
+ * both `BufferResource` (for device memory tracking) and `PinnedMemoryResource`
+ * (for pinned-host tracking with in-place storage of `cuda::pinned_memory_pool`).
  *
  * @tparam PrimaryMR The type of the primary memory resource. Use a concrete
  * resource type (e.g. `cuda::pinned_memory_pool`) to store the resource
@@ -96,25 +97,37 @@ class RmmResourceAdaptorImpl {
         return primary_mr_;
     }
 
-    /// @copydoc RmmResourceAdaptor::get_main_record
+    /**
+     * @brief Returns a copy of the main memory record (lifetime-of-resource stats).
+     *
+     * @return A copy of the main `ScopedMemoryRecord`.
+     */
     [[nodiscard]] ScopedMemoryRecord get_main_record() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return main_record_;
     }
 
-    /// @copydoc RmmResourceAdaptor::current_allocated
+    /**
+     * @brief Total number of currently allocated bytes.
+     *
+     * @return Currently outstanding allocated bytes.
+     */
     [[nodiscard]] std::int64_t current_allocated() const noexcept {
         std::lock_guard<std::mutex> lock(mutex_);
         return main_record_.current();
     }
 
-    /// @copydoc RmmResourceAdaptor::begin_scoped_memory_record
+    /// @brief Push a new scoped memory record onto the current thread's stack.
     void begin_scoped_memory_record() {
         std::lock_guard<std::mutex> lock(mutex_);
         record_stacks_[std::this_thread::get_id()].emplace();
     }
 
-    /// @copydoc RmmResourceAdaptor::end_scoped_memory_record
+    /**
+     * @brief Pop and return the topmost scoped memory record on the current thread.
+     *
+     * @return The popped `ScopedMemoryRecord`.
+     */
     ScopedMemoryRecord end_scoped_memory_record() {
         std::lock_guard lock(mutex_);
         auto& stack = record_stacks_.at(std::this_thread::get_id());

@@ -11,11 +11,11 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+                                               cpp_BufferResource)
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
-from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
-                                             cpp_RmmResourceAdaptor)
 
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
@@ -52,7 +52,7 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_MemoryRecorder "rapidsmpf::Statistics::MemoryRecorder":
         cpp_MemoryRecorder(
             shared_ptr[cpp_Statistics] stats,
-            cpp_RmmResourceAdaptor mr,
+            shared_ptr[cpp_BufferResource] br,
             string name
         ) except +ex_handler
 
@@ -63,5 +63,5 @@ cdef class Statistics:
 cdef class MemoryRecorder:
     cdef unique_ptr[cpp_MemoryRecorder] _handle
     cdef Statistics _stats
-    cdef RmmResourceAdaptor _mr
+    cdef BufferResource _br
     cdef string _name

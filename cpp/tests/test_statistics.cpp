@@ -15,7 +15,7 @@
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -178,7 +178,9 @@ TEST_F(StatisticsTest, ReportSorting) {
 }
 
 TEST_F(StatisticsTest, MemoryProfiler) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
     auto stats = rapidsmpf::Statistics::create();
     auto stream = cudf::get_default_stream();
@@ -241,7 +243,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
         std::istringstream ss(report);
         std::string line;
         while (std::getline(ss, line) && (main_line.empty() || pinned_line.empty())) {
-            if (line.find("main (all allocations using RmmResourceAdaptor)")
+            if (line.find("main (all allocations using BufferResource)")
                 != std::string::npos)
             {
                 main_line = line;
@@ -262,7 +264,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     // For the main record: num_calls=1, peak=2 MiB, g-peak=2 MiB, accum=4 MiB.
     static constexpr std::string_view kExpectedMainLine =
         "       1       2 MiB       2 MiB       4 MiB       1 MiB"
-        "  main (all allocations using RmmResourceAdaptor)";
+        "  main (all allocations using BufferResource)";
     EXPECT_EQ(main_line, kExpectedMainLine);
     static const std::string_view kExpectedPinnedLine =
         pinned_mr == PinnedMemoryResource::Disabled
@@ -273,14 +275,16 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::disabled();
     {
         auto const& records = stats->get_memory_records();
         EXPECT_TRUE(records.empty());
     }
-    // Outer scope — disabled stats make the recorder a no-op even when an
-    // `RmmResourceAdaptor` is provided.
+    // Outer scope — disabled stats make the recorder a no-op even when a
+    // `BufferResource` is provided.
     {
         auto outer = stats->create_memory_recorder(mr, "outer");
         void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
@@ -304,12 +308,14 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
 //
 // Invariants checked:
 //  1. The toggled-off recorder publishes no entry.
-//  2. The recorder still pops its scope so the `RmmResourceAdaptor`'s
+//  2. The recorder still pops its scope so the `BufferResource`'s
 //     per-thread record stack is balanced after the scope exits. Pre-fix,
 //     the dtor early-returned and the frame stayed on the stack.
 //  3. A follow-up recorder works correctly against the balanced stack.
 TEST_F(StatisticsTest, MemoryProfilerToggledMidScope) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::create();
 
     {
@@ -335,7 +341,9 @@ TEST_F(StatisticsTest, MemoryProfilerToggledMidScope) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacro) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::create();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
@@ -350,7 +358,9 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::disabled();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
@@ -390,7 +400,9 @@ TEST_F(StatisticsTest, InvalidStatNames) {
 }
 
 TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::create();
     std::ignore = stats->create_memory_recorder(mr, "bad\"name");
     std::ostringstream ss;
@@ -398,7 +410,9 @@ TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
 }
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource mr{cuda::mr::any_resource<cuda::mr::device_accessible>{
+        cudf::get_current_device_resource_ref()
+    }};
     auto stats = rapidsmpf::Statistics::create();
     {
         auto rec = stats->create_memory_recorder(mr, "alloc");

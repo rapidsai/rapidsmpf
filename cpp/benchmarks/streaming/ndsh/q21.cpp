@@ -30,7 +30,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>

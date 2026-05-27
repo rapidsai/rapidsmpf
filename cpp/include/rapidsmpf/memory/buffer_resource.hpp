@@ -5,11 +5,9 @@
 
 #pragma once
 
-#include <array>
-#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <ranges>
 #include <unordered_map>
@@ -21,52 +19,54 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/detail/buffer_resource_impl.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
+#include <rapidsmpf/memory/scoped_memory_record.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
 /**
- * @brief Policy controlling whether a memory reservation is allowed to overbook.
+ * @brief CCCL-compatible memory resource managing all memory operations in RapidsMPF.
  *
- * This enum is used throughout RapidsMPF to specify the overbooking behavior of
- * a memory reservation request. The exact semantics depend on the specific API
- * and execution context in which it is used.
+ * `BufferResource` handles allocations and transfers between different memory
+ * types (device, host, pinned host). All memory operations in RapidsMPF — for
+ * example those performed by the Shuffler — flow through a `BufferResource`.
+ *
+ * `BufferResource` itself satisfies the CCCL
+ * `cuda::mr::resource_with<device_accessible>` concept, so an instance can be
+ * passed directly anywhere an RMM-compatible device memory resource is
+ * expected (e.g. as the `mr` argument to `rmm::device_buffer`). Buffers
+ * allocated through it hold an owning ref to the resource, which transitively
+ * keeps the underlying stream pool alive.
+ *
+ * The class is held by reference-counted shared ownership through
+ * `cuda::mr::shared_resource`; copies of a `BufferResource` are cheap and
+ * refer to the same underlying state.
+ *
+ * Memory availability is computed per `MemoryType` as `limit - allocated`.
+ * Device and pinned-host allocations routed through this `BufferResource` are
+ * tracked automatically. Host memory allocations are not tracked, so the
+ * available memory always equals the configured limit. If pinned-host memory
+ * is disabled, available pinned-host memory is always reported as zero
+ * regardless of the configured limit.
  */
-enum class AllowOverbooking : bool {
-    NO,  ///< Overbooking is not allowed.
-    YES,  ///< Overbooking is allowed.
-};
+class BufferResource : public cuda::mr::shared_resource<detail::BufferResourceImpl> {
+    using shared_base = cuda::mr::shared_resource<detail::BufferResourceImpl>;
+    using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
 
-/**
- * @brief Class managing buffer resources.
- *
- * This class handles memory allocation and transfers between different memory types
- * (e.g., host and device). All memory operations in rapidsmpf, such as those performed
- * by the Shuffler, rely on a buffer resource for memory management.
- *
- * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers and memory reservations.
- */
-class BufferResource {
   public:
+    /// @brief Tag this resource as device-accessible for the CCCL concept.
+    friend void get_property(
+        BufferResource const&, cuda::mr::device_accessible
+    ) noexcept {}
+
     /**
      * @brief Constructs a buffer resource.
-     *
-     * Memory availability is computed per `MemoryType` as `limit - allocated`.
-     *
-     * Device and pinned-host allocations routed through this BufferResource are tracked
-     * automatically. Host memory allocations are not tracked, so the available memory
-     * always equals the configured limit.
-     *
-     * If pinned-host memory is disabled, available pinned-host memory is always reported
-     * as zero regardless of the configured limit.
      *
      * @param device_mr The RMM device memory resource used for device allocations.
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
@@ -83,7 +83,7 @@ class BufferResource {
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
-        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+        any_device_resource device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
@@ -96,8 +96,7 @@ class BufferResource {
      * @brief Construct a BufferResource from configuration options.
      *
      * This factory method creates a BufferResource using configuration options to
-     * initialize all components. The supplied device memory resource is wrapped in
-     * an internal `RmmResourceAdaptor` for allocation tracking.
+     * initialize all components.
      *
      * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
@@ -107,26 +106,120 @@ class BufferResource {
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+        any_device_resource mr,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
+    /// @brief Default destructor.
     ~BufferResource() noexcept = default;
+
+    /// @brief Default copy constructor (refcounted shared ownership).
+    BufferResource(BufferResource const&) noexcept = default;
+    /// @brief Default move constructor (refcounted shared ownership).
+    BufferResource(BufferResource&&) noexcept = default;
+    /**
+     * @brief Default copy assignment (refcounted shared ownership).
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource const&) noexcept = default;
+    /**
+     * @brief Default move assignment (refcounted shared ownership).
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource&&) noexcept = default;
+
+    /**
+     * @brief Equality by identity.
+     *
+     * Two `BufferResource` handles are equal iff they share the same underlying
+     * impl instance.
+     *
+     * @param other The other `BufferResource` handle.
+     * @return True iff both handles refer to the same impl.
+     */
+    [[nodiscard]] bool operator==(BufferResource const& other) const noexcept {
+        return std::addressof(get()) == std::addressof(other.get());
+    }
+
+    // --- Per-allocation tracking (was RmmResourceAdaptor) --------------------
+
+    /**
+     * @brief Returns a copy of the main memory record.
+     *
+     * Lifetime-of-resource allocation statistics, covering all device
+     * allocations made through this `BufferResource` since its construction.
+     *
+     * @return A copy of the main `ScopedMemoryRecord`.
+     */
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const {
+        return get().get_main_record();
+    }
+
+    /**
+     * @brief Total number of device bytes currently allocated through this resource.
+     *
+     * @return Currently outstanding allocated bytes.
+     */
+    [[nodiscard]] std::int64_t current_allocated() const noexcept {
+        return get().current_allocated();
+    }
+
+    /**
+     * @brief Begin a new scoped memory record on the current thread.
+     *
+     * Pushes a fresh `ScopedMemoryRecord` onto the per-thread record stack.
+     * Subsequent allocations and deallocations on this thread are accumulated
+     * into the new record (in addition to the main record) until a matching
+     * `end_scoped_memory_record()` pops it.
+     *
+     * @see end_scoped_memory_record()
+     */
+    void begin_scoped_memory_record() {
+        get().begin_scoped_memory_record();
+    }
+
+    /**
+     * @brief End the topmost scoped memory record on the current thread.
+     *
+     * Pops the top of the per-thread record stack and returns it. If another
+     * scoped record is still active on this thread, the popped record is added
+     * to it as a sub-scope.
+     *
+     * @return The popped `ScopedMemoryRecord`.
+     *
+     * @throws std::out_of_range if the current thread's record stack is empty.
+     *
+     * @see begin_scoped_memory_record()
+     */
+    ScopedMemoryRecord end_scoped_memory_record() {
+        return get().end_scoped_memory_record();
+    }
+
+    // --- Memory-resource accessors -------------------------------------------
 
     /**
      * @brief Get the RMM device memory resource.
      *
      * @return Reference to the RMM resource used for device allocations.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
+        // Wrap *this — BufferResource is itself a CCCL-compatible resource.
+        // Allocations through the returned ref flow through
+        // `shared_resource::allocate` → impl tracker, so they are counted by
+        // `current_allocated()`. The const_cast is safe: allocations are
+        // logically non-const operations on the underlying state.
+        return rmm::device_async_resource_ref{const_cast<BufferResource&>(*this)};
+    }
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
+        return get().host_mr();
+    }
 
     /**
      * @brief Get the RMM pinned host memory resource.
@@ -134,28 +227,34 @@ class BufferResource {
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr() {
+        return get().pinned_mr();
+    }
 
     /**
      * @brief Get the pinned host memory resource if available.
      *
-     * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
-     * pinned host memory is not available.
+     * @return The pinned host memory resource as an `any_resource`, or
+     * `std::nullopt` if pinned host memory is not available.
      */
-    [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
+    [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept {
+        return get().try_pinned_mr();
+    }
+
+    // --- Memory availability -------------------------------------------------
 
     /**
      * @brief Returns the currently available memory for a given memory type, in bytes.
      *
-     * Computed as `limit - allocated`, where `allocated` is reported by the
-     * memory type's allocation counter (see the constructor documentation for
-     * how each memory type is tracked). The value may be negative when
+     * Computed as `limit - allocated`. The value may be negative when
      * allocations exceed the configured limit.
      *
      * @param mem_type The memory type to query.
      * @return The available memory in bytes.
      */
-    [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept;
+    [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept {
+        return get().memory_available(mem_type);
+    }
 
     /**
      * @brief Updates the memory limit for a given memory type at runtime.
@@ -171,16 +270,18 @@ class BufferResource {
      * `memory_available(mem_type)` always negative and so trigger continuous
      * spilling.
      */
-    void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
+    void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
+        get().set_memory_limit(mem_type, limit);
+    }
 
     /**
-     * @brief Get the current reserved memory of the specified memory type.
+     * @brief Currently reserved bytes for the given memory type.
      *
-     * @param mem_type The target memory type.
-     * @return The memory reserved.
+     * @param mem_type The memory type to query.
+     * @return Bytes reserved (but not necessarily allocated) for @p mem_type.
      */
     [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
-        return memory_reserved_[static_cast<std::size_t>(mem_type)];
+        return get().memory_reserved(mem_type);
     }
 
     /**
@@ -207,7 +308,9 @@ class BufferResource {
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
-    );
+    ) {
+        return get().reserve(this, mem_type, size, allow_overbooking);
+    }
 
     /**
      * @brief Reserve device memory and spill if necessary.
@@ -228,7 +331,9 @@ class BufferResource {
      */
     MemoryReservation reserve_device_memory_and_spill(
         std::size_t size, AllowOverbooking allow_overbooking
-    );
+    ) {
+        return get().reserve_device_memory_and_spill(this, size, allow_overbooking);
+    }
 
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
@@ -246,10 +351,8 @@ class BufferResource {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST
-                && pinned_mr_ == PinnedMemoryResource::Disabled)
+            if (mem_type == MemoryType::PINNED_HOST && !get().try_pinned_mr().has_value())
             {
                 // Pinned host memory is only available if the memory resource is
                 // available.
@@ -267,8 +370,8 @@ class BufferResource {
      * @brief Make a memory reservation or fail.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_type The memory type to try to reserve memory from.
-     * @return A memory reservation.
+     * @param mem_type The single memory type to attempt.
+     * @return A memory reservation in @p mem_type.
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
@@ -290,7 +393,11 @@ class BufferResource {
      * @throws rapidsmpf::reservation_error if the released size exceeds the size of the
      * reservation.
      */
-    std::size_t release(MemoryReservation& reservation, std::size_t size);
+    std::size_t release(MemoryReservation& reservation, std::size_t size) {
+        return get().release(reservation, size);
+    }
+
+    // --- Buffer allocation / movement ----------------------------------------
 
     /**
      * @brief Allocate a buffer of the specified memory type by the reservation.
@@ -305,7 +412,9 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> make_buffer(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
-    );
+    ) {
+        return get().make_buffer(this, size, stream, reservation);
+    }
 
     /**
      * @brief Allocate a buffer consuming the entire reservation.
@@ -319,7 +428,9 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> make_buffer(
         rmm::cuda_stream_view stream, MemoryReservation&& reservation
-    );
+    ) {
+        return get().make_buffer(this, stream, std::move(reservation));
+    }
 
     /**
      * @brief Move device or pinned host buffer data into a Buffer.
@@ -336,19 +447,22 @@ class BufferResource {
      *   - the device buffer's current stream is updated to @p stream.
      *
      * @param data Unique pointer to the device or pinned host buffer.
-     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
-     * this stream when operating on the Buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or
+     * synchronize with this stream when operating on the Buffer.
      * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
-    );
+    ) {
+        return get().move(std::move(data), stream);
+    }
 
     /**
      * @brief Move a Buffer to the memory type specified by the reservation.
      *
-     * If the Buffer already resides in the target memory type, a cheap move is performed.
-     * Otherwise, the Buffer is copied to the target memory using its own CUDA stream.
+     * If the Buffer already resides in the target memory type, a cheap move
+     * is performed. Otherwise, the Buffer is copied to the target memory using
+     * its own CUDA stream.
      *
      * @param buffer Buffer to move.
      * @param reservation Memory reservation used if a copy is required.
@@ -359,7 +473,9 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
-    );
+    ) {
+        return get().move(this, std::move(buffer), reservation);
+    }
 
     /**
      * @brief Move a Buffer to a device buffer.
@@ -371,13 +487,16 @@ class BufferResource {
      * @param reservation Memory reservation used if a copy is required.
      * @return A unique pointer to the resulting device buffer.
      *
-     * @throws std::invalid_argument If the reservation's memory type isn't device memory.
-     * @throws rapidsmpf::reservation_error if the memory requirement exceeds the
-     * reservation.
+     * @throws std::invalid_argument If the reservation's memory type isn't
+     * device memory.
+     * @throws rapidsmpf::reservation_error if the memory requirement exceeds
+     * the reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
-    );
+    ) {
+        return get().move_to_device_buffer(this, std::move(buffer), reservation);
+    }
 
     /**
      * @brief Move a Buffer into a host buffer.
@@ -389,13 +508,18 @@ class BufferResource {
      * @param reservation Memory reservation used if a copy is required.
      * @return Unique pointer to the resulting host buffer.
      *
-     * @throws std::invalid_argument If the reservation's memory type isn't host memory.
+     * @throws std::invalid_argument If the reservation's memory type isn't
+     * host memory.
      * @throws rapidsmpf::reservation_error If the allocation size exceeds the
      * reservation.
      */
     std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
-    );
+    ) {
+        return get().move_to_host_buffer(this, std::move(buffer), reservation);
+    }
+
+    // --- Stream pool / spill manager / statistics ----------------------------
 
     /**
      * @brief Returns the CUDA stream pool used by this buffer resource.
@@ -404,14 +528,18 @@ class BufferResource {
      *
      * @return Reference to the underlying CUDA stream pool.
      */
-    rmm::cuda_stream_pool const& stream_pool() const;
+    [[nodiscard]] rmm::cuda_stream_pool const& stream_pool() const {
+        return get().stream_pool();
+    }
 
     /**
      * @brief Gets a reference to the spill manager used.
      *
      * @return Reference to the SpillManager instance.
      */
-    SpillManager& spill_manager();
+    SpillManager& spill_manager() {
+        return get().spill_manager();
+    }
 
     /**
      * @brief Gets a shared pointer to the statistics associated with this buffer
@@ -419,25 +547,12 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics() const noexcept;
-
-  private:
-    std::mutex mutex_;
-    // The internal RmmResourceAdaptor wraps the user's device MR so that
-    // allocations are tracked for the DEVICE memory_available calculation.
-    // Declared before device_mr_ because device_mr_ is initialized from it.
-    RmmResourceAdaptor device_adaptor_;
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
-    std::optional<PinnedMemoryResource> pinned_mr_;
-    HostMemoryResource host_mr_;
-    std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
-    // Zero initialized reserved counters.
-    std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
-    SpillManager spill_manager_;
-    std::shared_ptr<Statistics> statistics_;
+    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept {
+        return get().statistics();
+    }
 };
 
+static_assert(cuda::mr::resource_with<BufferResource, cuda::mr::device_accessible>);
 static_assert(StatisticsProvider<BufferResource>);
 
 /**

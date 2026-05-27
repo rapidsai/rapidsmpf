@@ -104,7 +104,7 @@ Context::Context(
       ) {}
 
 std::shared_ptr<Context> Context::from_options(
-    RmmResourceAdaptor mr,
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::shared_ptr<Communicator::Logger> logger,
     config::Options options,
     std::shared_ptr<Statistics> statistics
@@ -112,7 +112,7 @@ std::shared_ptr<Context> Context::from_options(
     return std::make_shared<Context>(
         options,
         std::move(logger),
-        BufferResource::from_options(std::move(mr), options, std::move(statistics))
+        BufferResource::from_options(std::move(device_mr), options, std::move(statistics))
     );
 }
 

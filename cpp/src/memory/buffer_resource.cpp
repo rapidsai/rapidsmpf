@@ -20,16 +20,17 @@
 
 namespace rapidsmpf {
 
-BufferResource::BufferResource(
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+namespace detail {
+
+BufferResourceImpl::BufferResourceImpl(
+    any_device_resource device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
-    : device_adaptor_{std::move(device_mr)},
-      device_mr_{device_adaptor_},  // any_resource shares state via shared_resource
+    : device_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
@@ -48,33 +49,13 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
-std::shared_ptr<BufferResource> BufferResource::from_options(
-    cuda::mr::any_resource<cuda::mr::device_accessible> mr,
-    config::Options options,
-    std::shared_ptr<Statistics> statistics
-) {
-    auto pinned_mr = PinnedMemoryResource::from_options(options);
-    std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)}
-    };
-
-    return std::make_shared<BufferResource>(
-        std::move(mr),
-        std::move(pinned_mr),
-        std::move(memory_limits),
-        periodic_spill_check_from_options(options),
-        stream_pool_from_options(options),
-        std::move(statistics)
-    );
-}
-
-std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcept {
+std::int64_t BufferResourceImpl::memory_available(MemoryType mem_type) const noexcept {
     std::int64_t const limit = memory_limits_[static_cast<std::size_t>(mem_type)].load(
         std::memory_order_acquire
     );
     switch (mem_type) {
     case MemoryType::DEVICE:
-        return limit - device_adaptor_.current_allocated();
+        return limit - current_allocated();
     case MemoryType::PINNED_HOST:
         if (pinned_mr_ == PinnedMemoryResource::Disabled) {
             return 0;
@@ -87,37 +68,37 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     return std::numeric_limits<std::int64_t>::max();
 }
 
-void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
+void BufferResourceImpl::set_memory_limit(
+    MemoryType mem_type, std::int64_t limit
+) noexcept {
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
     );
 }
 
-rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
-    return rmm::device_async_resource_ref{
-        const_cast<cuda::mr::any_resource<cuda::mr::device_accessible>&>(device_mr_)
-    };
-}
-
-rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+rmm::host_async_resource_ref BufferResourceImpl::host_mr() noexcept {
     return host_mr_;
 }
 
-rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
+rmm::host_device_async_resource_ref BufferResourceImpl::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
     return *pinned_mr_;
 }
 
-std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
+std::optional<any_host_device_resource>
+BufferResourceImpl::try_pinned_mr() const noexcept {
     // since any_host_device_resource is constructible from
     // host_device_async_resource_ref, optional can be returned as-is.
     return pinned_mr_;
 }
 
-std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
-    MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
+std::pair<MemoryReservation, std::size_t> BufferResourceImpl::reserve(
+    BufferResource* outer_br,
+    MemoryType mem_type,
+    std::size_t size,
+    AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::PINNED_HOST
@@ -138,18 +119,19 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
         headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
     if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
         // Cancel the reservation, overbooking isn't allowed.
-        return {MemoryReservation(mem_type, this, 0), overbooking};
+        return {MemoryReservation(mem_type, outer_br, 0), overbooking};
     }
     // Make the reservation.
     reserved += size;
-    return {MemoryReservation(mem_type, this, size), overbooking};
+    return {MemoryReservation(mem_type, outer_br, size), overbooking};
 }
 
-MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    std::size_t size, AllowOverbooking allow_overbooking
+MemoryReservation BufferResourceImpl::reserve_device_memory_and_spill(
+    BufferResource* outer_br, std::size_t size, AllowOverbooking allow_overbooking
 ) {
     // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto [reservation, ob] =
+        reserve(outer_br, MemoryType::DEVICE, size, AllowOverbooking::YES);
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
@@ -166,7 +148,9 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
     return std::move(reservation);
 }
 
-std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
+std::size_t BufferResourceImpl::release(
+    MemoryReservation& reservation, std::size_t size
+) {
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
@@ -181,8 +165,11 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
     return reservation.size_ -= size;
 }
 
-std::unique_ptr<Buffer> BufferResource::make_buffer(
-    std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+std::unique_ptr<Buffer> BufferResourceImpl::make_buffer(
+    BufferResource* outer_br,
+    std::size_t size,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
     StreamOrderedTiming timing{stream, statistics_};
@@ -204,7 +191,9 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<rmm::device_buffer>(size, stream, device_mr()),
+            std::make_unique<rmm::device_buffer>(
+                size, stream, rmm::device_async_resource_ref{*outer_br}
+            ),
             MemoryType::DEVICE
         ));
         break;
@@ -216,13 +205,15 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     return ret;
 }
 
-std::unique_ptr<Buffer> BufferResource::make_buffer(
-    rmm::cuda_stream_view stream, MemoryReservation&& reservation
+std::unique_ptr<Buffer> BufferResourceImpl::make_buffer(
+    BufferResource* outer_br,
+    rmm::cuda_stream_view stream,
+    MemoryReservation&& reservation
 ) {
-    return make_buffer(reservation.size(), stream, reservation);
+    return make_buffer(outer_br, reservation.size(), stream, reservation);
 }
 
-std::unique_ptr<Buffer> BufferResource::move(
+std::unique_ptr<Buffer> BufferResourceImpl::move(
     std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
     auto upstream = data->stream();
@@ -242,20 +233,24 @@ std::unique_ptr<Buffer> BufferResource::move(
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
 
-std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+std::unique_ptr<Buffer> BufferResourceImpl::move(
+    BufferResource* outer_br,
+    std::unique_ptr<Buffer> buffer,
+    MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto const nbytes = buffer->size;
-        auto ret = make_buffer(nbytes, buffer->stream(), reservation);
+        auto ret = make_buffer(outer_br, nbytes, buffer->stream(), reservation);
         buffer_copy(statistics_, *ret, *buffer, nbytes);
         return ret;
     }
     return buffer;
 }
 
-std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
-    std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+std::unique_ptr<rmm::device_buffer> BufferResourceImpl::move_to_device_buffer(
+    BufferResource* outer_br,
+    std::unique_ptr<Buffer> buffer,
+    MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(
         reservation.mem_type_ == MemoryType::DEVICE,
@@ -263,7 +258,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         std::invalid_argument
     );
     auto stream = buffer->stream();
-    auto ret = move(std::move(buffer), reservation)->release_device_buffer();
+    auto ret = move(outer_br, std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
         ret->stream().value() == stream.value(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
@@ -272,27 +267,55 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return ret;
 }
 
-std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
-    std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+std::unique_ptr<HostBuffer> BufferResourceImpl::move_to_host_buffer(
+    BufferResource* outer_br,
+    std::unique_ptr<Buffer> buffer,
+    MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(
         reservation.mem_type_ == MemoryType::HOST,
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), reservation)->release_host_buffer();
+    return move(outer_br, std::move(buffer), reservation)->release_host_buffer();
 }
 
-rmm::cuda_stream_pool const& BufferResource::stream_pool() const {
-    return *stream_pool_;
-}
+}  // namespace detail
 
-SpillManager& BufferResource::spill_manager() {
-    return spill_manager_;
-}
+BufferResource::BufferResource(
+    any_device_resource device_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
+    std::unordered_map<MemoryType, std::int64_t> memory_limits,
+    std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<Statistics> statistics
+)
+    : shared_base{cuda::mr::make_shared_resource<detail::BufferResourceImpl>(
+          std::move(device_mr),
+          std::move(pinned_mr),
+          std::move(memory_limits),
+          periodic_spill_check,
+          std::move(stream_pool),
+          std::move(statistics)
+      )} {}
 
-std::shared_ptr<Statistics> BufferResource::statistics() const noexcept {
-    return statistics_;
+std::shared_ptr<BufferResource> BufferResource::from_options(
+    any_device_resource mr,
+    config::Options options,
+    std::shared_ptr<Statistics> statistics
+) {
+    auto pinned_mr = PinnedMemoryResource::from_options(options);
+    std::unordered_map<MemoryType, std::int64_t> memory_limits{
+        {MemoryType::DEVICE, device_limit_from_options(options)}
+    };
+    return std::make_shared<BufferResource>(
+        std::move(mr),
+        std::move(pinned_mr),
+        std::move(memory_limits),
+        periodic_spill_check_from_options(options),
+        stream_pool_from_options(options),
+        std::move(statistics)
+    );
 }
 
 std::int64_t device_limit_from_options(config::Options options) {

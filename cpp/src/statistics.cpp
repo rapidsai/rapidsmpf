@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -248,20 +249,23 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder(
-    std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+    std::shared_ptr<Statistics> stats,
+    std::shared_ptr<BufferResource> br,
+    std::string name
 )
-    : mr_{std::move(mr)}, stats_{std::move(stats)}, name_{std::move(name)} {
+    : br_{std::move(br)}, stats_{std::move(stats)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
-    mr_->begin_scoped_memory_record();
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource cannot be null");
+    br_->begin_scoped_memory_record();
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
-    if (!mr_.has_value()) {
+    if (br_ == nullptr) {
         return;  // no-op recorder; nothing was pushed.
     }
-    // Always pop to keep the RMM adaptor's per-thread stack balanced, even if
+    // Always pop to keep the per-thread scoped-record stack balanced, even if
     // statistics were disabled after construction (in which case skip publish).
-    auto const scope = mr_->end_scoped_memory_record();
+    auto const scope = br_->end_scoped_memory_record();
     if (!stats_->enabled()) {
         return;
     }
@@ -275,11 +279,13 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
 Statistics::MemoryRecorder Statistics::create_memory_recorder(
     any_device_resource mr, std::string name
 ) {
-    auto* rma = cuda::mr::resource_cast<RmmResourceAdaptor>(&mr);
-    if (!enabled() || !rma) {
+    auto* br = cuda::mr::resource_cast<BufferResource>(&mr);
+    if (!enabled() || !br) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{shared_from_this(), *rma, std::move(name)};
+    return MemoryRecorder{
+        shared_from_this(), std::make_shared<BufferResource>(*br), std::move(name)
+    };
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -359,7 +365,7 @@ std::string Statistics::report(ReportArgs report_args) const {
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
+    auto* dev_adaptor = get_optional_resource_as<BufferResource>(report_args.mr);
     auto* pinned_adaptor =
         get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
     if (!dev_adaptor) {
@@ -375,7 +381,7 @@ std::string Statistics::report(ReportArgs report_args) const {
     // Insert the "main" record, which is the overall statistics from `mr`.
     auto const main_record = dev_adaptor->get_main_record();
     sorted_records.emplace_back(
-        "main (all allocations using RmmResourceAdaptor)",
+        "main (all allocations using BufferResource)",
         MemoryRecord{
             .scoped = main_record, .global_peak = main_record.peak(), .num_calls = 1
         }

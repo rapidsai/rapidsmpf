@@ -536,7 +536,7 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     set_current_rmm_resource(args.rmm_mr);
-    rapidsmpf::RmmResourceAdaptor stat_enabled_mr = set_device_mem_resource_with_stats();
+    auto stat_enabled_mr = set_device_mem_resource_with_stats();
 
     std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits{};
     if (args.device_mem_limit_mb >= 0) {
@@ -548,7 +548,7 @@ int main(int argc, char** argv) {
     // We're only going to measure the last run, so disable initially.
     stats->disable();
     rapidsmpf::BufferResource br{
-        stat_enabled_mr,
+        std::move(stat_enabled_mr),
         args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
         std::move(memory_limits),
@@ -663,7 +663,7 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto record = stat_enabled_mr.get_main_record();
+            auto record = br.get_main_record();
             ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
                << rapidsmpf::format_nbytes(
@@ -675,9 +675,7 @@ int main(int argc, char** argv) {
     }
 
     if (args.enable_memory_profiler) {
-        log->print(stats->report(
-            {.mr = stat_enabled_mr, .header = "Statistics (of the last run):"}
-        ));
+        log->print(stats->report({.mr = br, .header = "Statistics (of the last run):"}));
     } else {
         log->print(stats->report({.header = "Statistics (of the last run):"}));
     }

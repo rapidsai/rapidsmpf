@@ -403,19 +403,17 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
 
-    // Use RapidsMPF's memory resource adaptor so the test can observe per-rank
-    // allocation counts via `get_main_record().num_current_allocs()`.
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
-
     // Control spilling by adjusting the DEVICE memory limit at runtime.
     // `memory_available(DEVICE)` is computed as `limit - current_allocated()`, so a
     // sufficiently large positive limit reliably keeps available memory > 0 (no spill),
     // while a sufficiently large negative limit reliably keeps available memory < 0
-    // (force spill), regardless of how many bytes are currently allocated from `mr`.
+    // (force spill), regardless of how many bytes are currently allocated.
     constexpr std::int64_t k_no_spill_limit = (1LL << 40);
     constexpr std::int64_t k_force_spill_limit = -(1LL << 40);
     rapidsmpf::BufferResource br{
-        mr,
+        cuda::mr::any_resource<cuda::mr::device_accessible>{
+            cudf::get_current_device_resource_ref()
+        },
         rapidsmpf::PinnedMemoryResource::Disabled,
         {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
         std::nullopt  // disable periodic spill check
@@ -446,10 +444,10 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     // Insert spills does nothing when device memory is available, we start
     // with 2 device allocations.
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 2);
     shuffler.insert(std::move(input_chunks));
     // And we end with two 2 device allocations.
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 2);
 
     // Let's force spilling.
     br.set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_force_spill_limit);
@@ -459,24 +457,24 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         std::vector<rapidsmpf::PackedData> output_chunks = rapidsmpf::unspill_partitions(
             shuffler.extract(0), &br, rapidsmpf::AllowOverbooking::YES
         );
-        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+        EXPECT_EQ(br.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
         chunk.emplace(0, std::move(output_chunks.at(0)));
         shuffler.insert(std::move(chunk));
-        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+        EXPECT_EQ(br.get_main_record().num_current_allocs(), 0);
     }
 
     // Extract and unspill both partitions.
     std::vector<rapidsmpf::PackedData> out0 = rapidsmpf::unspill_partitions(
         shuffler.extract(0), &br, rapidsmpf::AllowOverbooking::YES
     );
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 1);
     std::vector<rapidsmpf::PackedData> out1 = rapidsmpf::unspill_partitions(
         shuffler.extract(1), &br, rapidsmpf::AllowOverbooking::YES
     );
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
     br.set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_no_spill_limit);
@@ -485,7 +483,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(0, std::move(out0.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 2);
 
     // Enable spilling and insert the second partition, which should trigger spilling
     // of both the first partition already in the shuffler and the second partition
@@ -496,7 +494,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(1, std::move(out1.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+    EXPECT_EQ(br.get_main_record().num_current_allocs(), 0);
     shuffler.insert_finished();
 }
 

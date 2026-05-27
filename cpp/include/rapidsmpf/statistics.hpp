@@ -25,11 +25,12 @@
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
-#include <rapidsmpf/rmm_resource_adaptor.hpp>
+#include <rapidsmpf/memory/scoped_memory_record.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
+class BufferResource;
 class StreamOrderedTiming;
 
 /**
@@ -551,7 +552,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      */
     void clear();
 
-    // TODO: move MemoryRecord and MemoryRecorder to RmmResourceAdaptor?
+    // TODO: move MemoryRecord and MemoryRecorder to BufferResource?
 
     /**
      * @brief Holds memory profiling information for a named scope.
@@ -578,11 +579,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
          * enabled) publishes it under @p name.
          *
          * @param stats Owning Statistics. Must not be null.
-         * @param mr RMM resource adaptor providing scoped memory statistics.
+         * @param br The `BufferResource` providing scoped memory statistics.
          * @param name Name of the scope.
          */
         MemoryRecorder(
-            std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+            std::shared_ptr<Statistics> stats,
+            std::shared_ptr<BufferResource> br,
+            std::string name
         );
 
         ~MemoryRecorder();
@@ -593,9 +596,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         MemoryRecorder& operator=(MemoryRecorder&&) = delete;
 
       private:
-        /// No-op recorder iff `mr_` is `std::nullopt`.
-        std::optional<RmmResourceAdaptor> mr_{std::nullopt};
-        /// stats_ != nullptr iff `mr_.has_value()`.
+        /// No-op recorder iff `br_` is null.
+        std::shared_ptr<BufferResource> br_;
+        /// stats_ is non-null iff `br_` is non-null.
         std::shared_ptr<Statistics> stats_{nullptr};
         std::string name_{};
     };
@@ -604,10 +607,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      * @brief Creates a scoped memory recorder for the given name.
      *
      * @param mr Type-erased device memory resource. Recording is only active
-     * when the underlying resource is an `RmmResourceAdaptor`.
+     * when the underlying resource is a `BufferResource`.
      * @param name Name of the scope.
-     * @return A MemoryRecorder instance. If `!enabled()` or @p mr is not backed by an
-     * `RmmResourceAdaptor`, returns a no-op recorder.
+     * @return A MemoryRecorder instance. If `!enabled()` or @p mr is not backed by a
+     * `BufferResource`, returns a no-op recorder.
      */
     MemoryRecorder create_memory_recorder(any_device_resource mr, std::string name);
 
@@ -669,9 +672,9 @@ concept StatisticsProvider = requires(T const& t) {
  *
  * Example usage:
  * @code
- * void foo(std::shared_ptr<Statistics> stats, RmmResourceAdaptor& mr) {
- *     RAPIDSMPF_MEMORY_PROFILE(stats, mr);
- *     RAPIDSMPF_MEMORY_PROFILE(stats, mr, "custom_name");
+ * void foo(std::shared_ptr<Statistics> stats, BufferResource& br) {
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, br);
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, br, "custom_name");
  * }
  * @endcode
  *
@@ -680,7 +683,7 @@ concept StatisticsProvider = requires(T const& t) {
  * (`create_memory_recorder` returns a no-op recorder when the statistics
  * instance is disabled).
  * The second argument is the device memory resource. Recording is only active
- * when the underlying resource is an `RmmResourceAdaptor`; other device
+ * when the underlying resource is a `BufferResource`; other device
  * resources yield a no-op recorder.
  * The third argument (optional) is a custom function name string to use instead of
  * __func__.

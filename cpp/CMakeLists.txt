@@ -206,7 +206,6 @@ add_library(
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
-  src/rmm_resource_adaptor.cpp
   src/rrun/rrun.cpp
   src/shuffler/chunk.cpp
   src/shuffler/finish_counter.cpp

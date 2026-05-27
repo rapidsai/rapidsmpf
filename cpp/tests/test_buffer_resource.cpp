@@ -638,12 +638,18 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         }
 
         // Setup br1 with statistics for its device memory
-        mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = std::make_unique<BufferResource>(*mr1);
+        br1 = std::make_unique<BufferResource>(
+            cuda::mr::any_resource<cuda::mr::device_accessible>{
+                rmm::mr::cuda_memory_resource{}
+            }
+        );
 
         // Setup br2 with statistics for its device memory
-        mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = std::make_unique<BufferResource>(*mr2);
+        br2 = std::make_unique<BufferResource>(
+            cuda::mr::any_resource<cuda::mr::device_accessible>{
+                rmm::mr::cuda_memory_resource{}
+            }
+        );
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -660,23 +666,21 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             );
         });
         buf1->stream().synchronize();
-        EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
+        EXPECT_EQ(br1->get_main_record().total(), buffer_size);
         return buf1;
     }
 
     void verify_memory_allocation(
         std::size_t expected_br1_total, std::size_t expected_br2_total
     ) {
-        EXPECT_EQ(mr1->get_main_record().total(), expected_br1_total);
-        EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
+        EXPECT_EQ(br1->get_main_record().total(), expected_br1_total);
+        EXPECT_EQ(br2->get_main_record().total(), expected_br2_total);
     }
 
     std::size_t buffer_size;
     rmm::cuda_stream_view stream;
     std::vector<std::uint8_t> host_pattern;
 
-    std::unique_ptr<RmmResourceAdaptor> mr1;
-    std::unique_ptr<RmmResourceAdaptor> mr2;
     std::unique_ptr<BufferResource> br1;
     std::unique_ptr<BufferResource> br2;
 };

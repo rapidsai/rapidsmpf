@@ -33,8 +33,9 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         const cuda_stream_pool &stream_pool() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
+        int64_t current_allocated() except +ex_handler
 
-cdef class BufferResource:
+cdef class BufferResource(DeviceMemoryResource):
     cdef object __weakref__
     cdef shared_ptr[cpp_BufferResource] _handle
     cdef readonly SpillManager spill_manager

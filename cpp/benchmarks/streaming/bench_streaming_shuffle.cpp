@@ -370,7 +370,7 @@ int main(int argc, char** argv) {
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stat_enabled_mr,
+        std::move(stat_enabled_mr),
         pinned_mr,
         std::move(memory_limits),
         std::nullopt,
@@ -447,7 +447,7 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto record = stat_enabled_mr.get_main_record();
+            auto record = br->get_main_record();
             ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
                << rapidsmpf::format_nbytes(
@@ -461,7 +461,7 @@ int main(int argc, char** argv) {
     auto statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
         log.print(statistics->report({
-            .mr = stat_enabled_mr,
+            .mr = *br,
             .pinned_mr = pinned_mr,
             .header = "Statistics (of the last run):",
         }));

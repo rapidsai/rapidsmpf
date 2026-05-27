@@ -6,6 +6,7 @@
 #include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/detail/buffer_resource_impl.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -14,9 +15,9 @@ namespace rapidsmpf {
 
 
 SpillManager::SpillManager(
-    BufferResource* br, std::optional<Duration> periodic_spill_check
+    detail::BufferResourceImpl* br_impl, std::optional<Duration> periodic_spill_check
 )
-    : br_{br} {
+    : br_impl_{br_impl} {
     if (periodic_spill_check.has_value()) {
         periodic_spill_thread_.emplace(
             [this]() { spill_to_make_headroom(0); }, *periodic_spill_check
@@ -80,7 +81,7 @@ std::size_t SpillManager::spill(std::size_t amount) {
 
 std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     // TODO: check other memory types.
-    std::int64_t available = br_->memory_available(MemoryType::DEVICE);
+    std::int64_t available = br_impl_->memory_available(MemoryType::DEVICE);
     if (headroom <= available) {
         return 0;
     }

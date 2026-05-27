@@ -24,6 +24,10 @@
 
 namespace rapidsmpf {
 
+namespace detail {
+class BufferResourceImpl;
+}  // namespace detail
+
 /**
  * @brief Buffer representing device or host memory.
  *
@@ -46,6 +50,7 @@ namespace rapidsmpf {
  */
 class Buffer {
     friend class BufferResource;
+    friend class detail::BufferResourceImpl;
 
   public:
     /// @brief Storage type for a device buffer.

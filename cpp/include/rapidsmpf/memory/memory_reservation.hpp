@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -14,6 +14,10 @@ namespace rapidsmpf {
 
 class BufferResource;
 
+namespace detail {
+class BufferResourceImpl;
+}  // namespace detail
+
 /**
  * @brief Represents a reservation for future memory allocation.
  *
@@ -22,6 +26,7 @@ class BufferResource;
  */
 class MemoryReservation {
     friend class BufferResource;
+    friend class detail::BufferResourceImpl;
 
   public:
     /**

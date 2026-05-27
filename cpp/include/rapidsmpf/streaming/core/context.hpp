@@ -8,6 +8,8 @@
 #include <memory>
 #include <thread>
 
+#include <cuda/memory_resource>
+
 #include <coro/coro.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -79,7 +81,7 @@ class Context {
      * @note The current CUDA device must be set prior to calling this function.
      * Options that depend on device memory availability query the current device.
      *
-     * @param mr Device memory resource adaptor used by RapidsMPF.
+     * @param device_mr Primary device memory resource used by RapidsMPF.
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
@@ -102,7 +104,7 @@ class Context {
      * thread.
      */
     static std::shared_ptr<Context> from_options(
-        RmmResourceAdaptor mr,
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::shared_ptr<Communicator::Logger> logger,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()

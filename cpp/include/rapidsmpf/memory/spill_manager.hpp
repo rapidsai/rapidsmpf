@@ -14,7 +14,9 @@
 
 namespace rapidsmpf {
 
-class BufferResource;
+namespace detail {
+class BufferResourceImpl;
+}  // namespace detail
 
 /**
  * @brief Manages memory spilling to free up device memory when needed.
@@ -29,6 +31,12 @@ class SpillManager {
      *
      * A spill function takes a requested spill amount as input and returns the actual
      * amount of memory (in bytes) that was spilled.
+     *
+     * @warning Spill functions must NOT capture an owning reference (shared_ptr, a
+     * `BufferResource` by value, etc.) to the `BufferResource` that owns this
+     * `SpillManager`. Doing so closes a reference cycle: the BR holds the SpillManager
+     * which holds the function which owns the BR. Capture raw pointers/references only,
+     * and unregister via `remove_spill_function` from the owner's destructor.
      */
     using SpillFunction = std::function<std::size_t(std::size_t)>;
 
@@ -40,14 +48,15 @@ class SpillManager {
     /**
      * @brief Constructs a SpillManager instance.
      *
-     * @param br Buffer resource used to retrieve current available memory.
+     * @param br_impl Buffer-resource impl used to retrieve current available memory.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
      * continuously checks and perform spilling based on the current available memory as
      * reported by the buffer resource. The value of `periodic_spill_check` is used as the
      * pause between checks. If `std::nullopt`, no periodic spill check is performed.
      */
     SpillManager(
-        BufferResource* br, std::optional<Duration> periodic_spill_check = std::nullopt
+        detail::BufferResourceImpl* br_impl,
+        std::optional<Duration> periodic_spill_check = std::nullopt
     );
 
     /**
@@ -114,11 +123,23 @@ class SpillManager {
 
   private:
     mutable std::mutex mutex_;
-    BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
+
+    /// @brief Non-owning back-pointer to the owning impl.
+    ///
+    /// `BufferResource` is a thin `shared_resource<Impl>` handle: copies share
+    /// the same impl but each carries a different `this`, so there is no
+    /// canonical outer pointer to point at. The impl IS the resource identity.
+    ///
+    /// We cannot hold a `BufferResource` by value either that would close a
+    /// refcount cycle `BR → Impl → SpillManager → BR`.
+    ///
+    /// A raw pointer is safe because `SpillManager` is a member of the impl,
+    /// so the pointer is stable for `SpillManager`'s entire lifetime.
+    detail::BufferResourceImpl* br_impl_;
 };
 
 

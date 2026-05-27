@@ -9,9 +9,9 @@ from os import PathLike
 from typing import Any, Self
 
 from rapidsmpf.config import Options
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 class Formatter(IntEnum):
     Default = ...
@@ -31,7 +31,7 @@ class Statistics:
     def report(
         self,
         *,
-        mr: RmmResourceAdaptor | None = None,
+        br: BufferResource | None = None,
         pinned_mr: PinnedMemoryResource | None = None,
         header: str | None = None,
     ) -> str: ...
@@ -47,7 +47,7 @@ class Statistics:
     ) -> None: ...
     def get_memory_records(self) -> dict[str, MemoryRecord]: ...
     def memory_profiling(
-        self, mr: RmmResourceAdaptor | None, name: str
+        self, br: BufferResource | None, name: str
     ) -> MemoryRecorder: ...
     def copy(self) -> Statistics: ...
     @staticmethod

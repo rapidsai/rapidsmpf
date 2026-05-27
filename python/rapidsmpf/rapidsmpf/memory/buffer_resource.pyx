@@ -15,7 +15,8 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.librmm.memory_resource cimport (device_async_resource_ref,
+                                         make_any_device_resource)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -40,6 +41,25 @@ cdef extern from *:
     """
     shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
         cuda_stream_pool* ptr
+    ) except +ex_handler
+
+
+# Expose `make_device_async_resource_ref(BufferResource&)` to Cython so the
+# Python wrapper can set `self.c_ref` to the C++ `BufferResource`. The rmm
+# template is C++-generic; here we just instantiate it for `cpp_BufferResource`.
+cdef extern from * nogil:
+    """
+    #include <optional>
+    #include <rmm/resource_ref.hpp>
+    #include <rapidsmpf/memory/buffer_resource.hpp>
+    inline std::optional<cython_device_async_resource_ref>
+    cpp_make_device_async_resource_ref_for_br(rapidsmpf::BufferResource& br) {
+        return std::optional<cython_device_async_resource_ref>(
+            rmm::device_async_resource_ref(br));
+    }
+    """
+    optional[device_async_resource_ref] cpp_make_device_async_resource_ref_for_br(
+        cpp_BufferResource&
     ) except +ex_handler
 
 
@@ -103,13 +123,19 @@ cdef extern from * nogil:
 
 
 @no_gc_clear
-cdef class BufferResource:
+cdef class BufferResource(DeviceMemoryResource):
     """
     Class managing buffer resources.
 
     This class handles memory allocation and transfers between different memory types
     (e.g., host and device). All memory operations in RapidsMPF, such as those performed
     by the Shuffler, rely on a buffer resource for memory management.
+
+    BufferResource subclasses :class:`rmm.pylibrmm.DeviceMemoryResource`, so an
+    instance can be passed directly anywhere an RMM device memory resource is
+    expected (e.g. as the ``mr`` argument to ``rmm.DeviceBuffer``). Buffers
+    allocated through it hold an owning ref to the resource, which transitively
+    keeps the underlying stream pool alive.
 
     Parameters
     ----------
@@ -205,6 +231,11 @@ cdef class BufferResource:
                 cpp_stream_pool,
                 stats_handle,
             )
+        # Expose this BufferResource as a CCCL-conformant resource through the
+        # inherited rmm `DeviceMemoryResource` slot. Means `rmm.DeviceBuffer(mr=br)`
+        # works and the DeviceBuffer holds a ref to this Python BufferResource,
+        # transitively keeping the C++ state alive.
+        self.c_ref = cpp_make_device_async_resource_ref_for_br(deref(self._handle))
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
@@ -274,7 +305,20 @@ cdef class BufferResource:
     @property
     def device_mr(self):
         """
-        The memory resource used for device memory allocations.
+        Back-compat accessor; returns ``self``.
+
+        The Python `BufferResource` *is* a CCCL-conformant RMM
+        `DeviceMemoryResource`, so the natural way to pass it where an RMM
+        MR is expected is the object itself (``rmm.DeviceBuffer(mr=br)``).
+        This property returns ``self`` so that code that still does
+        ``rmm.DeviceBuffer(mr=br.device_mr)`` keeps working.
+        """
+        return self
+
+    @property
+    def primary_mr(self):
+        """
+        The primary memory resource passed to the constructor.
 
         Returns
         -------
@@ -293,6 +337,21 @@ cdef class BufferResource:
         are disabled.
         """
         return self._pinned_mr
+
+    @property
+    def current_allocated(self):
+        """
+        Total number of device bytes currently allocated through this BufferResource.
+
+        Returns
+        -------
+        int
+            Currently outstanding allocated bytes.
+        """
+        cdef int64_t ret
+        with nogil:
+            ret = deref(self._handle).current_allocated()
+        return ret
 
     def memory_reserved(self, MemoryType mem_type):
         """

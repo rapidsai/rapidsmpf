@@ -27,7 +27,6 @@ from rapidsmpf.integrations.cudf.partition import (
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
@@ -301,13 +300,11 @@ def setup_and_run(args: argparse.Namespace) -> None:
     """
     options = Options(get_environment_variables())
 
-    # Create a RMM stack with both a device pool and statistics.
-    mr = RmmResourceAdaptor(
-        rmm.mr.PoolMemoryResource(
-            rmm.mr.CudaMemoryResource(),
-            initial_pool_size=args.rmm_pool_size,
-            maximum_pool_size=args.rmm_pool_size,
-        )
+    # Create a RMM device pool (BufferResource provides tracking on top).
+    mr = rmm.mr.PoolMemoryResource(
+        rmm.mr.CudaMemoryResource(),
+        initial_pool_size=args.rmm_pool_size,
+        maximum_pool_size=args.rmm_pool_size,
     )
     rmm.mr.set_current_device_resource(mr)
 
@@ -411,7 +408,7 @@ Shuffle:
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )
     if stats.enabled:
-        comm.logger.print(stats.report(mr=mr))
+        comm.logger.print(stats.report(br=br))
 
 
 def dir_path(path: str) -> Path:

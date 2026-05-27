@@ -9,8 +9,8 @@ import pytest
 import rmm
 import rmm.mr
 
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -35,18 +35,18 @@ def test_tracks_allocations() -> None:
         track.append(ptr)
 
     upstream_mr = rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb)
-    mr_adaptor = RmmResourceAdaptor(upstream_mr=upstream_mr)
+    br = BufferResource(upstream_mr)
 
-    # Delete upstream to check that adaptor keeps it alive.
+    # Delete upstream to check that BR keeps it alive.
     del upstream_mr
 
-    buf = rmm.DeviceBuffer(size=100 * KIB, mr=mr_adaptor)
-    assert mr_adaptor.current_allocated == 100 * KIB
+    buf = rmm.DeviceBuffer(size=100 * KIB, mr=br)
+    assert br.current_allocated == 100 * KIB
     assert state["bytes"] == 100 * KIB
     assert len(track) == 1
 
     del buf
-    assert mr_adaptor.current_allocated == 0
+    assert br.current_allocated == 0
     assert state["bytes"] == 0
     assert len(track) == 2  # alloc + dealloc
 
@@ -58,12 +58,24 @@ def test_except_type() -> None:
     def dealloc_cb(ptr: int, size: int, stream: Stream) -> None:
         return None
 
-    mr = RmmResourceAdaptor(
-        upstream_mr=rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb),
-    )
+    br = BufferResource(rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb))
 
     with pytest.raises(RuntimeError, match="not a MemoryError"):
-        mr.allocate(1024)
+        br.allocate(1024)
+
+
+def test_lifetime_no_dangling_stream_pool() -> None:
+    # rmm.DeviceBuffer keeps the BufferResource alive via the inherited
+    # DeviceMemoryResource owning ref. Dropping the local handle to BR
+    # must not invalidate the buffer's underlying stream pool.
+    def make() -> rmm.DeviceBuffer:
+        br = BufferResource(rmm.mr.CudaMemoryResource())
+        return rmm.DeviceBuffer(size=1024, mr=br)
+
+    buf = make()
+    # Before the merge, this would dangle once the local `br` went out of
+    # scope. Now the buffer keeps the BR (and its stream pool) alive.
+    buf.copy_from_host(b"x" * 1024)
 
 
 def test_initial_state() -> None:
