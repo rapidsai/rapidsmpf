@@ -642,7 +642,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
  * @brief Satisfied by any type that exposes a `statistics()` method returning
  *        `std::shared_ptr<Statistics>` by value.
  *
- * Classes satisfying this concept are *statistics providers* — secondary
+ * Classes satisfying this concept are *statistics providers*. Secondary
  * classes that receive a provider as a constructor argument should derive their
  * `Statistics` instance by calling `.statistics()` on it rather than accepting
  * a separate `std::shared_ptr<Statistics>` argument.
