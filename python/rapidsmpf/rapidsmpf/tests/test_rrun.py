@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import inspect
 import multiprocessing
 import os
+import textwrap
 import traceback
 from typing import TYPE_CHECKING
 
@@ -11,6 +13,7 @@ import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from multiprocessing.connection import Connection
 
 from rapidsmpf.rrun import (
     BindingValidation,
@@ -36,35 +39,71 @@ requires_no_launcher = pytest.mark.skipif(
 )
 
 
-def _run_in_subprocess(target: Callable[[], None]) -> None:
-    """Execute ``target()`` in a forked child process.
+def _subprocess_wrapper(
+    target_source: str,
+    target_name: str,
+    closure_vars: dict[str, object],
+    child_conn: Connection,
+) -> None:
+    """Execute a test body reconstructed from source in a spawned child.
 
-    Because each call forks a new child, process-wide side-effects
-    (CPU affinity, NUMA policy, environment variables) never leak into the
-    pytest process. Any exception raised by ``target`` is propagated back to
-    the caller.
+    This is the top-level callable required by ``multiprocessing`` when using
+    the ``spawn`` start method. The actual test body may still be a nested
+    function inside the test for readability; `_run_in_subprocess()` sends its
+    source and any nonlocal values here, and this wrapper rebuilds and calls it.
     """
-    ctx = multiprocessing.get_context("fork")
-    parent_conn, child_conn = ctx.Pipe()
-
-    def _wrapper() -> None:
+    try:
+        namespace = globals().copy()
+        namespace.update(closure_vars)
+        exec(compile(target_source, __file__, "exec"), namespace)
+        namespace[target_name]()
+        child_conn.send(None)
+    except BaseException as exc:
         try:
-            target()
-            child_conn.send(None)
-        except BaseException as exc:
-            try:
-                child_conn.send(exc)
-            except Exception:
-                child_conn.send(
-                    RuntimeError(
-                        f"{type(exc).__name__}: {exc}\n"
-                        f"{''.join(traceback.format_tb(exc.__traceback__))}"
-                    )
+            child_conn.send(exc)
+        except Exception:
+            child_conn.send(
+                RuntimeError(
+                    f"{type(exc).__name__}: {exc}\n"
+                    f"{''.join(traceback.format_tb(exc.__traceback__))}"
                 )
-        finally:
-            child_conn.close()
+            )
+    finally:
+        child_conn.close()
 
-    proc = ctx.Process(target=_wrapper)
+
+def _subprocess_target_source(target: Callable[[], None]) -> str:
+    """Return source for a nested test body while preserving traceback lines."""
+    source = textwrap.dedent(inspect.getsource(target))
+    return "\n" * (target.__code__.co_firstlineno - 1) + source
+
+
+def _run_in_subprocess(target: Callable[[], None]) -> None:
+    """Execute ``target()`` in a fresh child process.
+
+    Because each call starts a new child, process-wide side-effects (CPU
+    affinity, NUMA policy, environment variables) never leak into the pytest
+    process. Using ``spawn`` avoids inheriting CUDA/NVML state from previous
+    tests in the parent process. Any exception raised by ``target`` is
+    propagated back to the caller.
+
+    ``spawn`` cannot pickle nested functions directly, but keeping the test
+    body inline makes these tests much easier to read. To support both
+    requirements, the target must be a no-argument function whose source is
+    available via ``inspect.getsource()``. Any nonlocal values captured by the
+    body must be pickleable because they are sent to the spawned child.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe()
+    proc = ctx.Process(
+        target=_subprocess_wrapper,
+        args=(
+            _subprocess_target_source(target),
+            target.__name__,
+            inspect.getclosurevars(target).nonlocals,
+            child_conn,
+        ),
+    )
     proc.start()
     proc.join(timeout=30)
 
