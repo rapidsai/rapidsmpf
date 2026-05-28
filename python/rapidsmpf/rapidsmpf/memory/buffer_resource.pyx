@@ -113,6 +113,9 @@ cdef class BufferResource:
 
     Parameters
     ----------
+    statistics
+        The statistics instance to use. Required. Pass ``Statistics.disabled()`` for a
+        no-op Statistics instance.
     device_mr
         The RMM device memory resource used for device allocations. The
         BufferResource transparently wraps this resource in an internal RMM
@@ -135,9 +138,6 @@ cdef class BufferResource:
         Optional CUDA stream pool to use. If None, a new pool with 16 streams
         will be created. Must be an instance of
         ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
-    statistics
-        The statistics instance to use. Required. Pass
-        ``Statistics.disabled()`` for a no-op recorder.
     """
     def __cinit__(
         self,

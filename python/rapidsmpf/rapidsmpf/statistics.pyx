@@ -189,14 +189,14 @@ cdef class Statistics:
     @classmethod
     def disabled(cls):
         """
-        Get a shared, no-op Statistics instance.
+        Returns a disabled (no-op) Statistics instance.
 
-        Returns the same disabled instance on every call. Use this when an API
-        requires a Statistics object but no recording is desired.
+        Useful when you need to pass a Statistics argument but do not want to
+        collect any data.
 
         Returns
         -------
-        A disabled Statistics instance.
+        A Statistics instance with tracking disabled.
         """
         cdef Statistics ret = cls.__new__(cls)
         with nogil:

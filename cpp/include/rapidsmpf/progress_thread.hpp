@@ -187,24 +187,18 @@ class ProgressThread {
     /**
      * @brief Replace the statistics instance held by this progress thread.
      *
-     * This method pauses the progress loop (via `pause()`) for the duration
-     * of the swap so the loop cannot dereference `statistics_` while it is
-     * being replaced, then restores the prior running state (calls `resume()`
-     * only if the loop was active before the call).
+     * This method pauses the progress loop for the duration of the swap so the loop
+     * cannot dereference `statistics_` while it is being replaced, then restores the
+     * prior running state.
      *
-     * Because `pause()` synchronizes with the loop, this call may block
-     * briefly until the in-flight iteration completes.
-     *
-     * @param statistics The new statistics instance. Must not be null. Pass
-     * `Statistics::disabled()` to opt out of statistics collection.
+     * @param statistics The new statistics instance. Pass `Statistics::disabled()` to opt
+     * out of statistics collection.
      *
      * @throws std::invalid_argument If @p statistics is null. Validated
      * before the pause so a null argument does not leave the progress loop
      * paused.
      *
-     * @warning Concurrent calls to `set_statistics()` are not allowed; the
-     * caller must ensure this method is invoked from a single thread at a
-     * time.
+     * @warning Concurrent calls to `set_statistics()` will result in undefined behavior.
      */
     void set_statistics(std::shared_ptr<Statistics> statistics);
 
