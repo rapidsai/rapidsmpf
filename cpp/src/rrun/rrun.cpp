@@ -319,8 +319,16 @@ std::string get_gpu_pci_bus_id(int gpu_id) {
         return {};
     }
 
+    // cuCascade topology discovery honors CUDA_VISIBLE_DEVICES by filtering
+    // and renumbering GPUs to visible ordinals. `gpu_id` is a physical index,
+    // so inspect the unfiltered topology for this best-effort metadata lookup.
+    ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
     cucascade::memory::topology_discovery discovery;
-    if (!discovery.discover()) {
+    try {
+        if (!discovery.discover()) {
+            return {};
+        }
+    } catch (...) {
         return {};
     }
 
@@ -339,9 +347,10 @@ void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
 
     // Temporarily clear CUDA_VISIBLE_DEVICES so the topology discovery layer
     // sees all physical GPUs. When the variable restricts visibility to a
-    // single device, NVML remaps it to index 0 and a lookup by the real
-    // physical ID would fail. The ScopedEnvVar guard restores the original
-    // value when the scope exits (including on exception).
+    // single device, cuCascade filters and renumbers the returned topology to
+    // visible ordinals. `id` is the physical GPU index to bind to, so a lookup
+    // by that ID must use the unfiltered topology. The ScopedEnvVar guard
+    // restores the original value when the scope exits (including on exception).
     ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
 
     cucascade::memory::topology_discovery discovery;
