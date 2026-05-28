@@ -11,7 +11,6 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.config cimport cpp_Options
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
@@ -31,7 +30,6 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
         bool enabled() except +ex_handler
-        void reset_from_options(cpp_Options options) except +ex_handler
         void add_stat(
             string name,
             double value

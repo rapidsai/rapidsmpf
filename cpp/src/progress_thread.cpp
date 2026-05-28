@@ -119,6 +119,22 @@ std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
     return statistics_;
 }
 
+void ProgressThread::set_statistics(std::shared_ptr<Statistics> statistics) {
+    RAPIDSMPF_EXPECTS(
+        statistics != nullptr,
+        "the statistics pointer cannot be NULL",
+        std::invalid_argument
+    );
+    // Pausing ensures the progress loop is not in the middle of dereferencing
+    // `statistics_` while we swap it. Restore the prior running state on exit.
+    bool const was_running = is_running();
+    pause();
+    statistics_ = std::move(statistics);
+    if (was_running) {
+        resume();
+    }
+}
+
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {

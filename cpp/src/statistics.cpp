@@ -168,34 +168,11 @@ std::shared_ptr<Statistics> Statistics::create(Mode mode) {
     return std::shared_ptr<Statistics>(new Statistics(mode == Mode::Enabled));
 }
 
-namespace {
-bool parse_statistics_option(config::Options& options) {
-    return options.get<bool>("statistics", [](auto const& s) {
+std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
+    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
         return s.empty() ? false : parse_string<bool>(s);
     });
-}
-}  // namespace
-
-std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
-    return create(parse_statistics_option(options) ? Mode::Enabled : Mode::Disabled);
-}
-
-void Statistics::reset_from_options(config::Options new_options) {
-    // Drop pending stream-ordered stop callbacks before the reset so a
-    // late-firing callback cannot write a pre-reset measurement into the
-    // post-reset `stats_`.
-    StreamOrderedTiming::cancel_inflight_timings(this);
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stats_.clear();
-        report_entries_.clear();
-        memory_records_.clear();
-    }
-    if (parse_statistics_option(new_options)) {
-        enable();
-    } else {
-        disable();
-    }
+    return create(statistics ? Mode::Enabled : Mode::Disabled);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {

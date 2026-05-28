@@ -79,7 +79,7 @@ void timing_stop_cb(void* data) {
     lock.unlock();
 
     auto statistics = timing.statistics.lock();
-    if (statistics == nullptr || !statistics->enabled()) {
+    if (statistics == nullptr) {
         // This can happen if the statistics object has gone out of scope before CUDA gets
         // to this stream operation.
         return;

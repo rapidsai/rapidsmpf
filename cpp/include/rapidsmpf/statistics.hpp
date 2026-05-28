@@ -144,24 +144,6 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      */
     static std::shared_ptr<Statistics> from_options(config::Options options);
 
-    /**
-     * @brief Resets the current state of this instance based on @p new_options.
-     *
-     * @warning Live `MemoryRecorder` instances (constructed before this call
-     * but not yet destroyed) are *not* tracked. Their destructors will run
-     * after the reset and publish their scope into the freshly cleared
-     * `memory_records_` map, mixing pre-reset measurements into the new
-     * session. Likewise, a `StreamOrderedTiming` whose stop callback is
-     * already mid-execution at reset time may still record one stale stat
-     * (its global-map entry was extracted before `cancel_inflight_timings`
-     * could remove it). Callers that need clean boundaries must quiesce
-     * recorders and synchronise the relevant CUDA streams before calling.
-     *
-     * @param new_options Configuration options whose `"statistics"` field
-     * controls the new enabled state.
-     */
-    void reset_from_options(config::Options new_options);
-
     ~Statistics() noexcept;
 
     // `Statistics` is owned exclusively through `std::shared_ptr`. Use
@@ -673,6 +655,35 @@ concept StatisticsProvider = requires(T const& t) {
         t.statistics()
     } noexcept -> std::same_as<std::shared_ptr<Statistics>>;
 };
+
+/**
+ * @brief Refinement of `StatisticsProvider` for providers that allow swapping
+ *        their `Statistics` instance at runtime.
+ *
+ * Extends `StatisticsProvider` with a `set_statistics(std::shared_ptr<Statistics>)`
+ * method that replaces the provider's currently held instance with the given one.
+ * The new instance must not be null; implementations are expected to throw
+ * `std::invalid_argument` (or similar) on a null argument and otherwise install
+ * the new instance unconditionally.
+ *
+ * Only `ProgressThread` and `Communicator` — the *root* providers that drive the
+ * shared `Statistics` for an entire RapidsMPF runtime instance — satisfy this
+ * concept. Secondary providers such as `BufferResource` and `streaming::Context`
+ * deliberately do **not** offer mutation: their `Statistics` is fixed at
+ * construction. A typical caller-driven rebuild therefore swaps the instance on
+ * the progress thread and communicator and then constructs a fresh
+ * `streaming::Context` (and the `BufferResource` it owns) with the same new
+ * `Statistics`.
+ *
+ * @warning Concurrent calls to `set_statistics()` are not allowed; the
+ * caller must ensure this method is invoked from a single thread at a
+ * time.
+ */
+template <typename T>
+concept MutableStatisticsProvider =
+    StatisticsProvider<T> && requires(T& t, std::shared_ptr<Statistics> stats) {
+        { t.set_statistics(std::move(stats)) } -> std::same_as<void>;
+    };
 
 /**
  * @brief Macro for automatic memory profiling of a code scope.

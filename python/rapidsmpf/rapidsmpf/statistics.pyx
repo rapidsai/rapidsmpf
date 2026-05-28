@@ -220,30 +220,6 @@ cdef class Statistics:
         """
         return deref(self._handle).enabled()
 
-    def reset_from_options(self, Options new_options not None) -> None:
-        """
-        Resets the current state of the instance based on ``new_options``.
-
-        .. warning::
-           Live :class:`MemoryRecorder` instances (constructed before this
-           call but not yet destroyed) are *not* tracked. Their destructors
-           will run after the reset and publish their scope into the
-           freshly cleared memory records, mixing pre-reset measurements
-           into the new session. Likewise, a stream-ordered timing whose
-           stop callback is already mid-execution at reset time may still
-           record one stale stat (its global-map entry was extracted
-           before the cancellation could remove it). Callers that need
-           clean boundaries must quiesce recorders and synchronise the
-           relevant CUDA streams before calling.
-
-        Parameters
-        ----------
-        new_options
-            New configuration options
-        """
-        with nogil:
-            deref(self._handle).reset_from_options(new_options._handle)
-
     def report(
         self,
         *,
