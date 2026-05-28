@@ -450,7 +450,6 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    auto statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
         log.print(stats->report({
             .mr = stat_enabled_mr,
