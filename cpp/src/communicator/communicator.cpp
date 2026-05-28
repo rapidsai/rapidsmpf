@@ -4,15 +4,13 @@
  */
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 namespace {
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
-    if (str.empty()) {
-        return Communicator::Logger::LOG_LEVEL::WARN;  // Default log level.
-    }
-    auto trimmed = to_upper(trim(str));
+    auto const trimmed = to_upper(trim(str));
     for (std::uint32_t i = 0; i < Communicator::Logger::LOG_LEVEL_NAMES.size(); ++i) {
         auto level = static_cast<Communicator::Logger::LOG_LEVEL>(i);
         if (trimmed == Communicator::Logger::level_name(level)) {

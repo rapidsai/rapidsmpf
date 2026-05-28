@@ -13,6 +13,7 @@
 #include <ucxx/request.h>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -938,9 +939,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 ) {
     auto progress_mode =
         options.get<ProgressMode>("ucxx_progress_mode", [](auto const& s) {
-            if (s.empty()) {
-                return ProgressMode::ThreadBlocking;
-            } else if (s == "blocking") {
+            if (s == "blocking") {
                 return ProgressMode::Blocking;
             } else if (s == "polling") {
                 return ProgressMode::Polling;
