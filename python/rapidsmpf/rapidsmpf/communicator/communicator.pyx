@@ -193,33 +193,6 @@ cdef class Communicator:
         stats._handle = deref(self._handle).statistics()
         return stats
 
-    def set_statistics(self, Statistics statistics not None):
-        """
-        Replace the statistics instance held by this communicator.
-
-        Concrete communicator implementations typically share their statistics
-        instance with their progress thread; when swapping at runtime, the
-        caller is responsible for keeping the two in sync by also calling
-        :meth:`ProgressThread.set_statistics` with the same instance and
-        rebuilding any dependent secondary providers (e.g.
-        :class:`~rapidsmpf.memory.buffer_resource.BufferResource` /
-        :class:`~rapidsmpf.streaming.core.context.Context`) from the same
-        new instance.
-
-        Parameters
-        ----------
-        statistics
-            The new statistics instance. Must not be ``None``. Pass
-            ``Statistics.disabled()`` to opt out of statistics collection.
-
-        Warnings
-        --------
-        Concurrent calls to ``set_statistics`` are not allowed; the caller
-        must ensure this method is invoked from a single thread at a time.
-        """
-        with nogil:
-            deref(self._handle).set_statistics(statistics._handle)
-
     def get_str(self):
         """
         Get a string representation of the communicator.

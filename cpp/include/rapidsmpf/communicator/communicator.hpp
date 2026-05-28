@@ -648,23 +648,6 @@ class Communicator {
     }
 
     /**
-     * @brief Replace the statistics instance held by this communicator.
-     *
-     * Installs @p statistics in place of the current instance. Future
-     * `statistics()` calls return the new instance.
-     *
-     * @param statistics The new statistics instance. Must not be null. Pass
-     * `Statistics::disabled()` to opt out of statistics collection.
-     *
-     * @throws std::invalid_argument If @p statistics is null.
-     *
-     * @warning Concurrent calls to `set_statistics()` are not allowed; the
-     * caller must ensure this method is invoked from a single thread at a
-     * time.
-     */
-    void set_statistics(std::shared_ptr<Statistics> statistics);
-
-    /**
      * @brief Provides a string representation of the communicator.
      * @return A string describing the communicator.
      */
@@ -672,7 +655,6 @@ class Communicator {
 };
 
 static_assert(StatisticsProvider<Communicator>);
-static_assert(MutableStatisticsProvider<Communicator>);
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
 #ifdef RAPIDSMPF_HAVE_UCXX

@@ -21,15 +21,6 @@ Communicator::Communicator(std::shared_ptr<Statistics> statistics)
     );
 }
 
-void Communicator::set_statistics(std::shared_ptr<Statistics> statistics) {
-    RAPIDSMPF_EXPECTS(
-        statistics != nullptr,
-        "Communicator statistics cannot be null",
-        std::invalid_argument
-    );
-    statistics_ = std::move(statistics);
-}
-
 namespace {
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
     if (str.empty()) {

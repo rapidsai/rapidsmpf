@@ -657,35 +657,6 @@ concept StatisticsProvider = requires(T const& t) {
 };
 
 /**
- * @brief Refinement of `StatisticsProvider` for providers that allow swapping
- *        their `Statistics` instance at runtime.
- *
- * Extends `StatisticsProvider` with a `set_statistics(std::shared_ptr<Statistics>)`
- * method that replaces the provider's currently held instance with the given one.
- * The new instance must not be null; implementations are expected to throw
- * `std::invalid_argument` (or similar) on a null argument and otherwise install
- * the new instance unconditionally.
- *
- * Only `ProgressThread` and `Communicator` — the *root* providers that drive the
- * shared `Statistics` for an entire RapidsMPF runtime instance — satisfy this
- * concept. Secondary providers such as `BufferResource` and `streaming::Context`
- * deliberately do **not** offer mutation: their `Statistics` is fixed at
- * construction. A typical caller-driven rebuild therefore swaps the instance on
- * the progress thread and communicator and then constructs a fresh
- * `streaming::Context` (and the `BufferResource` it owns) with the same new
- * `Statistics`.
- *
- * @warning Concurrent calls to `set_statistics()` are not allowed; the
- * caller must ensure this method is invoked from a single thread at a
- * time.
- */
-template <typename T>
-concept MutableStatisticsProvider =
-    StatisticsProvider<T> && requires(T& t, std::shared_ptr<Statistics> stats) {
-        { t.set_statistics(std::move(stats)) } -> std::same_as<void>;
-    };
-
-/**
  * @brief Macro for automatic memory profiling of a code scope.
  *
  * This macro creates a scoped memory recorder that records memory usage statistics

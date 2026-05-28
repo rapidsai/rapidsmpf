@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """The ProgressThread interface for RapidsMPF."""
 
-from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_shared
 
 from rapidsmpf.statistics cimport Statistics
@@ -35,41 +34,6 @@ cdef class ProgressThread:
     ):
         with nogil:
             self._handle = make_shared[cpp_ProgressThread](statistics._handle)
-
-    @property
-    def statistics(self):
-        """
-        Get the statistics instance associated with this progress thread.
-
-        Returns
-        -------
-            The Statistics instance.
-        """
-        cdef Statistics stats = Statistics.__new__(Statistics)
-        stats._handle = deref(self._handle).statistics()
-        return stats
-
-    def set_statistics(self, Statistics statistics not None):
-        """
-        Replace the statistics instance held by this progress thread.
-
-        The underlying C++ implementation pauses the progress loop for the
-        duration of the swap so the loop cannot dereference the held instance
-        while it is being replaced, then restores the prior running state.
-
-        Parameters
-        ----------
-        statistics
-            The new statistics instance. Must not be ``None``. Pass
-            ``Statistics.disabled()`` to opt out of statistics collection.
-
-        Warnings
-        --------
-        Concurrent calls to ``set_statistics`` are not allowed; the caller
-        must ensure this method is invoked from a single thread at a time.
-        """
-        with nogil:
-            deref(self._handle).set_statistics(statistics._handle)
 
     def __dealloc__(self):
         with nogil:
