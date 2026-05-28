@@ -193,23 +193,6 @@ cdef class Communicator:
         stats._handle = deref(self._handle).statistics()
         return stats
 
-    def set_statistics(self, Statistics statistics not None):
-        """
-        Replace the statistics instance held by this communicator.
-
-        Parameters
-        ----------
-        statistics
-            The new statistics instance. Pass ``Statistics.disabled()`` to opt out of
-            statistics collection.
-
-        Warnings
-        --------
-        Concurrent calls to ``set_statistics`` will result in undefined behavior.
-        """
-        with nogil:
-            deref(self._handle).set_statistics(statistics._handle)
-
     def get_str(self):
         """
         Get a string representation of the communicator.

@@ -102,7 +102,7 @@ MPI::MPI(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : Communicator{progress_thread->statistics()},
+    : Communicator{std::move(progress_thread)},
       comm_{comm},
       rank_{[comm]() {
           int r;
@@ -114,8 +114,7 @@ MPI::MPI(
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);
       }()},
-      logger_{std::make_shared<Logger>(rank_, std::move(options))},
-      progress_thread_{std::move(progress_thread)} {
+      logger_{std::make_shared<Logger>(rank_, std::move(options))} {
     check_mpi_thread_support();
 }
 

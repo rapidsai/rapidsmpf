@@ -1131,11 +1131,10 @@ UCXX::UCXX(
     config::Options options,
     std::shared_ptr<ProgressThread> progress_thread
 )
-    : Communicator{progress_thread->statistics()},
+    : Communicator{std::move(progress_thread)},
       shared_resources_(ucxx_initialized_rank->shared_resources_),
       options_{std::move(options)},
-      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
-      progress_thread_{std::move(progress_thread)} {
+      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)} {
     shared_resources_->logger = logger_.get();
 }
 
@@ -1505,7 +1504,7 @@ std::shared_ptr<UCXX> UCXX::split() {
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
     return std::make_shared<UCXX>(
-        std::move(initialized_rank), options_, progress_thread_
+        std::move(initialized_rank), options_, progress_thread()
     );
 }
 

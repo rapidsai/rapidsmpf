@@ -12,22 +12,13 @@
 
 namespace rapidsmpf {
 
-Communicator::Communicator(std::shared_ptr<Statistics> statistics)
-    : statistics_{std::move(statistics)} {
+Communicator::Communicator(std::shared_ptr<ProgressThread> progress_thread)
+    : progress_thread_{std::move(progress_thread)} {
     RAPIDSMPF_EXPECTS(
-        statistics_ != nullptr,
-        "Communicator statistics cannot be null",
+        progress_thread_ != nullptr,
+        "Communicator progress thread cannot be null",
         std::invalid_argument
     );
-}
-
-void Communicator::set_statistics(std::shared_ptr<Statistics> statistics) {
-    RAPIDSMPF_EXPECTS(
-        statistics != nullptr,
-        "Communicator statistics cannot be null",
-        std::invalid_argument
-    );
-    statistics_ = std::move(statistics);
 }
 
 namespace {

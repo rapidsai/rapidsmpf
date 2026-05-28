@@ -405,20 +405,18 @@ class Communicator {
 
   protected:
     /**
-     * @brief Construct the base Communicator with a statistics instance.
+     * @brief Construct the base Communicator with a progress thread.
      *
-     * Derived classes typically forward `progress_thread->statistics()` here so
-     * that the communicator and its progress thread share the same `Statistics`
-     * instance.
+     * The communicator delegates `statistics()` to @p progress_thread so the
+     * two always agree on the current `Statistics` instance, including after
+     * `ProgressThread::set_statistics()` swaps it.
      *
-     * @param statistics The statistics instance to associate with this
-     * communicator. Must not be null.
+     * @param progress_thread The progress thread for this communicator. Must
+     * not be null.
      *
-     * @throws std::invalid_argument If @p statistics is null.
+     * @throws std::invalid_argument If @p progress_thread is null.
      */
-    explicit Communicator(std::shared_ptr<Statistics> statistics);
-
-    std::shared_ptr<Statistics> statistics_;  ///< Statistics instance. Never null.
+    explicit Communicator(std::shared_ptr<ProgressThread> progress_thread);
 
   public:
     virtual ~Communicator() noexcept = default;
@@ -629,50 +627,41 @@ class Communicator {
 
     /**
      * @brief Retrieves the progress thread associated with this communicator.
-     * @return Shared pointer to the progress thread.
+     * @return Shared pointer to the progress thread (never null).
      */
-    [[nodiscard]] virtual std::shared_ptr<ProgressThread> const&
-    progress_thread() const = 0;
+    [[nodiscard]] std::shared_ptr<ProgressThread> const&
+    progress_thread() const noexcept {
+        return progress_thread_;
+    }
 
     /**
      * @brief Retrieves the statistics instance associated with this communicator.
      *
-     * Satisfies the `StatisticsProvider` concept. Returns the instance supplied
-     * to the protected `Communicator` constructor by the concrete implementation
-     * (typically the same instance owned by `progress_thread()`).
+     * Forwards to `progress_thread()->statistics()`, so the communicator and
+     * its progress thread always agree on the current instance — including
+     * after `ProgressThread::set_statistics()` swaps it. Satisfies the
+     * `StatisticsProvider` concept.
      *
      * @return Shared pointer to the statistics instance (never null).
      */
     [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept {
-        return statistics_;
+        return progress_thread_->statistics();
     }
-
-    /**
-     * @brief Replace the statistics instance held by this communicator.
-     *
-     * Installs @p statistics in place of the current instance. Future
-     * `statistics()` calls return the new instance.
-     *
-     * @param statistics The new statistics instance. Must not be null. Pass
-     * `Statistics::disabled()` to opt out of statistics collection.
-     *
-     * @throws std::invalid_argument If @p statistics is null.
-     *
-     * @warning Concurrent calls to `set_statistics()` are not allowed; the
-     * caller must ensure this method is invoked from a single thread at a
-     * time.
-     */
-    void set_statistics(std::shared_ptr<Statistics> statistics);
 
     /**
      * @brief Provides a string representation of the communicator.
      * @return A string describing the communicator.
      */
     [[nodiscard]] virtual std::string str() const = 0;
+
+  private:
+    /// Progress thread owning this communicator's `Statistics` instance.
+    /// Never null after construction. Accessed only through `progress_thread()`
+    /// and `statistics()` so derived classes cannot bypass that contract.
+    std::shared_ptr<ProgressThread> progress_thread_;
 };
 
 static_assert(StatisticsProvider<Communicator>);
-static_assert(MutableStatisticsProvider<Communicator>);
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
 #ifdef RAPIDSMPF_HAVE_UCXX

@@ -38,9 +38,6 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
         string str() except +ex_handler
         shared_ptr[cpp_ProgressThread] progress_thread() except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
-        void set_statistics(
-            shared_ptr[cpp_Statistics] statistics
-        ) except +ex_handler
         shared_ptr[cpp_Logger] logger()
 
 cdef class Communicator:

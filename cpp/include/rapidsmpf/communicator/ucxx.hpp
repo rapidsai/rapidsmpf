@@ -294,14 +294,6 @@ class UCXX final : public Communicator {
     }
 
     /**
-     * @copydoc Communicator::progress_thread
-     */
-    [[nodiscard]] std::shared_ptr<ProgressThread> const&
-    progress_thread() const override {
-        return progress_thread_;
-    }
-
-    /**
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;
@@ -339,7 +331,6 @@ class UCXX final : public Communicator {
     std::shared_ptr<SharedResources> shared_resources_;
     config::Options options_;
     std::shared_ptr<Logger> logger_;
-    std::shared_ptr<ProgressThread> progress_thread_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

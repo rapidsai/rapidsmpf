@@ -192,21 +192,12 @@ class Single final : public Communicator {
     }
 
     /**
-     * @copydoc Communicator::progress_thread
-     */
-    [[nodiscard]] std::shared_ptr<ProgressThread> const&
-    progress_thread() const override {
-        return progress_thread_;
-    }
-
-    /**
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;
 
   private:
     std::shared_ptr<Logger> logger_;
-    std::shared_ptr<ProgressThread> progress_thread_;
 };
 
 static_assert(StatisticsProvider<Single>);
