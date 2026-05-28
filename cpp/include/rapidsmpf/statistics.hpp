@@ -144,6 +144,24 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      */
     static std::shared_ptr<Statistics> from_options(config::Options options);
 
+    /**
+     * @brief Resets the current state of this instance based on @p new_options.
+     *
+     * @warning Live `MemoryRecorder` instances (constructed before this call
+     * but not yet destroyed) are *not* tracked. Their destructors will run
+     * after the reset and publish their scope into the freshly cleared
+     * `memory_records_` map, mixing pre-reset measurements into the new
+     * session. Likewise, a `StreamOrderedTiming` whose stop callback is
+     * already mid-execution at reset time may still record one stale stat
+     * (its global-map entry was extracted before `cancel_inflight_timings`
+     * could remove it). Callers that need clean boundaries must quiesce
+     * recorders and synchronise the relevant CUDA streams before calling.
+     *
+     * @param new_options Configuration options whose `"statistics"` field
+     * controls the new enabled state.
+     */
+    void reset_from_options(config::Options new_options);
+
     ~Statistics() noexcept;
 
     // `Statistics` is owned exclusively through `std::shared_ptr`. Use
