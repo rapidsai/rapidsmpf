@@ -324,7 +324,8 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
-    auto stats = rapidsmpf::Statistics::from_options(options);
+
+    auto stats = rapidsmpf::Statistics::create();
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
