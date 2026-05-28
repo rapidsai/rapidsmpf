@@ -137,6 +137,29 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
 #endif
 }
 
+bool same_nodes(std::vector<int> lhs, std::vector<int> rhs) {
+    std::ranges::sort(lhs);
+    std::ranges::sort(rhs);
+    auto lhs_unique = std::ranges::unique(lhs);
+    auto rhs_unique = std::ranges::unique(rhs);
+    lhs.erase(lhs_unique.begin(), lhs_unique.end());
+    rhs.erase(rhs_unique.begin(), rhs_unique.end());
+    return lhs == rhs;
+}
+
+std::string format_nodes(std::vector<int> const& nodes) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (i > 0) {
+            out << ",";
+        }
+        out << nodes[i];
+    }
+    out << "]";
+    return out.str();
+}
+
 /**
  * @brief Apply topology-based resource bindings for a single GPU and verify
  * that each enabled binding took effect.
@@ -232,6 +255,8 @@ void apply_bindings(
                 "rapidsmpf::rrun::bind(): NUMA memory binding verification failed "
                 "for GPU "
                 + std::to_string(gpu_id)
+                + " (expected: " + format_nodes(expected.memory_binding)
+                + ", actual: " + format_nodes(actual.numa_nodes) + ")"
             );
         }
         if (!result.ucx_ok) {
@@ -407,20 +432,7 @@ binding_validation validate_binding(
     }
 
     if (!expected.memory_binding.empty()) {
-        if (actual.numa_nodes.empty()) {
-            result.numa_ok = false;
-        } else {
-            bool found = false;
-            for (int actual_node : actual.numa_nodes) {
-                if (std::ranges::find(expected.memory_binding, actual_node)
-                    != expected.memory_binding.end())
-                {
-                    found = true;
-                    break;
-                }
-            }
-            result.numa_ok = found;
-        }
+        result.numa_ok = same_nodes(actual.numa_nodes, expected.memory_binding);
     }
 
     if (!expected.network_devices.empty()) {

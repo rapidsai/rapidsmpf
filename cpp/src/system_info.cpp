@@ -21,6 +21,24 @@
 
 namespace rapidsmpf {
 
+#if RAPIDSMPF_HAVE_NUMA
+namespace {
+std::vector<int> bitmask_to_nodes(struct bitmask const* mask) {
+    std::vector<int> ret;
+    if (mask == nullptr) {
+        return ret;
+    }
+
+    for (unsigned int node = 0; node < mask->size; ++node) {
+        if (numa_bitmask_isbitset(mask, node) != 0) {
+            ret.push_back(static_cast<int>(node));
+        }
+    }
+    return ret;
+}
+}  // namespace
+#endif
+
 std::uint64_t get_total_host_memory() noexcept {
     static const std::uint64_t ret = [] {
         auto const page_size = ::sysconf(_SC_PAGE_SIZE);
@@ -52,11 +70,11 @@ int get_current_numa_node() noexcept {
 std::vector<int> get_current_numa_nodes() noexcept {
     std::vector<int> ret;
 #if RAPIDSMPF_HAVE_NUMA
-    int const cpu = ::sched_getcpu();
-    if (numa_available() != -1 && cpu >= 0) {
-        int numa_node = numa_node_of_cpu(cpu);
-        if (numa_node >= 0) {
-            ret.push_back(numa_node);
+    if (numa_available() != -1) {
+        struct bitmask* membind = numa_get_membind();
+        ret = bitmask_to_nodes(membind);
+        if (membind != nullptr) {
+            numa_free_nodemask(membind);
         }
     }
 #endif

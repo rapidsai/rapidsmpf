@@ -338,7 +338,7 @@ class TestValidateBinding:
         assert result.numa_ok is False
         assert result.all_passed() is False
 
-    def test_numa_passes_when_any_node_matches(self) -> None:
+    def test_numa_passes_when_sets_match_ignoring_order(self) -> None:
         actual = ResourceBinding(
             rank=None,
             gpu_id=0,
@@ -347,9 +347,23 @@ class TestValidateBinding:
             numa_nodes=[1, 0],
             ucx_net_devices="",
         )
-        expected = ExpectedBinding(memory_binding=[0])
+        expected = ExpectedBinding(memory_binding=[0, 1])
         result = validate_binding(actual, expected)
         assert result.numa_ok is True
+
+    def test_numa_mismatch_detected_when_actual_has_extra_node(self) -> None:
+        actual = ResourceBinding(
+            rank=None,
+            gpu_id=0,
+            gpu_pci_bus_id="",
+            cpu_affinity="",
+            numa_nodes=[0, 1],
+            ucx_net_devices="",
+        )
+        expected = ExpectedBinding(memory_binding=[0])
+        result = validate_binding(actual, expected)
+        assert result.numa_ok is False
+        assert result.all_passed() is False
 
     def test_ucx_mismatch_detected(self) -> None:
         actual = ResourceBinding(
