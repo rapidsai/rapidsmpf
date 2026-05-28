@@ -226,16 +226,22 @@ def test_Optional_values(input_value: Any, expected: Any) -> None:
 
 def test_Optional_with_options_returns_default_value() -> None:
     opts = Options()
-    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
+    val = opts.get_or_default("my_config_option", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value == 42
 
 
 def test_Optional_overrides_with_disabled_string() -> None:
-    opts = Options({"periodic_spill_check": "off"})
-    val = opts.get_or_default("periodic_spill_check", default_value=Optional(42))
+    opts = Options({"my_config_option": "off"})
+    val = opts.get_or_default("my_config_option", default_value=Optional(42))
     assert isinstance(val, Optional)
     assert val.value is None
+
+
+def test_get_or_default_raises_for_registered_key() -> None:
+    opts = Options()
+    with pytest.raises(ValueError, match="canonical default"):
+        opts.get_or_default("periodic_spill_check", default_value=Optional(42))
 
 
 def test_Optional_default_can_be_none() -> None:
@@ -302,7 +308,7 @@ def test_insert_if_absent_normalizes_keys_before_checking() -> None:
     # Try inserting mixed-case and whitespace-padded keys
     inserted_count = opts.insert_if_absent(
         {
-            " Lowercase_KEY ": "456",  # matches existing after normalization
+            " Lowercase_KEY": "456",  # matches existing after normalization
             "NEW_KEY": "789",  # new key
         }
     )
@@ -600,3 +606,17 @@ def test_context_from_options_can_create_channel() -> None:
         assert ctx is not None
         channel: Channel[Any] = ctx.create_channel()
         assert channel is not None
+
+
+def test_option_keys_round_trip_through_options() -> None:
+    """An Options built with the canonical option keys is read by
+    ``from_options`` as expected.
+    """
+    opts = Options(
+        {
+            "statistics": "True",
+            "num_streams": "8",
+        }
+    )
+    assert Statistics.from_options(opts).enabled is True
+    assert stream_pool_from_options(opts).get_pool_size() == 8

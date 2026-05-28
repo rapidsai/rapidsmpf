@@ -12,6 +12,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
@@ -169,10 +170,8 @@ std::shared_ptr<Statistics> Statistics::create(Mode mode) {
 }
 
 std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
-    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
-        return s.empty() ? false : parse_string<bool>(s);
-    });
-    return create(statistics ? Mode::Enabled : Mode::Disabled);
+    bool const enabled = options.get<bool>("statistics", parse_string<bool>);
+    return create(enabled ? Mode::Enabled : Mode::Disabled);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {

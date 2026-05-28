@@ -15,6 +15,7 @@ from rapidsmpf._detail cimport config_options_get
 import os
 import re
 
+from rapidsmpf.config_defaults import DEFAULTS as _CPP_DEFAULTS
 from rapidsmpf.utils.string import parse_boolean, parse_bytes
 
 
@@ -142,7 +143,10 @@ cdef class Options:
         Raises
         ------
         ValueError
-            If the stored option value cannot be parsed to the required type.
+            If the stored option value cannot be parsed to the required type,
+            or if ``key`` has a canonical default registered in
+            ``rapidsmpf.config_defaults.DEFAULTS`` (call :meth:`get` instead
+            for those options and let the registered default apply).
         TypeError
             If the option has already been accessed with a different return type.
 
@@ -162,6 +166,12 @@ cdef class Options:
         >>> opts.get_or_default("level", default_value="info")
         'info'
         """
+        if key in _CPP_DEFAULTS:
+            raise ValueError(
+                f"option '{key}' has a canonical default in "
+                "rapidsmpf.config_defaults.DEFAULTS; use Options.get() "
+                "and let the registered default apply instead"
+            )
         if isinstance(default_value, bool):
             def factory(option_as_string):
                 if option_as_string:
