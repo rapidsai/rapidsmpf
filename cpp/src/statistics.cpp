@@ -248,10 +248,10 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder(
-    std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+    std::weak_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
     : mr_{std::move(mr)}, stats_{std::move(stats)}, name_{std::move(name)} {
-    RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
+    RAPIDSMPF_EXPECTS(!stats_.expired(), "the statistics cannot be null");
     mr_->begin_scoped_memory_record();
 }
 
@@ -260,13 +260,15 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
         return;  // no-op recorder; nothing was pushed.
     }
     // Always pop to keep the RMM adaptor's per-thread stack balanced, even if
-    // statistics were disabled after construction (in which case skip publish).
+    // statistics were disabled after construction or the owning Statistics
+    // was destroyed/replaced in the meantime (in which case skip publish).
     auto const scope = mr_->end_scoped_memory_record();
-    if (!stats_->enabled()) {
+    auto const stats = stats_.lock();
+    if (!stats || !stats->enabled()) {
         return;
     }
-    std::lock_guard<std::mutex> lock(stats_->mutex_);
-    auto& record = stats_->memory_records_[name_];
+    std::lock_guard<std::mutex> lock(stats->mutex_);
+    auto& record = stats->memory_records_[name_];
     ++record.num_calls;
     record.scoped.add_scope(scope);
     record.global_peak = std::max(record.global_peak, scope.peak());

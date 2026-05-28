@@ -575,14 +575,23 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         /**
          * @brief Constructs an active MemoryRecorder. Pushes a scoped record at
          * construction; the destructor pops it and (if @p stats is still
-         * enabled) publishes it under @p name.
+         * alive and enabled) publishes it under @p name.
          *
-         * @param stats Owning Statistics. Must not be null.
+         * The recorder holds @p stats weakly so it does not extend the
+         * lifetime of the Statistics instance. If the instance has been
+         * destroyed by the time the recorder is destructed (for example
+         * because a `MutableStatisticsProvider` swapped in a new one and
+         * dropped the last strong reference), the destructor still pops the
+         * scoped memory record but does not publish. A `std::shared_ptr<Statistics>`
+         * may be passed directly thanks to the implicit conversion to
+         * `std::weak_ptr`.
+         *
+         * @param stats Owning Statistics. Must not be expired/empty.
          * @param mr RMM resource adaptor providing scoped memory statistics.
          * @param name Name of the scope.
          */
         MemoryRecorder(
-            std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
+            std::weak_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
         );
 
         ~MemoryRecorder();
@@ -595,8 +604,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
       private:
         /// No-op recorder iff `mr_` is `std::nullopt`.
         std::optional<RmmResourceAdaptor> mr_{std::nullopt};
-        /// stats_ != nullptr iff `mr_.has_value()`.
-        std::shared_ptr<Statistics> stats_{nullptr};
+        /// Weak reference to the owning Statistics. Held weakly so that a
+        /// `MutableStatisticsProvider` swap (or any other release of the last
+        /// strong reference) can destroy the original instance without being
+        /// blocked by outstanding recorders. The destructor locks this and
+        /// skips publishing if the instance is no longer alive. Has been
+        /// assigned (possibly to a now-expired pointer) iff `mr_.has_value()`.
+        std::weak_ptr<Statistics> stats_;
         std::string name_{};
     };
 
@@ -666,23 +680,14 @@ concept StatisticsProvider = requires(T const& t) {
  * `std::invalid_argument` (or similar) on a null argument and otherwise install
  * the new instance unconditionally.
  *
- * Only `ProgressThread` and `Communicator` — the *root* providers that drive the
- * shared `Statistics` for an entire RapidsMPF runtime instance — satisfy this
- * concept. Secondary providers such as `BufferResource` and `streaming::Context`
- * deliberately do **not** offer mutation: their `Statistics` is fixed at
- * construction. A typical caller-driven rebuild therefore swaps the instance on
- * the progress thread and communicator and then constructs a fresh
- * `streaming::Context` (and the `BufferResource` it owns) with the same new
- * `Statistics`.
- *
- * @warning Concurrent calls to `set_statistics()` are not allowed; the
- * caller must ensure this method is invoked from a single thread at a
- * time.
+ * @warning Concurrent calls to `set_statistics()` will result in undefined behavior.
  */
 template <typename T>
 concept MutableStatisticsProvider =
     StatisticsProvider<T> && requires(T& t, std::shared_ptr<Statistics> stats) {
-        { t.set_statistics(std::move(stats)) } -> std::same_as<void>;
+        {
+            t.set_statistics(std::move(stats))
+        } -> std::same_as<void>;
     };
 
 /**

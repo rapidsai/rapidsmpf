@@ -37,15 +37,21 @@ class StreamOrderedTiming {
     /**
      * @brief Constructs a StreamOrderedTiming and marks the start position in the stream.
      *
-     * If `statistics` is disabled (e.g. constructed with
+     * If @p statistics is disabled (e.g. constructed with
      * `Statistics::Mode::Disabled`), this is a no-op and subsequent calls to
      * `stop_and_record` will also be no-ops.
      *
+     * @p statistics is held weakly: the timing does not extend the lifetime
+     * of the `Statistics` instance. If the instance is destroyed before the
+     * stream actually executes the stop callback, the recording is skipped
+     * (see `stop_and_record` and `cancel_inflight_timings`).
+     *
      * @param stream The CUDA stream to time.
-     * @param statistics The Statistics object that will receive the duration entry.
+     * @param statistics The Statistics object that will receive the duration
+     * entry. Must not be expired/empty.
      */
     StreamOrderedTiming(
-        rmm::cuda_stream_view stream, std::shared_ptr<Statistics> statistics
+        rmm::cuda_stream_view stream, std::weak_ptr<Statistics> statistics
     );
 
     /**
@@ -94,7 +100,15 @@ class StreamOrderedTiming {
   private:
     std::uintptr_t uid_{0};
     rmm::cuda_stream_view stream_;
-    std::shared_ptr<Statistics> statistics_;
+    /// Weak reference to the owning Statistics. Held weakly so that this
+    /// timing does not extend the lifetime of the instance; the global
+    /// timings map and `cancel_inflight_timings` handle the case where the
+    /// instance is destroyed before the stop callback fires.
+    ///
+    /// Doubles as the active/no-op sentinel: empty (default-constructed)
+    /// for no-op instances (constructor was given a disabled or already-
+    /// destroyed Statistics), non-empty for active instances.
+    std::weak_ptr<Statistics> statistics_;
 };
 
 }  // namespace rapidsmpf

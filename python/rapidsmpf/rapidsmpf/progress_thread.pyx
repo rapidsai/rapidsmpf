@@ -53,20 +53,15 @@ cdef class ProgressThread:
         """
         Replace the statistics instance held by this progress thread.
 
-        The underlying C++ implementation pauses the progress loop for the
-        duration of the swap so the loop cannot dereference the held instance
-        while it is being replaced, then restores the prior running state.
-
         Parameters
         ----------
         statistics
-            The new statistics instance. Must not be ``None``. Pass
-            ``Statistics.disabled()`` to opt out of statistics collection.
+            The new statistics instance. Pass ``Statistics.disabled()`` to opt out of
+            statistics collection.
 
         Warnings
         --------
-        Concurrent calls to ``set_statistics`` are not allowed; the caller
-        must ensure this method is invoked from a single thread at a time.
+        Concurrent calls to ``set_statistics`` will result in undefined behavior.
         """
         with nogil:
             deref(self._handle).set_statistics(statistics._handle)

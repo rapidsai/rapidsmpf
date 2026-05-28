@@ -98,14 +98,15 @@ void timing_stop_cb(void* data) {
 }  // namespace
 
 StreamOrderedTiming::StreamOrderedTiming(
-    rmm::cuda_stream_view stream, std::shared_ptr<Statistics> statistics
+    rmm::cuda_stream_view stream, std::weak_ptr<Statistics> statistics
 )
     : stream_{stream}, statistics_{std::move(statistics)} {
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
-    if (!statistics_->enabled()) {
-        // Reset to nullptr to make the disabled state permanent for this instance.
-        // Otherwise, statistics could be re-enabled between now and stop_and_record().
-        statistics_ = nullptr;
+    auto const stats = statistics_.lock();
+    RAPIDSMPF_EXPECTS(stats != nullptr, "the statistics pointer cannot be NULL");
+    if (!stats->enabled()) {
+        // Reset to an empty weak_ptr so this instance stays a no-op for its
+        // entire lifetime.
+        statistics_.reset();
         return;
     }
     TimePoint const now = Clock::now();
@@ -122,7 +123,16 @@ StreamOrderedTiming::StreamOrderedTiming(
 void StreamOrderedTiming::stop_and_record(
     std::string const& name, std::optional<std::string> stream_delay_name
 ) {
-    if (statistics_ == nullptr) {
+    // Locking the weak_ptr here serves two purposes: (1) it gates the
+    // disabled / no-op case (empty weak_ptr) and the case where the
+    // Statistics has already been destroyed, and (2) it pins the Statistics
+    // alive for the body below, so `~Statistics` (which calls
+    // `cancel_inflight_timings`) cannot run concurrently with our access of
+    // `global_timings_.at(uid_)`.
+    auto const stats = statistics_.lock();
+    if (stats == nullptr) {
+        // Note: intentionally not checking enabled() here so that the timing will be
+        // cleared from the global timings map even if the Statistics is disabled.
         return;
     }
     {

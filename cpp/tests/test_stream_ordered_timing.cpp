@@ -134,13 +134,16 @@ TEST(StreamOrderedTiming, StreamDelay) {
 TEST(StreamOrderedTiming, StatisticsDestroyedBeforeStreamSync) {
     // If the Statistics object is destroyed before the stream callbacks execute,
     // the callbacks detect the expired weak_ptr and return without crashing.
+    // `StreamOrderedTiming` only holds a weak reference, so destroying the last
+    // shared_ptr here destroys `Statistics` immediately and `~Statistics` runs
+    // `cancel_inflight_timings(this)` to drop the in-flight entry.
     rmm::cuda_stream stream;
     {
         auto stats = Statistics::create();
         StreamOrderedTiming timing{stream.view(), stats};
         timing.stop_and_record("my-timing");
-        // Both `timing` and `stats` go out of scope here. The shared_ptr count
-        // drops to zero, destroying Statistics before the stream callbacks run.
+        // `timing` and `stats` go out of scope here; `~Statistics` then
+        // cancels the still-pending stream callback.
     }
     EXPECT_NO_THROW(stream.synchronize());
 }
