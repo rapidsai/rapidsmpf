@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
         memory_limits[rapidsmpf::MemoryType::DEVICE] = args.device_mem_limit_mb << 20;
     }
 
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+    auto stats = rapidsmpf::Statistics::create();
 
     auto pinned_mr = args.pinned_mem_disable
                          ? rapidsmpf::PinnedMemoryResource::Disabled
@@ -458,14 +458,15 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
+    auto statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
-        log.print(ctx->statistics()->report({
+        log.print(statistics->report({
             .mr = stat_enabled_mr,
             .pinned_mr = pinned_mr,
             .header = "Statistics (of the last run):",
         }));
     } else {
-        log.print(ctx->statistics()->report({.header = "Statistics (of the last run):"}));
+        log.print(statistics->report({.header = "Statistics (of the last run):"}));
     }
 
     if (!use_bootstrap) {

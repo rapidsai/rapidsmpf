@@ -491,7 +491,9 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "num_streams": "8",
         }
     )
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    br = BufferResource.from_options(
+        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
+    )
 
     assert br.statistics.enabled
     assert br.stream_pool_size() == 8
@@ -513,7 +515,9 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
 
 def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "ON"})
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    br = BufferResource.from_options(
+        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
+    )
 
     assert br.statistics.enabled
 
@@ -547,7 +551,9 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts) as ctx:
+    with Context.from_options(
+        comm.logger, mr, opts, Statistics.from_options(opts)
+    ) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
         assert ctx.stream_pool_size() == 8
@@ -571,7 +577,9 @@ def test_context_from_options_enables_statistics_when_requested() -> None:
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts) as ctx:
+    with Context.from_options(
+        comm.logger, mr, opts, Statistics.from_options(opts)
+    ) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
 

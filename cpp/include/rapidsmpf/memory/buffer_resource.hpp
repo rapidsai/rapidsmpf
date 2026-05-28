@@ -101,12 +101,15 @@ class BufferResource {
      *
      * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
+     * @param statistics The statistics instance to use (disabled by default).
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        cuda::mr::any_resource<cuda::mr::device_accessible> mr, config::Options options
+        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+        config::Options options,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     ~BufferResource() noexcept = default;
@@ -416,7 +419,7 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
     std::mutex mutex_;
@@ -434,6 +437,8 @@ class BufferResource {
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
+
+static_assert(StatisticsProvider<BufferResource>);
 
 /**
  * @brief Parse the `spill_device_limit` parameter from configuration options.

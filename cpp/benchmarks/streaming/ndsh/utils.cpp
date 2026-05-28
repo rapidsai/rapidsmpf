@@ -144,7 +144,7 @@ create_context(
 
         memory_limits[MemoryType::DEVICE] = static_cast<std::int64_t>(limit_size);
     }
-    auto statistics = std::make_shared<Statistics>(/* enable = */ true);
+    auto statistics = Statistics::create();
 
     RAPIDSMPF_EXPECTS(
         arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),

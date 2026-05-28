@@ -122,12 +122,10 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics,
     std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
       br_{br},
-      statistics_{std::move(statistics)},
       finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id},

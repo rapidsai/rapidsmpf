@@ -205,4 +205,6 @@ class ProgressThread {
     detail::PausableThreadLoop thread_;
 };
 
+static_assert(StatisticsProvider<ProgressThread>);
+
 }  // namespace rapidsmpf
