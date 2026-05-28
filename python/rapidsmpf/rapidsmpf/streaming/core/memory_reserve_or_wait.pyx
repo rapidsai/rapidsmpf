@@ -21,6 +21,8 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 import asyncio
 
+import rapidsmpf.utils.string
+
 # Sentinel indicating that net_memory_delta estimation has not yet been implemented.
 #
 # This value is used when a reasonable estimate of the net memory delta is
@@ -28,7 +30,6 @@ import asyncio
 # since providing a concrete estimate enables better spilling and scheduling
 # decisions.
 missing_net_memory_delta = cpp_missing_net_memory_delta
-
 
 cdef extern from * nogil:
     """
@@ -602,8 +603,10 @@ async def reserve_memory(
     ... )
     """
     if allow_overbooking is None:
-        allow_overbooking = ctx.options().get_or_default(
-            "allow_overbooking_by_default", default_value=True
+        allow_overbooking = ctx.options().get(
+            "allow_overbooking_by_default",
+            return_type=bool,
+            factory=rapidsmpf.utils.string.parse_boolean,
         )
 
     memory = ctx.memory(mem_type)

@@ -10,6 +10,7 @@
 
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -73,29 +74,19 @@ std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
 std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
     config::Options options
 ) {
-    bool const pinned_memory = options.get<bool>("pinned_memory", [](auto const& s) {
-        return s.empty() ? EnabledByDefault : parse_string<bool>(s);
-    });
+    bool const pinned_memory = options.get<bool>("pinned_memory", parse_string<bool>);
 
     if (pinned_memory && is_pinned_memory_resources_supported()) {
         auto const host_memory_per_gpu = get_host_memory_per_gpu();
+        auto const total = safe_cast<double>(host_memory_per_gpu);
         PinnedPoolProperties pool_properties{
             .initial_pool_size = options.get<size_t>(
                 "pinned_initial_pool_size",
-                [&](auto const& s) {
-                    return parse_nbytes_or_percent(
-                        s.empty() ? DefaultInitiPoolSizeFactor : s,
-                        safe_cast<double>(host_memory_per_gpu)
-                    );
-                }
+                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
             ),
             .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size", [&](auto const& s) {
-                    return parse_nbytes_or_percent(
-                        s.empty() ? DefaultMaxPoolSizeFactor : s,
-                        safe_cast<double>(host_memory_per_gpu)
-                    );
-                }
+                "pinned_max_pool_size",
+                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
             )
         };
         return PinnedMemoryResource{get_current_numa_node(), std::move(pool_properties)};
