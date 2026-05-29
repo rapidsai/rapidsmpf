@@ -573,9 +573,15 @@ def stream_pool_from_options(Options options not None):
     Pool of CUDA streams used throughout RapidsMPF for operations that do not take
     an explicit CUDA stream.
     """
-    cdef int pool_size = options.get_or_default("num_streams", default_value=16)
+    cdef int pool_size = options.get(
+        "num_streams",
+        return_type=int,
+        factory=int,
+    )
     if pool_size < 1:
-        raise ValueError("the `num_streams` options must be greater than 0")
+        raise ValueError(
+            "the `num_streams` options must be greater than 0"
+        )
     return CudaStreamPool(
         pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,
