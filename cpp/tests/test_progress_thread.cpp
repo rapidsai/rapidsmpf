@@ -10,6 +10,7 @@
 
 #include <cudf_test/base_fixture.hpp>
 
+#include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -108,4 +109,27 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
     progress_thread.remove_function(id);
 
     future.get();
+}
+
+TEST(ProgressThreadTests, SetStatisticsSingleComm) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "This test is only valid for single communicator";
+    }
+
+    rapidsmpf::config::Options options{};
+    auto stats = rapidsmpf::Statistics::create();
+    auto progress = std::make_shared<ProgressThread>(stats);
+    auto comm = std::make_shared<rapidsmpf::Single>(options, progress);
+
+    auto check_stats = [&](const auto* stats_ptr) {
+        EXPECT_EQ(stats_ptr, progress->statistics().get());
+        EXPECT_EQ(stats_ptr, comm->statistics().get());
+    };
+
+    check_stats(stats.get());
+
+    auto new_stats = rapidsmpf::Statistics::create();
+    progress->set_statistics(new_stats);
+
+    check_stats(new_stats.get());
 }
