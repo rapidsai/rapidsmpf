@@ -142,9 +142,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * `std::shared_ptr<BufferResource>`, for example when storing it in a buffer,
      * wrapper, or other object with an independent lifetime.
      *
-     * For transient cuDF/RMM calls that only need a non-owning
-     * `rmm::device_async_resource_ref`, prefer `device_mr_ref()`.
-     *
      * @return Owning device memory resource handle.
      */
     [[nodiscard]] cuda::mr::any_resource<cuda::mr::device_accessible> device_mr();
@@ -153,13 +150,13 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @brief Get a non-owning reference to the device memory resource.
      *
      * Returns an `rmm::device_async_resource_ref` referring to the device memory
-     * resource managed by this `BufferResource`. The returned reference is inexpensive
-     * to copy and integrates directly with cuDF and RMM APIs that accept
-     * `rmm::device_async_resource_ref`.
+     * resource managed by this `BufferResource`. The returned reference does not
+     * extend the lifetime of the `BufferResource`.
      *
-     * The returned reference does not extend the lifetime of this `BufferResource`. The
-     * caller must ensure the `BufferResource` remains alive for as long as the reference
-     * is used.
+     * This accessor is intended for transient use, for example when passing a
+     * memory resource into a cuDF or RMM API call. It must not be used in storage
+     * paths where the memory resource may outlive the owning `BufferResource`.
+     * For such cases, use `device_mr()` instead.
      *
      * @return Non-owning reference to the device memory resource.
      */
