@@ -20,7 +20,7 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "cuda-python>=13.0.1,<14.0",
-    "cupy-cuda13x>=13.6.0",
+    "cupy-cuda13x>=13.6.0,!=14.0.0,!=14.1.0",
     "librapidsmpf==26.6.*,>=0.0.0a0",
     "numpy >=1.23,<3.0",
     "pylibcudf==26.6.*,>=0.0.0a0",
