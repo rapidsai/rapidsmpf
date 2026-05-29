@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^main$"
+      - "^release/.*"
+      - "^hotfix/.*"
+  ignore_usernames: ["rapids-bot", "GPUtester", "nv-automation-bot", "copy-pr-bot"]
+  tools:
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    gitleaks:
+      enabled: true
+  sequence_diagrams: false
+  collapse_walkthrough: true
+
+  # Reduce noise from status messages
+  request_changes_workflow: false
+  review_status: false
+
+  # Path-specific review instructions. Each entry just routes a path
+  # to the authoritative review checklist; the checklists themselves
+  # (and the cross-cutting orchestration SKILL) are loaded as
+  # knowledge_base below.
+  path_instructions:
+    - path: "cpp/**/*"
+      instructions: |
+        Follow cpp/REVIEW_GUIDELINES.md.
+    - path: "python/**/*"
+      instructions: |
+        Follow python/REVIEW_GUIDELINES.md.
+    - path: "docs/**/*"
+      instructions: |
+        For documentation changes, focus on accuracy (code examples
+        actually compile / run), completeness (API changes — params,
+        return values, errors — documented), clarity (no confusing
+        explanations or missing prerequisites), and consistency
+        (versions, types, terminology match code). Public-API changes
+        without a docs update are HIGH priority.
+    - path: "ci/**/*"
+      instructions: |
+        For CI / build scripts: verify conda environment handling,
+        check that tests requiring a GPU gate on GPU availability,
+        ensure errors are checked with meaningful messages, and
+        prefer `set -euo pipefail` (or equivalent) at the top of new
+        shell scripts.
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    filePatterns:
+      - ".agents/skills/review-rapidsmpf/SKILL.md"
+      - "cpp/REVIEW_GUIDELINES.md"
+      - "python/REVIEW_GUIDELINES.md"
+      - "CONTRIBUTING.md"
+      - "cpp/include/rapidsmpf/error.hpp"
