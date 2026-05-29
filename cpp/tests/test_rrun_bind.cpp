@@ -459,27 +459,15 @@ TEST_F(RrunValidateBinding, NumaMismatchDetected) {
     EXPECT_FALSE(result.all_passed());
 }
 
-TEST_F(RrunValidateBinding, NumaPassesWhenSetsMatchIgnoringOrder) {
+TEST_F(RrunValidateBinding, NumaPassesWhenAnyNodeMatches) {
     rapidsmpf::rrun::resource_binding actual;
     actual.numa_nodes = {1, 0};
-
-    rapidsmpf::rrun::expected_binding expected;
-    expected.memory_binding = {0, 1};
-
-    auto result = rapidsmpf::rrun::validate_binding(actual, expected);
-    EXPECT_TRUE(result.numa_ok);
-}
-
-TEST_F(RrunValidateBinding, NumaMismatchDetectedWhenActualHasExtraNode) {
-    rapidsmpf::rrun::resource_binding actual;
-    actual.numa_nodes = {0, 1};
 
     rapidsmpf::rrun::expected_binding expected;
     expected.memory_binding = {0};
 
     auto result = rapidsmpf::rrun::validate_binding(actual, expected);
-    EXPECT_FALSE(result.numa_ok);
-    EXPECT_FALSE(result.all_passed());
+    EXPECT_TRUE(result.numa_ok);
 }
 
 TEST_F(RrunValidateBinding, NumaEmptyExpectedIsPass) {

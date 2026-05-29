@@ -302,12 +302,9 @@ def bind(
     RuntimeError
         If no GPU ID can be determined, topology discovery fails, the
         resolved GPU is not found in the discovered topology, an
-        enabled CPU or network binding could not be applied, a NUMA
-        memory policy operation fails unexpectedly, or post-bind
-        verification detects a mismatch between the requested and actual
-        state. NUMA memory binding is skipped when the current
-        OS/container does not allow memory-policy syscalls or the
-        requested node is outside the task's allowed memory nodes.
+        enabled binding (CPU affinity, NUMA memory policy, network
+        devices) could not be applied, or post-bind verification
+        detects a mismatch between the requested and actual state.
     ValueError
         If ``gpu_id`` is not a non-negative integer.
     """

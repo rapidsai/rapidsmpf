@@ -17,28 +17,9 @@
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
-#include <numaif.h>
 #endif
 
 namespace rapidsmpf {
-
-#if RAPIDSMPF_HAVE_NUMA
-namespace {
-std::vector<int> bitmask_to_nodes(struct bitmask const* mask) {
-    std::vector<int> ret;
-    if (mask == nullptr) {
-        return ret;
-    }
-
-    for (unsigned int node = 0; node < mask->size; ++node) {
-        if (numa_bitmask_isbitset(mask, node) != 0) {
-            ret.push_back(static_cast<int>(node));
-        }
-    }
-    return ret;
-}
-}  // namespace
-#endif
 
 std::uint64_t get_total_host_memory() noexcept {
     static const std::uint64_t ret = [] {
@@ -71,14 +52,11 @@ int get_current_numa_node() noexcept {
 std::vector<int> get_current_numa_nodes() noexcept {
     std::vector<int> ret;
 #if RAPIDSMPF_HAVE_NUMA
-    if (numa_available() != -1) {
-        struct bitmask* membind = numa_allocate_nodemask();
-        if (membind != nullptr) {
-            int mode = MPOL_DEFAULT;
-            if (get_mempolicy(&mode, membind->maskp, membind->size, nullptr, 0) == 0) {
-                ret = bitmask_to_nodes(membind);
-            }
-            numa_free_nodemask(membind);
+    int const cpu = ::sched_getcpu();
+    if (numa_available() != -1 && cpu >= 0) {
+        int numa_node = numa_node_of_cpu(cpu);
+        if (numa_node >= 0) {
+            ret.push_back(numa_node);
         }
     }
 #endif
