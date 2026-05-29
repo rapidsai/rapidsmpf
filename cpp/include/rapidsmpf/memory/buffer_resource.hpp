@@ -54,8 +54,19 @@ enum class AllowOverbooking : bool {
  * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
  * allocated buffers and memory reservations.
  */
-class BufferResource {
+class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
+    /**
+     * @brief Tag struct used to make `BufferResource`'s constructor effectively
+     * private. The tag is public so that `BufferResource::create` can
+     * forward it, but user code can't write `BufferResource{...}` directly.
+     * All construction must go through `create()` or `from_options()`, which
+     * guarantees the result is owned by a `std::shared_ptr`.
+     */
+    struct PrivateTag {
+        explicit PrivateTag() = default;
+    };
+
     /**
      * @brief Constructs a buffer resource.
      *
@@ -83,6 +94,35 @@ class BufferResource {
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
+        PrivateTag,
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
+        std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    );
+
+    /**
+     * @brief Factory method to construct a `BufferResource` as a `shared_ptr`.
+     *
+     * This is the standard way to construct a `BufferResource`. The returned
+     * handle is the canonical owner; pass `std::shared_ptr<BufferResource>`
+     * (or a raw pointer to it) wherever a `BufferResource` is needed.
+     *
+     * @param device_mr The RMM device memory resource used for device allocations.
+     * @param pinned_mr Pinned host memory resource (or `PinnedMemoryResource::Disabled`).
+     * @param memory_limits Per-`MemoryType` byte limits. Missing entries default to
+     * unlimited.
+     * @param periodic_spill_check Pause between periodic spill checks
+     * (`std::nullopt` disables the dedicated thread).
+     * @param stream_pool CUDA stream pool used for operations without an explicit stream.
+     * @param statistics Statistics instance (defaults to disabled).
+     *
+     * @return A `std::shared_ptr` owning a newly constructed `BufferResource`.
+     */
+    [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
@@ -114,26 +154,38 @@ class BufferResource {
 
     ~BufferResource() noexcept = default;
 
+    /// @brief `BufferResource` is non-copyable, it is owned by `std::shared_ptr`.
+    BufferResource(BufferResource const&) = delete;
+    /// @brief `BufferResource` is non-movable, it is owned by `std::shared_ptr`.
+    BufferResource(BufferResource&&) = delete;
+    /// @brief `BufferResource` is non-copyable.
+    /// @return Reference to this.
+    BufferResource& operator=(BufferResource const&) = delete;
+    /// @brief `BufferResource` is non-movable.
+    /// @return Reference to this.
+    BufferResource& operator=(BufferResource&&) = delete;
+
     /**
      * @brief Get the device memory resource as an owning, type-erased handle.
      *
-     * Returns a copy of the internally stored
-     * `cuda::mr::any_resource<device_accessible>`. The copy is cheap —
-     * `any_resource` of a `shared_resource`-based adaptor shares state via an
-     * internal `shared_ptr`. Because the returned object owns its own
-     * refcounted handle on the underlying adaptor, it remains valid even if
-     * this `BufferResource` is destroyed.
+     * Returns a `cuda::mr::any_resource<device_accessible>` that owns a copy
+     * of the internal `RmmResourceAdaptor` carrying an owning back-pointer
+     * (`shared_ptr<BufferResource>`) to this `BufferResource`. Anything that
+     * stores the returned object — e.g. `rmm::device_buffer`'s internal
+     * `any_resource` member, or a Python `DeviceMemoryResource` wrapper —
+     * keeps this `BufferResource` (including its stream pool, spill
+     * manager, and statistics) alive for as long as the returned MR exists.
      *
-     * Use this when you need to **store** the device MR for the lifetime of
-     * another object (e.g. as the `mr` argument to `rmm::device_buffer`, which
-     * keeps its MR by value). For transient cuDF/RMM calls that take an
-     * `rmm::device_async_resource_ref`, prefer `device_mr_ref()`.
+     * Use this when you need the MR to **outlive** the caller's
+     * `shared_ptr<BufferResource>` (e.g. allocating a device buffer that
+     * is returned out of a scope where the BR is dropped). For transient
+     * cuDF/RMM calls that take an `rmm::device_async_resource_ref` and
+     * complete before the caller's BR ref drops, prefer `device_mr_ref()`.
      *
-     * @return An owning `cuda::mr::any_resource<device_accessible>` handle on
-     * the device memory resource.
+     * @return An owning `cuda::mr::any_resource<device_accessible>` that
+     * keeps this `BufferResource` alive.
      */
-    [[nodiscard]] cuda::mr::any_resource<cuda::mr::device_accessible>
-    device_mr() const noexcept;
+    [[nodiscard]] cuda::mr::any_resource<cuda::mr::device_accessible> device_mr();
 
     /**
      * @brief Get a non-owning reference to the device memory resource.

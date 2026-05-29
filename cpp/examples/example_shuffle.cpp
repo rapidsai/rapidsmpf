@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmpf::BufferResource br{mr};
+    auto br = rapidsmpf::BufferResource::create(mr);
 
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
         comm,
         0,  // op_id
         total_num_partitions,
-        &br,
+        br.get(),
         rapidsmpf::shuffler::Shuffler::round_robin  // partition owner
     );
 
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            &br
+            br.get()
         );
 
     // Now, we can insert the packed partitions into the shuffler. This operation is
@@ -112,10 +112,10 @@ int main(int argc, char** argv) {
         local_outputs.push_back(
             rapidsmpf::unpack_and_concat(
                 rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), &br, rapidsmpf::AllowOverbooking::YES
+                    std::move(packed_chunks), br.get(), rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,
-                &br
+                br.get()
             )
         );
     }

@@ -22,6 +22,7 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
+    PrivateTag,
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
@@ -49,6 +50,25 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+std::shared_ptr<BufferResource> BufferResource::create(
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
+    std::unordered_map<MemoryType, std::int64_t> memory_limits,
+    std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<Statistics> statistics
+) {
+    return std::make_shared<BufferResource>(
+        PrivateTag{},
+        std::move(device_mr),
+        std::move(pinned_mr),
+        std::move(memory_limits),
+        periodic_spill_check,
+        std::move(stream_pool),
+        std::move(statistics)
+    );
+}
+
 std::shared_ptr<BufferResource> BufferResource::from_options(
     cuda::mr::any_resource<cuda::mr::device_accessible> mr,
     config::Options options,
@@ -58,8 +78,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
-
-    return std::make_shared<BufferResource>(
+    return create(
         std::move(mr),
         std::move(pinned_mr),
         std::move(memory_limits),
@@ -94,9 +113,10 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-cuda::mr::any_resource<cuda::mr::device_accessible>
-BufferResource::device_mr() const noexcept {
-    return device_mr_;
+cuda::mr::any_resource<cuda::mr::device_accessible> BufferResource::device_mr() {
+    return cuda::mr::any_resource<cuda::mr::device_accessible>{
+        device_adaptor_.with_buffer_resource_ref(shared_from_this())
+    };
 }
 
 rmm::device_async_resource_ref BufferResource::device_mr_ref() const noexcept {

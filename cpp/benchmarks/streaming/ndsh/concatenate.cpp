@@ -70,7 +70,8 @@ streaming::Actor concatenate(
             chunks.push_back(std::move(chunk));
         }
         auto result = std::make_unique<streaming::TableChunk>(
-            cudf::concatenate(views, concat_stream, ctx->br()->device_mr_ref()), concat_stream
+            cudf::concatenate(views, concat_stream, ctx->br()->device_mr_ref()),
+            concat_stream
         );
         cuda_stream_join(
             chunks | std::views::transform([](auto&& chunk) { return chunk.stream(); }),

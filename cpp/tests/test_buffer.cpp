@@ -53,7 +53,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
             GTEST_SKIP() << "Pinned memory resources are not supported on this system";
         }
 
-        br = std::make_unique<BufferResource>(
+        br = BufferResource::create(
             cudf::get_current_device_resource_ref(),
             PinnedMemoryResource::make_if_available(),
             std::unordered_map<MemoryType, std::int64_t>{},
@@ -73,7 +73,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
     static constexpr std::size_t chunk_size = 1_MiB;
 
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool;
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     std::vector<std::uint8_t> random_data;
 };
 

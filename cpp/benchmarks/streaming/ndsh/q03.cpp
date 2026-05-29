@@ -336,7 +336,8 @@ rapidsmpf::streaming::Actor top_k_by(
     std::ranges::transform(partials, std::back_inserter(views), [](auto& t) {
         return t->view();
     });
-    auto merged = cudf::merge(views, keys, order, {}, out_stream, ctx->br()->device_mr_ref());
+    auto merged =
+        cudf::merge(views, keys, order, {}, out_stream, ctx->br()->device_mr_ref());
     auto result = std::make_unique<cudf::table>(
         cudf::slice(merged->view(), {0, 10}, out_stream),
         out_stream,

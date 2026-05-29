@@ -5,7 +5,7 @@ from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -197,7 +197,7 @@ cdef class BufferResource:
         if self._pinned_mr is not None:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
-            self._handle = make_shared[cpp_BufferResource](
+            self._handle = cpp_BufferResource.create(
                 make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),

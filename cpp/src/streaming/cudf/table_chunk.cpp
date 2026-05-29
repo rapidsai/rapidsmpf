@@ -217,7 +217,8 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 // new host buffer.
                 // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
                 // `cudf::pack()` allocates device memory we haven't reserved.
-                auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr_ref());
+                auto packed_columns =
+                    cudf::pack(table_view(), stream(), br->device_mr_ref());
                 auto packed_data = std::make_unique<PackedData>(
                     std::move(packed_columns.metadata),
                     br->move(std::move(packed_columns.gpu_data), stream())

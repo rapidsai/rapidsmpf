@@ -41,7 +41,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
             16, rmm::cuda_stream::flags::non_blocking
         );
         stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(
+        br = rapidsmpf::BufferResource::create(
             mr_cuda,  // device_mr
             rapidsmpf::PinnedMemoryResource::make_if_available(),  // pinned_mr
             memory_limits,  // memory_limits

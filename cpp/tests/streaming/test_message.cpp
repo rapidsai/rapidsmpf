@@ -18,11 +18,11 @@ using namespace rapidsmpf::streaming;
 class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(cudf::get_current_device_resource_ref());
         stream = cudf::get_default_stream();
     }
 
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
 };
 

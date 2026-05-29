@@ -202,7 +202,9 @@ rapidsmpf::streaming::Actor select_columns_for_groupby(
         auto table = chunk.table_view();
         // l_returnflag, l_linestatus, l_quantity, l_extendedprice
         auto result =
-            cudf::table(table.select({0, 1, 2, 3}), chunk_stream, ctx->br()->device_mr_ref())
+            cudf::table(
+                table.select({0, 1, 2, 3}), chunk_stream, ctx->br()->device_mr_ref()
+            )
                 .release();
         result.reserve(7);
         auto extendedprice = table.column(3);
@@ -253,7 +255,9 @@ static __device__ void calculate_charge(double *charge, double discprice, double
         );
         // l_discount
         result.push_back(
-            std::make_unique<cudf::column>(discount, chunk_stream, ctx->br()->device_mr_ref())
+            std::make_unique<cudf::column>(
+                discount, chunk_stream, ctx->br()->device_mr_ref()
+            )
         );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(

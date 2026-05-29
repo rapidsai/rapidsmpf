@@ -29,6 +29,18 @@ class SpillManager {
      *
      * A spill function takes a requested spill amount as input and returns the actual
      * amount of memory (in bytes) that was spilled.
+     *
+     * @warning Spill functions must not capture an owning reference (a
+     * `shared_ptr<BufferResource>`, a `BufferResource` by value, etc.) to
+     * the `BufferResource` that owns this `SpillManager`. They must also not
+     * capture any object — `Buffer`, `rmm::device_buffer`, or other holder
+     * of memory allocated through `BufferResource::device_mr()` — that
+     * transitively owns the same `BufferResource`. Either case closes a
+     * refcount cycle (BR → SpillManager → SpillFunction → BR), which is
+     * invisible to Python's garbage collector and leaks the resource
+     * unconditionally. Capture raw pointers/references only, and unregister
+     * via `remove_spill_function()` from the owner's destructor before
+     * dropping any buffer-holding members.
      */
     using SpillFunction = std::function<std::size_t(std::size_t)>;
 

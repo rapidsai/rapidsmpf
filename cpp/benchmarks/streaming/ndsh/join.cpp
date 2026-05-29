@@ -69,7 +69,8 @@ coro::task<streaming::Message> broadcast(
             );
         } else {
             RAPIDSMPF_EXPECTS(chunks.size() > 0, "No chunks in broadcast");
-            auto result = cudf::concatenate(views, gather_stream, ctx->br()->device_mr_ref());
+            auto result =
+                cudf::concatenate(views, gather_stream, ctx->br()->device_mr_ref());
             // So that deallocation of the consitutent tables is stream-ordered wrt the
             // concatenation.
             cuda_stream_join(
@@ -93,8 +94,9 @@ coro::task<streaming::Message> broadcast(
             // TODO: If this chunk is already in pack form, this is unnecessary.
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            auto pack =
-                cudf::pack(chunk.table_view(), chunk.stream(), ctx->br()->device_mr_ref());
+            auto pack = cudf::pack(
+                chunk.table_view(), chunk.stream(), ctx->br()->device_mr_ref()
+            );
             auto packed_data = PackedData(
                 std::move(pack.metadata),
                 ctx->br()->move(std::move(pack.gpu_data), chunk.stream())
@@ -243,8 +245,9 @@ streaming::Message inner_join_chunk(
     build_event->stream_wait(chunk_stream);
     auto probe_table = right_chunk.table_view();
     auto probe_keys = probe_table.select(right_on);
-    auto [probe_match, build_match] =
-        joiner.inner_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr_ref());
+    auto [probe_match, build_match] = joiner.inner_join(
+        probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr_ref()
+    );
 
     cudf::column_view build_indices =
         cudf::device_span<cudf::size_type const>(*build_match);
