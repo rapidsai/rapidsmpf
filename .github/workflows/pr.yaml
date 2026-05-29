@@ -61,6 +61,7 @@ jobs:
           - '!.github/release.yml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!SECURITY.md'
           - '!ci/build_wheel*.sh'
           - '!ci/check_style.sh'
           - '!ci/release/update-version.sh'
