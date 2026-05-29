@@ -58,8 +58,6 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
-    // Use `new` rather than `std::make_shared` so the private ctor can be
-    // called via this member function (`make_shared` would need access).
     return std::shared_ptr<BufferResource>{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),

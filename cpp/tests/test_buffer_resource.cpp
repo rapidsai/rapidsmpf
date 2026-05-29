@@ -805,18 +805,18 @@ TEST(BufferResource, DeviceMrOutlivesBufferResource) {
 
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, std::move(owning_mr));
 
-    // Drop the original BR. The wrapper inside `buf`'s `any_resource` owns
-    // the only remaining `shared_ptr<BufferResource>`, so BR (and its
-    // stream pool) must stay alive.
+    // Drop the original BR. The wrapper inside `buf`'s `any_resource` owns the only
+    // remaining `shared_ptr<BufferResource>`, so BR (and its stream pool) must stay
+    // alive.
     br.reset();
     EXPECT_FALSE(weak_br.expired()) << "BR freed while buffer still holds it";
 
-    // Destroy the buffer — its stream-ordered deallocator runs against the
-    // still-alive stream pool. Must not crash.
+    // Destroy the buffer: its stream-ordered deallocator runs against the still-alive
+    // stream pool. Must not crash.
     EXPECT_NO_THROW(buf.reset());
 
-    // After the buffer is gone, no shared_ptr<BR> exists anywhere. If there
-    // were a refcount cycle (e.g. the wrapper's back-ref leaking back into
-    // the original BR), `weak_br` would still be observable here.
+    // After the buffer is gone, no shared_ptr<BR> exists anywhere. If there were a
+    // refcount cycle (e.g. the wrapper's back-ref leaking back into the original BR),
+    // `weak_br` would still be observable here.
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
