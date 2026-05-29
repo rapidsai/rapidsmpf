@@ -7,7 +7,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 
 #include <cuda/memory_resource>
 
@@ -17,8 +16,6 @@
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
-
-class BufferResource;  // defined in memory/buffer_resource.hpp
 
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
@@ -123,36 +120,6 @@ class RmmResourceAdaptor
      * @see begin_scoped_memory_record()
      */
     ScopedMemoryRecord end_scoped_memory_record();
-
-    /**
-     * @brief Return a copy of this adaptor that owns a back-pointer to @p br.
-     *
-     * The returned adaptor shares allocation-tracking state with `*this` via
-     * the underlying `shared_resource` (so allocations through either copy
-     * are accumulated into the same record); it additionally holds an
-     * owning `shared_ptr<BufferResource>` so that anything storing the
-     * returned object (e.g. an `rmm::device_buffer`'s internal
-     * `any_resource`) keeps @p br — including its stream pool, spill
-     * manager, and statistics — alive.
-     *
-     * Used by `BufferResource::device_mr()` to produce a lifetime-safe
-     * owning device memory resource. The original adaptor stored inside
-     * `BufferResource` itself does **not** carry the back-pointer, so no
-     * self-cycle is created.
-     *
-     * @param br The `BufferResource` to keep alive via the returned adaptor.
-     * @return A copy of this adaptor with @p br stored as a back-pointer.
-     */
-    [[nodiscard]] RmmResourceAdaptor with_buffer_resource_ref(
-        std::shared_ptr<BufferResource> br
-    ) const;
-
-  private:
-    /// @brief Optional owning back-pointer to the `BufferResource` containing
-    /// this adaptor. Null in the original adaptor stored inside `BufferResource`
-    /// (to avoid a self-cycle). Populated in copies returned via
-    /// `with_buffer_resource_ref()` / `BufferResource::device_mr()`.
-    std::shared_ptr<BufferResource> br_;
 };
 
 static_assert(cuda::mr::resource_with<RmmResourceAdaptor, cuda::mr::device_accessible>);

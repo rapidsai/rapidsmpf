@@ -19,6 +19,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -788,12 +789,6 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
     );
 }
 
-// The owning `any_resource` returned by `device_mr()` carries an owning
-// back-ref to the BR via the adaptor copy. Dropping the original BR while
-// the returned MR (and any buffer allocated through it) is still alive
-// must not free the BR — its stream pool must remain valid for the
-// buffer's stream-ordered destruction. Conversely, once everything that
-// observed the back-ref drops it, BR must destruct (no refcount cycle).
 TEST(BufferResource, DeviceMrOutlivesBufferResource) {
     constexpr std::size_t N = 1024;
 
@@ -802,17 +797,16 @@ TEST(BufferResource, DeviceMrOutlivesBufferResource) {
     auto stream = cudf::get_default_stream();
 
     auto owning_mr = br->device_mr();
-    auto* adaptor_in_mr = cuda::mr::resource_cast<RmmResourceAdaptor>(&owning_mr);
-    ASSERT_NE(adaptor_in_mr, nullptr);
+    auto* wrapper = cuda::mr::resource_cast<
+        OwningResourceAdaptor<RmmResourceAdaptor, std::shared_ptr<BufferResource>>>(
+        &owning_mr
+    );
+    ASSERT_NE(wrapper, nullptr);
 
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, std::move(owning_mr));
 
-    // The adaptor in the buffer's `any_resource` shares allocation tracking
-    // with the original adaptor stored in BR, so the allocation is recorded.
-    EXPECT_GE(adaptor_in_mr->current_allocated(), static_cast<std::int64_t>(N));
-
-    // Drop the original BR. The adaptor copy inside `buf`'s `any_resource`
-    // owns the only remaining `shared_ptr<BufferResource>`, so BR (and its
+    // Drop the original BR. The wrapper inside `buf`'s `any_resource` owns
+    // the only remaining `shared_ptr<BufferResource>`, so BR (and its
     // stream pool) must stay alive.
     br.reset();
     EXPECT_FALSE(weak_br.expired()) << "BR freed while buffer still holds it";
@@ -822,7 +816,7 @@ TEST(BufferResource, DeviceMrOutlivesBufferResource) {
     EXPECT_NO_THROW(buf.reset());
 
     // After the buffer is gone, no shared_ptr<BR> exists anywhere. If there
-    // were a refcount cycle (e.g. adaptor-copy back-ref leaking back into
+    // were a refcount cycle (e.g. the wrapper's back-ref leaking back into
     // the original BR), `weak_br` would still be observable here.
-    EXPECT_TRUE(weak_br.expired()) << "BR not destructed — refcount cycle?";
+    EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }

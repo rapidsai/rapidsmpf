@@ -15,6 +15,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -22,7 +23,6 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
-    PrivateTag,
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
@@ -58,15 +58,16 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
-    return std::make_shared<BufferResource>(
-        PrivateTag{},
+    // Use `new` rather than `std::make_shared` so the private ctor can be
+    // called via this member function (`make_shared` would need access).
+    return std::shared_ptr<BufferResource>{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
         std::move(stream_pool),
         std::move(statistics)
-    );
+    }};
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
@@ -115,7 +116,7 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
 
 cuda::mr::any_resource<cuda::mr::device_accessible> BufferResource::device_mr() {
     return cuda::mr::any_resource<cuda::mr::device_accessible>{
-        device_adaptor_.with_buffer_resource_ref(shared_from_this())
+        OwningResourceAdaptor{device_adaptor_, shared_from_this()}
     };
 }
 

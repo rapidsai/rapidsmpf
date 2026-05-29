@@ -40,12 +40,4 @@ ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     return get().end_scoped_memory_record();
 }
 
-RmmResourceAdaptor RmmResourceAdaptor::with_buffer_resource_ref(
-    std::shared_ptr<BufferResource> br
-) const {
-    RmmResourceAdaptor copy{*this};
-    copy.br_ = std::move(br);
-    return copy;
-}
-
 }  // namespace rapidsmpf
