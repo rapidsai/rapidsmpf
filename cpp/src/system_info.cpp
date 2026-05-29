@@ -17,6 +17,7 @@
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
+#include <numaif.h>
 #endif
 
 namespace rapidsmpf {
@@ -71,9 +72,12 @@ std::vector<int> get_current_numa_nodes() noexcept {
     std::vector<int> ret;
 #if RAPIDSMPF_HAVE_NUMA
     if (numa_available() != -1) {
-        struct bitmask* membind = numa_get_membind();
-        ret = bitmask_to_nodes(membind);
+        struct bitmask* membind = numa_allocate_nodemask();
         if (membind != nullptr) {
+            int mode = MPOL_DEFAULT;
+            if (get_mempolicy(&mode, membind->maskp, membind->size, nullptr, 0) == 0) {
+                ret = bitmask_to_nodes(membind);
+            }
             numa_free_nodemask(membind);
         }
     }

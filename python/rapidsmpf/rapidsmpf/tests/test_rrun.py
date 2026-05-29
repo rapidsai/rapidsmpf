@@ -2,18 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import base64
 import inspect
-import multiprocessing
 import os
+import pickle
+import subprocess
+import sys
 import textwrap
-import traceback
 from typing import TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from multiprocessing.connection import Connection
 
 from rapidsmpf.rrun import (
     BindingValidation,
@@ -39,37 +40,46 @@ requires_no_launcher = pytest.mark.skipif(
 )
 
 
-def _subprocess_wrapper(
-    target_source: str,
-    target_name: str,
-    closure_vars: dict[str, object],
-    child_conn: Connection,
-) -> None:
-    """Execute a test body reconstructed from source in a spawned child.
+_SUBPROCESS_RUNNER = r"""
+from __future__ import annotations
 
-    This is the top-level callable required by ``multiprocessing`` when using
-    the ``spawn`` start method. The actual test body may still be a nested
-    function inside the test for readability; `_run_in_subprocess()` sends its
-    source and any nonlocal values here, and this wrapper rebuilds and calls it.
-    """
+import base64
+import os
+import pickle
+import sys
+import traceback
+
+import pytest
+
+from rapidsmpf.rrun import (
+    BindingValidation,
+    ExpectedBinding,
+    ResourceBinding,
+    bind,
+    check_binding,
+    validate_binding,
+)
+
+
+def main() -> int:
+    target_source, target_name, target_filename, closure_vars = pickle.loads(
+        base64.b64decode(sys.argv[1])
+    )
+    namespace = globals().copy()
+    namespace.update(closure_vars)
+
     try:
-        namespace = globals().copy()
-        namespace.update(closure_vars)
-        exec(compile(target_source, __file__, "exec"), namespace)
+        exec(compile(target_source, target_filename, "exec"), namespace)
         namespace[target_name]()
-        child_conn.send(None)
-    except BaseException as exc:
-        try:
-            child_conn.send(exc)
-        except Exception:
-            child_conn.send(
-                RuntimeError(
-                    f"{type(exc).__name__}: {exc}\n"
-                    f"{''.join(traceback.format_tb(exc.__traceback__))}"
-                )
-            )
-    finally:
-        child_conn.close()
+    except BaseException:
+        traceback.print_exc()
+        return 1
+
+    return 0
+
+
+raise SystemExit(main())
+"""
 
 
 def _subprocess_target_source(target: Callable[[], None]) -> str:
@@ -78,47 +88,53 @@ def _subprocess_target_source(target: Callable[[], None]) -> str:
     return "\n" * (target.__code__.co_firstlineno - 1) + source
 
 
+def _subprocess_payload(target: Callable[[], None]) -> str:
+    """Serialize an inline test body for execution in a fresh interpreter.
+
+    The test body intentionally stays nested inside each test for readability.
+    Since nested functions are not importable or pickleable, the subprocess gets
+    the body's source and any pickleable nonlocal values instead of a function
+    object.
+    """
+    payload = (
+        _subprocess_target_source(target),
+        target.__name__,
+        target.__code__.co_filename,
+        inspect.getclosurevars(target).nonlocals,
+    )
+    return base64.b64encode(pickle.dumps(payload)).decode("ascii")
+
+
 def _run_in_subprocess(target: Callable[[], None]) -> None:
     """Execute ``target()`` in a fresh child process.
 
     Because each call starts a new child, process-wide side-effects (CPU
     affinity, NUMA policy, environment variables) never leak into the pytest
-    process. Using ``spawn`` avoids inheriting CUDA/NVML state from previous
-    tests in the parent process. Any exception raised by ``target`` is
-    propagated back to the caller.
+    process. Launching a new Python interpreter avoids inheriting CUDA/NVML
+    state from previous tests in the parent process.
 
-    ``spawn`` cannot pickle nested functions directly, but keeping the test
-    body inline makes these tests much easier to read. To support both
-    requirements, the target must be a no-argument function whose source is
-    available via ``inspect.getsource()``. Any nonlocal values captured by the
-    body must be pickleable because they are sent to the spawned child.
+    The target must be a no-argument function whose source is available via
+    ``inspect.getsource()``. This requirement keeps the body inline in the test
+    while still avoiding ``fork``; any nonlocal values captured by the body must
+    be pickleable because they are sent to the fresh interpreter.
     """
-    ctx = multiprocessing.get_context("spawn")
-    parent_conn, child_conn = ctx.Pipe()
-    proc = ctx.Process(
-        target=_subprocess_wrapper,
-        args=(
-            _subprocess_target_source(target),
-            target.__name__,
-            inspect.getclosurevars(target).nonlocals,
-            child_conn,
-        ),
-    )
-    proc.start()
-    proc.join(timeout=30)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _SUBPROCESS_RUNNER, _subprocess_payload(target)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Subprocess timed out after 30 seconds") from exc
 
-    if proc.is_alive():
-        proc.kill()
-        proc.join()
-        raise RuntimeError("Subprocess timed out after 30 seconds")
-
-    if parent_conn.poll():
-        exc = parent_conn.recv()
-        if exc is not None:
-            raise exc
-
-    if proc.exitcode != 0:
-        raise RuntimeError(f"Subprocess exited with code {proc.exitcode}")
+    if proc.returncode != 0:
+        output = (proc.stderr or proc.stdout).strip()
+        message = f"Subprocess exited with code {proc.returncode}"
+        if output:
+            message += f"\n{output}"
+        raise RuntimeError(message)
 
 
 class TestBindResolution:

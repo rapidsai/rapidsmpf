@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
@@ -17,6 +18,7 @@
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
+#include <numaif.h>
 #endif
 
 #include <cucascade/memory/topology_discovery.hpp>
@@ -103,21 +105,62 @@ bool set_cpu_affinity(std::string const& cpu_affinity_list) {
  * @brief Set NUMA memory binding for the current process.
  *
  * @param memory_binding Vector of NUMA node IDs to bind memory to.
- * @return true on success, false on failure or if NUMA is not available.
+ * @return status indicating whether binding was applied, unavailable, or failed.
  */
-bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
+enum class numa_binding_status {
+    applied,
+    unavailable,
+    failed
+};
+
 #if RAPIDSMPF_HAVE_NUMA
-    if (memory_binding.empty()) {
+bool node_is_allowed(struct bitmask const* allowed_nodes, int node) {
+    return node >= 0 && allowed_nodes != nullptr
+           && static_cast<unsigned int>(node) < allowed_nodes->size
+           && numa_bitmask_isbitset(allowed_nodes, static_cast<unsigned int>(node)) != 0;
+}
+
+bool all_nodes_allowed(std::vector<int> const& memory_binding) {
+    struct bitmask* allowed_nodes = numa_allocate_nodemask();
+    if (allowed_nodes == nullptr) {
         return false;
     }
 
-    if (numa_available() == -1) {
+    int mode = 0;
+    errno = 0;
+    long const rc = get_mempolicy(
+        &mode, allowed_nodes->maskp, allowed_nodes->size, nullptr, MPOL_F_MEMS_ALLOWED
+    );
+    if (rc != 0) {
+        numa_free_nodemask(allowed_nodes);
         return false;
+    }
+
+    bool allowed = std::ranges::all_of(memory_binding, [&](int node) {
+        return node_is_allowed(allowed_nodes, node);
+    });
+    numa_free_nodemask(allowed_nodes);
+    return allowed;
+}
+#endif
+
+numa_binding_status set_numa_memory_binding(std::vector<int> const& memory_binding) {
+#if RAPIDSMPF_HAVE_NUMA
+    if (memory_binding.empty()) {
+        return numa_binding_status::unavailable;
+    }
+
+    if (numa_available() == -1) {
+        return numa_binding_status::unavailable;
+    }
+
+    if (!all_nodes_allowed(memory_binding)) {
+        return numa_binding_status::unavailable;
     }
 
     struct bitmask* nodemask = numa_allocate_nodemask();
     if (!nodemask) {
-        return false;
+        return numa_binding_status::failed;
     }
 
     numa_bitmask_clearall(nodemask);
@@ -127,13 +170,22 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
         }
     }
 
-    numa_set_membind(nodemask);
+    errno = 0;
+    long const rc = set_mempolicy(MPOL_BIND, nodemask->maskp, nodemask->size);
     numa_free_nodemask(nodemask);
 
-    return true;
+    if (rc == 0) {
+        return numa_binding_status::applied;
+    }
+
+    if (errno == EPERM || errno == ENOSYS) {
+        return numa_binding_status::unavailable;
+    }
+
+    return numa_binding_status::failed;
 #else
     std::ignore = memory_binding;
-    return false;
+    return numa_binding_status::unavailable;
 #endif
 }
 
@@ -182,6 +234,8 @@ void apply_bindings(
     unsigned int gpu_id,
     bind_options const& options
 ) {
+    bool verify_memory_binding = false;
+
     if (options.cpu && !gpu_info.cpu_affinity_list.empty()) {
         if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
             throw std::runtime_error(
@@ -192,7 +246,9 @@ void apply_bindings(
     }
 
     if (options.memory && !gpu_info.memory_binding.empty()) {
-        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
+        numa_binding_status const status =
+            set_numa_memory_binding(gpu_info.memory_binding);
+        if (status == numa_binding_status::failed) {
 #if RAPIDSMPF_HAVE_NUMA
             throw std::runtime_error(
                 "rapidsmpf::rrun::bind(): failed to set NUMA memory binding for GPU "
@@ -200,6 +256,7 @@ void apply_bindings(
             );
 #endif
         }
+        verify_memory_binding = status == numa_binding_status::applied;
     }
 
     if (options.network && !gpu_info.network_devices.empty()) {
@@ -223,7 +280,7 @@ void apply_bindings(
         if (options.cpu) {
             expected.cpu_affinity = gpu_info.cpu_affinity_list;
         }
-        if (options.memory) {
+        if (options.memory && verify_memory_binding) {
             expected.memory_binding = gpu_info.memory_binding;
         }
         if (options.network) {
@@ -234,7 +291,7 @@ void apply_bindings(
         if (options.cpu) {
             actual.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
         }
-        if (options.memory) {
+        if (options.memory && verify_memory_binding) {
             actual.numa_nodes = rapidsmpf::get_current_numa_nodes();
         }
         if (options.network) {
