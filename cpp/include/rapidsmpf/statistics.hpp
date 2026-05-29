@@ -680,7 +680,9 @@ concept StatisticsProvider = requires(T const& t) {
  * `std::invalid_argument` (or similar) on a null argument and otherwise install
  * the new instance unconditionally.
  *
- * @warning Concurrent calls to `set_statistics()` will result in undefined behavior.
+ * @warning Concurrent calls to `set_statistics()` are implementation-defined and
+ * likely result in undefined behavior unless the implementation explicitly
+ * documents otherwise. Callers should assume external synchronization is required.
  */
 template <typename T>
 concept MutableStatisticsProvider =

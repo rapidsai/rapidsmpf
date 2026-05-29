@@ -317,7 +317,14 @@ int main(int argc, char** argv) {
     set_current_rmm_resource(args.rmm_mr);
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{stats, mr};
+    BufferResource br{
+        stats,
+        mr,
+        PinnedMemoryResource::Disabled,
+        {},
+        std::chrono::milliseconds{1},
+        std::make_shared<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
+    };
 
     // Print benchmark/hardware info.
     {

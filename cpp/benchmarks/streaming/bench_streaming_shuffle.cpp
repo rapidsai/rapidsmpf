@@ -370,7 +370,12 @@ int main(int argc, char** argv) {
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = std::make_shared<rapidsmpf::BufferResource>(
-        stats, stat_enabled_mr, pinned_mr, std::move(memory_limits)
+        stats,
+        stat_enabled_mr,
+        pinned_mr,
+        std::move(memory_limits),
+        std::nullopt,
+        std::make_shared<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
     auto& log = *comm->logger();

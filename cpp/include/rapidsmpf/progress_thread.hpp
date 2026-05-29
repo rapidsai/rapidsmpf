@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -187,18 +188,13 @@ class ProgressThread {
     /**
      * @brief Replace the statistics instance held by this progress thread.
      *
-     * This method pauses the progress loop for the duration of the swap so the loop
-     * cannot dereference `statistics_` while it is being replaced, then restores the
-     * prior running state.
+     * The swap is performed atomically so the progress loop can safely
+     * dereference `statistics_` concurrently with this call.
      *
      * @param statistics The new statistics instance. Pass `Statistics::disabled()` to opt
      * out of statistics collection.
      *
-     * @throws std::invalid_argument If @p statistics is null. Validated
-     * before the pause so a null argument does not leave the progress loop
-     * paused.
-     *
-     * @warning Concurrent calls to `set_statistics()` will result in undefined behavior.
+     * @throws std::invalid_argument If @p statistics is null.
      */
     void set_statistics(std::shared_ptr<Statistics> statistics);
 
@@ -211,7 +207,7 @@ class ProgressThread {
      */
     void event_loop();
 
-    std::shared_ptr<Statistics> statistics_;
+    std::atomic<std::shared_ptr<Statistics>> statistics_;
     bool is_thread_initialized_{false};
     bool active_{false};
     mutable std::mutex mutex_;

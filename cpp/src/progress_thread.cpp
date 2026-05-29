@@ -37,7 +37,9 @@ ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration 
           },
           sleep
       ) {
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        statistics_.load() != nullptr, "the statistics pointer cannot be NULL"
+    );
 }
 
 ProgressThread::~ProgressThread() {
@@ -116,7 +118,7 @@ bool ProgressThread::is_running() const {
 }
 
 std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
-    return statistics_;
+    return statistics_.load();
 }
 
 void ProgressThread::set_statistics(std::shared_ptr<Statistics> statistics) {
@@ -125,14 +127,7 @@ void ProgressThread::set_statistics(std::shared_ptr<Statistics> statistics) {
         "the statistics pointer cannot be NULL",
         std::invalid_argument
     );
-    // Pausing ensures the progress loop is not in the middle of dereferencing
-    // `statistics_` while we swap it. Restore the prior running state on exit.
-    bool const was_running = is_running();
-    pause();
-    statistics_ = std::move(statistics);
-    if (was_running) {
-        resume();
-    }
+    statistics_.store(std::move(statistics));
 }
 
 void ProgressThread::event_loop() {
@@ -147,7 +142,9 @@ void ProgressThread::event_loop() {
     // Notify all waiting functions that we've completed an iteration
     cv_.notify_all();
 
-    statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
+    statistics_.load()->add_duration_stat(
+        "event-loop-total", Clock::now() - t0_event_loop
+    );
 }
 
 }  // namespace rapidsmpf
