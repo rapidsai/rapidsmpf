@@ -94,7 +94,12 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
+cuda::mr::any_resource<cuda::mr::device_accessible>
+BufferResource::device_mr() const noexcept {
+    return device_mr_;
+}
+
+rmm::device_async_resource_ref BufferResource::device_mr_ref() const noexcept {
     return rmm::device_async_resource_ref{
         const_cast<cuda::mr::any_resource<cuda::mr::device_accessible>&>(device_mr_)
     };

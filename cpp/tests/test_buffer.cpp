@@ -91,7 +91,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     ASSERT_NE(stream1.value(), stream2.value());
 
     auto rmm_buffer = std::make_unique<rmm::device_buffer>(
-        random_data.data(), buffer_size, stream1, br->device_mr()
+        random_data.data(), buffer_size, stream1, br->device_mr_ref()
     );
 
     auto [reserve1, overbooking1] =

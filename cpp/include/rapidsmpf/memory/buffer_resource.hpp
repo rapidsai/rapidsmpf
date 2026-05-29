@@ -115,11 +115,43 @@ class BufferResource {
     ~BufferResource() noexcept = default;
 
     /**
-     * @brief Get the RMM device memory resource.
+     * @brief Get the device memory resource as an owning, type-erased handle.
      *
-     * @return Reference to the RMM resource used for device allocations.
+     * Returns a copy of the internally stored
+     * `cuda::mr::any_resource<device_accessible>`. The copy is cheap —
+     * `any_resource` of a `shared_resource`-based adaptor shares state via an
+     * internal `shared_ptr`. Because the returned object owns its own
+     * refcounted handle on the underlying adaptor, it remains valid even if
+     * this `BufferResource` is destroyed.
+     *
+     * Use this when you need to **store** the device MR for the lifetime of
+     * another object (e.g. as the `mr` argument to `rmm::device_buffer`, which
+     * keeps its MR by value). For transient cuDF/RMM calls that take an
+     * `rmm::device_async_resource_ref`, prefer `device_mr_ref()`.
+     *
+     * @return An owning `cuda::mr::any_resource<device_accessible>` handle on
+     * the device memory resource.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
+    [[nodiscard]] cuda::mr::any_resource<cuda::mr::device_accessible>
+    device_mr() const noexcept;
+
+    /**
+     * @brief Get a non-owning reference to the device memory resource.
+     *
+     * Returns an `rmm::device_async_resource_ref` pointing into this
+     * `BufferResource`'s internal storage. The ref is cheap to obtain and
+     * binds directly to cuDF/RMM APIs that take
+     * `rmm::device_async_resource_ref` parameters. The caller must keep this
+     * `BufferResource` alive for as long as the returned ref is in use.
+     *
+     * This is the right accessor for the common case of passing the device
+     * MR to a cuDF/RMM function call. Use `device_mr()` (owning) when the MR
+     * needs to outlive this `BufferResource`.
+     *
+     * @return Non-owning `rmm::device_async_resource_ref` into BR-owned
+     * storage.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref device_mr_ref() const noexcept;
 
     /**
      * @brief Get the RMM host memory resource.

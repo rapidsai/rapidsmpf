@@ -52,7 +52,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
                 i,
                 std::make_unique<TableChunk>(
                     std::make_unique<cudf::table>(
-                        expects[i], stream, ctx->br()->device_mr()
+                        expects[i], stream, ctx->br()->device_mr_ref()
                     ),
                     stream
                 )

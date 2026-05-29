@@ -62,7 +62,7 @@ inline Actor random_table_generator(
             seq,
             std::make_unique<TableChunk>(
                 std::make_unique<cudf::table>(random_table(
-                    ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
+                    ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr_ref()
                 )),
                 stream
             )

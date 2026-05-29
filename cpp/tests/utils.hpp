@@ -204,7 +204,7 @@ template <std::integral T = std::int64_t>
     std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
 
     auto data = std::make_unique<rmm::device_buffer>(
-        values.data(), n_elements * sizeof(int), stream, br.device_mr()
+        values.data(), n_elements * sizeof(int), stream, br.device_mr_ref()
     );
 
     return {std::move(metadata), br.move(std::move(data), stream)};

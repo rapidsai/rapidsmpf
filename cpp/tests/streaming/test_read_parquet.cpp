@@ -261,7 +261,7 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         );
         chunk = chunk.make_available(reservation);
         auto packed_columns =
-            cudf::pack(chunk.table_view(), chunk.stream(), br->device_mr());
+            cudf::pack(chunk.table_view(), chunk.stream(), br->device_mr_ref());
         auto packed_data = PackedData{
             std::move(packed_columns.metadata),
             br->move(std::move(packed_columns.gpu_data), chunk.stream())

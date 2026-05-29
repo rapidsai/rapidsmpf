@@ -26,7 +26,7 @@ Actor BloomFilter::build(
     co_await ch_in->shutdown_metadata();
     co_await ch_out->shutdown_metadata();
     auto const& br = ctx_->br();
-    auto mr = br->device_mr();
+    auto mr = br->device_mr_ref();
     auto filter_stream = br->stream_pool().get_stream();
     CudaEvent event;
     auto storage = rapidsmpf::BloomFilter::storage(num_filter_blocks_, filter_stream, mr);
@@ -127,7 +127,7 @@ Actor BloomFilter::apply(
                            0
                        );
         auto mask = filter.contains(
-            chunk.table_view().select(keys), chunk_stream, ctx_->br()->device_mr()
+            chunk.table_view().select(keys), chunk_stream, ctx_->br()->device_mr_ref()
         );
         cuda_stream_join(stream, chunk_stream, &event);
         RAPIDSMPF_EXPECTS(
@@ -142,7 +142,7 @@ Actor BloomFilter::apply(
             0
         };
         auto result = cudf::apply_boolean_mask(
-            chunk.table_view(), mask_view, chunk_stream, ctx_->br()->device_mr()
+            chunk.table_view(), mask_view, chunk_stream, ctx_->br()->device_mr_ref()
         );
         std::ignore = std::move(chunk);
         std::ignore = std::move(res);

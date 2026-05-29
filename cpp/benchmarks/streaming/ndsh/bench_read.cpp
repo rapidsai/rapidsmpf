@@ -413,7 +413,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

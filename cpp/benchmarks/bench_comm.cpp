@@ -220,7 +220,7 @@ Duration run(
             auto [res, _] =
                 br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
             auto buf = br->make_buffer(args.msg_size, stream, res);
-            random_fill(*buf, br->device_mr());
+            random_fill(*buf, br->device_mr_ref());
             send_bufs.push_back(std::move(buf));
             recv_bufs.push_back(br->make_buffer(args.msg_size, stream, res));
         }

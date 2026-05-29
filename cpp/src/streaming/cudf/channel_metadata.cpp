@@ -89,14 +89,14 @@ bool OrderScheme::boundaries_aligned_with(
             cudf::binary_operator::NULL_EQUALS,
             cudf::data_type{cudf::type_id::BOOL8},
             stream,
-            br.device_mr()
+            br.device_mr_ref()
         );
         auto result = cudf::reduce(
             eq->view(),
             *cudf::make_all_aggregation<cudf::reduce_aggregation>(),
             cudf::data_type{cudf::type_id::BOOL8},
             stream,
-            br.device_mr()
+            br.device_mr_ref()
         );
         auto& scalar = static_cast<cudf::numeric_scalar<bool>&>(*result);
         if (!scalar.value(stream)) {

@@ -181,7 +181,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 auto statistics = br->statistics();
                 StreamOrderedTiming timing{stream(), statistics};
                 auto table = std::make_unique<cudf::table>(
-                    table_view(), stream(), br->device_mr()
+                    table_view(), stream(), br->device_mr_ref()
                 );
                 statistics->record_copy(
                     MemoryType::DEVICE, MemoryType::DEVICE, nbytes, std::move(timing)
@@ -217,7 +217,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                 // new host buffer.
                 // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
                 // `cudf::pack()` allocates device memory we haven't reserved.
-                auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr());
+                auto packed_columns = cudf::pack(table_view(), stream(), br->device_mr_ref());
                 auto packed_data = std::make_unique<PackedData>(
                     std::move(packed_columns.metadata),
                     br->move(std::move(packed_columns.gpu_data), stream())
@@ -269,7 +269,7 @@ std::unique_ptr<PackedData> TableChunk::into_packed_data(BufferResource* br) && 
     );
     // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
     // `cudf::pack()` allocates device memory we haven't reserved.
-    auto packed_columns = cudf::pack(table_view_.value(), stream_, br->device_mr());
+    auto packed_columns = cudf::pack(table_view_.value(), stream_, br->device_mr_ref());
     table_view_ = std::nullopt;
     return std::make_unique<PackedData>(
         std::move(packed_columns.metadata),

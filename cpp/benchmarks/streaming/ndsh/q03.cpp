@@ -234,19 +234,19 @@ rapidsmpf::streaming::Actor select_columns_for_groupby(
         // o_orderkey
         result.push_back(
             std::make_unique<cudf::column>(
-                table.column(0), chunk_stream, ctx->br()->device_mr()
+                table.column(0), chunk_stream, ctx->br()->device_mr_ref()
             )
         );
         // o_orderdate
         result.push_back(
             std::make_unique<cudf::column>(
-                table.column(1), chunk_stream, ctx->br()->device_mr()
+                table.column(1), chunk_stream, ctx->br()->device_mr_ref()
             )
         );
         // o_shippriority
         result.push_back(
             std::make_unique<cudf::column>(
-                table.column(2), chunk_stream, ctx->br()->device_mr()
+                table.column(2), chunk_stream, ctx->br()->device_mr_ref()
             )
         );
         auto extendedprice = table.column(3);
@@ -270,7 +270,7 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
                 std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
-                ctx->br()->device_mr()
+                ctx->br()->device_mr_ref()
             )
         );
         co_await ch_out->send(
@@ -311,7 +311,7 @@ rapidsmpf::streaming::Actor top_k_by(
             order,
             {},
             chunk.stream(),
-            ctx->br()->device_mr()
+            ctx->br()->device_mr_ref()
         );
         partials.push_back(
             cudf::gather(
@@ -319,7 +319,7 @@ rapidsmpf::streaming::Actor top_k_by(
                 cudf::split(indices->view(), {k}, chunk.stream()).front(),
                 cudf::out_of_bounds_policy::DONT_CHECK,
                 chunk.stream(),
-                ctx->br()->device_mr()
+                ctx->br()->device_mr_ref()
             )
         );
         chunk_streams.push_back(chunk.stream());
@@ -336,11 +336,11 @@ rapidsmpf::streaming::Actor top_k_by(
     std::ranges::transform(partials, std::back_inserter(views), [](auto& t) {
         return t->view();
     });
-    auto merged = cudf::merge(views, keys, order, {}, out_stream, ctx->br()->device_mr());
+    auto merged = cudf::merge(views, keys, order, {}, out_stream, ctx->br()->device_mr_ref());
     auto result = std::make_unique<cudf::table>(
         cudf::slice(merged->view(), {0, 10}, out_stream),
         out_stream,
-        ctx->br()->device_mr()
+        ctx->br()->device_mr_ref()
     );
     co_await ch_out->send(
         rapidsmpf::streaming::to_message(
@@ -381,7 +381,7 @@ rapidsmpf::streaming::Actor fanout_bounded(
                     std::make_unique<cudf::table>(
                         chunk.table_view().select(ch1_cols),
                         chunk.stream(),
-                        ctx->br()->device_mr()
+                        ctx->br()->device_mr_ref()
                     ),
                     chunk.stream()
                 )
@@ -697,7 +697,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

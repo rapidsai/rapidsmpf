@@ -36,7 +36,7 @@ rapidsmpf::streaming::Actor chunkwise_sort_by(
                 order,
                 null_order,
                 chunk.stream(),
-                ctx->br()->device_mr()
+                ctx->br()->device_mr_ref()
             );
         } else {
             return cudf::sort_by_key(
@@ -45,7 +45,7 @@ rapidsmpf::streaming::Actor chunkwise_sort_by(
                 order,
                 null_order,
                 chunk.stream(),
-                ctx->br()->device_mr()
+                ctx->br()->device_mr_ref()
             );
         }
     };
