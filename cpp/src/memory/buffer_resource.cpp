@@ -66,12 +66,16 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(stream_pool),
         std::move(statistics)
     }};
-    // Install the owning adaptor *after* construction so that
-    // `weak_from_this()` is valid. The adaptor holds only a `weak_ptr` to
-    // `*br` so no refcount cycle. Copies of the adaptor (made by CCCL's
-    // `any_resource(resource_ref)` deep-copy in downstream consumers) promote
-    // that weak ref to a `shared_ptr<BufferResource>`, transferring ownership
-    // to the copy.
+
+    // Install the owning adaptor *after* construction so that `weak_from_this()` is
+    // valid.
+    //
+    // The adaptor stored inside `BufferResource` itself holds only a `weak_ptr`, avoiding
+    // a reference cycle. When downstream code promotes `device_mr()` from a non-owning
+    // `resource_ref` to an owning `cuda::mr::any_resource` (for example internally in
+    // `rmm::device_buffer`), CCCL deep-copies the adaptor. That copy promotes the weak
+    // ref to a `shared_ptr<BufferResource>`, ensuring the `BufferResource` stays alive
+    // for as long as the owning resource exists.
     br->owning_mr_.emplace(br->device_adaptor_, br->weak_from_this());
     return br;
 }
