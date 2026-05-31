@@ -23,6 +23,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -133,34 +134,55 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     BufferResource& operator=(BufferResource&&) = delete;
 
     /**
-     * @brief Get the device memory resource as an owning, type-erased handle.
+     * @brief Get the device memory resource.
      *
-     * The returned memory resource keeps this `BufferResource` alive for as long
-     * as the returned handle exists.
+     * @return `rmm::device_async_resource_ref` to the device memory resource.
      *
-     * Use this accessor when the memory resource may outlive the caller's
-     * `std::shared_ptr<BufferResource>`, for example when storing it in a buffer,
-     * wrapper, or other object with an independent lifetime.
+     * @par CCCL's lifetime semantic
      *
-     * @return Owning device memory resource handle.
+     * The returned `rmm::device_async_resource_ref` is a non-owning
+     * `cuda::mr::resource_ref`, so callers must take care to avoid use-after-free issues.
+     *
+     * When working directly with the returned reference, the caller must ensure that this
+     * `BufferResource` remains alive for the full duration of that use:
+     * @code
+     * auto br = std::make_shared<BufferResource>(...);
+     * auto mr = br->device_mr();
+     * mr.allocate_async(...);  // direct use through a non-owning ref
+     * br.reset();              // do not destroy `br` while `mr` is in use
+     * @endcode
+     *
+     * To store the resource beyond the immediate call, promote the ref to an
+     * owning `cuda::mr::any_resource`:
+     * @code
+     * auto br = std::make_shared<BufferResource>(...);
+     * cuda::mr::any_resource<cuda::mr::device_accessible> mr = br->device_mr();
+     * br.reset();       // safe: `mr` keeps the BufferResource alive
+     * mr.allocate(...); // safe
+     * @endcode
+     *
+     * In the common case, no explicit promotion is needed because RMM and cuDF containers
+     * that store a memory resource do this internally:
+     * @code
+     * auto br = std::make_shared<BufferResource>(...);
+     * rmm::device_buffer buf{1024, stream, br->device_mr()};
+     * br.reset();  // safe: `buf` keeps the BufferResource alive internally
+     * @endcode
+     *
+     * Returned objects from cuDF APIs typically behave the same way:
+     * @code
+     * auto br = std::make_shared<BufferResource>(...);
+     * auto col = cudf::make_numeric_column(
+     *     cudf::data_type{cudf::type_id::INT32},
+     *     1000,
+     *     cudf::mask_state::UNALLOCATED,
+     *     stream,
+     *     br->device_mr()
+     * );
+     * br.reset();  // safe: `col` keeps the BufferResource alive internally
+     * @endcode
      */
-    [[nodiscard]] cuda::mr::any_resource<cuda::mr::device_accessible> device_mr();
-
-    /**
-     * @brief Get a non-owning reference to the device memory resource.
-     *
-     * Returns an `rmm::device_async_resource_ref` referring to the device memory
-     * resource managed by this `BufferResource`. The returned reference does not
-     * extend the lifetime of the `BufferResource`.
-     *
-     * This accessor is intended for transient use, for example when passing a
-     * memory resource into a cuDF or RMM API call. It must not be used in storage
-     * paths where the memory resource may outlive the owning `BufferResource`.
-     * For such cases, use `device_mr()` instead.
-     *
-     * @return Non-owning reference to the device memory resource.
-     */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr_ref() const noexcept;
+    [[nodiscard]] rmm::device_async_resource_ref device_mr();
 
     /**
      * @brief Get the RMM host memory resource.
@@ -476,9 +498,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::mutex mutex_;
     // The internal RmmResourceAdaptor wraps the user's device MR so that
     // allocations are tracked for the DEVICE memory_available calculation.
-    // Declared before device_mr_ because device_mr_ is initialized from it.
     RmmResourceAdaptor device_adaptor_;
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
+    // Stable storage for the device MR returned by `device_mr()`. Holds a
+    // `weak_ptr<BufferResource>` to *this; copies promote that to a
+    // `shared_ptr<BufferResource>` on the deep-copy path. Installed by
+    // `create()` after construction so that `weak_from_this()` is valid;
+    // wrapped in `optional` so it can be default-constructed empty
+    // (`RmmResourceAdaptor` itself is not default-constructible).
+    std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;

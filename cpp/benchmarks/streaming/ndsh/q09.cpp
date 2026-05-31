@@ -175,7 +175,7 @@ rapidsmpf::streaming::Actor filter_part(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    auto mr = ctx->br()->device_mr_ref();
+    auto mr = ctx->br()->device_mr();
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
@@ -233,7 +233,7 @@ rapidsmpf::streaming::Actor select_columns(
         // n_name
         result.push_back(
             std::make_unique<cudf::column>(
-                table.column(0), chunk_stream, ctx->br()->device_mr_ref()
+                table.column(0), chunk_stream, ctx->br()->device_mr()
             )
         );
         result.push_back(
@@ -241,7 +241,7 @@ rapidsmpf::streaming::Actor select_columns(
                 table.column(5),
                 cudf::datetime::datetime_component::YEAR,
                 chunk_stream,
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             )
         );
         auto discount = table.column(2);
@@ -267,7 +267,7 @@ static __device__ void calculate_amount(double *amount, double discount, double 
                 std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             )
         );
         co_await ch_out->send(
@@ -312,7 +312,7 @@ rapidsmpf::streaming::Actor round_sum_profit(
         2,
         cudf::rounding_method::HALF_EVEN,
         chunk.stream(),
-        ctx->br()->device_mr_ref()
+        ctx->br()->device_mr()
     );
 #pragma GCC diagnostic pop
     auto result = rapidsmpf::streaming::to_message(
@@ -321,7 +321,7 @@ rapidsmpf::streaming::Actor round_sum_profit(
             std::make_unique<cudf::table>(
                 cudf::table_view({table.column(0), table.column(1), rounded->view()}),
                 chunk.stream(),
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             ),
             chunk.stream()
         )
@@ -655,7 +655,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

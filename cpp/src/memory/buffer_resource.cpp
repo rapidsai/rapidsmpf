@@ -31,7 +31,6 @@ BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics
 )
     : device_adaptor_{std::move(device_mr)},
-      device_mr_{device_adaptor_},  // any_resource shares state via shared_resource
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
@@ -58,7 +57,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
-    return std::shared_ptr<BufferResource>{new BufferResource{
+    // Construct via `new` (private ctor visible here as a member function).
+    std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
@@ -66,6 +66,14 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(stream_pool),
         std::move(statistics)
     }};
+    // Install the owning adaptor *after* construction so that
+    // `weak_from_this()` is valid. The adaptor holds only a `weak_ptr` to
+    // `*br` so no refcount cycle. Copies of the adaptor (made by CCCL's
+    // `any_resource(resource_ref)` deep-copy in downstream consumers) promote
+    // that weak ref to a `shared_ptr<BufferResource>`, transferring ownership
+    // to the copy.
+    br->owning_mr_.emplace(br->device_adaptor_, br->weak_from_this());
+    return br;
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
@@ -112,16 +120,8 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-cuda::mr::any_resource<cuda::mr::device_accessible> BufferResource::device_mr() {
-    return cuda::mr::any_resource<cuda::mr::device_accessible>{
-        OwningResourceAdaptor{device_adaptor_, shared_from_this()}
-    };
-}
-
-rmm::device_async_resource_ref BufferResource::device_mr_ref() const noexcept {
-    return rmm::device_async_resource_ref{
-        const_cast<cuda::mr::any_resource<cuda::mr::device_accessible>&>(device_mr_)
-    };
+rmm::device_async_resource_ref BufferResource::device_mr() {
+    return rmm::device_async_resource_ref{*owning_mr_};
 }
 
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {

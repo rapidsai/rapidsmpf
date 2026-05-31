@@ -43,9 +43,7 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
         inputs.emplace_back(to_message(
             i,
             std::make_unique<TableChunk>(
-                std::make_unique<cudf::table>(
-                    expects[i], stream, ctx->br()->device_mr_ref()
-                ),
+                std::make_unique<cudf::table>(expects[i], stream, ctx->br()->device_mr()),
                 stream
             )
         ));

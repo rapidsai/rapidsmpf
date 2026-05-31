@@ -69,8 +69,7 @@ coro::task<streaming::Message> broadcast(
             );
         } else {
             RAPIDSMPF_EXPECTS(chunks.size() > 0, "No chunks in broadcast");
-            auto result =
-                cudf::concatenate(views, gather_stream, ctx->br()->device_mr_ref());
+            auto result = cudf::concatenate(views, gather_stream, ctx->br()->device_mr());
             // So that deallocation of the consitutent tables is stream-ordered wrt the
             // concatenation.
             cuda_stream_join(
@@ -94,9 +93,8 @@ coro::task<streaming::Message> broadcast(
             // TODO: If this chunk is already in pack form, this is unnecessary.
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            auto pack = cudf::pack(
-                chunk.table_view(), chunk.stream(), ctx->br()->device_mr_ref()
-            );
+            auto pack =
+                cudf::pack(chunk.table_view(), chunk.stream(), ctx->br()->device_mr());
             auto packed_data = PackedData(
                 std::move(pack.metadata),
                 ctx->br()->move(std::move(pack.gpu_data), chunk.stream())
@@ -185,7 +183,7 @@ streaming::Message semi_join_chunk(
     );
 
     auto match = joiner.semi_join(
-        left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr_ref()
+        left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
     );
 
     ctx->logger()->debug(
@@ -199,7 +197,7 @@ streaming::Message semi_join_chunk(
                               indices,
                               cudf::out_of_bounds_policy::DONT_CHECK,
                               chunk_stream,
-                              ctx->br()->device_mr_ref()
+                              ctx->br()->device_mr()
     )
                               ->release();
 
@@ -245,9 +243,8 @@ streaming::Message inner_join_chunk(
     build_event->stream_wait(chunk_stream);
     auto probe_table = right_chunk.table_view();
     auto probe_keys = probe_table.select(right_on);
-    auto [probe_match, build_match] = joiner.inner_join(
-        probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr_ref()
-    );
+    auto [probe_match, build_match] =
+        joiner.inner_join(probe_keys, std::nullopt, chunk_stream, ctx->br()->device_mr());
 
     cudf::column_view build_indices =
         cudf::device_span<cudf::size_type const>(*build_match);
@@ -261,7 +258,7 @@ streaming::Message inner_join_chunk(
                               build_indices,
                               cudf::out_of_bounds_policy::DONT_CHECK,
                               chunk_stream,
-                              ctx->br()->device_mr_ref()
+                              ctx->br()->device_mr()
     )
                               ->release();
     // drop key columns from probe table.
@@ -277,7 +274,7 @@ streaming::Message inner_join_chunk(
             probe_indices,
             cudf::out_of_bounds_policy::DONT_CHECK,
             chunk_stream,
-            ctx->br()->device_mr_ref()
+            ctx->br()->device_mr()
         )
             ->release(),
         std::back_inserter(result_columns)

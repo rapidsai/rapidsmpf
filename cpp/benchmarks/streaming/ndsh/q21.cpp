@@ -98,7 +98,7 @@ rapidsmpf::streaming::Actor read_nation(
         constexpr auto name = "SAUDI ARABIA";
         owner->push_back(
             std::make_shared<cudf::string_scalar>(
-                name, /* is_valid = */ true, stream, ctx->br()->device_mr_ref()
+                name, /* is_valid = */ true, stream, ctx->br()->device_mr()
             )
         );
         owner->push_back(
@@ -156,7 +156,7 @@ rapidsmpf::streaming::Actor read_orders(
         constexpr auto status = "F";
         owner->push_back(
             std::make_shared<cudf::string_scalar>(
-                status, /* is_valid = */ true, stream, ctx->br()->device_mr_ref()
+                status, /* is_valid = */ true, stream, ctx->br()->device_mr()
             )
         );
         owner->push_back(
@@ -279,7 +279,7 @@ rapidsmpf::streaming::Actor filter_lineitem(
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk.stream(),
-            ctx->br()->device_mr_ref()
+            ctx->br()->device_mr()
         );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -289,7 +289,7 @@ rapidsmpf::streaming::Actor filter_lineitem(
                         chunk.table_view().select({0, 1}),
                         mask->view(),
                         chunk.stream(),
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     chunk.stream()
                 )
@@ -318,12 +318,12 @@ rapidsmpf::streaming::Actor filter_grouped_greater(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr_ref()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk.stream(),
-            ctx->br()->device_mr_ref()
+            ctx->br()->device_mr()
         );
         latch->count_down();
         co_await ch_out->send(
@@ -334,7 +334,7 @@ rapidsmpf::streaming::Actor filter_grouped_greater(
                         chunk.table_view().select({0}),
                         mask->view(),
                         chunk.stream(),
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     chunk.stream()
                 )
@@ -362,12 +362,12 @@ rapidsmpf::streaming::Actor filter_grouped_equal(
         auto mask = cudf::binary_operation(
             chunk.table_view().column(1),
             cudf::numeric_scalar<cudf::size_type>(
-                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr_ref()
+                1, /* is_valid = */ true, chunk.stream(), ctx->br()->device_mr()
             ),
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk.stream(),
-            ctx->br()->device_mr_ref()
+            ctx->br()->device_mr()
         );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -377,7 +377,7 @@ rapidsmpf::streaming::Actor filter_grouped_equal(
                         chunk.table_view().select({0}),
                         mask->view(),
                         chunk.stream(),
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     chunk.stream()
                 )
@@ -415,7 +415,7 @@ rapidsmpf::streaming::Actor fanout_bounded(
                     std::make_unique<cudf::table>(
                         chunk.table_view().select(ch1_cols),
                         chunk.stream(),
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     chunk.stream()
                 )
@@ -505,7 +505,7 @@ rapidsmpf::streaming::Actor slice(
                 auto sliced_table = std::make_unique<cudf::table>(
                     cudf::slice(chunk.table_view(), {local_start, local_end})[0],
                     chunk.stream(),
-                    ctx->br()->device_mr_ref()
+                    ctx->br()->device_mr()
                 );
                 co_await ch_out->send(
                     rapidsmpf::streaming::to_message(
@@ -574,7 +574,7 @@ rapidsmpf::streaming::Actor populate_bloom_filter(
                 );
             auto stream = chunk.stream();
             auto out = std::make_unique<cudf::table>(
-                chunk.table_view().select(keys), stream, ctx->br()->device_mr_ref()
+                chunk.table_view().select(keys), stream, ctx->br()->device_mr()
             );
             std::ignore = std::move(chunk);
             co_await passthrough->send(
@@ -997,7 +997,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

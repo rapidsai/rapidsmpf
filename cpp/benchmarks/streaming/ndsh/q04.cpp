@@ -151,7 +151,7 @@ rapidsmpf::streaming::Actor filter_lineitem(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    auto mr = ctx->br()->device_mr_ref();
+    auto mr = ctx->br()->device_mr();
 
     while (!ch_out->is_shutdown()) {
         auto msg = co_await ch_in->receive();
@@ -218,7 +218,7 @@ rapidsmpf::streaming::Actor fanout_bounded(
                     std::make_unique<cudf::table>(
                         chunk.table_view().select(ch1_cols),
                         chunk.stream(),
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     chunk.stream()
                 )
@@ -520,7 +520,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

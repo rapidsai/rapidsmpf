@@ -55,7 +55,7 @@ streaming::Actor chunkwise_group_by(
             cudf::groupby::groupby(table.select(keys), null_policy, cudf::sorted::NO);
 
         auto [keys, aggregated] =
-            grouper.aggregate(agg_requests, stream, ctx->br()->device_mr_ref());
+            grouper.aggregate(agg_requests, stream, ctx->br()->device_mr());
         std::ignore = std::move(chunk);
         auto result = keys->release();
         for (auto&& a : aggregated) {

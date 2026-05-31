@@ -789,34 +789,83 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
     );
 }
 
-TEST(BufferResource, DeviceMrOutlivesBufferResource) {
+// `device_mr()` returns a `device_async_resource_ref` whose underlying
+// any_resource holds an `OwningResourceAdaptor` carrying a
+// `shared_ptr<BufferResource>`. When the ref is consumed by an API that
+// stores the MR (e.g. `rmm::device_buffer`), CCCL's
+// `any_resource(resource_ref)` deep-copy captures the OwningResourceAdaptor
+// — including its `shared_ptr<BufferResource>` — so the storing object keeps
+// BR (and its stream pool) alive for its entire lifetime. Conversely, once
+// the storing object drops, BR must destruct (no refcount cycle).
+TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     constexpr std::size_t N = 1024;
 
     auto br = BufferResource::create(cudf::get_current_device_resource_ref());
     std::weak_ptr<BufferResource> weak_br = br;
     auto stream = cudf::get_default_stream();
 
-    auto owning_mr = br->device_mr();
-    auto* wrapper = cuda::mr::resource_cast<
-        OwningResourceAdaptor<RmmResourceAdaptor, std::shared_ptr<BufferResource>>>(
-        &owning_mr
-    );
-    ASSERT_NE(wrapper, nullptr);
+    // Construct a device_buffer through the BR. The buffer's internal
+    // any_resource deep-copies the OwningResourceAdaptor (with its
+    // shared_ptr<BR>) out of the ref.
+    auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
-    auto buf = std::make_unique<rmm::device_buffer>(N, stream, std::move(owning_mr));
-
-    // Drop the original BR. The wrapper inside `buf`'s `any_resource` owns the only
-    // remaining `shared_ptr<BufferResource>`, so BR (and its stream pool) must stay
-    // alive.
+    // Drop the original BR shared_ptr. The buffer's any_resource owns the
+    // only remaining `shared_ptr<BufferResource>`, so BR (and its stream
+    // pool) must stay alive.
     br.reset();
     EXPECT_FALSE(weak_br.expired()) << "BR freed while buffer still holds it";
 
-    // Destroy the buffer: its stream-ordered deallocator runs against the still-alive
-    // stream pool. Must not crash.
+    // Destroy the buffer: its stream-ordered deallocator runs against the
+    // still-alive stream pool. Must not crash.
     EXPECT_NO_THROW(buf.reset());
 
-    // After the buffer is gone, no shared_ptr<BR> exists anywhere. If there were a
-    // refcount cycle (e.g. the wrapper's back-ref leaking back into the original BR),
-    // `weak_br` would still be observable here.
+    // After the buffer is gone, no shared_ptr<BR> exists anywhere. If there
+    // were a refcount cycle (e.g. the wrapper's back-ref leaking back into
+    // the original BR), `weak_br` would still be observable here.
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
+}
+
+// `OwningResourceAdaptor`'s copy ctor promotes its `weak_ptr<BackRef>` to a
+// `shared_ptr<BackRef>`. If the weak ptr has expired (the back-ref object is
+// already destroyed), the promotion throws `std::bad_weak_ptr`. This guards
+// against silent UAF in the deep-copy path.
+TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor adaptor{
+        cuda::mr::any_resource<cuda::mr::device_accessible>{cuda_mr}
+    };
+
+    std::weak_ptr<BufferResource> weak_br;
+    {
+        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+        weak_br = br;
+    }
+    ASSERT_TRUE(weak_br.expired());
+
+    // Manually construct an adaptor with an already-expired weak ref. The
+    // adaptor itself is fine to hold; copying it triggers the promotion
+    // attempt, which must throw.
+    OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
+
+    using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
+    EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
+
+    AdaptorT target{adaptor, weak_br};
+    EXPECT_THROW(target = original, std::bad_weak_ptr);
+}
+
+// The original `OwningResourceAdaptor` stored as BR's `owning_mr_` member
+// must hold only a `weak_ptr<BufferResource>` (no strong ref). Otherwise the
+// member would close a refcount cycle BR -> owning_mr_ -> shared_ptr<BR> -> BR
+// and BR would leak. Verified by checking that destroying the only
+// `shared_ptr<BufferResource>` to a freshly created BR actually destroys BR.
+TEST(BufferResource, OwningAdaptorMemberHasNoStrongCycle) {
+    std::weak_ptr<BufferResource> weak_br;
+    {
+        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+        weak_br = br;
+        EXPECT_FALSE(weak_br.expired());
+    }
+    EXPECT_TRUE(weak_br.expired()) << "BR leaked - the owning_mr_ member holds a "
+                                      "strong ref to BR, closing a cycle.";
 }

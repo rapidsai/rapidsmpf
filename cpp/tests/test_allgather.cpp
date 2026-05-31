@@ -295,7 +295,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     if (this_rank == 0) {
         // Recreate the buffer resource and allgather with the delayed MR.
         delay_br = rapidsmpf::BufferResource::create(
-            DelayedMemoryResource{br->device_mr_ref(), std::chrono::milliseconds(500)}
+            DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
         );
         allgather =
             std::make_unique<AllGather>(GlobalEnvironment->comm_, op_id, delay_br.get());

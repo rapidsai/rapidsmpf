@@ -57,7 +57,7 @@ OrderScheme OrderScheme::with_keys(std::vector<OrderKey> new_keys) const {
 }
 
 bool OrderScheme::boundaries_aligned_with(
-    OrderScheme const& other, rapidsmpf::BufferResource const& br
+    OrderScheme const& other, rapidsmpf::BufferResource& br
 ) const {
     if (strict_boundaries != other.strict_boundaries
         || boundaries->shape() != other.boundaries->shape())
@@ -89,14 +89,14 @@ bool OrderScheme::boundaries_aligned_with(
             cudf::binary_operator::NULL_EQUALS,
             cudf::data_type{cudf::type_id::BOOL8},
             stream,
-            br.device_mr_ref()
+            br.device_mr()
         );
         auto result = cudf::reduce(
             eq->view(),
             *cudf::make_all_aggregation<cudf::reduce_aggregation>(),
             cudf::data_type{cudf::type_id::BOOL8},
             stream,
-            br.device_mr_ref()
+            br.device_mr()
         );
         auto& scalar = static_cast<cudf::numeric_scalar<bool>&>(*result);
         if (!scalar.value(stream)) {

@@ -200,7 +200,7 @@ Message read_parquet_chunk(
         return to_message(
             sequence_number,
             std::make_unique<TableChunk>(
-                cudf::io::read_parquet(options, stream, ctx->br()->device_mr_ref()).tbl,
+                cudf::io::read_parquet(options, stream, ctx->br()->device_mr()).tbl,
                 stream
             )
         );

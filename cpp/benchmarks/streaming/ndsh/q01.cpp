@@ -136,7 +136,7 @@ rapidsmpf::streaming::Actor postprocess_group_by(
         co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto columns =
-        cudf::table{chunk.table_view(), stream, ctx->br()->device_mr_ref()}.release();
+        cudf::table{chunk.table_view(), stream, ctx->br()->device_mr()}.release();
     std::ignore = std::move(chunk);
     auto count = std::move(columns.back());
     columns.pop_back();
@@ -150,7 +150,7 @@ rapidsmpf::streaming::Actor postprocess_group_by(
                 cudf::binary_operator::TRUE_DIV,
                 cudf::data_type(cudf::type_id::FLOAT64),
                 stream,
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             )
         );
     }
@@ -161,7 +161,7 @@ rapidsmpf::streaming::Actor postprocess_group_by(
             cudf::binary_operator::TRUE_DIV,
             cudf::data_type(cudf::type_id::FLOAT64),
             stream,
-            ctx->br()->device_mr_ref()
+            ctx->br()->device_mr()
         )
     );
     columns.push_back(std::move(count));
@@ -202,9 +202,7 @@ rapidsmpf::streaming::Actor select_columns_for_groupby(
         auto table = chunk.table_view();
         // l_returnflag, l_linestatus, l_quantity, l_extendedprice
         auto result =
-            cudf::table(
-                table.select({0, 1, 2, 3}), chunk_stream, ctx->br()->device_mr_ref()
-            )
+            cudf::table(table.select({0, 1, 2, 3}), chunk_stream, ctx->br()->device_mr())
                 .release();
         result.reserve(7);
         auto extendedprice = table.column(3);
@@ -235,7 +233,7 @@ static __device__ void calculate_charge(double *charge, double discprice, double
                 std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             )
         );
         // charge
@@ -250,14 +248,12 @@ static __device__ void calculate_charge(double *charge, double discprice, double
                 std::nullopt,
                 cudf::output_nullability::PRESERVE,
                 chunk_stream,
-                ctx->br()->device_mr_ref()
+                ctx->br()->device_mr()
             )
         );
         // l_discount
         result.push_back(
-            std::make_unique<cudf::column>(
-                discount, chunk_stream, ctx->br()->device_mr_ref()
-            )
+            std::make_unique<cudf::column>(discount, chunk_stream, ctx->br()->device_mr())
         );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -439,7 +435,7 @@ int main(int argc, char** argv) {
         timings.push_back(compute.count());
         auto statistics = ctx->statistics();
         comm->logger()->print(statistics->report(
-            {.mr = ctx->br()->device_mr_ref(), .pinned_mr = ctx->br()->try_pinned_mr()}
+            {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
         statistics->clear();
     }

@@ -302,7 +302,7 @@ rapidsmpf::Duration do_run(
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         if (args.enable_memory_profiler) {
-            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr_ref(), "shuffling");
+            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr(), "shuffling");
         }
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
@@ -390,7 +390,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
             size_lb, args.input_data_allow_overbooking
         );
         cudf::table table = random_table(
-            num_columns, num_local_rows, min_val, max_val, stream, br->device_mr_ref()
+            num_columns, num_local_rows, min_val, max_val, stream, br->device_mr()
         );
         input_partitions.emplace_back(transform_fn(std::move(table)));
     }

@@ -88,7 +88,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
                         )
                             .at(0),
                         stream,
-                        ctx->br()->device_mr_ref()
+                        ctx->br()->device_mr()
                     ),
                     stream
                 )
