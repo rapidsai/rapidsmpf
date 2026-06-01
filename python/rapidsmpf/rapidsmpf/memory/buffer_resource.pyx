@@ -15,9 +15,33 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
+                                         device_async_resource_ref,
+                                         make_any_device_resource)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
+
+cdef extern from *:
+    """
+    // Construct a device_async_resource_ref from an owning any_resource.
+    // The free template in RMM only declares overloads for concrete RMM
+    // types, this overload covers `cuda::mr::any_resource<device_accessible>`.
+    std::optional<cython_device_async_resource_ref>
+    cpp_make_device_async_resource_ref_from_any(
+        cuda::mr::any_resource<cuda::mr::device_accessible>& mr
+    ) {
+
+        // `cython_device_async_resource_ref` is declared inline in RMM's
+        // `librmm/memory_resource.pxd`.
+        return std::optional<cython_device_async_resource_ref>(
+            rmm::device_async_resource_ref(mr)
+        );
+    }
+    """
+    optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
+        any_resource[device_accessible]&
+    ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
@@ -142,22 +166,15 @@ cdef class BufferResource:
     Notes
     -----
     Allocation tracking only applies to allocations routed through this
-    ``BufferResource``. The constructor wraps the supplied ``device_mr`` in
-    an internal RMM adaptor that records all allocations and deallocations;
-    that adaptor is exposed via ``BufferResource.device_mr``.
+    ``BufferResource``.
 
-    Allocations made through the original, unwrapped ``device_mr`` bypass
-    this tracking and are therefore invisible to memory-limit accounting and
-    statistics.
+    To ensure allocations are included in memory-limit accounting and
+    statistics, use ``BufferResource.device_mr`` for all CUDA allocations
+    associated with this resource.
 
-    To ensure all CUDA allocations count against the ``BufferResource``
-    budget, use ``br.device_mr`` everywhere instead of the original
-    ``device_mr`` passed to the constructor.
-
-    Tracking allocations made outside ``BufferResource``, for example
-    allocations performed before construction or through code paths that use
-    a raw RMM memory resource directly, is a separate design concern and is
-    not handled by this class.
+    Allocations performed through other memory resources, including the
+    original resource passed to the constructor or allocations made outside
+    ``BufferResource``, are not tracked by this class.
     """
     def __cinit__(
         self,
@@ -294,13 +311,18 @@ cdef class BufferResource:
     @property
     def device_mr(self):
         """
-        The memory resource used for device memory allocations.
+        The tracked device memory resource.
+
+        Allocations made through this resource count against the ``BufferResource``
+        memory limits and appear in its statistics.
 
         Returns
         -------
-        The device memory resource.
+        The tracked device memory resource.
         """
-        return self._device_mr
+        return OwningDeviceMemoryResource._create(
+            make_any_device_resource(deref(self._handle).device_mr())
+        )
 
     @property
     def pinned_mr(self):
@@ -606,3 +628,30 @@ def stream_pool_from_options(Options options not None):
         pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,
     )
+
+
+cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
+    """
+    Owning :class:`DeviceMemoryResource`.
+
+    Useful for exposing device memory resources to Python in a form that is
+    compatible with cuDF/RMM APIs while preserving ownership semantics.
+
+    Notes
+    -----
+    RMM does not currently provide an equivalent owning wrapper. If one is
+    added in the future, this class can likely be replaced by the
+    RMM-provided implementation.
+    """
+    @staticmethod
+    cdef OwningDeviceMemoryResource _create(
+        any_resource[device_accessible] resource,
+    ):
+        cdef OwningDeviceMemoryResource self = (
+            OwningDeviceMemoryResource.__new__(OwningDeviceMemoryResource)
+        )
+        # Owning storage for the underlying CCCL resource. The base class's
+        # `c_ref` is a non-owning view into `c_obj`.
+        self.c_obj = resource
+        self.c_ref = cpp_make_device_async_resource_ref_from_any(self.c_obj)
+        return self

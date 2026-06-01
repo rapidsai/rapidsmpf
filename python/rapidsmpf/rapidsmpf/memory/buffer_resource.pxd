@@ -8,7 +8,8 @@ from libcpp.memory cimport shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
-from rmm.librmm.memory_resource cimport any_resource, device_accessible
+from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
+                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -46,6 +47,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         const cuda_stream_pool &stream_pool() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
+        device_async_resource_ref device_mr() noexcept
 
 cdef class BufferResource:
     cdef object __weakref__
@@ -57,3 +59,12 @@ cdef class BufferResource:
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
     cdef const cuda_stream_pool* stream_pool(self)
+
+
+cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
+    cdef any_resource[device_accessible] c_obj
+
+    @staticmethod
+    cdef OwningDeviceMemoryResource _create(
+        any_resource[device_accessible] resource,
+    )
