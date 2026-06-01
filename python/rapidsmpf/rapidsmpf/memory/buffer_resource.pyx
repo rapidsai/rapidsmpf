@@ -17,8 +17,7 @@ from rmm.pylibrmm import CudaStreamFlags
 from rapidsmpf.utils.memory import check_reservation_size
 
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
-                                         device_async_resource_ref,
-                                         make_any_device_resource)
+                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -195,8 +194,8 @@ cdef class BufferResource:
 
         # Keep the original Python memory resources alive while the C++
         # BufferResource holds resources derived from them. These anchors are
-        # likely redundant: `make_any_device_resource(...)` deep-copies the
-        # device MR into a self-sufficient owning any_resource, and
+        # likely redundant: `any_resource[device_accessible](...)` deep-copies
+        # the device MR into a self-sufficient owning any_resource, and
         # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
         # defensively for now.
         # TODO: drop these once verified against pool/upstream-adaptor MRs.
@@ -208,7 +207,7 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = cpp_BufferResource.create(
-                make_any_device_resource(device_mr.get_mr()),
+                any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,
@@ -302,7 +301,7 @@ cdef class BufferResource:
         The tracked device memory resource.
         """
         return OwningDeviceMemoryResource._create(
-            make_any_device_resource(deref(self._handle).device_mr())
+            any_resource[device_accessible](deref(self._handle).device_mr())
         )
 
     cpdef RmmResourceAdaptor device_mr_adaptor(self):
