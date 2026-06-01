@@ -68,6 +68,10 @@ class StreamingLineariser : public BaseStreamingFixture {
 };
 
 TEST_F(StreamingLineariser, ManyProducers) {
+#ifdef RAPIDSMPF_ASAN
+    GTEST_SKIP() << "Skipped under AddressSanitizer: extremely slow and prone "
+                    "to stack overflow via libcoro ring_buffer mutual resume.";
+#endif
     constexpr std::size_t num_producers = 100;
     constexpr std::size_t num_messages = 30'000;
 

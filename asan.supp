@@ -1,0 +1,20 @@
+# LeakSanitizer suppressions for known process-lifetime singletons in
+# third-party libraries. These objects are intentionally never freed: at
+# program exit the CUDA driver may already be torn down, so cleaning them up
+# is unsafe.
+#
+# Use via:
+#   LSAN_OPTIONS=suppressions=$PWD/cpp/asan_suppressions.txt \
+#   ASAN_OPTIONS=protect_shadow_gap=0 \
+#       cpp/build/gtests/single_tests
+#
+# Append `:print_suppressions=0` to LSAN_OPTIONS to silence the
+# "Suppressions used:" footer.
+
+# cuDF process-lifetime singletons.
+leak:cudf::detail::event_for_thread
+leak:cudf::detail::create_global_cuda_stream_pool
+
+# RMM process-lifetime stream pool / streams owned by the global pool MR.
+leak:rmm::cuda_stream_pool::cuda_stream_pool
+leak:rmm::cuda_stream::cuda_stream

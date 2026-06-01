@@ -63,7 +63,7 @@ target_compile_options(
 target_link_libraries(
   test_sources
   PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan
   PUBLIC GTest::gmock GTest::gtest
 )
 disable_sign_conversion_warning(test_sources)

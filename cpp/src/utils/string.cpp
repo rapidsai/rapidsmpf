@@ -7,7 +7,17 @@
 #include <iomanip>
 #include <optional>
 #include <ranges>
+// GCC bug 109442: libstdc++'s <regex> headers raise spurious -Wmaybe-uninitialized
+// warnings, which become errors under -Werror.
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=109442
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 #include <regex>
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <rapidsmpf/utils/string.hpp>
 
