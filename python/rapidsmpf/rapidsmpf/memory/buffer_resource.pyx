@@ -631,7 +631,7 @@ def stream_pool_from_options(Options options not None):
 
 cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
     """
-    Owning :class:`DeviceMemoryResource`.
+    Owning ``DeviceMemoryResource``.
 
     Useful for exposing device memory resources to Python in a form that is
     compatible with cuDF/RMM APIs while preserving ownership semantics.
