@@ -5,7 +5,7 @@ from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -15,9 +15,32 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
+                                         device_async_resource_ref,
+                                         make_any_device_resource)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
+
+cdef extern from *:
+    """
+    // Construct a device_async_resource_ref from an owning any_resource.
+    // The free template in RMM only declares overloads for concrete RMM
+    // types, this overload covers `cuda::mr::any_resource<device_accessible>`.
+    std::optional<cython_device_async_resource_ref>
+    cpp_make_device_async_resource_ref_from_any(
+        cuda::mr::any_resource<cuda::mr::device_accessible>& mr
+    ) {
+        // `cython_device_async_resource_ref` is declared inline in RMM's
+        // `librmm/memory_resource.pxd`.
+        return std::optional<cython_device_async_resource_ref>(
+            rmm::device_async_resource_ref(mr)
+        );
+    }
+    """
+    optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
+        any_resource[device_accessible]&
+    ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
@@ -114,10 +137,10 @@ cdef class BufferResource:
     Parameters
     ----------
     device_mr
-        The RMM device memory resource used for device allocations. The
-        BufferResource transparently wraps this resource in an internal RMM
-        adaptor for allocation tracking — callers don't need to wrap it
-        themselves.
+        The RMM device memory resource used for device allocations. To ensure
+        allocations are tracked for memory-limit accounting and statistics, use
+        ``BufferResource.device_mr`` instead of the original ``device_mr`` after
+        construction.
     pinned_mr
         The pinned host memory resource used for :attr:`~.MemoryType.PINNED_HOST`
         allocations. If None, pinned host allocations are disabled. In that case,
@@ -138,6 +161,19 @@ cdef class BufferResource:
     statistics
         The statistics instance to use. If None, a disabled statistics instance
         will be created.
+
+    Notes
+    -----
+    Allocation tracking only applies to allocations routed through this
+    ``BufferResource``.
+
+    To ensure allocations are included in memory-limit accounting and
+    statistics, use ``BufferResource.device_mr`` for all CUDA allocations
+    associated with this resource.
+
+    Allocations performed through other memory resources, including the
+    original resource passed to the constructor or allocations made outside
+    ``BufferResource``, are not tracked by this class.
     """
     def __cinit__(
         self,
@@ -189,15 +225,21 @@ cdef class BufferResource:
         # checked cast requires the GIL
         stats_handle = (<Statistics?>statistics)._handle
 
-        # Stored for the Python device_mr/pinned_mr property accessors.
-        # The C++ BufferResource owns the resource via any_resource.
+        # Keep the original Python memory resources alive while the C++
+        # BufferResource holds resources derived from them. These anchors are
+        # likely redundant: `make_any_device_resource(...)` deep-copies the
+        # device MR into a self-sufficient owning any_resource, and
+        # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
+        # defensively for now.
+        # TODO: drop these once verified against pool/upstream-adaptor MRs.
+        #       https://github.com/rapidsai/rapidsmpf/issues/1074
         self._device_mr = device_mr
         self._pinned_mr = pinned_mr
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
         if self._pinned_mr is not None:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
-            self._handle = make_shared[cpp_BufferResource](
+            self._handle = cpp_BufferResource.create(
                 make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
@@ -274,13 +316,18 @@ cdef class BufferResource:
     @property
     def device_mr(self):
         """
-        The memory resource used for device memory allocations.
+        The tracked device memory resource.
+
+        Allocations made through this resource count against the ``BufferResource``
+        memory limits and appear in its statistics.
 
         Returns
         -------
-        The device memory resource.
+        The tracked device memory resource.
         """
-        return self._device_mr
+        return OwningDeviceMemoryResource._create(
+            make_any_device_resource(deref(self._handle).device_mr())
+        )
 
     @property
     def pinned_mr(self):
@@ -586,3 +633,30 @@ def stream_pool_from_options(Options options not None):
         pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,
     )
+
+
+cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
+    """
+    Owning ``DeviceMemoryResource``.
+
+    Useful for exposing device memory resources to Python in a form that is
+    compatible with cuDF/RMM APIs while preserving ownership semantics.
+
+    Notes
+    -----
+    RMM does not currently provide an equivalent owning wrapper. If one is
+    added in the future, this class can likely be replaced by the
+    RMM-provided implementation.
+    """
+    @staticmethod
+    cdef OwningDeviceMemoryResource _create(
+        any_resource[device_accessible] resource,
+    ):
+        cdef OwningDeviceMemoryResource self = (
+            OwningDeviceMemoryResource.__new__(OwningDeviceMemoryResource)
+        )
+        # Owning storage for the underlying CCCL resource. The base class's
+        # `c_ref` is a non-owning view into `c_obj`.
+        self.c_obj = resource
+        self.c_ref = cpp_make_device_async_resource_ref_from_any(self.c_obj)
+        return self

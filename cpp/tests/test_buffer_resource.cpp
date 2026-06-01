@@ -19,6 +19,8 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -52,119 +54,119 @@ std::unique_ptr<Buffer> zeros(
 
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
-    BufferResource br{
+    auto br = BufferResource::create(
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}}
-    };
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    );
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Book all available memory.
     auto [reserve1, overbooking1] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Try to overbook.
     auto [reserve2, overbooking2] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve2.size(), 0);  // Reservation failed.
     EXPECT_EQ(overbooking2, 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Allow overbooking.
     auto [reserve3, overbooking3] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve3.size(), 10_KiB);
     EXPECT_EQ(overbooking3, 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // No host limit.
     auto [reserve4, overbooking4] =
-        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(overbooking4, 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, 20_KiB), rapidsmpf::reservation_error);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_THROW(br->release(reserve1, 20_KiB), rapidsmpf::reservation_error);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
-    EXPECT_EQ(br.release(reserve1, 5_KiB), 5_KiB);
+    EXPECT_EQ(br->release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 15_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 15_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // We are still overbooking.
     auto [reserve5, overbooking5] =
-        br.reserve(MemoryType::DEVICE, 5_KiB, AllowOverbooking::YES);
+        br->reserve(MemoryType::DEVICE, 5_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve5.size(), 5_KiB);
     EXPECT_EQ(overbooking5, 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
 TEST(BufferResource, ReservationReleasing) {
     // Create a buffer resource that always reports 10 KiB of available host and device
     // memory.
-    BufferResource br{
+    auto br = BufferResource::create(
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
-    };
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    );
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Reserve all available host and device memory.
     auto [reserve1, overbooking1] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     auto [reserve2, overbooking2] =
-        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(reserve2.size(), 10_KiB);
     EXPECT_EQ(overbooking2, 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, 20_KiB), rapidsmpf::reservation_error);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_THROW(br->release(reserve1, 20_KiB), rapidsmpf::reservation_error);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
-    EXPECT_EQ(br.release(reserve1, 5_KiB), 5_KiB);
+    EXPECT_EQ(br->release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 5_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 
     // A reservation is released when it goes out of scope.
     {
         auto [reserve, overbooking] =
-            br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
+            br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
         EXPECT_EQ(reserve.size(), 10_KiB);
         EXPECT_EQ(overbooking, 10_KiB);
-        EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 5_KiB);
-        EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 20_KiB);
+        EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+        EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 20_KiB);
     }
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 5_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
 TEST(BufferResource, MemoryLimit) {
@@ -172,69 +174,69 @@ TEST(BufferResource, MemoryLimit) {
     auto stream = cudf::get_default_stream();
 
     // Create a buffer resource that limits available device memory to 10 KiB.
-    BufferResource br{
+    auto br = BufferResource::create(
         mr_cuda, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, 10_KiB}}
-    };
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    );
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Book all available device memory.
     auto [reserve1, overbooking1] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
 
     // Allocating a Buffer also requires a reservation, which are then released.
-    auto dev_buf1 = zeros(br, 10_KiB, stream, reserve1);
+    auto dev_buf1 = zeros(*br, 10_KiB, stream, reserve1);
     EXPECT_EQ(dev_buf1->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf1->size, 10_KiB);
     EXPECT_EQ(reserve1.size(), 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 0);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 0);
 
     // Insufficent reservation for the allocation.
-    EXPECT_THROW(zeros(br, 10_KiB, stream, reserve1), rapidsmpf::reservation_error);
+    EXPECT_THROW(zeros(*br, 10_KiB, stream, reserve1), rapidsmpf::reservation_error);
 
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
 
     // Moving buffers between memory types requires a reservation.
     auto [reserve2, overbooking2] =
-        br.reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
-    auto dev_buf2 = zeros(br, 10_KiB, stream, reserve2);
+        br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
+    auto dev_buf2 = zeros(*br, 10_KiB, stream, reserve2);
     EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
     auto [reserve3, overbooking3] =
-        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 0);
+        br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 0);
 
-    auto host_buf2 = br.move(std::move(dev_buf2), reserve3);
+    auto host_buf2 = br->move(std::move(dev_buf2), reserve3);
     EXPECT_EQ(host_buf2->mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
 
     // Moving buffers to the same memory type accepts an empty reservation.
-    auto host_buf3 = br.move(std::move(host_buf2), reserve3);
+    auto host_buf3 = br->move(std::move(host_buf2), reserve3);
     EXPECT_EQ(host_buf3->mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
-    EXPECT_EQ(br.memory_available(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
 
     // The reservation must be of the correct memory type.
     auto [reserve4, overbooking4] =
-        br.reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
+        br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve4.size(), 10_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
 class PinnedMaxPoolSizeReservationLimitTest
@@ -262,15 +264,15 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     if (max_pool_size.has_value() && *max_pool_size > 0) {
         memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
-    BufferResource br{cuda_mr, pinned_mr, std::move(memory_limits)};
+    auto br = BufferResource::create(cuda_mr, pinned_mr, std::move(memory_limits));
 
     // First 1 KiB reservation always succeeds.
-    auto [r1, ob1] = br.reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
+    auto [r1, ob1] = br->reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
     EXPECT_EQ(r1.size(), 1_KiB);
     EXPECT_EQ(ob1, 0);
 
     // Second 1 KiB reservation succeeds only when the pool is unbounded.
-    auto [r2, ob2] = br.reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
+    auto [r2, ob2] = br->reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
     EXPECT_EQ(r2.size(), expect_second_succeeds() ? 1_KiB : 0);
     EXPECT_EQ(ob2, expect_second_succeeds() ? 0 : 1_KiB);
 }
@@ -289,14 +291,14 @@ TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     auto stats = Statistics::create();
     auto pinned_mr = PinnedMemoryResource::make_if_available();
-    BufferResource br{
+    auto br = BufferResource::create(
         mr_cuda,
         pinned_mr,
         {},
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
         stats
-    };
+    );
     auto stream = cudf::get_default_stream();
 
     constexpr std::size_t device_size = 4_KiB;
@@ -305,23 +307,23 @@ TEST(BufferResource, AllocStatistics) {
 
     // Allocate device memory twice.
     {
-        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
-        br.make_buffer(device_size, stream, r);
+        auto [r, _] = br->reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br->make_buffer(device_size, stream, r);
     }
     {
-        auto [r, _] = br.reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
-        br.make_buffer(device_size, stream, r);
+        auto [r, _] = br->reserve(MemoryType::DEVICE, device_size, AllowOverbooking::YES);
+        br->make_buffer(device_size, stream, r);
     }
     // Allocate pinned_host memory once (if available).
     if (pinned_mr != PinnedMemoryResource::Disabled) {
         auto [r, _] =
-            br.reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
-        br.make_buffer(pinned_size, stream, r);
+            br->reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
+        br->make_buffer(pinned_size, stream, r);
     }
     // Allocate host memory once.
     {
-        auto [r, _] = br.reserve(MemoryType::HOST, host_size, AllowOverbooking::YES);
-        br.make_buffer(host_size, stream, r);
+        auto [r, _] = br->reserve(MemoryType::HOST, host_size, AllowOverbooking::YES);
+        br->make_buffer(host_size, stream, r);
     }
 
     stream.synchronize();
@@ -354,7 +356,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
     void SetUp() override {
         // Create a buffer resource with limited device memory (10 KiB) and unlimited
         // host memory. BufferResource auto-wraps mr_cuda for allocation tracking.
-        br = std::make_unique<BufferResource>(
+        br = BufferResource::create(
             mr_cuda,
             PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, std::int64_t>{{MemoryType::DEVICE, 10_KiB}}
@@ -362,7 +364,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
     }
 
     rmm::mr::cuda_memory_resource mr_cuda;
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
 };
 
 // Static assertions to verify that various container types can be used with
@@ -417,7 +419,7 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(cudf::get_current_device_resource_ref());
         stream = cudf::get_default_stream();
 
         // initialize the host pattern
@@ -445,7 +447,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
 
     static constexpr std::size_t buffer_size = 1024;  // 1 KiB
 
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
 
     std::vector<std::uint8_t> host_pattern;  // a predefined pattern for testing
@@ -639,11 +641,11 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 
         // Setup br1 with statistics for its device memory
         mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = std::make_unique<BufferResource>(*mr1);
+        br1 = BufferResource::create(*mr1);
 
         // Setup br2 with statistics for its device memory
         mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = std::make_unique<BufferResource>(*mr2);
+        br2 = BufferResource::create(*mr2);
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -677,8 +679,8 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 
     std::unique_ptr<RmmResourceAdaptor> mr1;
     std::unique_ptr<RmmResourceAdaptor> mr2;
-    std::unique_ptr<BufferResource> br1;
-    std::unique_ptr<BufferResource> br2;
+    std::shared_ptr<BufferResource> br1;
+    std::shared_ptr<BufferResource> br2;
 };
 
 TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
@@ -785,4 +787,52 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
     EXPECT_THROW(
         buffer_copy(br->statistics(), *buf, *buf, 16, 0, 0), std::invalid_argument
     );
+}
+
+TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
+    constexpr std::size_t N = 1024;
+
+    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    std::weak_ptr<BufferResource> weak_br = br;
+    auto stream = cudf::get_default_stream();
+
+    // Construct a device_buffer using the BR memory resource. Internally,
+    // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
+    // which deep-copies the OwningResourceAdaptor. The copied adaptor acquires a
+    // `shared_ptr<BufferResource>`.
+    auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
+
+    // Drop the original shared_ptr. The buffer's internally stored owning memory
+    // resource should be keeping the BR alive.
+    br.reset();
+    EXPECT_FALSE(weak_br.expired()) << "BR freed while buffer still holds it";
+
+    EXPECT_NO_THROW(buf.reset());
+
+    // After the buffer is destroyed, no shared ownership should remain. If the
+    // original adaptor held a strong back-reference, or another ownership cycle
+    // existed, the BR would still be alive here.
+    EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
+}
+
+TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
+    rmm::mr::cuda_memory_resource cuda_mr;
+    RmmResourceAdaptor adaptor{
+        cuda::mr::any_resource<cuda::mr::device_accessible>{cuda_mr}
+    };
+
+    std::weak_ptr<BufferResource> weak_br;
+    {
+        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+        weak_br = br;
+    }
+    ASSERT_TRUE(weak_br.expired());
+
+    OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
+
+    using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
+    EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
+
+    AdaptorT target{adaptor, weak_br};
+    EXPECT_THROW(target = original, std::bad_weak_ptr);
 }

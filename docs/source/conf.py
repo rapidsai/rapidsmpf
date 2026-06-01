@@ -145,4 +145,6 @@ nitpick_ignore_regex = [
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.get_upstream"),
+    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate"),
+    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate"),
 ]

@@ -27,8 +27,18 @@ class SpillManager {
     /**
      * @brief Spill function type.
      *
-     * A spill function takes a requested spill amount as input and returns the actual
-     * amount of memory (in bytes) that was spilled.
+     * A spill function receives a requested spill size in bytes and returns the actual
+     * number of bytes spilled.
+     *
+     * Spill functions must not capture owning references to the `BufferResource` that
+     * owns this `SpillManager`, either directly or indirectly through objects that
+     * allocate from `BufferResource::device_mr()`. Doing so creates a reference cycle:
+     *
+     * `BufferResource -> SpillManager -> SpillFunction -> BufferResource`
+     *
+     * Spill functions should capture only non-owning references or raw pointers. Owners
+     * registering spill functions should additionally call `remove_spill_function()`
+     * during destruction before releasing any buffer-owning members.
      */
     using SpillFunction = std::function<std::size_t(std::size_t)>;
 

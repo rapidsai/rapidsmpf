@@ -23,6 +23,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -51,38 +52,59 @@ enum class AllowOverbooking : bool {
  * (e.g., host and device). All memory operations in rapidsmpf, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
  *
- * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers and memory reservations.
+ * @note `BufferResource` instances must be constructed through `create()` or
+ * `from_options()`, both of which return a `std::shared_ptr<BufferResource>`. Direct
+ * construction is disabled.
+ *
+ * @note Allocation tracking only applies to allocations routed through this
+ * `BufferResource`. The constructor wraps the supplied device memory resource
+ * in an internal adaptor that records all allocations and deallocations; that
+ * adaptor is exposed via `device_mr()`.
+ *
+ * Allocations made through the original, unwrapped memory resource bypass
+ * this tracking and are therefore invisible to memory-limit accounting and
+ * statistics.
+ *
+ * To ensure all CUDA allocations count against the `BufferResource` budget,
+ * use `br->device_mr()` everywhere instead of the underlying memory resource
+ * passed to the constructor.
+ *
+ * Tracking allocations made outside `BufferResource`, for example allocations
+ * performed before construction or through code paths that use a raw memory
+ * resource directly, is a separate design concern and is not handled by this
+ * class.
  */
-class BufferResource {
+class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
     /**
-     * @brief Constructs a buffer resource.
+     * @brief Construct a `BufferResource` managed by `std::shared_ptr`.
      *
-     * Memory availability is computed per `MemoryType` as `limit - allocated`.
+     * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this BufferResource are tracked
-     * automatically. Host memory allocations are not tracked, so the available memory
-     * always equals the configured limit.
+     * Device and pinned-host allocations routed through this `BufferResource` are tracked
+     * automatically. Host memory allocations are not tracked and therefore always report
+     * the configured limit as available memory.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
      *
-     * @param device_mr The RMM device memory resource used for device allocations.
-     * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
-     * allocations. If disabled, pinned host allocations are unavailable regardless of
-     * @p memory_limits.
-     * @param memory_limits Maximum bytes per memory type before overbooking or spilling.
-     * Missing entries default to unlimited.
-     * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
-     * continuously checks and performs spilling based on memory availability. The value
-     * of `periodic_spill_check` controls the pause between checks. If `std::nullopt`, no
-     * periodic spill checking is performed.
-     * @param stream_pool Pool of CUDA streams used throughout RapidsMPF for operations
-     * that do not take an explicit CUDA stream.
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param device_mr Device memory resource used for device allocations. To ensure
+     * allocations are tracked for memory-limit accounting and statistics, use
+     * `BufferResource::device_mr()` instead of the original memory resource after
+     * construction.
+     * @param pinned_mr Pinned host memory resource used for
+     * `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryResource::Disabled` to
+     * disable pinned allocations.
+     * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
+     * entries are treated as unlimited.
+     * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
+     * disables the dedicated spill-check thread.
+     * @param stream_pool CUDA stream pool used for operations that do not take an
+     * explicit CUDA stream.
+     * @param statistics Statistics instance used for runtime metrics.
+     * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      */
-    BufferResource(
+    [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
@@ -102,7 +124,6 @@ class BufferResource {
      * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
      * @param statistics The statistics instance to use (disabled by default).
-     *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
@@ -115,11 +136,74 @@ class BufferResource {
     ~BufferResource() noexcept = default;
 
     /**
-     * @brief Get the RMM device memory resource.
-     *
-     * @return Reference to the RMM resource used for device allocations.
+     * @brief `BufferResource` is non-copyable, it is owned by `std::shared_ptr`.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
+    BufferResource(BufferResource const&) = delete;
+    /**
+     * @brief `BufferResource` is non-movable, it is owned by `std::shared_ptr`.
+     */
+    BufferResource(BufferResource&&) = delete;
+    /**
+     * @brief `BufferResource` is non-copyable.
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource const&) = delete;
+    /**
+     * @brief `BufferResource` is non-movable.
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource&&) = delete;
+
+    /**
+     * @brief Get the device memory resource.
+     *
+     * @return `rmm::device_async_resource_ref` to the device memory resource.
+     *
+     * @par CCCL's lifetime semantic
+     *
+     * The returned `rmm::device_async_resource_ref` is a non-owning
+     * `cuda::mr::resource_ref`, so callers must take care to avoid use-after-free issues.
+     *
+     * When working directly with the returned reference, the caller must ensure that this
+     * `BufferResource` remains alive for the full duration of that use:
+     * @code
+     * auto br = BufferResource::create(...);
+     * auto mr = br->device_mr();
+     * mr.allocate_async(...);  // direct use through a non-owning ref
+     * br.reset();              // do not destroy `br` while `mr` is in use
+     * @endcode
+     *
+     * To store the resource beyond the immediate call, promote the ref to an
+     * owning `cuda::mr::any_resource`:
+     * @code
+     * auto br = BufferResource::create(...);
+     * cuda::mr::any_resource<cuda::mr::device_accessible> mr = br->device_mr();
+     * br.reset();       // safe: `mr` keeps the BufferResource alive
+     * mr.allocate(...); // safe
+     * @endcode
+     *
+     * In the common case, no explicit promotion is needed because RMM and cuDF containers
+     * that store a memory resource do this internally:
+     * @code
+     * auto br = BufferResource::create(...);
+     * rmm::device_buffer buf{1024, stream, br->device_mr()};
+     * br.reset();  // safe: `buf` keeps the BufferResource alive internally
+     * @endcode
+     *
+     * Returned objects from cuDF APIs typically behave the same way:
+     * @code
+     * auto br = BufferResource::create(...);
+     * auto col = cudf::make_numeric_column(
+     *     cudf::data_type{cudf::type_id::INT32},
+     *     1000,
+     *     cudf::mask_state::UNALLOCATED,
+     *     stream,
+     *     br->device_mr()
+     * );
+     * br.reset();  // safe: `col` keeps the BufferResource alive internally
+     * @endcode
+     */
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
@@ -422,12 +506,20 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
+    /** @brief Private constructor, use `create()` or `from_options()`. */
+    BufferResource(
+        std::optional<PinnedMemoryResource> pinned_mr,
+        std::unordered_map<MemoryType, std::int64_t> memory_limits,
+        std::optional<Duration> periodic_spill_check,
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+        std::shared_ptr<Statistics> statistics
+    );
+
     std::mutex mutex_;
-    // The internal RmmResourceAdaptor wraps the user's device MR so that
-    // allocations are tracked for the DEVICE memory_available calculation.
-    // Declared before device_mr_ because device_mr_ is initialized from it.
-    RmmResourceAdaptor device_adaptor_;
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
+    // Stable storage for the device MR returned by `device_mr()`. See
+    // `OwningResourceAdaptor` for the lifetime semantics. Installed by
+    // `create()` after construction.
+    std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
