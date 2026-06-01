@@ -167,7 +167,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * When working directly with the returned reference, the caller must ensure that this
      * `BufferResource` remains alive for the full duration of that use:
      * @code
-     * auto br = std::make_shared<BufferResource>(...);
+     * auto br = BufferResource::create(...);
      * auto mr = br->device_mr();
      * mr.allocate_async(...);  // direct use through a non-owning ref
      * br.reset();              // do not destroy `br` while `mr` is in use
@@ -176,7 +176,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * To store the resource beyond the immediate call, promote the ref to an
      * owning `cuda::mr::any_resource`:
      * @code
-     * auto br = std::make_shared<BufferResource>(...);
+     * auto br = BufferResource::create(...);
      * cuda::mr::any_resource<cuda::mr::device_accessible> mr = br->device_mr();
      * br.reset();       // safe: `mr` keeps the BufferResource alive
      * mr.allocate(...); // safe
@@ -185,14 +185,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * In the common case, no explicit promotion is needed because RMM and cuDF containers
      * that store a memory resource do this internally:
      * @code
-     * auto br = std::make_shared<BufferResource>(...);
+     * auto br = BufferResource::create(...);
      * rmm::device_buffer buf{1024, stream, br->device_mr()};
      * br.reset();  // safe: `buf` keeps the BufferResource alive internally
      * @endcode
      *
      * Returned objects from cuDF APIs typically behave the same way:
      * @code
-     * auto br = std::make_shared<BufferResource>(...);
+     * auto br = BufferResource::create(...);
      * auto col = cudf::make_numeric_column(
      *     cudf::data_type{cudf::type_id::INT32},
      *     1000,
