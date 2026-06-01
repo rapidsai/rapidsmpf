@@ -11,14 +11,15 @@
 #include <limits>
 #include <mutex>
 // GCC bug 109442: libstdc++'s <regex> headers raise spurious -Wmaybe-uninitialized
-// warnings, which become errors under -Werror.
+// warnings, which become errors under -Werror. Fixed in GCC 15; the version guard
+// lets the suppression drop out once we no longer need to support GCC 12-14.
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=109442
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 15
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <regex>
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 15
 #pragma GCC diagnostic pop
 #endif
 #include <stdexcept>
