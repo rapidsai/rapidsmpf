@@ -225,8 +225,14 @@ cdef class BufferResource:
         # checked cast requires the GIL
         stats_handle = (<Statistics?>statistics)._handle
 
-        # Stored for the Python device_mr/pinned_mr property accessors.
-        # The C++ BufferResource owns the resource via any_resource.
+        # Keep the original Python memory resources alive while the C++
+        # BufferResource holds resources derived from them. These anchors are
+        # likely redundant: `make_any_device_resource(...)` deep-copies the
+        # device MR into a self-sufficient owning any_resource, and
+        # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
+        # defensively for now.
+        # TODO: drop these once verified against pool/upstream-adaptor MRs.
+        #       https://github.com/rapidsai/rapidsmpf/issues/1074
         self._device_mr = device_mr
         self._pinned_mr = pinned_mr
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
