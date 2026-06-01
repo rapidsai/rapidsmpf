@@ -508,7 +508,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
-        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
@@ -517,9 +516,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-    // The internal RmmResourceAdaptor wraps the user's device MR so that
-    // allocations are tracked for the DEVICE memory_available calculation.
-    RmmResourceAdaptor device_adaptor_;
     // Stable storage for the device MR returned by `device_mr()`. See
     // `OwningResourceAdaptor` for the lifetime semantics. Installed by
     // `create()` after construction.

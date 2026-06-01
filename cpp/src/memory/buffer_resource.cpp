@@ -23,15 +23,13 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
-    : device_adaptor_{std::move(device_mr)},
-      pinned_mr_{std::move(pinned_mr)},
+    : pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
@@ -58,7 +56,6 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics
 ) {
     std::shared_ptr<BufferResource> br{new BufferResource{
-        std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
@@ -75,7 +72,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     // `rmm::device_buffer`), CCCL deep-copies the adaptor. The copy promotes the weak
     // ref to a `shared_ptr<BufferResource>`, acquiring shared ownership so the
     // `BufferResource` stays alive for as long as the owning resource exists.
-    br->owning_mr_.emplace(br->device_adaptor_, br->weak_from_this());
+    br->owning_mr_.emplace(
+        RmmResourceAdaptor{std::move(device_mr)}, br->weak_from_this()
+    );
     return br;
 }
 
@@ -104,7 +103,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     );
     switch (mem_type) {
     case MemoryType::DEVICE:
-        return limit - device_adaptor_.current_allocated();
+        return limit - owning_mr_->get().current_allocated();
     case MemoryType::PINNED_HOST:
         if (pinned_mr_ == PinnedMemoryResource::Disabled) {
             return 0;
