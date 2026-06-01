@@ -19,7 +19,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -798,8 +797,9 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
 
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
-    // which deep-copies the OwningResourceAdaptor. The copied adaptor acquires a
-    // `shared_ptr<BufferResource>`.
+    // which deep-copies the underlying `RmmResourceAdaptor`. Its
+    // `BackRefMixin<BufferResource>` base promotes the installed weak ref to a
+    // `shared_ptr<BufferResource>` during the copy.
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
     // Drop the original shared_ptr. The buffer's internally stored owning memory
@@ -815,11 +815,52 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 
-TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
+// Two BufferResources constructed over the same upstream MR must each be kept
+// alive *independently* by the owning `any_resource` promoted from their own
+// `device_mr()`. The back-references installed via
+// `BackRefMixin<BufferResource>::set_backref` are per-instance, so dropping
+// one BR's owning resource must not affect the other BR's lifetime.
+//
+// Note on equality: `any_resource::operator==` dispatches to the wrapped
+// `RmmResourceAdaptor::operator==`, which compares shared-impl identity
+// first. Each `BufferResource::create()` constructs a brand-new
+// `cuda::mr::shared_resource<Impl>` with its own heap-allocated impl, so the
+// two `any_resource`s here compare unequal even though they share an upstream
+// resource. This matches the previous `OwningResourceAdaptor::operator==`
+// behavior. The substantive invariant exercised below is the per-instance
+// lifetime isolation.
+TEST(BufferResource, IndependentBackRefsKeepEachBrAlive) {
+    auto upstream = cudf::get_current_device_resource_ref();
+
+    auto br1 = BufferResource::create(upstream);
+    auto br2 = BufferResource::create(upstream);
+
+    std::weak_ptr<BufferResource> weak_br1 = br1;
+    std::weak_ptr<BufferResource> weak_br2 = br2;
+
+    {
+        any_device_resource mr2{br2->device_mr()};
+        {
+            any_device_resource mr1{br1->device_mr()};
+
+            // Distinct shared-impl instances → not equal under our `operator==`.
+            EXPECT_NE(mr1, mr2);
+
+            br1.reset();
+            br2.reset();
+            EXPECT_FALSE(weak_br1.expired()) << "br1 freed while mr1 still holds it";
+            EXPECT_FALSE(weak_br2.expired()) << "br2 freed while mr2 still holds it";
+        }
+        EXPECT_TRUE(weak_br1.expired()) << "mr1 released but br1 not freed";
+        EXPECT_FALSE(weak_br2.expired())
+            << "mr1 release leaked into br2 lifetime (back-refs not per-instance)";
+    }
+    // `mr2` destroyed: `br2` must now die too.
+    EXPECT_TRUE(weak_br2.expired()) << "mr2 released but br2 not freed";
+}
+
+TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor adaptor{
-        cuda::mr::any_resource<cuda::mr::device_accessible>{cuda_mr}
-    };
 
     std::weak_ptr<BufferResource> weak_br;
     {
@@ -828,11 +869,26 @@ TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     }
     ASSERT_TRUE(weak_br.expired());
 
-    OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
+    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
+    original.set_backref(weak_br);
 
-    using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
-    EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
+    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
 
-    AdaptorT target{adaptor, weak_br};
+    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
     EXPECT_THROW(target = original, std::bad_weak_ptr);
+}
+
+TEST(RmmResourceAdaptor, CopyWithoutBackRefDoesNotThrow) {
+    // A default-constructed (no `set_backref` ever called) adaptor must be
+    // freely copyable: both `weak_` and `strong_` start empty and copies of
+    // such adaptors should be a no-op for the back-ref. This is the contract
+    // existing callers (tests, benchmarks, Python bindings) rely on.
+    rmm::mr::cuda_memory_resource cuda_mr;
+
+    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
+
+    EXPECT_NO_THROW({ RmmResourceAdaptor copy{original}; });
+
+    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
+    EXPECT_NO_THROW(target = original);
 }

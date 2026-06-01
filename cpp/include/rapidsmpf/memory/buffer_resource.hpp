@@ -23,7 +23,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -508,6 +507,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
@@ -516,10 +516,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-    // Stable storage for the device MR returned by `device_mr()`. See
-    // `OwningResourceAdaptor` for the lifetime semantics. Installed by
-    // `create()` after construction.
-    std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
+    // Stable storage for the device MR returned by `device_mr()`. Constructed
+    // directly in the member-initializer list from the `device_mr` argument
+    // passed to `create()`. `create()` installs the back-reference via
+    // `set_backref(weak_from_this())` after construction; copies of
+    // `owning_mr_` (e.g. inside `cuda::mr::any_resource` promoted from
+    // `device_mr()`) then promote that weak ref to a `shared_ptr<BufferResource>`
+    // and keep this resource alive. See `BackRefMixin` for the lifetime
+    // semantics.
+    RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
