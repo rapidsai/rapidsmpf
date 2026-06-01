@@ -31,7 +31,6 @@ cdef extern from *:
     cpp_make_device_async_resource_ref_from_any(
         cuda::mr::any_resource<cuda::mr::device_accessible>& mr
     ) {
-
         // `cython_device_async_resource_ref` is declared inline in RMM's
         // `librmm/memory_resource.pxd`.
         return std::optional<cython_device_async_resource_ref>(
