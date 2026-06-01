@@ -21,6 +21,7 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -891,4 +892,28 @@ TEST(RmmResourceAdaptor, CopyWithoutBackRefDoesNotThrow) {
 
     RmmResourceAdaptor target{any_device_resource{cuda_mr}};
     EXPECT_NO_THROW(target = original);
+}
+
+// Regression guard for a latent side effect of switching `BufferResource` from
+// the old `OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>` wrapper
+// to inheriting `BackRefMixin<BufferResource>` directly on `RmmResourceAdaptor`.
+TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
+    constexpr std::size_t kAllocBytes = 1_MiB;
+
+    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto stats = Statistics::create();
+    ASSERT_TRUE(stats->enabled());
+
+    {
+        auto rec = stats->create_memory_recorder(br->device_mr(), "br-scope");
+        rmm::device_buffer buf{kAllocBytes, cudf::get_default_stream(), br->device_mr()};
+    }
+
+    auto const& records = stats->get_memory_records();
+    ASSERT_EQ(records.count("br-scope"), 1u)
+    auto const& rec = records.at("br-scope");
+    EXPECT_EQ(rec.num_calls, 1u);
+    EXPECT_EQ(rec.global_peak, static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.peak(), static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.total(), static_cast<std::int64_t>(kAllocBytes));
 }
