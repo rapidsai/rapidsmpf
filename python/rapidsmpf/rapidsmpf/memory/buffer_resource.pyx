@@ -114,10 +114,10 @@ cdef class BufferResource:
     Parameters
     ----------
     device_mr
-        The RMM device memory resource used for device allocations. The
-        BufferResource transparently wraps this resource in an internal RMM
-        adaptor for allocation tracking — callers don't need to wrap it
-        themselves.
+        The RMM device memory resource used for device allocations. To ensure
+        allocations are tracked for memory-limit accounting and statistics, use
+        ``BufferResource.device_mr`` instead of the original ``device_mr`` after
+        construction.
     pinned_mr
         The pinned host memory resource used for :attr:`~.MemoryType.PINNED_HOST`
         allocations. If None, pinned host allocations are disabled. In that case,
@@ -138,6 +138,26 @@ cdef class BufferResource:
     statistics
         The statistics instance to use. If None, a disabled statistics instance
         will be created.
+
+    Notes
+    -----
+    Allocation tracking only applies to allocations routed through this
+    ``BufferResource``. The constructor wraps the supplied ``device_mr`` in
+    an internal RMM adaptor that records all allocations and deallocations;
+    that adaptor is exposed via ``BufferResource.device_mr``.
+
+    Allocations made through the original, unwrapped ``device_mr`` bypass
+    this tracking and are therefore invisible to memory-limit accounting and
+    statistics.
+
+    To ensure all CUDA allocations count against the ``BufferResource``
+    budget, use ``br.device_mr`` everywhere instead of the original
+    ``device_mr`` passed to the constructor.
+
+    Tracking allocations made outside ``BufferResource``, for example
+    allocations performed before construction or through code paths that use
+    a raw RMM memory resource directly, is a separate design concern and is
+    not handled by this class.
     """
     def __cinit__(
         self,

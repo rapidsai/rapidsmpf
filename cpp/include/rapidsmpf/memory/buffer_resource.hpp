@@ -55,6 +55,24 @@ enum class AllowOverbooking : bool {
  * @note `BufferResource` instances must be constructed through `create()` or
  * `from_options()`, both of which return a `std::shared_ptr<BufferResource>`. Direct
  * construction is disabled.
+ *
+ * @note Allocation tracking only applies to allocations routed through this
+ * `BufferResource`. The constructor wraps the supplied device memory resource
+ * in an internal adaptor that records all allocations and deallocations; that
+ * adaptor is exposed via `device_mr()`.
+ *
+ * Allocations made through the original, unwrapped memory resource bypass
+ * this tracking and are therefore invisible to memory-limit accounting and
+ * statistics.
+ *
+ * To ensure all CUDA allocations count against the `BufferResource` budget,
+ * use `br->device_mr()` everywhere instead of the underlying memory resource
+ * passed to the constructor.
+ *
+ * Tracking allocations made outside `BufferResource`, for example allocations
+ * performed before construction or through code paths that use a raw memory
+ * resource directly, is a separate design concern and is not handled by this
+ * class.
  */
 class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
@@ -70,7 +88,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
      *
-     * @param device_mr Device memory resource used for device allocations.
+     * @param device_mr Device memory resource used for device allocations. To ensure
+     * allocations are tracked for memory-limit accounting and statistics, use
+     * `BufferResource::device_mr()` instead of the original memory resource after
+     * construction.
      * @param pinned_mr Pinned host memory resource used for
      * `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryResource::Disabled` to
      * disable pinned allocations.
