@@ -14,7 +14,6 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.statistics cimport Statistics
 
 
 cdef class AllGather:
@@ -37,8 +36,6 @@ cdef class AllGather:
         between 0 and 2^20 - 1.
     br
         Buffer resource for memory allocation.
-    statistics
-        Statistics collection instance. If None, statistics is disabled.
 
     Notes
     -----
@@ -52,19 +49,16 @@ cdef class AllGather:
         Communicator comm not None,
         int32_t op_id,
         BufferResource br not None,
-        Statistics statistics = None,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
+        self.in_context = False
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 comm._handle,
                 op_id,
                 br_,
-                statistics._handle,
             )
 
     def __dealloc__(self):
@@ -113,8 +107,19 @@ cdef class AllGather:
         This method signals that no more data will be inserted by this rank.
         All ranks must call this method for the allgather operation to complete.
         """
+        if self.in_context:
+            raise ValueError("Cannot call insert_finished() from within a context")
         with nogil:
             deref(self._handle).insert_finished()
+
+    def __enter__(self):
+        self.in_context = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.in_context = False
+        self.insert_finished()
+        return False  # do not suppress exceptions
 
     def wait_and_extract(self, bool ordered = True, int timeout_ms = -1):
         """

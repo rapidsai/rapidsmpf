@@ -56,7 +56,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
         br = std::make_unique<BufferResource>(
             cudf::get_current_device_resource_ref(),
             PinnedMemoryResource::make_if_available(),
-            std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},
+            std::unordered_map<MemoryType, std::int64_t>{},
             std::nullopt,
             stream_pool
         );

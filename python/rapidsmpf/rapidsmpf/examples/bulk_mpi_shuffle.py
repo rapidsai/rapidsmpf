@@ -25,7 +25,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
@@ -313,12 +313,10 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     # Create a buffer resource that limits device memory if `--spill-device`
     # is not None.
-    memory_available = (
-        None
-        if args.spill_device is None
-        else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
+    memory_limits = (
+        None if args.spill_device is None else {MemoryType.DEVICE: args.spill_device}
     )
-    br = BufferResource(mr, memory_available=memory_available)
+    br = BufferResource(mr, memory_limits=memory_limits)
 
     stats = Statistics(enable=args.statistics)
 

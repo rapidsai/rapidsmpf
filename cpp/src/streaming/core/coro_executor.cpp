@@ -5,8 +5,10 @@
 
 #include <utility>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -32,12 +34,10 @@ CoroThreadPoolExecutor::CoroThreadPoolExecutor(
     : CoroThreadPoolExecutor(
           options.get<std::uint32_t>(
               "num_streaming_threads",
-              [](std::string const& s) {
-                  if (s.empty()) {
-                      return 1;  // Default number of threads.
-                  }
-                  if (int v = std::stoi(s); v > 0) {
-                      return v;
+              [](std::string const& s) -> std::uint32_t {
+                  auto const v = parse_string<int>(s);
+                  if (v > 0) {
+                      return static_cast<std::uint32_t>(v);
                   }
                   RAPIDSMPF_FAIL(
                       "num_streaming_threads must be a positive integer",

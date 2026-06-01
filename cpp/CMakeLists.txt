@@ -175,6 +175,7 @@ target_compile_options(
   maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
+target_compile_definitions(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:RAPIDSMPF_ASAN=1>")
 
 add_library(
   rapidsmpf

@@ -294,10 +294,8 @@ int main(int argc, char** argv) {
     // work around https://github.com/rapidsai/cudf/issues/20849
     cudf::initialize();
     auto mr = rmm::mr::cuda_async_memory_resource{};
-    auto stats_wrapper = rapidsmpf::RmmResourceAdaptor(mr);
     auto arguments = rapidsmpf::ndsh::parse_arguments(argc, argv);
-    auto [ctx, comm] =
-        rapidsmpf::ndsh::create_context(arguments, std::move(stats_wrapper));
+    auto [ctx, comm] = rapidsmpf::ndsh::create_context(arguments, std::move(mr));
     std::string output_path = arguments.output_file;
     std::vector<double> timings;
 
@@ -520,10 +518,11 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        comm->logger()->print(ctx->statistics()->report(
+        auto statistics = ctx->statistics();
+        comm->logger()->print(statistics->report(
             {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
-        ctx->statistics()->clear();
+        statistics->clear();
     }
 
     if (comm->rank() == 0) {

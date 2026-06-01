@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 
 #include <cuda.h>
@@ -100,28 +99,6 @@ class PinnedMemoryResource final
     /// @brief Sentinel value indicating that pinned host memory is disabled.
     static constexpr std::nullopt_t Disabled = std::nullopt;
 
-    /// @brief Whether pinned host memory is enabled by default.
-    static constexpr bool EnabledByDefault = false;
-
-    /**
-     * @brief Fraction of total host memory per GPU used as the initial pinned pool size
-     *        when no explicit `pinned_initial_pool_size` option is provided.
-     *
-     * Applied as: `initial_pool_size = get_host_memory_per_gpu() *
-     * DefaultInitiPoolSizeFactor`.
-     */
-    static constexpr std::string_view DefaultInitiPoolSizeFactor = "0%";
-
-    /**
-     * @brief Fraction of total host memory per GPU used as the maximum pinned pool size
-     *        when no explicit `pinned_max_pool_size` option is provided.
-     *
-     * Applied as: `max_pool_size = get_host_memory_per_gpu() *
-     * DefaultMaxPoolSizeFactor`. `get_host_memory_per_gpu()` is computed as total
-     * host memory divided by the number of GPUs visible to the system.
-     */
-    static constexpr std::string_view DefaultMaxPoolSizeFactor = "80%";
-
     /**
      * @brief Create a pinned memory resource if the system supports pinned memory.
      *
@@ -141,16 +118,16 @@ class PinnedMemoryResource final
      * @brief Construct from configuration options.
      *
      * Recognized options:
-     * - `pinned_memory` (bool): enables pinned memory; defaults to
-     *   `EnabledByDefault`.
-     * - `pinned_initial_pool_size` (nbytes string): initial pool size; defaults to
-     *   `get_host_memory_per_gpu() * DefaultInitiPoolSizeFactor`.
-     * - `pinned_max_pool_size` (nbytes string or empty): maximum pool size; defaults to
-     *   `get_host_memory_per_gpu() * DefaultMaxPoolSizeFactor`.
+     * - "pinned_memory": enable pinned memory.
+     * - "pinned_initial_pool_size" (bytes or percentage): initial pool size.
+     *   - Byte values (e.g. "1 MiB") are applied literally.
+     *   - Percentages (e.g. "10%") are relative to `get_host_memory_per_gpu()`.
+     * - "pinned_max_pool_size" (bytes, percentage, or disabled): maximum pool size.
+     *   - Byte and percentages uses the same parsing rules as "pinned_initial_pool_size".
+     *   - A disabled value (e.g. "off") leaves the pool unbounded.
      *
      * @param options Configuration options.
-     *
-     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported,
+     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported;
      * otherwise `std::nullopt`.
      */
     static std::optional<PinnedMemoryResource> from_options(config::Options options);
@@ -228,15 +205,6 @@ class PinnedMemoryResource final
     [[nodiscard]] constexpr PinnedPoolProperties const& properties() const noexcept {
         return pool_properties_;
     }
-
-    /**
-     * @brief Returns a memory-availability callback for the pinned pool, if the pool has
-     * a configured maximum size.
-     *
-     * @return A callable `std::int64_t()`. If no maximum pool size is configured, returns
-     * `std::numeric_limits<std::int64_t>::%max` (unbounded).
-     */
-    [[nodiscard]] std::function<std::int64_t()> get_memory_available_cb() const;
 
     /**
      * @brief Enables the `cuda::mr::host_accessible` property.

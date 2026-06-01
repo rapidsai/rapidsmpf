@@ -6,6 +6,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -55,42 +57,35 @@ enum class AllowOverbooking : bool {
 class BufferResource {
   public:
     /**
-     * @brief Callback function to determine available memory.
-     *
-     * The function should return the current available memory of a specific type and
-     * must be thread-safe iff used by multiple `BufferResource` instances concurrently.
-     *
-     * @warning Calling any `BufferResource` instance methods in the function might result
-     * in a deadlock. This is because the buffer resource is locked when the function is
-     * called.
-     */
-    using MemoryAvailable = std::function<std::int64_t()>;
-
-    /**
      * @brief Constructs a buffer resource.
      *
+     * Memory availability is computed per `MemoryType` as `limit - allocated`.
+     *
+     * Device and pinned-host allocations routed through this BufferResource are tracked
+     * automatically. Host memory allocations are not tracked, so the available memory
+     * always equals the configured limit.
+     *
+     * If pinned-host memory is disabled, available pinned-host memory is always reported
+     * as zero regardless of the configured limit.
+     *
      * @param device_mr The RMM device memory resource used for device allocations.
-     * Ownership is transferred to the BufferResource.
      * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
-     * allocations. If null, pinned host allocations are disabled. In that case, any
-     * attempt to allocate pinned memory will fail regardless of what @p memory_available
-     * reports.
-     * @param memory_available Optional functions that report available memory for each
-     * memory type. If a memory type is not present in this map, it is treated as having
-     * unlimited available memory. The only exception is `MemoryType::PINNED_HOST`, which
-     * is always assigned a zero-capacity function when `pinned_mr` is disabled.
+     * allocations. If disabled, pinned host allocations are unavailable regardless of
+     * @p memory_limits.
+     * @param memory_limits Maximum bytes per memory type before overbooking or spilling.
+     * Missing entries default to unlimited.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
-     * continuously checks and perform spilling based on the memory availability
-     * functions. The value of `periodic_spill_check` is used as the pause between checks.
-     * If `std::nullopt`, no periodic spill check is performed.
-     * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
+     * continuously checks and performs spilling based on memory availability. The value
+     * of `periodic_spill_check` controls the pause between checks. If `std::nullopt`, no
+     * periodic spill checking is performed.
+     * @param stream_pool Pool of CUDA streams used throughout RapidsMPF for operations
      * that do not take an explicit CUDA stream.
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
-        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
+        std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
@@ -101,16 +96,20 @@ class BufferResource {
      * @brief Construct a BufferResource from configuration options.
      *
      * This factory method creates a BufferResource using configuration options to
-     * initialize all components.
+     * initialize all components. The supplied device memory resource is wrapped in
+     * an internal `RmmResourceAdaptor` for allocation tracking.
      *
-     * @param mr The RMM resource adaptor.
+     * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
+     * @param statistics The statistics instance to use (disabled by default).
      *
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        RmmResourceAdaptor mr, config::Options options
+        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+        config::Options options,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     ~BufferResource() noexcept = default;
@@ -146,17 +145,33 @@ class BufferResource {
     [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**
-     * @brief Retrieves the memory availability function for a given memory type.
+     * @brief Returns the currently available memory for a given memory type, in bytes.
      *
-     * This function returns the callback function used to determine the available memory
-     * for the specified memory type.
+     * Computed as `limit - allocated`, where `allocated` is reported by the
+     * memory type's allocation counter (see the constructor documentation for
+     * how each memory type is tracked). The value may be negative when
+     * allocations exceed the configured limit.
      *
-     * @param mem_type The type of memory whose availability function is requested.
-     * @return Reference to the memory availability function associated with `mem_type`.
+     * @param mem_type The memory type to query.
+     * @return The available memory in bytes.
      */
-    [[nodiscard]] MemoryAvailable const& memory_available(MemoryType mem_type) const {
-        return memory_available_.at(mem_type);
-    }
+    [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept;
+
+    /**
+     * @brief Updates the memory limit for a given memory type at runtime.
+     *
+     * The store is atomic, but readers (e.g. `memory_available()` and `reserve()`)
+     * observe the limit and the allocation count independently. A concurrent
+     * `set_memory_limit()` call can change the limit between a caller's read of
+     * `memory_available()` and a subsequent allocation decision; callers that need
+     * a coherent view must serialize updates with higher-level synchronization.
+     *
+     * @param mem_type The memory type whose limit is being updated.
+     * @param limit The new byte limit. Negative values are permitted; they make
+     * `memory_available(mem_type)` always negative and so trigger continuous
+     * spilling.
+     */
+    void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
      * @brief Get the current reserved memory of the specified memory type.
@@ -404,14 +419,18 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
     std::mutex mutex_;
+    // The internal RmmResourceAdaptor wraps the user's device MR so that
+    // allocations are tracked for the DEVICE memory_available calculation.
+    // Declared before device_mr_ because device_mr_ is initialized from it.
+    RmmResourceAdaptor device_adaptor_;
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
-    std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
+    std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
@@ -419,63 +438,20 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics_;
 };
 
-/**
- * @brief A functor for querying the remaining available memory within a defined limit
- * from an RMM statistics resource.
- *
- * This class is designed to be used as a callback to provide available memory
- * information in the context of memory management, such as when working with
- * `BufferResource`. The available memory is determined as the difference
- * between a user-defined limit and the memory currently used, as reported
- * by an RMM statistics resource adaptor.
- *
- * By enforcing a limit, this functor can be used to simulate constrained memory
- * environments or to prevent memory allocation beyond a specific threshold.
- *
- * @see rapidsmpf::BufferResource::MemoryAvailable
- */
-class LimitAvailableMemory {
-  public:
-    /**
-     * @brief Constructs a `LimitAvailableMemory` instance.
-     *
-     * @param mr The RMM resource adaptor.
-     * @param limit The maximum memory available (in bytes). Used to calculate the
-     * remaining memory.
-     */
-    LimitAvailableMemory(RmmResourceAdaptor mr, std::int64_t limit)
-        : limit{limit}, mr_{std::move(mr)} {}
-
-    /**
-     * @brief Returns the remaining available memory within the defined limit.
-     *
-     * This operator queries the `RmmResourceAdaptor` to determine the memory
-     * currently used and calculates the remaining memory as:
-     * `limit - used_memory`.
-     *
-     * @return The remaining memory in bytes.
-     */
-    std::int64_t operator()() const {
-        return limit - mr_.current_allocated();
-    }
-
-  public:
-    std::int64_t const limit;  ///< The memory limit.
-
-  private:
-    RmmResourceAdaptor const mr_;
-};
+static_assert(StatisticsProvider<BufferResource>);
 
 /**
- * @brief Construct a map of memory-available functions from configuration options.
+ * @brief Parse the `spill_device_limit` parameter from configuration options.
  *
- * @param mr The RMM resource adaptor.
+ * Reads the `spill_device_limit` option, falling back to 80% of total device
+ * memory when unset. The result is aligned down to
+ * `rmm::CUDA_ALLOCATION_ALIGNMENT`.
+ *
  * @param options Configuration options.
  *
- * @return The map of memory-available functions.
+ * @return The device memory limit in bytes.
  */
-std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
-memory_available_from_options(RmmResourceAdaptor mr, config::Options options);
+std::int64_t device_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

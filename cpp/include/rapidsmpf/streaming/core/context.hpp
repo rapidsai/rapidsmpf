@@ -83,6 +83,8 @@ class Context {
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
+     * @param statistics The statistics instance to use (disabled by default).
+     *
      * @return A fully initialized Context.
      *
      * @throws std::invalid_argument If an option value is invalid.
@@ -102,7 +104,8 @@ class Context {
     static std::shared_ptr<Context> from_options(
         RmmResourceAdaptor mr,
         std::shared_ptr<Communicator::Logger> logger,
-        config::Options options
+        config::Options options,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     // No copy constructor and assignment operator.
@@ -230,5 +233,7 @@ class Context {
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
 };
+
+static_assert(StatisticsProvider<Context>);
 
 }  // namespace rapidsmpf::streaming

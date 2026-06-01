@@ -15,9 +15,8 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
@@ -34,10 +33,9 @@ def make_context(
         env.update(overwrite_options)
     options = Options(env)
     comm = single_process_comm(options, ProgressThread())
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr,
-        memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=dev_limit)},
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.DEVICE: dev_limit},
     )
     return Context(comm.logger, br, options)
 

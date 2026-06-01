@@ -9,8 +9,7 @@ import pytest
 
 from rapidsmpf.error import BadAlloc, OutOfMemory, ReservationError
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.memory.buffer_resource import BufferResource
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -104,12 +103,11 @@ def test_periodic_spill_check(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Create a buffer resource with a negative limit to trigger spilling and
-    # a periodic spill check enabled.
-    mr = RmmResourceAdaptor(device_mr)
-    mem_available = LimitAvailableMemory(mr, limit=-100)
+    # a periodic spill check enabled. (memory_available = limit - allocated; with
+    # limit = -100 and no allocations, the available value is always negative.)
     br = BufferResource(
-        mr,
-        memory_available={MemoryType.DEVICE: mem_available},
+        device_mr,
+        memory_limits={MemoryType.DEVICE: -100},
         periodic_spill_check=1e-3,
     )
 
@@ -129,11 +127,9 @@ def test_spill_to_make_headroom(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
-    mr = RmmResourceAdaptor(device_mr)
-    mem_available = LimitAvailableMemory(mr, limit=100)
     br = BufferResource(
-        mr,
-        memory_available={MemoryType.DEVICE: mem_available},
+        device_mr,
+        memory_limits={MemoryType.DEVICE: 100},
         periodic_spill_check=None,
     )
 
@@ -155,11 +151,9 @@ def test_reserve_device_memory_and_spill(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
-    mr = RmmResourceAdaptor(device_mr)
-    mem_available = LimitAvailableMemory(mr, limit=100)
     br = BufferResource(
-        mr,
-        memory_available={MemoryType.DEVICE: mem_available},
+        device_mr,
+        memory_limits={MemoryType.DEVICE: 100},
         periodic_spill_check=None,
     )
 

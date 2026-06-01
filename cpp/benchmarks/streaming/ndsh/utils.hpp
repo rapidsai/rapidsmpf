@@ -14,6 +14,8 @@
 
 #include <mpi.h>
 
+#include <cuda/memory_resource>
+
 #include <cudf/ast/expressions.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/types.hpp>
@@ -295,12 +297,14 @@ ProgramOptions parse_arguments(int argc, char** argv);
  * @brief Create a streaming execution context and communicator for a query.
  *
  * @param arguments Arguments to configure the context
- * @param mr The RMM resource adaptor to use for all allocations.
+ * @param mr The device memory resource to use for all allocations.
  *
  * @return Pair of shared pointer to new streaming context and communicator.
  */
 std::pair<std::shared_ptr<streaming::Context>, std::shared_ptr<Communicator>>
-create_context(ProgramOptions& arguments, RmmResourceAdaptor&& mr);
+create_context(
+    ProgramOptions& arguments, cuda::mr::any_resource<cuda::mr::device_accessible> mr
+);
 
 /**
  * @brief Finalize MPI when going out of scope.

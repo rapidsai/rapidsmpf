@@ -68,6 +68,17 @@ class StreamingLineariser : public BaseStreamingFixture {
 };
 
 TEST_F(StreamingLineariser, ManyProducers) {
+#ifdef RAPIDSMPF_ASAN
+    // libcoro's coro::ring_buffer resumes the peer coroutine inline on the C
+    // stack from produce/consume. At -O2 the compiler tail-call-optimizes
+    // those resumes, so the stack stays flat in release. ASan builds disable
+    // those optimizations and inflate frame sizes, so the chain accumulates
+    // real stack on every produce/consume round-trip and a workload this
+    // large reliably overflows.
+    GTEST_SKIP() << "Skipped under AddressSanitizer: libcoro ring_buffer "
+                    "mutual-resume chain overflows the stack when frames are "
+                    "not tail-call-optimized.";
+#endif
     constexpr std::size_t num_producers = 100;
     constexpr std::size_t num_messages = 30'000;
 

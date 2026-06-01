@@ -20,6 +20,7 @@ from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     MemoryReserveOrWait
 
 from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
+from rapidsmpf.statistics import Statistics
 
 
 @no_gc_clear
@@ -97,11 +98,14 @@ cdef class Context:
         cls,
         Logger logger not None,
         RmmResourceAdaptor mr not None,
-        Options options not None
+        Options options not None,
+        statistics=None,
     ):
+        if statistics is None:
+            statistics = Statistics.disabled()
         return cls(
             logger=logger,
-            br=BufferResource.from_options(mr, options),
+            br=BufferResource.from_options(mr, options, statistics),
             options=options,
         )
 

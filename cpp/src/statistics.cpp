@@ -12,6 +12,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
@@ -162,20 +163,15 @@ Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
 
-// TODO: remove this constructor and add a factory method, because
-// make_shared<Statistics>(false) != Statistics::disabled()
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
-std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
-    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? "False" : s);
-    });
-    return statistics ? std::make_shared<Statistics>(statistics) : Statistics::disabled();
+std::shared_ptr<Statistics> Statistics::create(Mode mode) {
+    return std::shared_ptr<Statistics>(new Statistics(mode == Mode::Enabled));
 }
 
-std::shared_ptr<Statistics> Statistics::disabled() {
-    static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
-    return ret;
+std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
+    bool const enabled = options.get<bool>("statistics", parse_string<bool>);
+    return create(enabled ? Mode::Enabled : Mode::Disabled);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
@@ -251,19 +247,23 @@ void Statistics::clear() {
 }
 
 Statistics::MemoryRecorder::MemoryRecorder(
-    Statistics* stats, RmmResourceAdaptor mr, std::string name
+    std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
-    : stats_{stats}, mr_{std::move(mr)}, name_{std::move(name)} {
+    : mr_{std::move(mr)}, stats_{std::move(stats)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     mr_->begin_scoped_memory_record();
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
-    if (stats_ == nullptr) {
+    if (!mr_.has_value()) {
+        return;  // no-op recorder; nothing was pushed.
+    }
+    // Always pop to keep the RMM adaptor's per-thread stack balanced, even if
+    // statistics were disabled after construction (in which case skip publish).
+    auto const scope = mr_->end_scoped_memory_record();
+    if (!stats_->enabled()) {
         return;
     }
-    auto const scope = mr_->end_scoped_memory_record();
-
     std::lock_guard<std::mutex> lock(stats_->mutex_);
     auto& record = stats_->memory_records_[name_];
     ++record.num_calls;
@@ -272,13 +272,13 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
 }
 
 Statistics::MemoryRecorder Statistics::create_memory_recorder(
-    std::optional<any_device_resource> mr, std::string name
+    any_device_resource mr, std::string name
 ) {
-    auto* rma = get_optional_resource_as<RmmResourceAdaptor>(mr);
-    if (!rma) {
+    auto* rma = cuda::mr::resource_cast<RmmResourceAdaptor>(&mr);
+    if (!enabled() || !rma) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, *rma, std::move(name)};
+    return MemoryRecorder{shared_from_this(), *rma, std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -485,7 +485,7 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 
 std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    auto ret = Statistics::create(enabled() ? Mode::Enabled : Mode::Disabled);
     ret->stats_ = stats_;
     ret->report_entries_ = report_entries_;
     return ret;
@@ -579,7 +579,7 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
 
     std::uint8_t enabled{};
     data = read_pod(data, enabled);
-    auto ret = std::make_shared<Statistics>(enabled != 0);
+    auto ret = Statistics::create(enabled != 0 ? Mode::Enabled : Mode::Disabled);
 
     std::uint64_t num_stats{};
     data = read_pod(data, num_stats);
@@ -656,7 +656,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 
     bool const any_enabled =
         std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
-    auto ret = std::make_shared<Statistics>(any_enabled);
+    auto ret = Statistics::create(any_enabled ? Mode::Enabled : Mode::Disabled);
 
     for (auto const& snap : snapshots) {
         for (auto const& [name, stat] : snap.stats) {
