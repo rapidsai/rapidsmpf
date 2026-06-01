@@ -15,7 +15,7 @@ from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.librmm.memory_resource cimport any_resource, device_accessible
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -198,7 +198,7 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
-                make_any_device_resource(device_mr.get_mr()),
+                any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,

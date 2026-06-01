@@ -3,7 +3,7 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.librmm.memory_resource cimport any_resource, device_accessible
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            UpstreamResourceAdaptor)
 
@@ -29,7 +29,7 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         """
         self.c_obj.reset(
             new cpp_RmmResourceAdaptor(
-                make_any_device_resource(upstream_mr.get_mr())
+                any_resource[device_accessible](upstream_mr.get_mr())
             )
         )
         self.c_ref = make_device_async_resource_ref(deref(self.c_obj))
