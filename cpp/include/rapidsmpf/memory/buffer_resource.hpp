@@ -203,7 +203,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * br.reset();  // safe: `col` keeps the BufferResource alive internally
      * @endcode
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr();
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
@@ -520,12 +520,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     // The internal RmmResourceAdaptor wraps the user's device MR so that
     // allocations are tracked for the DEVICE memory_available calculation.
     RmmResourceAdaptor device_adaptor_;
-    // Stable storage for the device MR returned by `device_mr()`. Holds a
-    // `weak_ptr<BufferResource>` to *this; copies promote that to a
-    // `shared_ptr<BufferResource>` on the deep-copy path. Installed by
-    // `create()` after construction so that `weak_from_this()` is valid;
-    // wrapped in `optional` so it can be default-constructed empty
-    // (`RmmResourceAdaptor` itself is not default-constructible).
+    // Stable storage for the device MR returned by `device_mr()`. See
+    // `OwningResourceAdaptor` for the lifetime semantics. Installed by
+    // `create()` after construction.
     std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;

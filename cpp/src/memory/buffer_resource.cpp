@@ -57,7 +57,6 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
-    // Construct via `new` (private ctor visible here as a member function).
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
@@ -73,9 +72,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     // The adaptor stored inside `BufferResource` itself holds only a `weak_ptr`, avoiding
     // a reference cycle. When downstream code promotes `device_mr()` from a non-owning
     // `resource_ref` to an owning `cuda::mr::any_resource` (for example internally in
-    // `rmm::device_buffer`), CCCL deep-copies the adaptor. That copy promotes the weak
-    // ref to a `shared_ptr<BufferResource>`, ensuring the `BufferResource` stays alive
-    // for as long as the owning resource exists.
+    // `rmm::device_buffer`), CCCL deep-copies the adaptor. The copy promotes the weak
+    // ref to a `shared_ptr<BufferResource>`, acquiring shared ownership so the
+    // `BufferResource` stays alive for as long as the owning resource exists.
     br->owning_mr_.emplace(br->device_adaptor_, br->weak_from_this());
     return br;
 }
@@ -124,7 +123,7 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-rmm::device_async_resource_ref BufferResource::device_mr() {
+rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
     return rmm::device_async_resource_ref{*owning_mr_};
 }
 

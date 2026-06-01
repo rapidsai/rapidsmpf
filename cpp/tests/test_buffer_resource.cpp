@@ -803,14 +803,10 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
     // Drop the original shared_ptr. The buffer's internally stored owning memory
-    // resource now holds the only remaining `shared_ptr<BufferResource>`, so the
-    // BR must remain alive.
+    // resource should be keeping the BR alive.
     br.reset();
     EXPECT_FALSE(weak_br.expired()) << "BR freed while buffer still holds it";
 
-    // Destroy the buffer. This releases the owning memory resource and the final
-    // `shared_ptr<BufferResource>`. The stream-ordered deallocation must complete
-    // successfully while the BR is still alive.
     EXPECT_NO_THROW(buf.reset());
 
     // After the buffer is destroyed, no shared ownership should remain. If the
@@ -832,32 +828,11 @@ TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     }
     ASSERT_TRUE(weak_br.expired());
 
-    // Construct an adaptor with an expired weak back-reference. The adaptor
-    // itself is valid to create and hold because it stores only the weak
-    // ref. The failure occurs only when a copy attempts to promote that weak
-    // ref to shared ownership.
     OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
 
     using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
-
-    // Copy construction promotes the weak back-reference to a
-    // `shared_ptr<BufferResource>`. Since the BR has already been destroyed,
-    // the promotion must fail with `std::bad_weak_ptr`.
     EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
 
-    // Copy assignment uses the same promotion semantics and must likewise
-    // fail when the back-reference has expired.
     AdaptorT target{adaptor, weak_br};
     EXPECT_THROW(target = original, std::bad_weak_ptr);
-}
-
-TEST(BufferResource, OwningAdaptorMemberHasNoStrongCycle) {
-    std::weak_ptr<BufferResource> weak_br;
-    {
-        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
-        weak_br = br;
-        EXPECT_FALSE(weak_br.expired());
-    }
-    EXPECT_TRUE(weak_br.expired()) << "BR leaked - the owning_mr_ member holds a "
-                                      "strong ref to BR, closing a cycle.";
 }

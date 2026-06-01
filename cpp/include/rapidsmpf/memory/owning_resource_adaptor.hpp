@@ -64,9 +64,14 @@ namespace rapidsmpf {
  * `std::shared_ptr<BackRef>`. The copied adaptor therefore keeps the owner
  * alive for as long as the copied resource exists.
  *
- * If the owner has already been destroyed when the adaptor is copied, the copy
- * constructor throws `std::bad_weak_ptr` instead of producing a dangling
+ * If the owner has already been destroyed when the adaptor is copied, the
+ * copy constructor throws `std::bad_weak_ptr` instead of creating a dangling
  * adaptor.
+ *
+ * This only works while the source adaptor itself is still alive, which is
+ * the common case for transient ref/`any_resource` consumers where CCCL
+ * performs the deep copy during construction. If both the owner and source
+ * adaptor have already been destroyed, the behavior is undefined.
  *
  * This does not make direct use of a bare `resource_ref` safe after the owner
  * has been destroyed. A call such as `ref.allocate(...)` still dispatches
@@ -232,21 +237,24 @@ class OwningResourceAdaptor
     }
 
     /**
-     * @brief Compare wrapped resource identity.
+     * @brief Compare adaptor identity.
      *
-     * Two adaptors compare equal if their wrapped resources compare equal.
+     * Two adaptors compare equal if both their wrapped resources and their
+     * back-references compare equal.
      *
      * @param other Adaptor to compare against.
-     * @return `true` if both adaptors refer to the same underlying resource.
+     * @return `true` if both adaptors refer to the same wrapped resource and
+     * the same back-referenced object.
      */
     [[nodiscard]] bool operator==(OwningResourceAdaptor const& other) const noexcept {
-        return resource_ == other.resource_;
+        return resource_ == other.resource_ && !weak_.owner_before(other.weak_)
+               && !other.weak_.owner_before(weak_);
     }
 
   private:
     Resource resource_;
-    std::weak_ptr<BackRef> weak_;
-    std::shared_ptr<BackRef> strong_;
+    std::weak_ptr<BackRef> weak_{nullptr};
+    std::shared_ptr<BackRef> strong_{nullptr};
 };
 
 }  // namespace rapidsmpf
