@@ -14,7 +14,7 @@ import pylibcudf as plc
 from pylibcudf.contiguous_split import pack
 
 from rapidsmpf.coll import AllGather
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
+from cudf_streaming.integrations.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.testing import assert_eq

@@ -23,7 +23,7 @@ from rapidsmpf.streaming.core.actor import (
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
+from cudf_streaming.streaming.table_chunk import TableChunk
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable

@@ -17,7 +17,7 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
-#include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 // Helper function to create a table with a single int column

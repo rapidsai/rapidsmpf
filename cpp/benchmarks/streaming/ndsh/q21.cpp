@@ -28,7 +28,7 @@
 #include <coro/when_all.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/integrations/cudf/bloom_filter.hpp>
+#include <cudf_streaming/integrations/bloom_filter.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
@@ -38,9 +38,9 @@
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-#include <rapidsmpf/streaming/cudf/bloom_filter.hpp>
-#include <rapidsmpf/streaming/cudf/parquet.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <cudf_streaming/streaming/bloom_filter.hpp>
+#include <cudf_streaming/streaming/parquet.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include "concatenate.hpp"
 #include "groupby.hpp"

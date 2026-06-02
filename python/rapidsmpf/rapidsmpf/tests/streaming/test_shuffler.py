@@ -11,7 +11,7 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.integrations.cudf.partition import split_and_pack, unpack_and_concat
+from cudf_streaming.integrations.partition import split_and_pack, unpack_and_concat
 from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.coll.shuffler import (
     ShufflerAsync,
@@ -20,11 +20,11 @@ from rapidsmpf.streaming.coll.shuffler import (
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.cudf.partition import (
+from cudf_streaming.streaming.partition import (
     partition_and_pack,
     unpack_and_concat as streaming_unpack_and_concat,
 )
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
+from cudf_streaming.streaming.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:

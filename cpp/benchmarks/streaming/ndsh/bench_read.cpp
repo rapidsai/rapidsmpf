@@ -31,7 +31,7 @@
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/cudf/parquet.hpp>
+#include <cudf_streaming/streaming/parquet.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"

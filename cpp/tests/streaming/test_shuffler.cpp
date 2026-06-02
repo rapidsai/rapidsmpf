@@ -11,14 +11,14 @@
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
-#include <rapidsmpf/streaming/cudf/partition.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <cudf_streaming/streaming/partition.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"

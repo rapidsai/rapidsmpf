@@ -11,7 +11,7 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
+from cudf_streaming.integrations.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.coll.sparse_alltoall import SparseAlltoall
 from rapidsmpf.testing import assert_eq

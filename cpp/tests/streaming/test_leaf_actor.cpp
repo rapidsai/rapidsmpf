@@ -21,7 +21,7 @@
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"

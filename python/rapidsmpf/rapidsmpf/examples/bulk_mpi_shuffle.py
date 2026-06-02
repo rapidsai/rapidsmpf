@@ -19,7 +19,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 import rapidsmpf.bootstrap
 import rapidsmpf.communicator.mpi
 from rapidsmpf.config import Options, get_environment_variables
-from rapidsmpf.integrations.cudf.partition import (
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,

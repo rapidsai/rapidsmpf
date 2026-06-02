@@ -15,7 +15,7 @@
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "environment.hpp"

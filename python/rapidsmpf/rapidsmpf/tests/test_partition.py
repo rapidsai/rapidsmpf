@@ -10,7 +10,7 @@ import pytest
 import pylibcudf as plc
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.integrations.cudf.partition import (
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     spill_partitions,
     split_and_pack,
