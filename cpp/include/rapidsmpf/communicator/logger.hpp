@@ -239,8 +239,8 @@ class Logger {
     virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
         std::lock_guard<std::mutex> lock(mutex_);
         std::ostringstream full_log_msg;
-        full_log_msg << "[" << level_name(level) << ":" << rank_ << ":"
-                     << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
+        full_log_msg << "[" << level_name(level) << ":" << rank_ << ":" << get_thread_id()
+                     << ":" << Clock::now() << "] " << ss.str();
         std::cout << full_log_msg.str() << std::endl;
     }
 
