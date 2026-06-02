@@ -56,8 +56,8 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
         cpp_UCXX_Communicator(
             unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
-            cpp_Options options,
-            shared_ptr[cpp_ProgressThread]
+            shared_ptr[cpp_ProgressThread],
+            shared_ptr[cpp_Logger]
         ) except +ex_handler
         cpp_UCXX_ListenerAddress listener_address()
         void barrier() except +ex_handler
@@ -78,7 +78,9 @@ cdef Communicator cpp_new_communicator(
         else:
             ucxx_initialized_rank = init(worker, nranks, root_address, options._handle)
         ret._handle = make_shared[cpp_UCXX_Communicator](
-            move(ucxx_initialized_rank), options._handle, progress_thread
+            move(ucxx_initialized_rank),
+            progress_thread,
+            make_shared[cpp_Logger](options._handle)
         )
     return ret
 

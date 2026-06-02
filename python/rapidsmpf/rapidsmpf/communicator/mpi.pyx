@@ -6,15 +6,17 @@ from mpi4py cimport libmpi
 from mpi4py.MPI cimport Intracomm
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.communicator.communicator cimport Communicator
-from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.communicator.communicator cimport Communicator, cpp_Logger
+from rapidsmpf.config cimport Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
 
 
 cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
     cdef cppclass cpp_MPI_Communicator "rapidsmpf::MPI":
         cpp_MPI_Communicator(
-            libmpi.MPI_Comm comm, cpp_Options options, shared_ptr[cpp_ProgressThread]
+            libmpi.MPI_Comm comm,
+            shared_ptr[cpp_ProgressThread],
+            shared_ptr[cpp_Logger]
         ) except +ex_handler
 
 
@@ -42,6 +44,8 @@ def new_communicator(
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
         ret._handle = make_shared[cpp_MPI_Communicator](
-            comm.ob_mpi, options._handle, progress_thread._handle
+            comm.ob_mpi,
+            progress_thread._handle,
+            make_shared[cpp_Logger](options._handle)
         )
     return ret

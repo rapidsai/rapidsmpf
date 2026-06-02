@@ -3,23 +3,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
+#include <mutex>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <utility>
+
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 namespace {
-Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
+Logger::LOG_LEVEL level_from_string(std::string const& str) {
     auto const trimmed = to_upper(trim(str));
-    for (std::uint32_t i = 0; i < Communicator::Logger::LOG_LEVEL_NAMES.size(); ++i) {
-        auto level = static_cast<Communicator::Logger::LOG_LEVEL>(i);
-        if (trimmed == Communicator::Logger::level_name(level)) {
+    for (std::uint32_t i = 0; i < Logger::LOG_LEVEL_NAMES.size(); ++i) {
+        auto level = static_cast<Logger::LOG_LEVEL>(i);
+        if (trimmed == Logger::level_name(level)) {
             return level;
         }
     }
     std::stringstream ss;
     ss << "RAPIDSMPF_LOG - unknown value: \"" << trimmed << "\", valid choices: { ";
-    for (auto const& name : Communicator::Logger::LOG_LEVEL_NAMES) {
+    for (auto const& name : Logger::LOG_LEVEL_NAMES) {
         ss << name << " ";
     }
     ss << "}";
@@ -27,8 +35,22 @@ Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
 }
 }  // namespace
 
-Communicator::Logger::Logger(Rank rank, config::Options options)
-    : rank_{rank}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {};
+Logger::Logger(std::int32_t rank, config::Options options)
+    : rank_{rank}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {}
+
+Logger::Logger(config::Options options) : Logger(std::int32_t{-1}, std::move(options)) {}
+
+Logger::Logger(std::int32_t rank, LOG_LEVEL level) : rank_{rank}, level_{level} {}
+
+void Logger::set_rank(std::int32_t rank) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rank_ = rank;
+}
+
+std::shared_ptr<Logger> Logger::copy() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::shared_ptr<Logger>(new Logger(rank_, level_));
+}
 
 
 }  // namespace rapidsmpf

@@ -22,6 +22,8 @@ namespace ucxx {
  * @param mpi_comm MPI communicator.
  * @param options Configuration options.
  * @param progress_thread Progress thread for the initialized communicator.
+ * @param logger Externally provided logger. Must be non-null. The communicator
+ * will overwrite the logger's rank to the bootstrapped UCXX rank.
  * @return UCXX communicator.
  *
  * @note Requires MPI to be initialized prior to calling this function.
@@ -29,7 +31,8 @@ namespace ucxx {
 std::shared_ptr<UCXX> init_using_mpi(
     MPI_Comm mpi_comm,
     rapidsmpf::config::Options options,
-    std::shared_ptr<ProgressThread> progress_thread
+    std::shared_ptr<ProgressThread> progress_thread,
+    std::shared_ptr<Logger> logger
 );
 
 }  // namespace ucxx

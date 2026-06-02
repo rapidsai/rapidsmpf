@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libcpp.memory cimport dynamic_pointer_cast, shared_ptr
+from libcpp.memory cimport dynamic_pointer_cast, make_shared, shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmpf.communicator.communicator cimport (Communicator,
+                                                  cpp_Communicator, cpp_Logger)
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
 
@@ -41,6 +42,7 @@ cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
             shared_ptr[cpp_ProgressThread],
             BackendType type,
             cpp_Options options,
+            shared_ptr[cpp_Logger] logger,
         ) except +ex_handler
 
 
@@ -89,7 +91,10 @@ def create_ucxx_comm(
 
     with nogil:
         ucxx_comm = cpp_create_ucxx_comm(
-            progress_thread._handle, type, cpp_options._handle
+            progress_thread._handle,
+            type,
+            cpp_options._handle,
+            make_shared[cpp_Logger](cpp_options._handle),
         )
         base_comm = dynamic_pointer_cast[cpp_Communicator, cpp_UCXX_Communicator](
             ucxx_comm

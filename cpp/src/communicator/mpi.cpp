@@ -99,8 +99,8 @@ void check_mpi_thread_support() {
 
 MPI::MPI(
     MPI_Comm comm,
-    config::Options options,
-    std::shared_ptr<ProgressThread> progress_thread
+    std::shared_ptr<ProgressThread> progress_thread,
+    std::shared_ptr<Logger> logger
 )
     : comm_{comm},
       rank_{[comm]() {
@@ -113,8 +113,10 @@ MPI::MPI(
           RAPIDSMPF_MPI(MPI_Comm_size(comm, &n));
           return Rank(n);
       }()},
-      logger_{std::make_shared<Logger>(rank_, std::move(options))},
+      logger_{std::move(logger)},
       progress_thread_{std::move(progress_thread)} {
+    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be null", std::invalid_argument);
+    logger_->set_rank(rank_);
     check_mpi_thread_support();
 }
 

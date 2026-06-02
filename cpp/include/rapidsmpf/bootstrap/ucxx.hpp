@@ -12,6 +12,7 @@
 #include <memory>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf {
@@ -34,22 +35,29 @@ namespace bootstrap {
  * The function handles all coordination transparently based on the detected
  * or specified backend.
  *
- * @param progress_thread Progress thread for the initialized communicator
- * @param backend Backend to use (default: AUTO for auto-detection).
+ * @param progress_thread Progress thread for the initialized communicator.
+ * @param type Backend to use.
  * @param options Configuration options for the UCXX communicator.
+ * @param logger Externally provided logger. Must be non-null. The communicator
+ * will overwrite the logger's rank to the bootstrapped UCXX rank.
  * @return Shared pointer to initialized UCXX communicator.
  * @throws std::runtime_error if initialization fails.
  *
  * @code
+ * auto options = rapidsmpf::config::Options{};
  * auto progress = std::make_shared<rapidsmpf::ProgressThread>();
- * auto comm = rapidsmpf::bootstrap::create_ucxx_comm(progress);
- * comm->logger().print("Hello from rank " + std::to_string(comm->rank()));
+ * auto logger = std::make_shared<rapidsmpf::Logger>(options);
+ * auto comm = rapidsmpf::bootstrap::create_ucxx_comm(
+ *     progress, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
+ * );
+ * comm->logger()->print("Hello from rank " + std::to_string(comm->rank()));
  * @endcode
  */
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
     std::shared_ptr<ProgressThread> progress_thread,
-    BackendType type = BackendType::AUTO,
-    config::Options options = config::Options{}
+    BackendType type,
+    config::Options options,
+    std::shared_ptr<Logger> logger
 );
 
 }  // namespace bootstrap

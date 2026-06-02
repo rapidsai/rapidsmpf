@@ -22,7 +22,8 @@ TestEnvironmentType Environment::type() const {
 void Environment::SetUp() {
     options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
     comm_ = std::make_shared<rapidsmpf::Single>(
-        options_, std::make_shared<rapidsmpf::ProgressThread>()
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        std::make_shared<rapidsmpf::Logger>(options_)
     );
     split_comm_ = comm_;
 }

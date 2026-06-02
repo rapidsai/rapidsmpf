@@ -144,7 +144,8 @@ class SharedResources {
     };  ///< Whether the root has already broadcast all listener addresses
 
   public:
-    UCXX::Logger* logger{nullptr};  ///< UCXX logger
+    std::shared_ptr<Logger> logger;  ///< UCXX logger (may be null before the
+                                     ///< owning `UCXX` instance has been constructed).
 
     /**
      * @brief Construct UCXX shared resources.
@@ -1127,14 +1128,18 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
 UCXX::UCXX(
     std::unique_ptr<InitializedRank> ucxx_initialized_rank,
-    config::Options options,
-    std::shared_ptr<ProgressThread> progress_thread
+    std::shared_ptr<ProgressThread> progress_thread,
+    std::shared_ptr<Logger> logger
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
-      options_{std::move(options)},
-      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
       progress_thread_{std::move(progress_thread)} {
-    shared_resources_->logger = logger_.get();
+    RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
+    shared_resources_->logger = std::move(logger);
+    shared_resources_->logger->set_rank(shared_resources_->rank());
+}
+
+std::shared_ptr<Logger> const& UCXX::logger() {
+    return shared_resources_->logger;
 }
 
 [[nodiscard]] Rank UCXX::rank() const {
@@ -1458,7 +1463,6 @@ UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
-    shared_resources_->logger = nullptr;
 }
 
 void UCXX::progress_worker() {
@@ -1500,10 +1504,13 @@ std::shared_ptr<UCXX> UCXX::split() {
         shared_resources->get_control_callback_info(), control_callback
     );
 
-    // Create the new UCXX instance
+    // Create the new UCXX instance with its own logger. We deliberately do not
+    // share the parent's logger because the split rank is logically rank 0 in
+    // the new communicator; `Logger::copy()` gives us a fresh instance that
+    // inherits the parent's verbosity level.
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
     return std::make_shared<UCXX>(
-        std::move(initialized_rank), options_, progress_thread_
+        std::move(initialized_rank), progress_thread_, logger()->copy()
     );
 }
 
