@@ -125,7 +125,7 @@ struct OrderScheme {
      * attributes, and the schemes are otherwise compatible (same order and null_order).
      */
     [[nodiscard]] bool boundaries_aligned_with(
-        OrderScheme const& other, rapidsmpf::BufferResource const& br
+        OrderScheme const& other, rapidsmpf::BufferResource& br
     ) const;
 };
 

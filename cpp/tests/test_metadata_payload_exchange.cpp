@@ -27,7 +27,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<BufferResource>(*mr);
+        br = BufferResource::create(*mr);
         stream = rmm::cuda_stream_default;
         statistics = Statistics::create();
 
@@ -101,7 +101,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     rmm::cuda_stream_view stream;
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     std::shared_ptr<Statistics> statistics;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
 };

@@ -547,7 +547,7 @@ int main(int argc, char** argv) {
 
     // We're only going to measure the last run, so disable initially.
     stats->disable();
-    rapidsmpf::BufferResource br{
+    auto br = rapidsmpf::BufferResource::create(
         stat_enabled_mr,
         args.pinned_mem_disable ? rapidsmpf::PinnedMemoryResource::Disabled
                                 : rapidsmpf::PinnedMemoryResource::make_if_available(),
@@ -557,7 +557,7 @@ int main(int argc, char** argv) {
             16, rmm::cuda_stream::flags::non_blocking
         ),
         stats
-    };
+    );
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
@@ -631,10 +631,11 @@ int main(int argc, char** argv) {
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
-            elapsed =
-                run_hash_partition_with_datagen(comm, args, stream, &br, stats).count();
+            elapsed = run_hash_partition_with_datagen(comm, args, stream, br.get(), stats)
+                          .count();
         } else {
-            elapsed = run_hash_partition_inline(comm, args, stream, &br, stats).count();
+            elapsed =
+                run_hash_partition_inline(comm, args, stream, br.get(), stats).count();
         }
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::format_duration(elapsed)

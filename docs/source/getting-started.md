@@ -55,6 +55,24 @@ LD_PRELOAD=$CONDA_PREFIX/lib/libasan.so python ...
 
 Python applications using CUDA will require setting both environment variables described above.
 
+##### LeakSanitizer suppressions
+
+`cpp/asan_suppressions.txt` suppresses known process-lifetime leaks. Point LeakSanitizer at the
+suppression file when running the test suite:
+```bash
+LSAN_OPTIONS=suppressions=$PWD/cpp/asan_suppressions.txt \
+    ASAN_OPTIONS=protect_shadow_gap=0 \
+    cpp/build/gtests/single_tests
+```
+
+To continue execution and report all findings instead of aborting on the first error,
+add the following ASan triage options:
+```bash
+ASAN_OPTIONS=protect_shadow_gap=0:halt_on_error=0:abort_on_error=0:exitcode=0 \
+    cpp/build/gtests/single_tests
+```
+
+
 ## MPI
 
 Run the test suite using MPI:
