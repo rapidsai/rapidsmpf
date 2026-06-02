@@ -193,9 +193,6 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
-  src/integrations/cudf/bloom_filter.cu
-  src/integrations/cudf/partition.cpp
-  src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
@@ -236,11 +233,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/leaf_actor.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/spillable_messages.cpp
-            src/streaming/cudf/bloom_filter.cpp
-            src/streaming/cudf/partition.cpp
-            src/streaming/cudf/parquet.cpp
-            src/streaming/cudf/table_chunk.cpp
-            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)

@@ -78,20 +78,16 @@ target_sources(
           test_communicator.cpp
           test_config.cpp
           test_cuda_stream.cpp
-          test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp
           test_host_buffer.cpp
           test_memory_resources.cpp
           test_metadata_payload_exchange.cpp
           test_misc.cpp
-          test_partition.cpp
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
           test_sparse_alltoall.cpp
-          test_shuffler_many_streams.cpp
-          test_shuffler.cpp
           test_spill_manager.cpp
           test_statistics.cpp
           test_stream_ordered_timing.cpp
@@ -103,22 +99,15 @@ target_sources(
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
-    PRIVATE streaming/test_allgather.cpp
-            streaming/test_allreduce.cpp
+    PRIVATE streaming/test_allreduce.cpp
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
-            streaming/test_leaf_actor.cpp
             streaming/test_lineariser.cpp
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
-            streaming/test_partition.cpp
-            streaming/test_channel_metadata.cpp
-            streaming/test_read_parquet.cpp
-            streaming/test_shuffler.cpp
             streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
-            streaming/test_table_chunk.cpp
   )
 endif()
 
