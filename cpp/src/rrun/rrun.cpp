@@ -102,10 +102,12 @@ bool set_cpu_affinity(std::string const& cpu_affinity_list) {
 }
 
 /**
- * @brief Set NUMA memory binding for the current process.
+ * @brief Result of attempting to apply a NUMA memory policy.
  *
- * @param memory_binding Vector of NUMA node IDs to bind memory to.
- * @return status indicating whether binding was applied, unavailable, or failed.
+ * `applied` means the process memory policy was changed successfully and can be
+ * verified. `unavailable` means binding should be treated as unsupported in the
+ * current OS/container/task context. `failed` means an unexpected error
+ * occurred while applying a policy that should have been usable.
  */
 enum class numa_binding_status {
     applied,
@@ -114,12 +116,31 @@ enum class numa_binding_status {
 };
 
 #if RAPIDSMPF_HAVE_NUMA
+/**
+ * @brief Check whether a NUMA node is present in an allowed-node bitmask.
+ *
+ * @param allowed_nodes Bitmask returned by a memory-policy query.
+ * @param node NUMA node ID to check.
+ * @return true if @p node is non-negative, within the bitmask bounds, and set in
+ * @p allowed_nodes; false otherwise.
+ */
 bool node_is_allowed(struct bitmask const* allowed_nodes, int node) {
     return node >= 0 && allowed_nodes != nullptr
            && static_cast<unsigned int>(node) < allowed_nodes->size
            && numa_bitmask_isbitset(allowed_nodes, static_cast<unsigned int>(node)) != 0;
 }
 
+/**
+ * @brief Check whether all requested NUMA nodes are allowed for this task.
+ *
+ * Queries the kernel's `MPOL_F_MEMS_ALLOWED` mask and verifies that each node in
+ * @p memory_binding is available to the current process. If the query or
+ * bitmask allocation fails, the nodes are treated as unavailable so callers can
+ * skip memory binding instead of attempting an invalid policy.
+ *
+ * @param memory_binding NUMA node IDs requested by topology discovery.
+ * @return true if every requested node is allowed; false otherwise.
+ */
 bool all_nodes_allowed(std::vector<int> const& memory_binding) {
     struct bitmask* allowed_nodes = numa_allocate_nodemask();
     if (allowed_nodes == nullptr) {
@@ -144,6 +165,18 @@ bool all_nodes_allowed(std::vector<int> const& memory_binding) {
 }
 #endif
 
+/**
+ * @brief Set NUMA memory binding for the current process.
+ *
+ * Uses `set_mempolicy(MPOL_BIND, ...)` directly so failures can be classified
+ * from `errno`. Empty bindings, unavailable NUMA support, disallowed memory
+ * nodes, and unsupported/blocked memory-policy syscalls are reported as
+ * `numa_binding_status::unavailable`. Unexpected allocation or syscall failures
+ * are reported as `numa_binding_status::failed`.
+ *
+ * @param memory_binding Vector of NUMA node IDs to bind memory allocations to.
+ * @return Status indicating whether binding was applied, unavailable, or failed.
+ */
 numa_binding_status set_numa_memory_binding(std::vector<int> const& memory_binding) {
 #if RAPIDSMPF_HAVE_NUMA
     if (memory_binding.empty()) {
@@ -189,6 +222,16 @@ numa_binding_status set_numa_memory_binding(std::vector<int> const& memory_bindi
 #endif
 }
 
+/**
+ * @brief Compare two NUMA node lists as sets.
+ *
+ * Sorts and de-duplicates copies of the input vectors before comparing them, so
+ * order and repeated entries do not affect validation.
+ *
+ * @param lhs First NUMA node list.
+ * @param rhs Second NUMA node list.
+ * @return true if both lists contain the same unique nodes.
+ */
 bool same_nodes(std::vector<int> lhs, std::vector<int> rhs) {
     std::ranges::sort(lhs);
     std::ranges::sort(rhs);
@@ -199,6 +242,12 @@ bool same_nodes(std::vector<int> lhs, std::vector<int> rhs) {
     return lhs == rhs;
 }
 
+/**
+ * @brief Format a NUMA node list for diagnostics.
+ *
+ * @param nodes NUMA node IDs to format.
+ * @return A compact string in bracketed comma-separated form, e.g. `[0,1]`.
+ */
 std::string format_nodes(std::vector<int> const& nodes) {
     std::ostringstream out;
     out << "[";
@@ -367,6 +416,11 @@ unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
 
 /**
  * @brief Get PCI bus ID for a GPU via topology discovery.
+ *
+ * Clears `CUDA_VISIBLE_DEVICES` while discovering topology because cuCascade
+ * filters and renumbers devices when that variable is set. This helper is
+ * best-effort metadata lookup: invalid GPU IDs, topology discovery failures,
+ * and missing devices return an empty string instead of throwing.
  *
  * @param gpu_id Physical GPU device index.
  * @return PCI bus ID string, or empty string if not found.
