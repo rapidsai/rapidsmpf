@@ -13,6 +13,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 
 namespace rapidsmpf {
 
@@ -28,8 +29,18 @@ namespace rapidsmpf {
  * region. THP can improve device-host memory transfer performance for large
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
+ *
+ * The resource also carries an optional back-reference to a `BufferResource`
+ * via `WithBufferResourceBackRef`. When unset (the default, used for standalone
+ * instances in tests/benchmarks/Python bindings), the back-ref machinery is
+ * a no-op. `BufferResource::create()` installs a weak back-reference via
+ * `set_backref()` so that any copy of the resource (for example the one
+ * CCCL makes when promoting `BufferResource::host_mr()` from a non-owning
+ * `cuda::mr::resource_ref` to an owning `cuda::mr::any_resource`) promotes
+ * that weak reference to a `shared_ptr`, keeping the `BufferResource` alive
+ * for as long as the copy lives.
  */
-class HostMemoryResource {
+class HostMemoryResource : public WithBufferResourceBackRef {
   public:
     HostMemoryResource() = default;
     ~HostMemoryResource() = default;
@@ -111,23 +122,23 @@ class HostMemoryResource {
     /**
      * @brief Compares this resource to another resource.
      *
-     * All instances are stateless and interchangeable, so this always returns
-     * true.
+     * `HostMemoryResource` is otherwise stateless, so equality is fully
+     * delegated to the `WithBufferResourceBackRef` base: two instances compare
+     * equal when their installed back-references are owner-equivalent, and
+     * standalone instances (no `set_backref()` ever called) all compare equal
+     * to each other.
      *
      * @param other The resource to compare with.
-     * @return true
+     * @return True if the two instances share the same back-referenced owner
+     * (or both have no installed back-reference).
      */
-    [[nodiscard]] bool operator==(
-        [[maybe_unused]] HostMemoryResource const& other
-    ) const noexcept {
-        return true;
+    [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
+        return WithBufferResourceBackRef::operator==(other);
     }
 
     /// @copydoc operator==
-    [[nodiscard]] bool operator!=(
-        [[maybe_unused]] HostMemoryResource const& other
-    ) const noexcept {
-        return false;
+    [[nodiscard]] bool operator!=(HostMemoryResource const& other) const noexcept {
+        return !(*this == other);
     }
 
     /**

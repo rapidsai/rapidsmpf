@@ -20,6 +20,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -88,10 +89,21 @@ struct PinnedPoolProperties {
  * This resource allocates and deallocates pinned host memory asynchronously through
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
+ *
+ * The resource also carries an optional back-reference to a `BufferResource`
+ * via `WithBufferResourceBackRef`. When unset (the default, used by standalone
+ * factories such as `make_if_available()` / `from_options()`), the back-ref
+ * machinery is a no-op. `BufferResource::create()` installs a weak
+ * back-reference via `set_backref()` so that any copy of the resource (for
+ * example the one CCCL makes when promoting `BufferResource::pinned_mr()` /
+ * `try_pinned_mr()` from a non-owning `cuda::mr::resource_ref` to an owning
+ * `cuda::mr::any_resource`) promotes that weak reference to a `shared_ptr`,
+ * keeping the `BufferResource` alive for as long as the copy lives.
  */
 class PinnedMemoryResource final
     : public cuda::mr::shared_resource<
-          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>> {
+          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>,
+      public WithBufferResourceBackRef {
     using shared_base = cuda::mr::shared_resource<
         detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>;
 
@@ -172,11 +184,17 @@ class PinnedMemoryResource final
     /**
      * @brief Equality comparison.
      *
+     * Two resources are equal when they share the same underlying shared state
+     * **and** their installed back-references are owner-equivalent (or both
+     * resources have no installed back-reference). The back-reference half is
+     * delegated to the `WithBufferResourceBackRef` base's equality operator.
+     *
      * @param other The other resource to compare.
-     * @return True if the two resources share the same underlying shared state.
+     * @return True if both resources refer to the same shared state and the
+     * same back-referenced owner.
      */
     [[nodiscard]] bool operator==(PinnedMemoryResource const& other) const noexcept {
-        return get() == other.get();
+        return get() == other.get() && WithBufferResourceBackRef::operator==(other);
     }
 
     /**

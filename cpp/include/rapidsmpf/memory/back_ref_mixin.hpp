@@ -157,4 +157,19 @@ class BackRefMixin {
     std::shared_ptr<BackRef> strong_{};
 };
 
+// `BufferResource` is the only back-referenced owner type in the codebase, so
+// the forward declaration and the instantiated alias live here so consumers
+// (`RmmResourceAdaptor`, `HostMemoryResource`, `PinnedMemoryResource`, ...)
+// don't have to re-declare either one.
+class BufferResource;
+
+/**
+ * @brief Convenience alias: `BackRefMixin` instantiated for `BufferResource`.
+ *
+ * Inherit from this alias to give a type the standard back-reference lifetime
+ * contract `BufferResource::create()` relies on. See `BackRefMixin` for the
+ * full semantics.
+ */
+using WithBufferResourceBackRef = BackRefMixin<BufferResource>;
+
 }  // namespace rapidsmpf

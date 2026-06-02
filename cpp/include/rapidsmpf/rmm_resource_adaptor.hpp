@@ -18,12 +18,6 @@
 
 namespace rapidsmpf {
 
-// Forward declaration: `RmmResourceAdaptor` carries an installable
-// `BackRefMixin<BufferResource>` so that copies created when CCCL deep-copies
-// the resource into an owning `cuda::mr::any_resource` keep the
-// `BufferResource` that installed the back-reference alive.
-class BufferResource;
-
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
@@ -34,7 +28,7 @@ class BufferResource;
  * `cuda::mr::shared_resource`.
  *
  * The adaptor also carries an optional back-reference to a `BufferResource`
- * via `BackRefMixin<BufferResource>`. When unset (the default), the back-ref
+ * via `WithBufferResourceBackRef`. When unset (the default), the back-ref
  * machinery is a no-op. `BufferResource::create()` installs a weak
  * back-reference via `set_backref()` so that any copy of the adaptor (for
  * example the one CCCL makes when promoting `BufferResource::device_mr()`
@@ -45,7 +39,7 @@ class BufferResource;
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
           cuda::mr::any_resource<cuda::mr::device_accessible>>>,
-      public BackRefMixin<BufferResource> {
+      public WithBufferResourceBackRef {
     using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
     using shared_base =
         cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
@@ -73,14 +67,15 @@ class RmmResourceAdaptor
      * Two adaptors are equal when they share the same underlying shared
      * state **and** their installed back-references are owner-equivalent (or
      * both adaptors have no installed back-reference). The back-reference
-     * half is delegated to the `BackRefMixin` base's equality operator.
+     * half is delegated to the `WithBufferResourceBackRef` base's equality
+     * operator.
      *
      * @param other The other adaptor to compare.
      * @return True if both adaptors refer to the same shared resource
      * instance and the same back-referenced owner.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
-        return get() == other.get() && BackRefMixin<BufferResource>::operator==(other);
+        return get() == other.get() && WithBufferResourceBackRef::operator==(other);
     }
 
     /**

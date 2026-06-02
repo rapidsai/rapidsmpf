@@ -799,7 +799,7 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
     // which deep-copies the underlying `RmmResourceAdaptor`. Its
-    // `BackRefMixin<BufferResource>` base promotes the installed weak ref to a
+    // `WithBufferResourceBackRef` base promotes the installed weak ref to a
     // `shared_ptr<BufferResource>` during the copy.
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
@@ -819,8 +819,8 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
 // Two BufferResources constructed over the same upstream MR must each be kept
 // alive *independently* by the owning `any_resource` promoted from their own
 // `device_mr()`. The back-references installed via
-// `BackRefMixin<BufferResource>::set_backref` are per-instance, so dropping
-// one BR's owning resource must not affect the other BR's lifetime.
+// `WithBufferResourceBackRef::set_backref` are per-instance, so dropping one
+// BR's owning resource must not affect the other BR's lifetime.
 //
 // Note on equality: `any_resource::operator==` dispatches to the wrapped
 // `RmmResourceAdaptor::operator==`, which compares shared-impl identity
@@ -910,7 +910,7 @@ TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     }
 
     auto const& records = stats->get_memory_records();
-    ASSERT_EQ(records.count("br-scope"), 1u)
+    ASSERT_EQ(records.count("br-scope"), 1u);
     auto const& rec = records.at("br-scope");
     EXPECT_EQ(rec.num_calls, 1u);
     EXPECT_EQ(rec.global_peak, static_cast<std::int64_t>(kAllocBytes));
