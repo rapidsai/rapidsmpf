@@ -369,7 +369,7 @@ int main(int argc, char** argv) {
     auto pinned_mr = args.pinned_mem_disable
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
-    auto br = std::make_shared<rapidsmpf::BufferResource>(
+    auto br = rapidsmpf::BufferResource::create(
         stats,
         stat_enabled_mr,
         pinned_mr,

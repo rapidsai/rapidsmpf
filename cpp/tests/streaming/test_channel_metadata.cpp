@@ -166,9 +166,9 @@ TEST_F(StreamingChannelMetadata, MessageRoundTrip) {
 class StreamingChannelMetadataGPU : public ::testing::Test {
   protected:
     rmm::cuda_stream_view stream{cudf::get_default_stream()};
-    rapidsmpf::BufferResource br{
+    std::shared_ptr<rapidsmpf::BufferResource> br = rapidsmpf::BufferResource::create(
         rapidsmpf::Statistics::disabled(), cudf::get_current_device_resource_ref()
-    };
+    );
 
     std::shared_ptr<TableChunk> make_chunk(std::vector<int32_t> vals) {
         rmm::device_buffer buf(vals.data(), vals.size() * sizeof(int32_t), stream);
@@ -211,16 +211,16 @@ TEST_F(StreamingChannelMetadataGPU, OrderSchemeBoundariesAlignedWith) {
 
     OrderScheme o1({k0}, make_chunk({100, 200}));
     OrderScheme o2({k0}, make_chunk({100, 200}));
-    EXPECT_TRUE(o1.boundaries_aligned_with(o2, br));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o2, *br));
 
     OrderScheme o_shifted({k3}, make_chunk({100, 200}));
-    EXPECT_TRUE(o1.boundaries_aligned_with(o_shifted, br));
+    EXPECT_TRUE(o1.boundaries_aligned_with(o_shifted, *br));
 
     OrderScheme o_strict({k0}, make_chunk({100, 200}), /*strict=*/true);
-    EXPECT_FALSE(o1.boundaries_aligned_with(o_strict, br));
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_strict, *br));
 
     OrderScheme o_diff({k0}, make_chunk({100, 300}));
-    EXPECT_FALSE(o1.boundaries_aligned_with(o_diff, br));
+    EXPECT_FALSE(o1.boundaries_aligned_with(o_diff, *br));
 }
 
 TEST_F(StreamingChannelMetadataGPU, PartitioningSpecOrder) {

@@ -317,14 +317,14 @@ int main(int argc, char** argv) {
     set_current_rmm_resource(args.rmm_mr);
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{
+    auto br = BufferResource::create(
         stats,
         mr,
         PinnedMemoryResource::Disabled,
         {},
         std::chrono::milliseconds{1},
         std::make_shared<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
-    };
+    );
 
     // Print benchmark/hardware info.
     {
@@ -365,7 +365,7 @@ int main(int argc, char** argv) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats->enable();
         }
-        auto const elapsed = run(comm, args, stream, &br, stats).count();
+        auto const elapsed = run(comm, args, stream, br.get(), stats).count();
         std::stringstream ss;
         ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)

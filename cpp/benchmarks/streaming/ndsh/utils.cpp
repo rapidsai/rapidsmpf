@@ -156,7 +156,7 @@ create_context(
         std::invalid_argument
     );
 
-    auto br = std::make_shared<BufferResource>(
+    auto br = BufferResource::create(
         statistics,
         std::move(mr),
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled

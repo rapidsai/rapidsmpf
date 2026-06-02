@@ -15,6 +15,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -23,15 +24,12 @@ namespace rapidsmpf {
 
 BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics,
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool
 )
-    : device_adaptor_{std::move(device_mr)},
-      device_mr_{device_adaptor_},  // any_resource shares state via shared_resource
-      pinned_mr_{std::move(pinned_mr)},
+    : pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
@@ -49,6 +47,37 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+std::shared_ptr<BufferResource> BufferResource::create(
+    std::shared_ptr<Statistics> statistics,
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+    std::optional<PinnedMemoryResource> pinned_mr,
+    std::unordered_map<MemoryType, std::int64_t> memory_limits,
+    std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool
+) {
+    std::shared_ptr<BufferResource> br{new BufferResource{
+        std::move(statistics),
+        std::move(pinned_mr),
+        std::move(memory_limits),
+        periodic_spill_check,
+        std::move(stream_pool)
+    }};
+
+    // Install the owning adaptor *after* construction so that `weak_from_this()` is
+    // valid.
+    //
+    // The adaptor stored inside `BufferResource` itself holds only a `weak_ptr`, avoiding
+    // a reference cycle. When downstream code promotes `device_mr()` from a non-owning
+    // `resource_ref` to an owning `cuda::mr::any_resource` (for example internally in
+    // `rmm::device_buffer`), CCCL deep-copies the adaptor. The copy promotes the weak
+    // ref to a `shared_ptr<BufferResource>`, acquiring shared ownership so the
+    // `BufferResource` stays alive for as long as the owning resource exists.
+    br->owning_mr_.emplace(
+        RmmResourceAdaptor{std::move(device_mr)}, br->weak_from_this()
+    );
+    return br;
+}
+
 std::shared_ptr<BufferResource> BufferResource::from_options(
     cuda::mr::any_resource<cuda::mr::device_accessible> mr,
     config::Options options,
@@ -58,8 +87,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
-
-    return std::make_shared<BufferResource>(
+    return create(
         std::move(statistics),
         std::move(mr),
         std::move(pinned_mr),
@@ -75,7 +103,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     );
     switch (mem_type) {
     case MemoryType::DEVICE:
-        return limit - device_adaptor_.current_allocated();
+        return limit - owning_mr_->get().current_allocated();
     case MemoryType::PINNED_HOST:
         if (pinned_mr_ == PinnedMemoryResource::Disabled) {
             return 0;
@@ -94,10 +122,8 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-rmm::device_async_resource_ref BufferResource::device_mr() const noexcept {
-    return rmm::device_async_resource_ref{
-        const_cast<cuda::mr::any_resource<cuda::mr::device_accessible>&>(device_mr_)
-    };
+rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
+    return rmm::device_async_resource_ref{*owning_mr_};
 }
 
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {

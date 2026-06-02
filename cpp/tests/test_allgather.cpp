@@ -34,7 +34,7 @@ class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        br = std::make_unique<rapidsmpf::BufferResource>(
+        br = rapidsmpf::BufferResource::create(
             rapidsmpf::Statistics::disabled(), rmm::mr::cuda_memory_resource{}
         );
     }
@@ -44,7 +44,7 @@ class BaseAllGatherTest : public ::testing::Test {
     }
 
     rmm::cuda_stream_view stream;
-    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
 TEST_F(BaseAllGatherTest, timeout) {
@@ -291,12 +291,12 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     auto this_rank = comm->rank();
 
     // On rank 0, wrap the device MR with a delayed version.
-    std::unique_ptr<rapidsmpf::BufferResource> delay_br;
+    std::shared_ptr<rapidsmpf::BufferResource> delay_br;
     std::unique_ptr<AllGather> allgather;
     constexpr rapidsmpf::OpID op_id = 0;
     if (this_rank == 0) {
         // Recreate the buffer resource and allgather with the delayed MR.
-        delay_br = std::make_unique<rapidsmpf::BufferResource>(
+        delay_br = rapidsmpf::BufferResource::create(
             rapidsmpf::Statistics::disabled(),
             DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
         );
@@ -366,9 +366,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 TEST(PostBox, spill_uses_remaining_amount) {
     auto stream = cudf::get_default_stream();
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-    auto br = std::make_unique<rapidsmpf::BufferResource>(
-        rapidsmpf::Statistics::disabled(), *mr
-    );
+    auto br = rapidsmpf::BufferResource::create(rapidsmpf::Statistics::disabled(), *mr);
 
     rapidsmpf::coll::detail::PostBox postbox;
 

@@ -208,9 +208,7 @@ class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(
-            rapidsmpf::Statistics::disabled(), *mr
-        );
+        br = rapidsmpf::BufferResource::create(rapidsmpf::Statistics::disabled(), *mr);
         comm = GlobalEnvironment->comm_.get();
     }
 
@@ -220,7 +218,7 @@ class BaseAllReduceTest : public ::testing::Test {
     }
 
     rapidsmpf::Communicator* comm;
-    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
 };
 

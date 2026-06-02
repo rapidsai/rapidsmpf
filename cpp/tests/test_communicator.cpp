@@ -25,9 +25,7 @@ class BaseCommunicatorTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(
-            rapidsmpf::Statistics::disabled(), *mr
-        );
+        br = rapidsmpf::BufferResource::create(rapidsmpf::Statistics::disabled(), *mr);
         stream = rmm::cuda_stream_default;
     }
 
@@ -36,7 +34,7 @@ class BaseCommunicatorTest : public ::testing::Test {
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     rmm::cuda_stream_view stream;
-    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
 TEST_F(BaseCommunicatorTest, TagConstruction) {

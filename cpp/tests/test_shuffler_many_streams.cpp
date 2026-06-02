@@ -51,7 +51,7 @@ TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
     constexpr std::size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
-    auto br = std::make_unique<BufferResource>(
+    auto br = BufferResource::create(
         Statistics::disabled(), cudf::get_current_device_resource_ref()
     );
 

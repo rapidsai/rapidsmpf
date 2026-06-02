@@ -35,7 +35,7 @@ class StreamingTableChunk : public BaseStreamingFixture,
         config::Options options(config::get_environment_variables());
 
         stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(
+        br = rapidsmpf::BufferResource::create(
             Statistics::disabled(),
             mr_cuda,
             rapidsmpf::PinnedMemoryResource::make_if_available()

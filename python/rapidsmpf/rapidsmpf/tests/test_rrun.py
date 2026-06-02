@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import multiprocessing
+import base64
+import inspect
 import os
-import traceback
+import pickle
+import subprocess
+import sys
+import textwrap
 from typing import TYPE_CHECKING
 
 import pytest
@@ -36,50 +40,101 @@ requires_no_launcher = pytest.mark.skipif(
 )
 
 
-def _run_in_subprocess(target: Callable[[], None]) -> None:
-    """Execute ``target()`` in a forked child process.
+_SUBPROCESS_RUNNER = r"""
+from __future__ import annotations
 
-    Because each call forks a new child, process-wide side-effects
-    (CPU affinity, NUMA policy, environment variables) never leak into the
-    pytest process. Any exception raised by ``target`` is propagated back to
-    the caller.
+import base64
+import os
+import pickle
+import sys
+import traceback
+
+import pytest
+
+from rapidsmpf.rrun import (
+    BindingValidation,
+    ExpectedBinding,
+    ResourceBinding,
+    bind,
+    check_binding,
+    validate_binding,
+)
+
+
+def main() -> int:
+    target_source, target_name, target_filename, closure_vars = pickle.loads(
+        base64.b64decode(sys.argv[1])
+    )
+    namespace = globals().copy()
+    namespace.update(closure_vars)
+
+    try:
+        exec(compile(target_source, target_filename, "exec"), namespace)
+        namespace[target_name]()
+    except BaseException:
+        traceback.print_exc()
+        return 1
+
+    return 0
+
+
+raise SystemExit(main())
+"""
+
+
+def _subprocess_target_source(target: Callable[[], None]) -> str:
+    """Return source for a nested test body while preserving traceback lines."""
+    source = textwrap.dedent(inspect.getsource(target))
+    return "\n" * (target.__code__.co_firstlineno - 1) + source
+
+
+def _subprocess_payload(target: Callable[[], None]) -> str:
+    """Serialize an inline test body for execution in a fresh interpreter.
+
+    The test body intentionally stays nested inside each test for readability.
+    Since nested functions are not importable or pickleable, the subprocess gets
+    the body's source and any pickleable nonlocal values instead of a function
+    object.
     """
-    ctx = multiprocessing.get_context("fork")
-    parent_conn, child_conn = ctx.Pipe()
+    payload = (
+        _subprocess_target_source(target),
+        target.__name__,
+        target.__code__.co_filename,
+        inspect.getclosurevars(target).nonlocals,
+    )
+    return base64.b64encode(pickle.dumps(payload)).decode("ascii")
 
-    def _wrapper() -> None:
-        try:
-            target()
-            child_conn.send(None)
-        except BaseException as exc:
-            try:
-                child_conn.send(exc)
-            except Exception:
-                child_conn.send(
-                    RuntimeError(
-                        f"{type(exc).__name__}: {exc}\n"
-                        f"{''.join(traceback.format_tb(exc.__traceback__))}"
-                    )
-                )
-        finally:
-            child_conn.close()
 
-    proc = ctx.Process(target=_wrapper)
-    proc.start()
-    proc.join(timeout=30)
+def _run_in_subprocess(target: Callable[[], None]) -> None:
+    """Execute ``target()`` in a fresh child process.
 
-    if proc.is_alive():
-        proc.kill()
-        proc.join()
-        raise RuntimeError("Subprocess timed out after 30 seconds")
+    Because each call starts a new child, process-wide side-effects (CPU
+    affinity, NUMA policy, environment variables) never leak into the pytest
+    process. Launching a new Python interpreter avoids inheriting CUDA/NVML
+    state from previous tests in the parent process.
 
-    if parent_conn.poll():
-        exc = parent_conn.recv()
-        if exc is not None:
-            raise exc
+    The target must be a no-argument function whose source is available via
+    ``inspect.getsource()``. This requirement keeps the body inline in the test
+    while still avoiding ``fork``; any nonlocal values captured by the body must
+    be pickleable because they are sent to the fresh interpreter.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _SUBPROCESS_RUNNER, _subprocess_payload(target)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Subprocess timed out after 30 seconds") from exc
 
-    if proc.exitcode != 0:
-        raise RuntimeError(f"Subprocess exited with code {proc.exitcode}")
+    if proc.returncode != 0:
+        output = (proc.stderr or proc.stdout).strip()
+        message = f"Subprocess exited with code {proc.returncode}"
+        if output:
+            message += f"\n{output}"
+        raise RuntimeError(message)
 
 
 class TestBindResolution:
