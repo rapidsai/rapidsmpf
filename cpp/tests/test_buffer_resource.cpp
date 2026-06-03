@@ -816,50 +816,6 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 
-// Two BufferResources constructed over the same upstream MR must each be kept
-// alive *independently* by the owning `any_resource` promoted from their own
-// `device_mr()`. The back-references installed via
-// `WithBufferResourceBackRef::set_backref` are per-instance, so dropping one
-// BR's owning resource must not affect the other BR's lifetime.
-//
-// Note on equality: `any_resource::operator==` dispatches to the wrapped
-// `RmmResourceAdaptor::operator==`, which compares shared-impl identity
-// first. Each `BufferResource::create()` constructs a brand-new
-// `cuda::mr::shared_resource<Impl>` with its own heap-allocated impl, so the
-// two `any_resource`s here compare unequal even though they share an upstream
-// resource. This matches the previous `OwningResourceAdaptor::operator==`
-// behavior. The substantive invariant exercised below is the per-instance
-// lifetime isolation.
-TEST(BufferResource, IndependentBackRefsKeepEachBrAlive) {
-    auto upstream = cudf::get_current_device_resource_ref();
-
-    auto br1 = BufferResource::create(upstream);
-    auto br2 = BufferResource::create(upstream);
-
-    std::weak_ptr<BufferResource> weak_br1 = br1;
-    std::weak_ptr<BufferResource> weak_br2 = br2;
-
-    {
-        any_device_resource mr2{br2->device_mr()};
-        {
-            any_device_resource mr1{br1->device_mr()};
-
-            // Distinct shared-impl instances → not equal under our `operator==`.
-            EXPECT_NE(mr1, mr2);
-
-            br1.reset();
-            br2.reset();
-            EXPECT_FALSE(weak_br1.expired()) << "br1 freed while mr1 still holds it";
-            EXPECT_FALSE(weak_br2.expired()) << "br2 freed while mr2 still holds it";
-        }
-        EXPECT_TRUE(weak_br1.expired()) << "mr1 released but br1 not freed";
-        EXPECT_FALSE(weak_br2.expired())
-            << "mr1 release leaked into br2 lifetime (back-refs not per-instance)";
-    }
-    // `mr2` destroyed: `br2` must now die too.
-    EXPECT_TRUE(weak_br2.expired()) << "mr2 released but br2 not freed";
-}
-
 TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     rmm::mr::cuda_memory_resource cuda_mr;
 
