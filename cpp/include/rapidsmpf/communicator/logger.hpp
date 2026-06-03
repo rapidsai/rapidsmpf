@@ -7,7 +7,6 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
-#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -115,23 +114,6 @@ class Logger {
      * @param rank The new rank.
      */
     void set_rank(std::int32_t rank);
-
-    /**
-     * @brief Create a new logger that shares this logger's verbosity level
-     * and current rank.
-     *
-     * The returned logger is a logically independent instance with its own
-     * mutex and thread-id table; only the verbosity level and the current
-     * rank are copied from `*this`. This is useful when a sub-component
-     * (e.g. a split communicator) needs its own logger without having to
-     * carry around the original `config::Options`.
-     *
-     * Thread-safe: the source rank is read under the same mutex used by
-     * `set_rank()` and the log routines.
-     *
-     * @return A new logger instance with the same verbosity level and rank.
-     */
-    [[nodiscard]] std::shared_ptr<Logger> copy();
 
     /**
      * @brief Logs a message using the specified verbosity level.
@@ -245,9 +227,6 @@ class Logger {
     }
 
   private:
-    /// Internal constructor used by `copy()`: bypasses option parsing.
-    Logger(std::int32_t rank, LOG_LEVEL level);
-
     std::mutex mutex_;
     std::int32_t rank_;  ///< Guarded by `mutex_`.
     LOG_LEVEL const level_;

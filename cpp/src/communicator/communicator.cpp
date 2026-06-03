@@ -40,17 +40,9 @@ Logger::Logger(std::int32_t rank, config::Options options)
 
 Logger::Logger(config::Options options) : Logger(std::int32_t{-1}, std::move(options)) {}
 
-Logger::Logger(std::int32_t rank, LOG_LEVEL level) : rank_{rank}, level_{level} {}
-
 void Logger::set_rank(std::int32_t rank) {
     std::lock_guard<std::mutex> lock(mutex_);
     rank_ = rank;
 }
-
-std::shared_ptr<Logger> Logger::copy() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return std::shared_ptr<Logger>(new Logger(rank_, level_));
-}
-
 
 }  // namespace rapidsmpf
