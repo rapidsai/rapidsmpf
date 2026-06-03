@@ -20,7 +20,7 @@ dependencies:
 - cuda-nvtx-dev
 - cuda-sanitizer-api
 - cuda-version=12.9
-- cudf==26.6.*,>=0.0.0a0
+- cudf==26.6.*
 - cxx-compiler
 - cython>=3.2.2
 - doxygen=1.9.1
@@ -28,11 +28,11 @@ dependencies:
 - gcc_linux-aarch64=14.*
 - gdb
 - ipython
-- libcudf==26.6.*,>=0.0.0a0
+- libcudf==26.6.*
 - libnuma
 - libpmix-devel >=5.0,<6.0
-- librmm==26.6.*,>=0.0.0a0
-- libucxx==0.50.*,>=0.0.0a0
+- librmm==26.6.*
+- libucxx==0.50.*
 - make
 - mpi4py
 - myst-nb
@@ -46,18 +46,18 @@ dependencies:
 - psutil
 - pyarrow
 - pydata-sphinx-theme>=0.15.4
-- pylibcudf==26.6.*,>=0.0.0a0
+- pylibcudf==26.6.*
 - pytest
 - python>=3.11
 - rapids-build-backend>=0.4.0,<0.5.0
 - ray-default>=2.55.1
-- rmm==26.6.*,>=0.0.0a0
+- rmm==26.6.*
 - scikit-build-core>=0.11.0
 - sphinx-autobuild
 - sphinx-copybutton
 - sphinx>=8.1.0
 - sysroot_linux-aarch64=2.28
-- ucxx==0.50.*,>=0.0.0a0
+- ucxx==0.50.*
 - valgrind
 - pip:
   - tpchgen-cli
