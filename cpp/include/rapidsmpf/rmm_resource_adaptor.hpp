@@ -27,14 +27,10 @@ namespace rapidsmpf {
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
  *
- * The adaptor also carries an optional back-reference to a `BufferResource`
- * via `WithBufferResourceBackRef`. When unset (the default), the back-ref
- * machinery is a no-op. `BufferResource::create()` installs a weak
- * back-reference via `set_backref()` so that any copy of the adaptor (for
- * example the one CCCL makes when promoting `BufferResource::device_mr()`
- * from a non-owning `cuda::mr::resource_ref` to an owning
- * `cuda::mr::any_resource`) promotes that weak reference to a `shared_ptr`,
- * keeping the `BufferResource` alive for as long as the copy lives.
+ * Inherits the `WithBufferResourceBackRef` lifetime contract: standalone
+ * adaptors make no claim on any owner, but adaptors installed by
+ * `BufferResource::create()` keep their owning `BufferResource` alive for
+ * as long as any copy of the adaptor lives.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
@@ -64,15 +60,13 @@ class RmmResourceAdaptor
     /**
      * @brief Equality comparison.
      *
-     * Two adaptors are equal when they share the same underlying shared
-     * state **and** their installed back-references are owner-equivalent (or
-     * both adaptors have no installed back-reference). The back-reference
-     * half is delegated to the `WithBufferResourceBackRef` base's equality
-     * operator.
+     * Two adaptors are equal iff they share the same underlying shared
+     * state **and** reference the same owning `BufferResource` (or are
+     * both standalone).
      *
      * @param other The other adaptor to compare.
-     * @return True if both adaptors refer to the same shared resource
-     * instance and the same back-referenced owner.
+     * @return True if both adaptors share the same shared state and the
+     * same owning `BufferResource`.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
         return get() == other.get() && WithBufferResourceBackRef::operator==(other);

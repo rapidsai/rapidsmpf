@@ -8,39 +8,28 @@
 #include <memory>
 #include <utility>
 
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+
 namespace rapidsmpf {
 
 /**
- * @brief Mixin that contributes a weak back-reference to an owner and promotes
- * it to shared ownership on copy.
+ * @brief Mixin that lets copies of the host object keep an external owner alive.
  *
- * Inherit this mixin into a type whose copies should keep an external owner
- * alive. The mixin holds a `std::weak_ptr<BackRef>` plus an internal
- * `std::shared_ptr<BackRef>` that is populated by the copy constructor and
- * copy assignment operator.
+ * Inherit this mixin into a type whose copies should share ownership of an
+ * external @p BackRef instance. Each instance is in one of two states:
  *
- * The mixin is the building block previously provided by the now-removed
- * `OwningResourceAdaptor`: it captures the "back-reference acquires shared
- * ownership when CCCL deep-copies a resource into an owning
- * `cuda::mr::any_resource`" lifetime trick without the surrounding
- * allocate/deallocate/`forward_property` wrapper.
+ * - **Uninstalled** (default-constructed): the instance makes no claim on
+ *   any owner. Copies of it stay uninstalled and never throw.
+ * - **Installed** (after `set_backref()`): the instance is bound to a
+ *   specific owner. Each copy of an installed instance acquires shared
+ *   ownership of that owner for the lifetime of the copy. If the owner has
+ *   been destroyed before the copy is made, copying throws
+ *   `std::bad_weak_ptr`.
  *
- * @par Lifetime semantics
- *
- * - A default-constructed mixin holds an empty `weak_` and empty `strong_`.
- *   Copying such an instance is a no-op for the back-ref (no throw, no
- *   promotion). This is the "back-ref not yet installed" state.
- * - `set_backref()` installs a `std::weak_ptr<BackRef>` into the mixin and
- *   clears any previously promoted strong reference. After this call, copies
- *   of the host object will attempt to promote the weak reference.
- * - On copy, if the source already holds a `strong_` reference, the copy
- *   shares it. Otherwise the copy promotes `weak_` to a `shared_ptr`. If
- *   `weak_` was installed but has since expired, the promotion throws
- *   `std::bad_weak_ptr`, matching the behavior the previous
- *   `OwningResourceAdaptor` used to detect dangling-copy scenarios early.
- * - Moves are trivial: the moved-from instance leaves its pointers in their
- *   moved-from state (typically empty), and the moved-to instance takes over
- *   any installed weak/strong references without re-promotion.
+ * Move operations transfer state without re-acquiring ownership. Equality
+ * is owner-based: two instances compare equal iff they reference the same
+ * owner, or are both uninstalled.
  *
  * @tparam BackRef Type of the back-referenced owner object.
  */
@@ -51,30 +40,28 @@ class BackRefMixin {
     BackRefMixin() noexcept = default;
 
     /**
-     * @brief Copy constructor that promotes the back-reference to shared
-     * ownership.
+     * @brief Acquire shared ownership of @p other's back-referenced owner.
      *
-     * - If @p other already holds a strong back-reference, it is shared.
-     * - Otherwise, if @p other has an installed weak back-reference, it is
-     *   promoted via `std::shared_ptr<BackRef>{other.weak_}`.
-     * - If @p other has no installed back-reference (default state), this is
-     *   a no-op for the back-ref state.
+     * After construction, *this* references the same owner as @p other and
+     * keeps it alive for as long as *this* lives. If @p other is
+     * uninstalled, *this* is uninstalled too.
      *
      * @param other Mixin to copy from.
-     * @throws std::bad_weak_ptr if @p other has an installed weak
-     * back-reference that has since expired.
+     * @throws std::bad_weak_ptr if @p other is installed but its owner has
+     * been destroyed.
      */
     BackRefMixin(BackRefMixin const& other)
         : weak_{other.weak_}, strong_{promote(other)} {}
 
     /**
-     * @brief Copy assignment operator with the same lifetime semantics as the
-     * copy constructor.
+     * @brief Copy assignment with the same semantics as the copy constructor.
+     *
+     * If the assignment throws, *this* is left unchanged.
      *
      * @param other Mixin to copy from.
-     * @return Reference to this mixin.
-     * @throws std::bad_weak_ptr if @p other has an installed weak
-     * back-reference that has since expired.
+     * @return Reference to this.
+     * @throws std::bad_weak_ptr if @p other is installed but its owner has
+     * been destroyed.
      */
     BackRefMixin& operator=(BackRefMixin const& other) {
         if (this != &other) {
@@ -98,34 +85,37 @@ class BackRefMixin {
     ~BackRefMixin() = default;
 
     /**
-     * @brief Owner-based equality of the back-reference.
-     *
-     * Two mixins compare equal when their weak references refer to the same
-     * control block under `std::weak_ptr::owner_before` (or when both are
-     * empty). The strong reference does not participate: a mixin that has
-     * promoted its weak ref via copy compares equal to its source.
-     *
-     * This replicates the back-ref half of the equality previously exposed by
-     * `OwningResourceAdaptor::operator==`. Combine with the host type's own
-     * identity check to get full equality.
+     * @brief Owner-based equality.
      *
      * @param other Mixin to compare against.
      * @return `true` if both mixins reference the same back-referenced
-     * owner (or both are uninstalled).
+     * owner, or are both uninstalled.
      */
     [[nodiscard]] bool operator==(BackRefMixin const& other) const noexcept {
-        return !weak_.owner_before(other.weak_) && !other.weak_.owner_before(weak_);
+        return owner_equal(weak_, other.weak_);
     }
 
     /**
-     * @brief Install a weak back-reference.
+     * @brief Install a back-reference on this instance.
      *
-     * Clears any previously promoted strong reference so a subsequent copy
-     * will re-promote from the new weak reference.
+     * After this call, every subsequent copy of *this* will hold shared
+     * ownership of @p backref's referent for the lifetime of the copy.
      *
-     * @param backref Weak reference to the back-referenced owner object.
+     * Installation only affects *this* and copies made from it afterwards;
+     * copies that already exist are not retroactively back-referenced. To
+     * guarantee the back-reference is honored by every observable copy,
+     * install it before the host object becomes reachable to any code that
+     * may copy it.
+     *
+     * @param backref Non-empty weak reference to the back-referenced owner.
+     * @throws std::invalid_argument if @p backref is empty.
      */
-    void set_backref(std::weak_ptr<BackRef> backref) noexcept {
+    void set_backref(std::weak_ptr<BackRef> backref) {
+        RAPIDSMPF_EXPECTS(
+            !owner_equal(backref, std::weak_ptr<BackRef>{}),
+            "set_backref: backref must not be empty",
+            std::invalid_argument
+        );
         weak_ = std::move(backref);
         strong_.reset();
     }
@@ -142,12 +132,9 @@ class BackRefMixin {
             return other.strong_;
         }
         // Distinguish "never installed" (default-constructed weak_ptr) from
-        // "installed but expired". An installed weak_ptr has a non-empty
-        // owner; default-constructed ones owner-compare equal to each other.
-        std::weak_ptr<BackRef> const empty{};
-        bool const installed =
-            other.weak_.owner_before(empty) || empty.owner_before(other.weak_);
-        if (!installed) {
+        // "installed but expired": only the former is owner-equal to a
+        // default-constructed weak_ptr.
+        if (owner_equal(other.weak_, std::weak_ptr<BackRef>{})) {
             return {};
         }
         return std::shared_ptr<BackRef>{other.weak_};  // throws if expired
@@ -157,18 +144,14 @@ class BackRefMixin {
     std::shared_ptr<BackRef> strong_{};
 };
 
-// `BufferResource` is the only back-referenced owner type in the codebase, so
-// the forward declaration and the instantiated alias live here so consumers
-// (`RmmResourceAdaptor`, `HostMemoryResource`, `PinnedMemoryResource`, ...)
-// don't have to re-declare either one.
 class BufferResource;
 
 /**
  * @brief Convenience alias: `BackRefMixin` instantiated for `BufferResource`.
  *
- * Inherit from this alias to give a type the standard back-reference lifetime
- * contract `BufferResource::create()` relies on. See `BackRefMixin` for the
- * full semantics.
+ * Inherit from this alias to give a type the back-reference lifetime
+ * contract that `BufferResource::create()` installs on its internal
+ * resources. See `BackRefMixin` for the contract.
  */
 using WithBufferResourceBackRef = BackRefMixin<BufferResource>;
 
