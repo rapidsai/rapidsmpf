@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -31,7 +32,7 @@ namespace rapidsmpf {
  *
  * TODO: support writing to a file.
  */
-class Logger {
+class Logger : public std::enable_shared_from_this<Logger> {
   public:
     /**
      * @brief Log verbosity levels.
@@ -66,7 +67,7 @@ class Logger {
     }
 
     /**
-     * @brief Construct a new logger with a known rank.
+     * @brief Create a logger with a known rank.
      *
      * To control the verbosity level, set the configuration option "log" to
      * one of following:
@@ -79,21 +80,32 @@ class Logger {
      *
      * @param rank The rank of the calling process.
      * @param options Configuration options.
+     * @return A shared pointer to the newly constructed logger.
      */
-    Logger(std::int32_t rank, config::Options options);
+    [[nodiscard]] static std::shared_ptr<Logger> create(
+        std::int32_t rank, config::Options options
+    );
 
     /**
-     * @brief Construct a new logger without a known rank.
+     * @brief Create a logger without a known rank.
      *
      * The rank defaults to `-1` and may be updated later via `set_rank()`.
      * This overload is intended for bootstrap scenarios where the rank is only
      * known after a network handshake but logging may already be required.
      *
      * @param options Configuration options.
+     * @return A shared pointer to the newly constructed logger.
      */
-    explicit Logger(config::Options options);
+    [[nodiscard]] static std::shared_ptr<Logger> create(config::Options options);
 
     virtual ~Logger() noexcept = default;
+
+    // `Logger` is owned exclusively through `std::shared_ptr`. Use `create()`
+    // to construct instances.
+    Logger(Logger const&) = delete;
+    Logger& operator=(Logger const&) = delete;
+    Logger(Logger&&) = delete;
+    Logger& operator=(Logger&&) = delete;
 
     /**
      * @brief Get the verbosity level of the logger.
@@ -190,6 +202,19 @@ class Logger {
     }
 
   protected:
+    /**
+     * @brief Constructs a logger with a known rank.
+     * @param rank The rank of the calling process.
+     * @param options Configuration options.
+     */
+    Logger(std::int32_t rank, config::Options options);
+
+    /**
+     * @brief Constructs a logger without a known rank (defaults to `-1`).
+     * @param options Configuration options.
+     */
+    explicit Logger(config::Options options);
+
     /**
      * @brief Returns a unique thread ID for the current thread.
      *

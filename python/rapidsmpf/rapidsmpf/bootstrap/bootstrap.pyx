@@ -94,7 +94,7 @@ def create_ucxx_comm(
             progress_thread._handle,
             type,
             cpp_options._handle,
-            make_shared[cpp_Logger](cpp_options._handle),
+            cpp_Logger.create(cpp_options._handle),
         )
         base_comm = dynamic_pointer_cast[cpp_Communicator, cpp_UCXX_Communicator](
             ucxx_comm

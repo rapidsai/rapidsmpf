@@ -39,7 +39,7 @@ void Environment::SetUp() {
         MPI_COMM_WORLD,
         options_,
         std::make_shared<rapidsmpf::ProgressThread>(),
-        std::make_shared<rapidsmpf::Logger>(options_)
+        rapidsmpf::Logger::create(options_)
     );
 }
 

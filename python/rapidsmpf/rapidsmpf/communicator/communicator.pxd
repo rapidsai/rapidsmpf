@@ -18,7 +18,8 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
 
 cdef extern from "<rapidsmpf/communicator/logger.hpp>" nogil:
     cdef cppclass cpp_Logger "rapidsmpf::Logger":
-        cpp_Logger(cpp_Options options) except +ex_handler
+        @staticmethod
+        shared_ptr[cpp_Logger] create(cpp_Options options) except +ex_handler
         void log[T](LOG_LEVEL, T msg) except +ex_handler
         LOG_LEVEL verbosity_level() except +ex_handler
     cpdef enum class LOG_LEVEL "rapidsmpf::Logger::LOG_LEVEL"(int):

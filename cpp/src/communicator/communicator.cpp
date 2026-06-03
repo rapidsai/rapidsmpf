@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -39,6 +40,14 @@ Logger::Logger(std::int32_t rank, config::Options options)
     : rank_{rank}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {}
 
 Logger::Logger(config::Options options) : Logger(std::int32_t{-1}, std::move(options)) {}
+
+std::shared_ptr<Logger> Logger::create(std::int32_t rank, config::Options options) {
+    return std::shared_ptr<Logger>(new Logger(rank, std::move(options)));
+}
+
+std::shared_ptr<Logger> Logger::create(config::Options options) {
+    return std::shared_ptr<Logger>(new Logger(std::move(options)));
+}
 
 void Logger::set_rank(std::int32_t rank) {
     std::lock_guard<std::mutex> lock(mutex_);

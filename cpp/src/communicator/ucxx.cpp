@@ -1526,7 +1526,7 @@ std::shared_ptr<UCXX> UCXX::split() {
     return std::make_shared<UCXX>(
         std::move(initialized_rank),
         progress_thread_,
-        std::make_shared<Logger>(shared_resources_->options)
+        Logger::create(shared_resources_->options)
     );
 }
 

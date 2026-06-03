@@ -172,7 +172,7 @@ create_context(
         std::to_string(arguments.num_streaming_threads);
     auto options = config::Options(environment);
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(statistics);
-    auto logger = std::make_shared<Logger>(options);
+    auto logger = Logger::create(options);
     std::shared_ptr<Communicator> comm;
     switch (arguments.comm_type) {
     case CommType::MPI:
