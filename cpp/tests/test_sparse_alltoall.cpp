@@ -105,10 +105,10 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
 class SparseAlltoallTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<rapidsmpf::BufferResource>(rmm::mr::cuda_memory_resource{});
+        br = rapidsmpf::BufferResource::create(rmm::mr::cuda_memory_resource{});
     }
 
-    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
 TEST_F(SparseAlltoallTest, validate_constructor) {

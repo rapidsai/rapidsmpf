@@ -44,13 +44,13 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     std::int64_t const seed = 42;
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{mr()};
+    auto br = rapidsmpf::BufferResource::create(mr());
 
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
     auto chunks = rapidsmpf::partition_and_pack(
-        expect, {1}, num_partitions, hash_fn, seed, stream, &br
+        expect, {1}, num_partitions, hash_fn, seed, stream, br.get()
     );
 
     // Convert to a vector
@@ -60,7 +60,8 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
+    auto result =
+        rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, br.get());
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -72,7 +73,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
     int const num_rows = std::get<1>(GetParam());
     std::int64_t const seed = 42;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
+    auto br = rapidsmpf::BufferResource::create(cudf::get_current_device_resource_ref());
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
@@ -81,7 +82,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
         splits.emplace_back(i * num_rows / num_partitions);
     }
 
-    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, &br);
+    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, br.get());
 
     // Convert to a vector (restoring the original order).
     std::vector<rapidsmpf::PackedData> chunks_vector;
@@ -90,7 +91,8 @@ TEST_P(NumOfPartitions, split_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
+    auto result =
+        rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, br.get());
 
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
@@ -99,11 +101,11 @@ TEST_P(NumOfPartitions, split_and_pack) {
 class SpillingTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(cudf::get_current_device_resource_ref());
         stream = cudf::get_default_stream();
     }
 
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
 };
 

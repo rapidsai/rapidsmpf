@@ -57,7 +57,7 @@ OrderScheme OrderScheme::with_keys(std::vector<OrderKey> new_keys) const {
 }
 
 bool OrderScheme::boundaries_aligned_with(
-    OrderScheme const& other, rapidsmpf::BufferResource const& br
+    OrderScheme const& other, rapidsmpf::BufferResource& br
 ) const {
     if (strict_boundaries != other.strict_boundaries
         || boundaries->shape() != other.boundaries->shape())

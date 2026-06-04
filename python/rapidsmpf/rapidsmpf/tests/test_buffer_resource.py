@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
+import rmm
 import rmm.mr
 
 from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource, OwningDeviceMemoryResource
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
 from rapidsmpf.statistics import Statistics
 
@@ -191,6 +193,42 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     with opaque_memory_usage(res):
         assert res.size == 0
     assert res.size == 0
+
+
+def test_device_mr_property_tracks_allocations() -> None:
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(1024)})
+    assert isinstance(br.device_mr, OwningDeviceMemoryResource)
+
+    avail_before = br.memory_available(MemoryType.DEVICE)
+
+    # Allocation through the tracked view is visible to the BR.
+    buf_tracked = rmm.DeviceBuffer(size=KiB(64), mr=br.device_mr)
+    avail_after_tracked = br.memory_available(MemoryType.DEVICE)
+    assert avail_after_tracked == avail_before - KiB(64)
+
+    # Allocation through the original (unwrapped) MR bypasses tracking.
+    buf_untracked = rmm.DeviceBuffer(size=KiB(64), mr=mr)
+    avail_after_untracked = br.memory_available(MemoryType.DEVICE)
+    assert avail_after_untracked == avail_after_tracked
+
+    del buf_tracked, buf_untracked
+
+
+def test_device_mr_outlives_buffer_resource() -> None:
+    expected = np.arange(KiB(64), dtype=int)
+
+    # Write data and delete the buffer resource.
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr)
+    buf = rmm.DeviceBuffer(size=expected.nbytes, mr=br.device_mr)
+    buf.copy_from_host(expected.tobytes())
+    del br
+
+    # Read the data back and verify it survived.
+    got = np.frombuffer(buf.copy_to_host(), dtype=int)
+    assert np.array_equal(got, expected)
+    del buf
 
 
 def test_reserve_or_fail() -> None:
