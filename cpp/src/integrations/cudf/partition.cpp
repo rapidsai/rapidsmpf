@@ -4,6 +4,7 @@
  */
 
 #include <utility>
+#include <span>
 
 #include <cudf/concatenate.hpp>
 #include <cudf/contiguous_split.hpp>
@@ -68,7 +69,7 @@ partition_and_split(
     // hash_partition() returns the start offset of each partition thus we have to
     // skip the first offset. See: <https://github.com/rapidsai/cudf/issues/4607>.
     auto partition_offsets =
-        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 2);
+        std::span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 2);
 
     // split does not make any copies.
     auto tbl_partitioned =
