@@ -10,6 +10,8 @@
 
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
@@ -220,7 +222,11 @@ Duration run(
             auto [res, _] =
                 br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
             auto buf = br->make_buffer(args.msg_size, stream, res);
-            random_fill(*buf, br->device_mr());
+            buf->write_access(
+                [size = args.msg_size](std::byte* ptr, rmm::cuda_stream_view s) {
+                    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x42, size, s.value()));
+                }
+            );
             send_bufs.push_back(std::move(buf));
             recv_bufs.push_back(br->make_buffer(args.msg_size, stream, res));
         }
@@ -312,11 +318,11 @@ int main(int argc, char** argv) {
     }
 
     auto& log = comm->logger();
-    rmm::cuda_stream_view stream = cudf::get_default_stream();
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref();
     auto br = BufferResource::create(
         mr,
         PinnedMemoryResource::Disabled,

@@ -9,8 +9,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf_test/table_utilities.hpp>
-
 #include <coro/coro.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
