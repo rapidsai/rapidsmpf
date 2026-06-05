@@ -207,7 +207,9 @@ class BaseAllReduceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = rapidsmpf::BufferResource::create(*mr);
+        br = rapidsmpf::BufferResource::create(
+            rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}), *mr
+        );
         comm = GlobalEnvironment->comm_.get();
     }
 

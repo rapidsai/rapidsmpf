@@ -8,20 +8,26 @@ import pytest
 import rmm
 import rmm.mr
 
+from rapidsmpf.config import Options
 from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, OwningDeviceMemoryResource
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
-from rapidsmpf.statistics import Statistics
+from rapidsmpf.runtime import Runtime
 
 
 def KiB(x: int) -> int:
     return x * 2**10
 
 
+def make_runtime(**opts_kwargs: str) -> Runtime:
+    return Runtime.from_options(Options(opts_kwargs) if opts_kwargs else Options())
+
+
 def test_buffer_resource() -> None:
+    rt = make_runtime()
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(100)})
+    br = BufferResource(rt, mr, memory_limits={MemoryType.DEVICE: KiB(100)})
     assert br.memory_reserved(MemoryType.DEVICE) == 0
     assert br.memory_reserved(MemoryType.HOST) == 0
 
@@ -31,8 +37,9 @@ def test_buffer_resource() -> None:
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_memory_reservation(mem_type: MemoryType) -> None:
+    rt = make_runtime()
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+    br = BufferResource(rt, mr, memory_limits={mem_type: KiB(100)})
     res1, ob = br.reserve(mem_type, KiB(100), allow_overbooking=False)
     assert res1.br is br
     assert res1.mem_type == mem_type
@@ -78,36 +85,38 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
 
 def test_stream_pool() -> None:
     """Test that stream_pool parameter can be configured."""
+    rt = make_runtime()
     mr = rmm.mr.CudaMemoryResource()
 
     # Test with default stream pool size (16)
-    br_default = BufferResource(mr)
+    br_default = BufferResource(rt, mr)
     assert br_default.stream_pool_size() == 16
 
     # Test with custom stream pool
     custom_pool = rmm.pylibrmm.cuda_stream_pool.CudaStreamPool(pool_size=32)
-    br_custom = BufferResource(mr, stream_pool=custom_pool)
+    br_custom = BufferResource(rt, mr, stream_pool=custom_pool)
     assert br_custom.stream_pool_size() == 32
 
 
 def test_statistics() -> None:
-    """Test that statistics parameter can be configured."""
+    """Test that statistics enabled state comes from Runtime options."""
     mr = rmm.mr.CudaMemoryResource()
 
     # Disabled by default
-    br_default = BufferResource(mr)
-    assert not br_default.statistics.enabled
+    rt_disabled = make_runtime()
+    br_disabled = BufferResource(rt_disabled, mr)
+    assert not br_disabled.statistics.enabled
 
-    # Test with enabled statistics (with memory profiling)
-    stats = Statistics(enable=True)
-    br_with_mr = BufferResource(mr, statistics=stats)
-    assert br_with_mr.statistics is stats
+    # Enabled when Runtime is created with statistics=True option
+    rt_enabled = make_runtime(statistics="True")
+    br_enabled = BufferResource(rt_enabled, mr)
+    assert br_enabled.statistics.enabled
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+    br = BufferResource(make_runtime(), mr, memory_limits={mem_type: KiB(100)})
 
     res, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
     assert res.size == KiB(50)
@@ -122,7 +131,7 @@ def test_opaque_memory_usage_basic(mem_type: MemoryType) -> None:
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+    br = BufferResource(make_runtime(), mr, memory_limits={mem_type: KiB(100)})
 
     res, _ = br.reserve(mem_type, KiB(60), allow_overbooking=False)
     assert res.size == KiB(60)
@@ -136,7 +145,7 @@ def test_opaque_memory_usage_clears_on_exception(mem_type: MemoryType) -> None:
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(200)})
+    br = BufferResource(make_runtime(), mr, memory_limits={mem_type: KiB(200)})
 
     res1, _ = br.reserve(mem_type, KiB(50), allow_overbooking=False)
     assert res1.size == KiB(50)
@@ -158,7 +167,7 @@ def test_opaque_memory_usage_multiple_reservations(mem_type: MemoryType) -> None
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(200)})
+    br = BufferResource(make_runtime(), mr, memory_limits={mem_type: KiB(200)})
 
     res1, _ = br.reserve(mem_type, KiB(40), allow_overbooking=False)
     res2, _ = br.reserve(mem_type, KiB(60), allow_overbooking=False)
@@ -180,7 +189,7 @@ def test_opaque_memory_usage_nested(mem_type: MemoryType) -> None:
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
 def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+    br = BufferResource(make_runtime(), mr, memory_limits={mem_type: KiB(100)})
 
     res, _ = br.reserve(mem_type, KiB(80), allow_overbooking=False)
     assert res.size == KiB(80)
@@ -197,7 +206,9 @@ def test_opaque_memory_usage_partial_consumption(mem_type: MemoryType) -> None:
 
 def test_device_mr_property_tracks_allocations() -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(1024)})
+    br = BufferResource(
+        make_runtime(), mr, memory_limits={MemoryType.DEVICE: KiB(1024)}
+    )
     assert isinstance(br.device_mr, OwningDeviceMemoryResource)
 
     avail_before = br.memory_available(MemoryType.DEVICE)
@@ -220,7 +231,7 @@ def test_device_mr_outlives_buffer_resource() -> None:
 
     # Write data and delete the buffer resource.
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr)
+    br = BufferResource(make_runtime(), mr)
     buf = rmm.DeviceBuffer(size=expected.nbytes, mr=br.device_mr)
     buf.copy_from_host(expected.tobytes())
     del br
@@ -233,7 +244,7 @@ def test_device_mr_outlives_buffer_resource() -> None:
 
 def test_reserve_or_fail() -> None:
     mr = rmm.mr.CudaMemoryResource()
-    br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(100)})
+    br = BufferResource(make_runtime(), mr, memory_limits={MemoryType.DEVICE: KiB(100)})
 
     # Succeeds on the first available memory type.
     res = br.reserve_or_fail(KiB(50), [MemoryType.DEVICE, MemoryType.HOST])

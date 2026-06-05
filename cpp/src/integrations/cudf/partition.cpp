@@ -233,7 +233,6 @@ std::vector<PackedData> unspill_partitions(
     BufferResource* br,
     AllowOverbooking allow_overbooking
 ) {
-    auto statistics = br->statistics();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {

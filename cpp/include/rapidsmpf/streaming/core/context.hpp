@@ -10,9 +10,10 @@
 
 #include <coro/coro.hpp>
 
-#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
@@ -45,30 +46,24 @@ class Context {
      *
      * All provided pointers must be non-null.
      *
-     * @param options Configuration options.
-     * @param logger Shared pointer to a logger.
+     * @param runtime Runtime context providing options, statistics, and logger.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Shared pointer to a buffer resource.
      */
     Context(
-        config::Options options,
-        std::shared_ptr<Communicator::Logger> logger,
+        std::shared_ptr<Runtime> runtime,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
     );
 
     /**
-     * @brief Convenience constructor using the provided configuration options.
+     * @brief Convenience constructor — creates a CoroThreadPoolExecutor from
+     * the Runtime's options.
      *
-     * @param options Configuration options.
-     * @param logger Shared pointer to a logger.
+     * @param runtime Runtime context providing options, statistics, and logger.
      * @param br Buffer resource used to reserve host memory and perform data movement.
      */
-    Context(
-        config::Options options,
-        std::shared_ptr<Communicator::Logger> logger,
-        std::shared_ptr<BufferResource> br
-    );
+    Context(std::shared_ptr<Runtime> runtime, std::shared_ptr<BufferResource> br);
 
     /**
      * @brief Create a Context based on configuration options.
@@ -79,11 +74,8 @@ class Context {
      * @note The current CUDA device must be set prior to calling this function.
      * Options that depend on device memory availability query the current device.
      *
+     * @param runtime Runtime context providing options, statistics, and logger.
      * @param mr Device memory resource adaptor used by RapidsMPF.
-     * @param logger The logger to use.
-     * @param options Configuration options used to initialize the Context and its
-     * components.
-     * @param statistics The statistics instance to use (disabled by default).
      *
      * @return A fully initialized Context.
      *
@@ -102,10 +94,7 @@ class Context {
      * thread.
      */
     static std::shared_ptr<Context> from_options(
-        RmmResourceAdaptor mr,
-        std::shared_ptr<Communicator::Logger> logger,
-        config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Runtime> runtime, RmmResourceAdaptor mr
     );
 
     // No copy constructor and assignment operator.
@@ -131,16 +120,25 @@ class Context {
     void shutdown() noexcept;
 
     /**
-     * @brief Returns the configuration options.
+     * @brief Returns the Runtime context.
      *
-     * @return The Options instance.
+     * @return Shared pointer to the Runtime.
      */
-    [[nodiscard]] config::Options options() const noexcept;
+    [[nodiscard]] Runtime& runtime() const noexcept;
 
     /**
-     * @brief @return Shared pointer to the logger.
+     * @brief Returns the configuration options.
+     *
+     * @return A reference to the stored Options.
      */
-    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() const noexcept;
+    [[nodiscard]] config::Options& options() const noexcept;
+
+    /**
+     * @brief Returns the logger.
+     *
+     * @return A reference to the Logger.
+     */
+    [[nodiscard]] Logger& logger() const noexcept;
 
     /**
      * @brief Returns the coroutine executor.
@@ -180,9 +178,9 @@ class Context {
     /**
      * @brief Returns the statistics collector.
      *
-     * @return Shared pointer to the statistics instance.
+     * @return A reference to the statistics instance.
      */
-    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept;
+    [[nodiscard]] Statistics& statistics() const noexcept;
 
     /**
      * @brief Create a new channel associated with this context.
@@ -225,15 +223,12 @@ class Context {
     std::size_t const uid_;
     std::atomic<bool> is_shutdown_{false};
     std::thread::id creator_thread_id_;
-    config::Options options_;
-    std::shared_ptr<Communicator::Logger> logger_;
+    std::shared_ptr<Runtime> runtime_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};
     std::shared_ptr<SpillableMessages> spillable_messages_;
     SpillManager::SpillFunctionID spill_function_id_{};
 };
-
-static_assert(StatisticsProvider<Context>);
 
 }  // namespace rapidsmpf::streaming

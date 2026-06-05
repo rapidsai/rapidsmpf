@@ -324,7 +324,9 @@ int main(int argc, char** argv) {
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
+    auto runtime = rapidsmpf::Runtime::from_options(options);
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
+    auto logger = runtime->logger().shared_from_this();
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
@@ -336,17 +338,18 @@ int main(int argc, char** argv) {
             return 1;
         }
         rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, progress_thread, logger);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm =
-                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
+            comm = rapidsmpf::ucxx::init_using_mpi(
+                MPI_COMM_WORLD, options, progress_thread, logger
+            );
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
@@ -364,23 +367,19 @@ int main(int argc, char** argv) {
         memory_limits[rapidsmpf::MemoryType::DEVICE] = args.device_mem_limit_mb << 20;
     }
 
-    auto stats = rapidsmpf::Statistics::create();
-
     auto pinned_mr = args.pinned_mem_disable
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = rapidsmpf::BufferResource::create(
+        runtime,
         stat_enabled_mr,
         pinned_mr,
         std::move(memory_limits),
         std::nullopt,
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
-        stats
+        std::make_shared<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
-    auto& log = *comm->logger();
+    auto& log = runtime->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
 
     // Print benchmark/hardware info.
@@ -403,15 +402,14 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    auto ctx =
-        std::make_shared<rapidsmpf::streaming::Context>(options, comm->logger(), br);
+    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(runtime, br);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Clear statistics before the last run so only the final run is reported.
         if (i == total_num_runs - 1) {
-            ctx->statistics()->clear();
+            ctx->statistics().clear();
         }
         double const elapsed = run(ctx, comm, args, stream).count();
         std::stringstream ss;
@@ -458,15 +456,15 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    auto statistics = ctx->statistics();
+    auto& statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
-        log.print(statistics->report({
+        log.print(statistics.report({
             .mr = stat_enabled_mr,
             .pinned_mr = pinned_mr,
             .header = "Statistics (of the last run):",
         }));
     } else {
-        log.print(statistics->report({.header = "Statistics (of the last run):"}));
+        log.print(statistics.report({.header = "Statistics (of the last run):"}));
     }
 
     if (!use_bootstrap) {

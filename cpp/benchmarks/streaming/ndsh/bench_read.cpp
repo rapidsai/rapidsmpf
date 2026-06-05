@@ -78,7 +78,7 @@ rapidsmpf::streaming::Actor consume_channel_parallel(
             if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
                 auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
                                  .make_available(ctx);
-                ctx->logger()->print(
+                ctx->logger().print(
                     "Consumed chunk with ",
                     chunk.table_view().num_rows(),
                     " rows and ",
@@ -96,7 +96,7 @@ rapidsmpf::streaming::Actor consume_channel_parallel(
         tasks.push_back(task());
     }
     rapidsmpf::streaming::coro_results(co_await coro::when_all(std::move(tasks)));
-    ctx->logger()->print(
+    ctx->logger().print(
         "Table was around ", rmm::detail::format_bytes(estimated_total_bytes.load())
     );
 }
@@ -411,11 +411,11 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        auto statistics = ctx->statistics();
-        comm->logger()->print(statistics->report(
+        auto& statistics = ctx->statistics();
+        comm->logger()->print(statistics.report(
             {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
-        statistics->clear();
+        statistics.clear();
     }
 
     if (comm->rank() == 0) {

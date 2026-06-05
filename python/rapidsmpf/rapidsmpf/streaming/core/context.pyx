@@ -4,23 +4,19 @@
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
-
-from rapidsmpf.communicator.communicator cimport Logger
-from rapidsmpf.config cimport Options
-from rapidsmpf.memory.buffer_resource cimport BufferResource
-
-from rapidsmpf.config import get_environment_variables
-
-from libcpp.memory cimport make_shared
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
+from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.runtime cimport Runtime
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait cimport \
     MemoryReserveOrWait
 
 from rapidsmpf.memory.buffer import MemoryType as py_MemoryType
-from rapidsmpf.statistics import Statistics
+
+from libcpp.memory cimport make_shared
+
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 
 
 @no_gc_clear
@@ -46,41 +42,27 @@ cdef class Context:
 
     Parameters
     ----------
-    logger
-        The logger to use.
+    runtime
+        The Runtime context providing options, statistics, and logging.
     br
         The buffer resource to use.
-    options
-        The configuration options to use. Missing options are read from environment
-        variables.
 
     Examples
     --------
-    >>> with streaming.Context(
-    ...     logger=...,
-    ...     br=BufferResource(...),
-    ...     options=Options(...),
-    ... ) as ctx:
+    >>> with streaming.Context(runtime=rt, br=BufferResource(rt, ...)) as ctx:
     ...     ch = ctx.create_channel()
     """
     def __cinit__(
         self,
-        Logger logger not None,
+        Runtime runtime not None,
         BufferResource br not None,
-        Options options = None,
     ):
+        self._runtime = runtime
         self._br = br
-        self._options = options
-        self._logger = logger
-        if self._options is None:
-            self._options = Options()
-        # Insert missing config options from environment variables.
-        self._options.insert_if_absent(get_environment_variables())
 
         with nogil:
             self._handle = make_shared[cpp_Context](
-                self._options._handle,
-                self._logger._handle,
+                self._runtime._handle,
                 self._br._handle,
             )
 
@@ -96,18 +78,34 @@ cdef class Context:
     @classmethod
     def from_options(
         cls,
-        Logger logger not None,
+        Runtime runtime not None,
         RmmResourceAdaptor mr not None,
-        Options options not None,
-        statistics=None,
     ):
-        if statistics is None:
-            statistics = Statistics.disabled()
-        return cls(
-            logger=logger,
-            br=BufferResource.from_options(mr, options, statistics),
-            options=options,
-        )
+        """
+        Construct a Context from a Runtime and a device memory resource.
+
+        Creates a :class:`.BufferResource` internally using the Runtime's options
+        and then constructs the Context.
+
+        Parameters
+        ----------
+        runtime
+            Runtime context providing options, statistics, and logging.
+        mr
+            Device memory resource adaptor used by RapidsMPF.
+
+        Returns
+        -------
+        Context
+            A fully initialized Context.
+        """
+        from rapidsmpf.config import get_environment_variables
+        from rapidsmpf.memory.buffer_resource import BufferResource as PyBR
+
+        opts = runtime.options
+        opts.insert_if_absent(get_environment_variables())
+        br = PyBR.from_options(runtime, mr, opts)
+        return cls(runtime=runtime, br=br)
 
     def __enter__(self):
         return self
@@ -141,15 +139,25 @@ cdef class Context:
         with nogil:
             deref(self._handle).shutdown()
 
+    def runtime(self):
+        """
+        Get the Runtime.
+
+        Returns
+        -------
+        The Runtime associated with this context.
+        """
+        return self._runtime
+
     def options(self):
         """
         Get options.
 
         Returns
         -------
-        The options associated with this context.
+        The options associated with this context (via the Runtime).
         """
-        return self._options
+        return self._runtime.options
 
     def logger(self):
         """
@@ -157,9 +165,9 @@ cdef class Context:
 
         Returns
         -------
-        The logger associated with this context.
+        The logger associated with this context (via the Runtime).
         """
-        return self._logger
+        return self._runtime.logger
 
     def br(self):
         """
@@ -177,9 +185,9 @@ cdef class Context:
 
         Returns
         -------
-        The statistics associated with this context.
+        The statistics associated with this context (via the Runtime).
         """
-        return self._br.statistics
+        return self._runtime.statistics
 
     def get_stream_from_pool(self):
         """

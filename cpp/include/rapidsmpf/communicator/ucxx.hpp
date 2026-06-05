@@ -161,13 +161,15 @@ class UCXX final : public Communicator {
      * `init()`.
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
-     * @param options Configuration options.
      * @param progress_thread Progress thread for this communicator
+     * @param logger Externally provided logger. Must be non-null. The
+     * communicator will overwrite the logger's rank with the rank reported by
+     * the shared resources once the bootstrap handshake has assigned one.
      */
     UCXX(
         std::unique_ptr<InitializedRank> ucxx_initialized_rank,
-        config::Options options,
-        std::shared_ptr<ProgressThread> progress_thread
+        std::shared_ptr<ProgressThread> progress_thread,
+        std::shared_ptr<Logger> logger
     );
 
     ~UCXX() noexcept override;
@@ -289,9 +291,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
-        return logger_;
-    }
+    [[nodiscard]] std::shared_ptr<Logger> const& logger() override;
 
     /**
      * @copydoc Communicator::progress_thread
@@ -337,8 +337,6 @@ class UCXX final : public Communicator {
 
   private:
     std::shared_ptr<SharedResources> shared_resources_;
-    config::Options options_;
-    std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);

@@ -186,10 +186,10 @@ streaming::Message semi_join_chunk(
         left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
     );
 
-    ctx->logger()->debug(
+    ctx->logger().debug(
         "semi_join_chunk: left.num_rows()=", left_chunk.table_view().num_rows()
     );
-    ctx->logger()->debug("semi_join_chunk: match.size()=", match->size());
+    ctx->logger().debug("semi_join_chunk: match.size()=", match->size());
 
     cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
     auto result_columns = cudf::gather(

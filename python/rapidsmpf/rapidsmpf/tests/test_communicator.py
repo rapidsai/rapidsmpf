@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.runtime import Runtime
 
 MPI = pytest.importorskip("mpi4py.MPI")
 from typing import TYPE_CHECKING  # noqa: E402
@@ -28,8 +29,9 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
+        opts = Options(get_environment_variables())
         comm = new_communicator(
-            MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+            MPI.COMM_WORLD, opts, ProgressThread(Runtime.from_options(opts))
         )
         assert comm.logger.verbosity_level is level
         comm.logger.print("PRINT")
@@ -50,8 +52,9 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
 
 
 def test_mpi() -> None:
+    opts = Options(get_environment_variables())
     comm = new_communicator(
-        MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+        MPI.COMM_WORLD, opts, ProgressThread(Runtime.from_options(opts))
     )
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
@@ -59,23 +62,24 @@ def test_mpi() -> None:
 
 def test_ucxx() -> None:
     ucxx_worker = initialize_ucxx()
-    comm = ucxx_mpi_setup(
-        ucxx_worker, Options(get_environment_variables()), ProgressThread()
-    )
+    opts = Options(get_environment_variables())
+    comm = ucxx_mpi_setup(ucxx_worker, opts, ProgressThread(Runtime.from_options(opts)))
     assert comm.nranks == MPI.COMM_WORLD.size
 
     ucxx_worker.stop_progress_thread()
 
 
 def test_single_process() -> None:
-    comm = single_process_comm(Options(get_environment_variables()), ProgressThread())
+    opts = Options(get_environment_variables())
+    comm = single_process_comm(opts, ProgressThread(Runtime.from_options(opts)))
     assert comm.nranks == 1
     assert comm.rank == 0
 
 
 def test_logger_survives_communicator(capfd: pytest.CaptureFixture[str]) -> None:
     def get_logger() -> Logger:
-        comm = single_process_comm(Options(), ProgressThread())
+        opts = Options()
+        comm = single_process_comm(opts, ProgressThread(Runtime.from_options(opts)))
         return comm.logger
 
     get_logger().print("Logger should survive")

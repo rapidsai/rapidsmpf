@@ -28,8 +28,8 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 try:
@@ -126,7 +126,6 @@ def bulk_mpi_shuffle(
     read_func: Callable = read_batch,
     write_func: Callable = write_table,
     baseline: bool = False,
-    statistics: Statistics | None = None,
 ) -> None:
     """
     Perform a bulk-synchronous dataset shuffle.
@@ -161,8 +160,6 @@ def bulk_mpi_shuffle(
         (e.g. `f"{output_path}/part.{id}.parquet"`).
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
 
     Notes
     -----
@@ -196,7 +193,9 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
-        br = BufferResource(rmm.mr.get_current_device_resource())
+        options = Options(get_environment_variables())
+        runtime = Runtime.from_options(options)
+        br = BufferResource(runtime, rmm.mr.get_current_device_resource())
         shuffler = Shuffler(
             comm,
             op_id=0,
@@ -316,11 +315,15 @@ def setup_and_run(args: argparse.Namespace) -> None:
     memory_limits = (
         None if args.spill_device is None else {MemoryType.DEVICE: args.spill_device}
     )
-    br = BufferResource(mr, memory_limits=memory_limits)
+    env = get_environment_variables()
+    if args.statistics:
+        env["statistics"] = "True"
+    runtime = Runtime.from_options(Options({**options.get_strings(), **env}))
+    stats = runtime.statistics
 
-    stats = Statistics(enable=args.statistics)
+    br = BufferResource(runtime, mr, memory_limits=memory_limits)
 
-    progress_thread = ProgressThread(stats)
+    progress_thread = ProgressThread(runtime)
     if args.cluster_type == "mpi":
         comm = rapidsmpf.communicator.mpi.new_communicator(
             MPI.COMM_WORLD, options, progress_thread
@@ -380,7 +383,6 @@ Shuffle:
         num_output_files=args.n_output_files,
         batchsize=args.batchsize,
         baseline=args.baseline,
-        statistics=stats,
     )
     elapsed_time = MPI.Wtime() - start_time
     barrier(comm)

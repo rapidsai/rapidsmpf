@@ -695,11 +695,11 @@ int main(int argc, char** argv) {
         std::chrono::duration<double> compute = end - start;
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
-        auto statistics = ctx->statistics();
-        comm->logger()->print(statistics->report(
+        auto& statistics = ctx->statistics();
+        comm->logger()->print(statistics.report(
             {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
-        statistics->clear();
+        statistics.clear();
     }
     if (comm->rank() == 0) {
         for (int i = 0; i < arguments.num_iterations; i++) {

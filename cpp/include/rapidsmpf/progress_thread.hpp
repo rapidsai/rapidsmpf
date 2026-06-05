@@ -11,7 +11,7 @@
 #include <unordered_map>
 
 #include <rapidsmpf/pausable_thread_loop.hpp>
-#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/runtime.hpp>
 
 namespace rapidsmpf {
 
@@ -117,15 +117,14 @@ class ProgressThread {
     /**
      * @brief Construct a new progress thread that can handle multiple functions.
      *
-     * @param statistics The statistics instance to use (disabled by default).
+     * @param runtime The runtime context providing statistics and configuration.
      * @param sleep The duration to sleep between each progress loop iteration.
      * If 0, the thread yields execution instead of sleeping. Anecdotally, a 1 us
      * sleep time (the default) is sufficient to avoid starvation and get smooth
      * progress.
      */
     ProgressThread(
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        Duration sleep = std::chrono::microseconds{1}
+        std::shared_ptr<Runtime> runtime, Duration sleep = std::chrono::microseconds{1}
     );
 
     ~ProgressThread();
@@ -179,9 +178,20 @@ class ProgressThread {
     bool is_running() const;
 
     /**
-     * @brief @return The statistics instance on this progress thread.
+     * @brief Returns the Runtime associated with this progress thread.
+     *
+     * Callers that need shared ownership can call `runtime().shared_from_this()`.
+     *
+     * @return Reference to the Runtime.
      */
-    std::shared_ptr<Statistics> statistics() const noexcept;
+    [[nodiscard]] Runtime& runtime() const noexcept;
+
+    /**
+     * @brief Returns the statistics collector.
+     *
+     * @return Reference to the `Statistics` instance.
+     */
+    [[nodiscard]] Statistics& statistics() const noexcept;
 
   private:
     /**
@@ -192,7 +202,7 @@ class ProgressThread {
      */
     void event_loop();
 
-    std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<Runtime> runtime_;
     bool is_thread_initialized_{false};
     bool active_{false};
     mutable std::mutex mutex_;
@@ -205,6 +215,5 @@ class ProgressThread {
     detail::PausableThreadLoop thread_;
 };
 
-static_assert(StatisticsProvider<ProgressThread>);
 
 }  // namespace rapidsmpf

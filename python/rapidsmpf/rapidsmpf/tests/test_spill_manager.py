@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from rapidsmpf.config import Options
 from rapidsmpf.error import BadAlloc, OutOfMemory, ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.runtime import Runtime
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -37,7 +39,9 @@ def test_error_handling(
     def spill(amount: int) -> int:
         raise error
 
-    br = BufferResource(device_mr, periodic_spill_check=None)
+    br = BufferResource(
+        Runtime.from_options(Options()), device_mr, periodic_spill_check=None
+    )
     br.spill_manager.add_spill_function(spill, 0)
     with pytest.raises(error):
         br.spill_manager.spill(10)
@@ -46,7 +50,9 @@ def test_error_handling(
 def test_spill_function(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    br = BufferResource(device_mr, periodic_spill_check=None)
+    br = BufferResource(
+        Runtime.from_options(Options()), device_mr, periodic_spill_check=None
+    )
     track_spilled = [0]
 
     def spill_unlimited(amount: int) -> int:
@@ -90,7 +96,9 @@ def test_spill_function(
 def test_spill_function_outlive_buffer_resource(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    spill_manager = BufferResource(device_mr, periodic_spill_check=None).spill_manager
+    spill_manager = BufferResource(
+        Runtime.from_options(Options()), device_mr, periodic_spill_check=None
+    ).spill_manager
     with pytest.raises(ValueError):
         spill_manager.add_spill_function(lambda x: x, 0)
     with pytest.raises(ValueError):
@@ -106,6 +114,7 @@ def test_periodic_spill_check(
     # a periodic spill check enabled. (memory_available = limit - allocated; with
     # limit = -100 and no allocations, the available value is always negative.)
     br = BufferResource(
+        Runtime.from_options(Options()),
         device_mr,
         memory_limits={MemoryType.DEVICE: -100},
         periodic_spill_check=1e-3,
@@ -128,6 +137,7 @@ def test_spill_to_make_headroom(
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
     br = BufferResource(
+        Runtime.from_options(Options()),
         device_mr,
         memory_limits={MemoryType.DEVICE: 100},
         periodic_spill_check=None,
@@ -152,6 +162,7 @@ def test_reserve_device_memory_and_spill(
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
     br = BufferResource(
+        Runtime.from_options(Options()),
         device_mr,
         memory_limits={MemoryType.DEVICE: 100},
         periodic_spill_check=None,

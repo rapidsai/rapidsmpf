@@ -15,6 +15,7 @@
 
 #include "environment.hpp"
 
+using namespace rapidsmpf;
 using rapidsmpf::ProgressThread;
 
 class ProgressThreadEvents
@@ -39,12 +40,15 @@ struct TestFunction {
 TEST_P(ProgressThreadEvents, events) {
     std::size_t const num_threads = std::get<0>(GetParam());
     std::size_t const num_functions = std::get<1>(GetParam());
-    bool const enable_statistics = std::get<2>(GetParam());
+    std::string const enable_statistics = std::to_string(std::get<2>(GetParam()));
 
-    auto statistics = rapidsmpf::Statistics::create(
-        enable_statistics ? rapidsmpf::Statistics::Mode::Enabled
-                          : rapidsmpf::Statistics::Mode::Disabled
+    auto runtime = Runtime::from_options(
+        config::Options{std::unordered_map<std::string, std::string>{
+            {"statistics", enable_statistics}
+        }}
     );
+    auto& statistics = runtime->statistics();
+
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 
@@ -55,7 +59,7 @@ TEST_P(ProgressThreadEvents, events) {
 
     for (std::size_t thread = 0; thread < num_threads; ++thread) {
         auto& pt =
-            progress_threads.emplace_back(std::make_unique<ProgressThread>(statistics));
+            progress_threads.emplace_back(std::make_unique<ProgressThread>(runtime));
 
         for (std::size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
@@ -83,13 +87,13 @@ TEST_P(ProgressThreadEvents, events) {
         progress_threads[thread]->stop();
     }
 
-    if (statistics->enabled() && num_functions > 0) {
-        EXPECT_THAT(statistics->report(), ::testing::HasSubstr("event-loop-total"));
+    if (statistics.enabled() && num_functions > 0) {
+        EXPECT_THAT(statistics.report(), ::testing::HasSubstr("event-loop-total"));
     }
 }
 
 TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
-    ProgressThread progress_thread{};
+    ProgressThread progress_thread{rapidsmpf::Runtime::from_options({})};
 
     // add a function to the progress thread that never completes
     auto id = progress_thread.add_function([] {

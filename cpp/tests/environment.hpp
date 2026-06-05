@@ -8,6 +8,7 @@
 #include <mpi.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/runtime.hpp>
 
 enum class TestEnvironmentType : int {
     MPI,
@@ -27,8 +28,8 @@ class Environment : public ::testing::Environment {
 
     [[nodiscard]] TestEnvironmentType type() const;
 
-    constexpr rapidsmpf::config::Options& options() {
-        return options_;
+    inline rapidsmpf::config::Options& options() {
+        return runtime_->options();
     }
 
     std::shared_ptr<rapidsmpf::Communicator> split_comm();
@@ -40,7 +41,7 @@ class Environment : public ::testing::Environment {
     char** argv_;
     MPI_Comm mpi_comm_;
     std::shared_ptr<rapidsmpf::Communicator> split_comm_{nullptr};
-    rapidsmpf::config::Options options_;
+    std::shared_ptr<rapidsmpf::Runtime> runtime_;
 };
 
 extern Environment* GlobalEnvironment;

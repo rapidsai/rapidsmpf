@@ -18,7 +18,9 @@ using namespace rapidsmpf::streaming;
 class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(
+            rapidsmpf::Runtime::from_options({}), cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
     }
 

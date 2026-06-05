@@ -2,20 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Cython declarations for the ProgressThread interface."""
 
-from cython.operator cimport dereference as deref
-from libc.stdint cimport uint64_t, uintptr_t
-from libcpp.functional cimport function
-from libcpp.memory cimport shared_ptr, unique_ptr
-from libcpp.utility cimport move
+from libcpp.memory cimport shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.statistics cimport cpp_Statistics
+from rapidsmpf.runtime cimport Runtime, cpp_Runtime
 
 
 cdef extern from "<rapidsmpf/progress_thread.hpp>" nogil:
     cdef cppclass cpp_ProgressThread "rapidsmpf::ProgressThread":
         cpp_ProgressThread(
-            shared_ptr[cpp_Statistics] statistics,
+            shared_ptr[cpp_Runtime] runtime,
         ) except +ex_handler
 
 

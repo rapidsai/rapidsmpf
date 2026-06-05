@@ -46,7 +46,8 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.runtime cimport Runtime
+from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from *:
@@ -125,6 +126,20 @@ cdef extern from * nogil:
     ) except +ex_handler
 
 
+cdef extern from *:
+    """
+    // Return a shared_ptr to the Statistics owned by a BufferResource,
+    // using enable_shared_from_this so the BR stays alive.
+    inline std::shared_ptr<rapidsmpf::Statistics>
+    cpp_br_statistics_ptr(rapidsmpf::BufferResource& br) {
+        return br.statistics().shared_from_this();
+    }
+    """
+    shared_ptr[cpp_Statistics] cpp_br_statistics_ptr(
+        cpp_BufferResource& br
+    ) except +ex_handler nogil
+
+
 @no_gc_clear
 cdef class BufferResource:
     """
@@ -136,6 +151,8 @@ cdef class BufferResource:
 
     Parameters
     ----------
+    runtime
+        The Runtime context providing statistics and configuration.
     device_mr
         The RMM device memory resource used for device allocations. To ensure
         allocations are tracked for memory-limit accounting and statistics, use
@@ -158,9 +175,6 @@ cdef class BufferResource:
         Optional CUDA stream pool to use. If None, a new pool with 16 streams
         will be created. Must be an instance of
         ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
-    statistics
-        The statistics instance to use. If None, a disabled statistics instance
-        will be created.
 
     Notes
     -----
@@ -177,13 +191,13 @@ cdef class BufferResource:
     """
     def __cinit__(
         self,
+        Runtime runtime not None,
         DeviceMemoryResource device_mr not None,
         *,
         PinnedMemoryResource pinned_mr = None,
         memory_limits = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
-        statistics = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -217,22 +231,11 @@ cdef class BufferResource:
             )
         )
 
-        if statistics is None:
-            statistics = Statistics(enable=False)
-
-        # Keep statistics alive
-        self._statistics = statistics
-        # checked cast requires the GIL
-        stats_handle = (<Statistics?>statistics)._handle
-
-        # Keep the original Python memory resources alive while the C++
-        # BufferResource holds resources derived from them. These anchors are
-        # likely redundant: `make_any_device_resource(...)` deep-copies the
-        # device MR into a self-sufficient owning any_resource, and
-        # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
-        # defensively for now.
+        # Keep the Runtime and original Python memory resources alive.
+        # The anchors for device/pinned MRs are kept defensively; see:
         # TODO: drop these once verified against pool/upstream-adaptor MRs.
         #       https://github.com/rapidsai/rapidsmpf/issues/1074
+        self._runtime = runtime
         self._device_mr = device_mr
         self._pinned_mr = pinned_mr
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
@@ -240,53 +243,52 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = cpp_BufferResource.create(
+                runtime._handle,
                 make_any_device_resource(device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,
                 cpp_stream_pool,
-                stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
     def from_options(
         cls,
+        Runtime runtime not None,
         DeviceMemoryResource mr not None,
         Options options not None,
-        statistics=None,
     ):
         """
         Construct a BufferResource from configuration options.
 
-        This factory method creates a BufferResource using configuration options to
-        initialize all components. The supplied device memory resource is wrapped
-        internally for allocation tracking — callers don't need to pre-wrap it.
+        This factory method creates a BufferResource using the Runtime's options and
+        statistics to initialize all components. The supplied device memory resource
+        is wrapped internally for allocation tracking — callers don't need to
+        pre-wrap it.
 
         Parameters
         ----------
+        runtime
+            Runtime context providing options and statistics.
         mr
             A device-accessible RMM memory resource.
         options
-            Configuration options.
-        statistics
-            The statistics instance to use. The caller is responsible for creating and
-            owning this object. Defaults to ``Statistics.disabled()``.
+            Configuration options used to derive memory limits, stream pool size,
+            and spill-check interval.
 
         Returns
         -------
         A BufferResource instance configured according to the options.
         """
-        if statistics is None:
-            statistics = Statistics.disabled()
         cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
         return cls(
+            runtime,
             device_mr=mr,
             pinned_mr=pinned_mr,
             memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=statistics,
         )
 
     def __dealloc__(self):
@@ -538,15 +540,29 @@ cdef class BufferResource:
         return self.stream_pool().get_pool_size()
 
     @property
+    def runtime(self):
+        """
+        Gets the Runtime associated with this buffer resource.
+
+        Returns
+        -------
+        The Runtime instance.
+        """
+        return self._runtime
+
+    @property
     def statistics(self):
         """
         Gets the statistics instance associated with this buffer resource.
 
         Returns
         -------
-        The Statistics instance.
+        The Statistics instance (shared with the Runtime).
         """
-        return self._statistics
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = cpp_br_statistics_ptr(self._handle.get()[0])
+        return ret
 
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:

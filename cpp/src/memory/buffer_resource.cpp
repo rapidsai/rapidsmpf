@@ -17,6 +17,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -27,13 +28,13 @@ BufferResource::BufferResource(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Runtime> runtime
 )
     : pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
-      statistics_{std::move(statistics)} {
+      runtime_{std::move(runtime)} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -44,23 +45,24 @@ BufferResource::BufferResource(
         );
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(runtime_ != nullptr, "the runtime pointer cannot be NULL");
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
+    std::shared_ptr<Runtime> runtime,
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool
 ) {
+    RAPIDSMPF_EXPECTS(runtime != nullptr, "the runtime pointer cannot be NULL");
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
         std::move(stream_pool),
-        std::move(statistics)
+        std::move(runtime)
     }};
 
     // Install the owning adaptor *after* construction so that `weak_from_this()` is
@@ -79,21 +81,22 @@ std::shared_ptr<BufferResource> BufferResource::create(
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    cuda::mr::any_resource<cuda::mr::device_accessible> mr,
-    config::Options options,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Runtime> runtime,
+    cuda::mr::any_resource<cuda::mr::device_accessible> mr
 ) {
+    RAPIDSMPF_EXPECTS(runtime != nullptr, "the runtime pointer cannot be NULL");
+    auto const& options = runtime->options();
     auto pinned_mr = PinnedMemoryResource::from_options(options);
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
     return create(
+        std::move(runtime),
         std::move(mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
-        stream_pool_from_options(options),
-        std::move(statistics)
+        stream_pool_from_options(options)
     );
 }
 
@@ -212,7 +215,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
-    StreamOrderedTiming timing{stream, statistics_};
+    StreamOrderedTiming timing{stream, runtime_->statistics().shared_from_this()};
     std::unique_ptr<Buffer> ret;
     switch (mem_type) {
     case MemoryType::HOST:
@@ -239,7 +242,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
     release(reservation, size);
-    statistics_->record_alloc(mem_type, size, std::move(timing));
+    runtime_->statistics().record_alloc(mem_type, size, std::move(timing));
     return ret;
 }
 
@@ -275,7 +278,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto const nbytes = buffer->size;
         auto ret = make_buffer(nbytes, buffer->stream(), reservation);
-        buffer_copy(statistics_, *ret, *buffer, nbytes);
+        buffer_copy(runtime_->statistics(), *ret, *buffer, nbytes);
         return ret;
     }
     return buffer;
@@ -318,8 +321,12 @@ SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
 
-std::shared_ptr<Statistics> BufferResource::statistics() const noexcept {
-    return statistics_;
+Runtime& BufferResource::runtime() const noexcept {
+    return *runtime_;
+}
+
+Statistics& BufferResource::statistics() const noexcept {
+    return runtime_->statistics();
 }
 
 std::int64_t device_limit_from_options(config::Options options) {

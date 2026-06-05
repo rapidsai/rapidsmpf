@@ -117,7 +117,7 @@ streaming::Actor consume_channel(
         if (msg.holds<streaming::TableChunk>()) {
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            ctx->logger()->print(
+            ctx->logger().print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
                 " rows and ",
@@ -144,8 +144,6 @@ create_context(
 
         memory_limits[MemoryType::DEVICE] = static_cast<std::int64_t>(limit_size);
     }
-    auto statistics = Statistics::create();
-
     RAPIDSMPF_EXPECTS(
         arguments.no_pinned_host_memory || is_pinned_memory_resources_supported(),
         "Pinned host memory is not supported on this system. "
@@ -156,7 +154,14 @@ create_context(
         std::invalid_argument
     );
 
+    auto environment = config::get_environment_variables();
+    environment["NUM_STREAMING_THREADS"] =
+        std::to_string(arguments.num_streaming_threads);
+    auto options = config::Options(environment);
+    auto runtime = Runtime::from_options(options);
+
     auto br = BufferResource::create(
+        runtime,
         std::move(mr),
         arguments.no_pinned_host_memory ? PinnedMemoryResource::Disabled
                                         : PinnedMemoryResource::make_if_available(),
@@ -164,14 +169,11 @@ create_context(
         arguments.periodic_spill,
         std::make_shared<rmm::cuda_stream_pool>(
             arguments.num_streams, rmm::cuda_stream::flags::non_blocking
-        ),
-        statistics
+        )
     );
-    auto environment = config::get_environment_variables();
-    environment["NUM_STREAMING_THREADS"] =
-        std::to_string(arguments.num_streaming_threads);
-    auto options = config::Options(environment);
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(statistics);
+
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
+    auto logger = runtime->logger().shared_from_this();
     std::shared_ptr<Communicator> comm;
     switch (arguments.comm_type) {
     case CommType::MPI:
@@ -180,27 +182,28 @@ create_context(
         );
         mpi::init(nullptr, nullptr);
 
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, progress_thread, logger);
         break;
     case CommType::SINGLE:
-        comm = std::make_shared<Single>(options, progress_thread);
+        comm = std::make_shared<Single>(progress_thread, logger);
         break;
     case CommType::UCXX:
         if (bootstrap::is_running_with_rrun()) {
             comm = bootstrap::create_ucxx_comm(
-                progress_thread, bootstrap::BackendType::AUTO, options
+                progress_thread, bootstrap::BackendType::AUTO, options, logger
             );
         } else {
             mpi::init(nullptr, nullptr);
-            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
+            comm = ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread, logger);
         }
         break;
     default:
         RAPIDSMPF_FAIL("Unknown communicator type");
     }
-    auto ctx = std::make_shared<streaming::Context>(options, comm->logger(), br);
+
+    auto ctx = std::make_shared<streaming::Context>(runtime, br);
     if (comm->rank() == 0) {
-        comm->logger()->print(
+        logger->print(
             "Execution context on ",
             comm->nranks(),
             " ranks has ",
