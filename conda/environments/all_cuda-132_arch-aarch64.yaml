@@ -28,8 +28,7 @@ dependencies:
 - gcc_linux-aarch64=14.*
 - gdb
 - ipython
-- libcudf-streaming
-- libcudf>=0.0.0a0
+- libcudf-streaming==26.8.*,>=0.0.0a0
 - libnuma
 - libpmix-devel >=5.0,<6.0
 - librmm==26.8.*,>=0.0.0a0

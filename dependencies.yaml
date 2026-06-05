@@ -386,8 +386,7 @@ dependencies:
           - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
-          - libcudf-streaming
-          - libcudf>=0.0.0a0
+          - libcudf-streaming==26.8.*,>=0.0.0a0
   test_cpp_ndsh:
     common:
       - output_types: conda

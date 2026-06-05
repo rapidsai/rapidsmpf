@@ -44,8 +44,6 @@ export SITE_PACKAGES
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
-    --exclude libkvikio.so \
-    --exclude libnvcomp.so.5 \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
@@ -85,8 +83,6 @@ export RAPIDS_PY_API
 ./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}" --stable
 
 python -m auditwheel repair \
-    --exclude libkvikio.so \
-    --exclude libnvcomp.so.5 \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
