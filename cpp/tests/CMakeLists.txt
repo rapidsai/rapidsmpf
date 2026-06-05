@@ -110,6 +110,22 @@ if(RAPIDSMPF_HAVE_STREAMING)
   )
 endif()
 
+# cudf-dependent test sources, gated behind BUILD_CUDF_TESTS
+if(BUILD_CUDF_TESTS)
+  target_sources(
+    test_sources PRIVATE test_partition.cpp test_shuffler.cpp test_shuffler_many_streams.cpp
+  )
+  target_link_libraries(test_sources PRIVATE cudf_streaming::cudf_streaming cudf::cudftestutil)
+  target_compile_definitions(test_sources PRIVATE RAPIDSMPF_HAVE_CUDF)
+
+  if(RAPIDSMPF_HAVE_STREAMING)
+    target_sources(
+      test_sources PRIVATE streaming/test_allgather.cpp streaming/test_leaf_actor.cpp
+                           streaming/test_shuffler.cpp
+    )
+  endif()
+endif()
+
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
   set_target_properties(
