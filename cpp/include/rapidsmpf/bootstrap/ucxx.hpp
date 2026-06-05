@@ -46,7 +46,7 @@ namespace bootstrap {
  * @code
  * auto options = rapidsmpf::config::Options{};
  * auto progress = std::make_shared<rapidsmpf::ProgressThread>();
- * auto logger = rapidsmpf::Logger::create(options);
+ * auto logger = rapidsmpf::Logger::from_options(options);
  * auto comm = rapidsmpf::bootstrap::create_ucxx_comm(
  *     progress, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
  * );

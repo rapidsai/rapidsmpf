@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -26,9 +27,10 @@ namespace rapidsmpf {
  * It ensures thread-safety using a mutex and allows filtering of log messages
  * based on the configured verbosity level.
  *
- * The rank used in log message prefixes can either be supplied at construction
- * time or set later via `set_rank()`. The latter supports communicators (such as
- * UCXX) where the rank is only known after a bootstrap handshake.
+ * The name used in log message prefixes can either be supplied at construction
+ * time or set later via `set_name()`. The latter supports communicators (such as
+ * UCXX) where the identifying name (e.g. the rank) is only known after a
+ * bootstrap handshake.
  *
  * TODO: support writing to a file.
  */
@@ -67,7 +69,23 @@ class Logger : public std::enable_shared_from_this<Logger> {
     }
 
     /**
-     * @brief Create a logger with a known rank.
+     * @brief Create a logger.
+     *
+     * @param level The verbosity level (defaults to `LOG_LEVEL::WARN`).
+     * @param name The logger name (defaults to `"unknown"`).
+     * @return A shared pointer to the newly constructed logger.
+     */
+    [[nodiscard]] static std::shared_ptr<Logger> create(
+        LOG_LEVEL level = LOG_LEVEL::WARN, std::string name = "unknown"
+    );
+
+    /**
+     * @brief Create a logger from configuration options.
+     *
+     * The name defaults to `"unknown"` and may be updated later via
+     * `set_name()`. This is intended for bootstrap scenarios where the
+     * identifying name is only known after a network handshake but logging may
+     * already be required.
      *
      * To control the verbosity level, set the configuration option "log" to
      * one of following:
@@ -78,25 +96,10 @@ class Logger : public std::enable_shared_from_this<Logger> {
      *  - DEBUG: Debug messages.
      *  - TRACE: Trace messages.
      *
-     * @param rank The rank of the calling process.
      * @param options Configuration options.
      * @return A shared pointer to the newly constructed logger.
      */
-    [[nodiscard]] static std::shared_ptr<Logger> create(
-        std::int32_t rank, config::Options options
-    );
-
-    /**
-     * @brief Create a logger without a known rank.
-     *
-     * The rank defaults to `-1` and may be updated later via `set_rank()`.
-     * This overload is intended for bootstrap scenarios where the rank is only
-     * known after a network handshake but logging may already be required.
-     *
-     * @param options Configuration options.
-     * @return A shared pointer to the newly constructed logger.
-     */
-    [[nodiscard]] static std::shared_ptr<Logger> create(config::Options options);
+    [[nodiscard]] static std::shared_ptr<Logger> from_options(config::Options options);
 
     virtual ~Logger() noexcept = default;
 
@@ -117,15 +120,15 @@ class Logger : public std::enable_shared_from_this<Logger> {
     }
 
     /**
-     * @brief Update the rank used in log message prefixes.
+     * @brief Update the name used in log message prefixes.
      *
      * Thread-safe (acquires the same mutex used to serialize log output). May
      * be called any number of times. Concurrent log calls will observe either
      * the old or the new value, never a partially written one.
      *
-     * @param rank The new rank.
+     * @param name The new name.
      */
-    void set_rank(std::int32_t rank);
+    void set_name(std::string name);
 
     /**
      * @brief Logs a message using the specified verbosity level.
@@ -203,17 +206,11 @@ class Logger : public std::enable_shared_from_this<Logger> {
 
   protected:
     /**
-     * @brief Constructs a logger with a known rank.
-     * @param rank The rank of the calling process.
-     * @param options Configuration options.
+     * @brief Constructs a logger.
+     * @param level The verbosity level.
+     * @param name The logger name.
      */
-    Logger(std::int32_t rank, config::Options options);
-
-    /**
-     * @brief Constructs a logger without a known rank (defaults to `-1`).
-     * @param options Configuration options.
-     */
-    explicit Logger(config::Options options);
+    Logger(LOG_LEVEL level, std::string name);
 
     /**
      * @brief Returns a unique thread ID for the current thread.
@@ -235,7 +232,7 @@ class Logger : public std::enable_shared_from_this<Logger> {
     /**
      * @brief Handles the logging of a messages.
      *
-     * This base implementation prepend the rank and thread id to the message
+     * This base implementation prepend the name and thread id to the message
      * and print it to `std::cout`.
      *
      * Override this method in a derived classes to customize logging behavior.
@@ -246,15 +243,15 @@ class Logger : public std::enable_shared_from_this<Logger> {
     virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
         std::lock_guard<std::mutex> lock(mutex_);
         std::ostringstream full_log_msg;
-        full_log_msg << "[" << level_name(level) << ":" << rank_ << ":" << get_thread_id()
+        full_log_msg << "[" << name_ << ":" << level_name(level) << ":" << get_thread_id()
                      << ":" << Clock::now() << "] " << ss.str();
         std::cout << full_log_msg.str() << std::endl;
     }
 
   private:
     std::mutex mutex_;
-    std::int32_t rank_;  ///< Guarded by `mutex_`.
     LOG_LEVEL const level_;
+    std::string name_;
 
     /// Counter used by `std::this_thread::get_id()` to abbreviate the large
     /// number returned by `std::this_thread::get_id()`.

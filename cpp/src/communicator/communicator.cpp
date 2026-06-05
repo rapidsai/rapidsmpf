@@ -36,22 +36,21 @@ Logger::LOG_LEVEL level_from_string(std::string const& str) {
 }
 }  // namespace
 
-Logger::Logger(std::int32_t rank, config::Options options)
-    : rank_{rank}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {}
+Logger::Logger(LOG_LEVEL level, std::string name)
+    : level_(level), name_(std::move(name)) {}
 
-Logger::Logger(config::Options options) : Logger(std::int32_t{-1}, std::move(options)) {}
-
-std::shared_ptr<Logger> Logger::create(std::int32_t rank, config::Options options) {
-    return std::shared_ptr<Logger>(new Logger(rank, std::move(options)));
+std::shared_ptr<Logger> Logger::create(LOG_LEVEL level, std::string name) {
+    return std::shared_ptr<Logger>(new Logger(level, std::move(name)));
 }
 
-std::shared_ptr<Logger> Logger::create(config::Options options) {
-    return std::shared_ptr<Logger>(new Logger(std::move(options)));
+std::shared_ptr<Logger> Logger::from_options(config::Options options) {
+    auto const level = options.get<LOG_LEVEL>("log", level_from_string);
+    return std::shared_ptr<Logger>(new Logger(level, "unknown"));
 }
 
-void Logger::set_rank(std::int32_t rank) {
+void Logger::set_name(std::string name) {
     std::lock_guard<std::mutex> lock(mutex_);
-    rank_ = rank;
+    name_ = std::move(name);
 }
 
 }  // namespace rapidsmpf

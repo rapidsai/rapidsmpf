@@ -561,7 +561,7 @@ int main(int argc, char** argv) {
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
-    auto logger = rapidsmpf::Logger::create(options);
+    auto logger = rapidsmpf::Logger::from_options(options);
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
             std::cerr

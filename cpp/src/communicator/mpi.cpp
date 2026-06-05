@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include <mpi.h>
@@ -116,7 +117,7 @@ MPI::MPI(
       logger_{std::move(logger)},
       progress_thread_{std::move(progress_thread)} {
     RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be null", std::invalid_argument);
-    logger_->set_rank(rank_);
+    logger_->set_name(std::to_string(rank_));
     check_mpi_thread_support();
 }
 

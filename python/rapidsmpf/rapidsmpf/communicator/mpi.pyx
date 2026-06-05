@@ -46,6 +46,6 @@ def new_communicator(
         ret._handle = make_shared[cpp_MPI_Communicator](
             comm.ob_mpi,
             progress_thread._handle,
-            cpp_Logger.create(options._handle)
+            cpp_Logger.from_options(options._handle)
         )
     return ret

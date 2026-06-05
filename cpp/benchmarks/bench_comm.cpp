@@ -286,7 +286,7 @@ int main(int argc, char** argv) {
     // We'll only measure the last run, so start disabled.
     auto stats = rapidsmpf::Statistics::disabled();
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
-    auto logger = rapidsmpf::Logger::create(options);
+    auto logger = rapidsmpf::Logger::from_options(options);
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {

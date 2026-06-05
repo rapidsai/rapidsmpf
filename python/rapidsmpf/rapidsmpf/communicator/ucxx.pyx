@@ -80,7 +80,7 @@ cdef Communicator cpp_new_communicator(
         ret._handle = make_shared[cpp_UCXX_Communicator](
             move(ucxx_initialized_rank),
             progress_thread,
-            cpp_Logger.create(options._handle)
+            cpp_Logger.from_options(options._handle)
         )
     return ret
 

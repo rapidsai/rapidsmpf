@@ -36,6 +36,6 @@ def new_communicator(Options options not None, ProgressThread progress_thread no
     with nogil:
         ret._handle = make_shared[cpp_Single_Communicator](
             progress_thread._handle,
-            cpp_Logger.create(options._handle)
+            cpp_Logger.from_options(options._handle)
         )
     return ret

@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>();
-    auto logger = rapidsmpf::Logger::create(options);
+    auto logger = rapidsmpf::Logger::from_options(options);
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {

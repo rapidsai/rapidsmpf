@@ -8,6 +8,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <utility>
 
 #include <ucxx/request.h>
@@ -1147,7 +1148,7 @@ UCXX::UCXX(
       progress_thread_{std::move(progress_thread)} {
     RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
     shared_resources_->logger = std::move(logger);
-    shared_resources_->logger->set_rank(shared_resources_->rank());
+    shared_resources_->logger->set_name(std::to_string(shared_resources_->rank()));
 }
 
 std::shared_ptr<Logger> const& UCXX::logger() {
@@ -1526,7 +1527,7 @@ std::shared_ptr<UCXX> UCXX::split() {
     return std::make_shared<UCXX>(
         std::move(initialized_rank),
         progress_thread_,
-        Logger::create(shared_resources_->options)
+        Logger::from_options(shared_resources_->options)
     );
 }
 
