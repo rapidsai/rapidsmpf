@@ -9,6 +9,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -61,19 +62,17 @@ std::size_t get_new_uid() noexcept {
 }  // namespace
 
 Context::Context(
-    config::Options options,
-    std::shared_ptr<Logger> logger,
+    std::shared_ptr<Runtime> runtime,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
     : uid_{get_new_uid()},
       creator_thread_id_{std::this_thread::get_id()},
-      options_{std::move(options)},
-      logger_{std::move(logger)},
+      runtime_{std::move(runtime)},
       executor_{std::move(executor)},
       br_{std::move(br)},
       spillable_messages_{std::make_shared<SpillableMessages>()} {
-    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be NULL");
+    RAPIDSMPF_EXPECTS(runtime_ != nullptr, "runtime cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 
@@ -87,32 +86,22 @@ Context::Context(
 
     for (auto mem_type : MEMORY_TYPES) {
         memory_[static_cast<std::size_t>(mem_type)] =
-            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
+            std::make_shared<MemoryReserveOrWait>(
+                runtime_->options(), mem_type, executor_, br_
+            );
     }
 }
 
-Context::Context(
-    config::Options options,
-    std::shared_ptr<Logger> logger,
-    std::shared_ptr<BufferResource> br
-)
-    : Context(
-          options,
-          std::move(logger),
-          std::make_shared<CoroThreadPoolExecutor>(options),
-          br
-      ) {}
+Context::Context(std::shared_ptr<Runtime> runtime, std::shared_ptr<BufferResource> br)
+    : Context(runtime, std::make_shared<CoroThreadPoolExecutor>(runtime), std::move(br)) {
+}
 
 std::shared_ptr<Context> Context::from_options(
-    RmmResourceAdaptor mr,
-    std::shared_ptr<Logger> logger,
-    config::Options options,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Runtime> runtime, RmmResourceAdaptor mr
 ) {
+    RAPIDSMPF_EXPECTS(runtime != nullptr, "runtime cannot be NULL");
     return std::make_shared<Context>(
-        options,
-        std::move(logger),
-        BufferResource::from_options(std::move(mr), options, std::move(statistics))
+        runtime, BufferResource::from_options(runtime, std::move(mr))
     );
 }
 
@@ -135,12 +124,16 @@ void Context::shutdown() noexcept {
     }
 }
 
-config::Options Context::options() const noexcept {
-    return options_;
+Runtime& Context::runtime() const noexcept {
+    return *runtime_;
 }
 
-std::shared_ptr<Logger> const& Context::logger() const noexcept {
-    return logger_;
+config::Options& Context::options() const noexcept {
+    return runtime().options();
+}
+
+Logger& Context::logger() const noexcept {
+    return runtime().logger();
 }
 
 std::shared_ptr<CoroThreadPoolExecutor> const& Context::executor() const noexcept {
@@ -157,7 +150,7 @@ std::shared_ptr<MemoryReserveOrWait> const& Context::memory(
     return memory_[static_cast<std::size_t>(mem_type)];
 }
 
-std::shared_ptr<Statistics> Context::statistics() const noexcept {
+Statistics& Context::statistics() const noexcept {
     return br_->statistics();
 }
 

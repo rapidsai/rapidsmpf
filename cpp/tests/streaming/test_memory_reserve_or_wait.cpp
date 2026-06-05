@@ -369,9 +369,9 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingEnable
         {{"memory_reserve_timeout", config::OptionValue("1ns")},
          {"allow_overbooking_by_default", config::OptionValue("true")}}
     };
-    auto ctx_with_overbook = std::make_shared<Context>(
-        options, GlobalEnvironment->comm_->logger(), ctx->executor(), ctx->br()
-    );
+    auto new_runtime = rapidsmpf::Runtime::from_options(options);
+    auto ctx_with_overbook =
+        std::make_shared<Context>(new_runtime, ctx->executor(), ctx->br());
 
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should succeed because default is to allow overbooking.
@@ -396,9 +396,9 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabl
         {{"memory_reserve_timeout", config::OptionValue("1ns")},
          {"allow_overbooking_by_default", config::OptionValue("false")}}
     };
-    auto ctx_with_no_overbook = std::make_shared<Context>(
-        options, GlobalEnvironment->comm_->logger(), ctx->executor(), ctx->br()
-    );
+    auto new_runtime = rapidsmpf::Runtime::from_options(options);
+    auto ctx_with_no_overbook =
+        std::make_shared<Context>(new_runtime, ctx->executor(), ctx->br());
 
     coro::sync_wait([](std::shared_ptr<Context> ctx) -> Actor {
         // Request should fail because default is to disallow overbooking.

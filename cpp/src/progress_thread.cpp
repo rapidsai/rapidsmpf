@@ -7,6 +7,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -23,8 +24,11 @@ void ProgressThread::FunctionState::operator()() {
     }
 }
 
-ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration sleep)
-    : statistics_(std::move(statistics)),
+ProgressThread::ProgressThread(std::shared_ptr<Runtime> runtime, Duration sleep)
+    : runtime_([&runtime]() -> std::shared_ptr<Runtime> {
+          RAPIDSMPF_EXPECTS(runtime != nullptr, "runtime must not be null");
+          return std::move(runtime);
+      }()),
       thread_(
           [this]() {
               if (!is_thread_initialized_) {
@@ -36,9 +40,7 @@ ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration 
               return event_loop();
           },
           sleep
-      ) {
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
-}
+      ) {}
 
 ProgressThread::~ProgressThread() {
     stop();
@@ -115,8 +117,12 @@ bool ProgressThread::is_running() const {
     return active_;
 }
 
-std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
-    return statistics_;
+Runtime& ProgressThread::runtime() const noexcept {
+    return *runtime_;
+}
+
+Statistics& ProgressThread::statistics() const noexcept {
+    return runtime_->statistics();
 }
 
 void ProgressThread::event_loop() {
@@ -131,7 +137,9 @@ void ProgressThread::event_loop() {
     // Notify all waiting functions that we've completed an iteration
     cv_.notify_all();
 
-    statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
+    runtime_->statistics().add_duration_stat(
+        "event-loop-total", Clock::now() - t0_event_loop
+    );
 }
 
 }  // namespace rapidsmpf

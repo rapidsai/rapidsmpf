@@ -16,6 +16,7 @@ import ray
 import pylibcudf as plc
 import rmm.mr
 
+from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
@@ -25,8 +26,8 @@ from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
@@ -93,9 +94,13 @@ class BulkRayShufflerActor(RapidsMPFActor):
             if self.spill_device is None
             else {MemoryType.DEVICE: self.spill_device}
         )
-        br = BufferResource(self.mr, memory_limits=memory_limits)
+        env = get_environment_variables()
+        if enable_statistics:
+            env["statistics"] = "True"
+        runtime = Runtime.from_options(Options(env))
+        br = BufferResource(runtime, self.mr, memory_limits=memory_limits)
         self.br = br
-        super().__init__(nranks, Statistics(enable=enable_statistics))
+        super().__init__(nranks, runtime)
 
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """

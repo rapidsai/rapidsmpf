@@ -26,6 +26,7 @@ from rapidsmpf.memory.pinned_memory_resource import (
 )
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.context import Context
 
@@ -491,9 +492,8 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "num_streams": "8",
         }
     )
-    br = BufferResource.from_options(
-        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
-    )
+    runtime = Runtime.from_options(opts)
+    br = BufferResource.from_options(runtime, rmm.mr.CudaMemoryResource(), opts)
 
     assert br.statistics.enabled
     assert br.stream_pool_size() == 8
@@ -503,7 +503,8 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
 
 def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
     opts = Options()
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    runtime = Runtime.from_options(opts)
+    br = BufferResource.from_options(runtime, rmm.mr.CudaMemoryResource(), opts)
 
     assert not br.statistics.enabled
     assert br.stream_pool_size() == 16
@@ -515,16 +516,16 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
 
 def test_buffer_resource_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "ON"})
-    br = BufferResource.from_options(
-        rmm.mr.CudaMemoryResource(), opts, Statistics.from_options(opts)
-    )
+    runtime = Runtime.from_options(opts)
+    br = BufferResource.from_options(runtime, rmm.mr.CudaMemoryResource(), opts)
 
     assert br.statistics.enabled
 
 
 def test_buffer_resource_from_options_accepts_percentage_for_device_limit() -> None:
     opts = Options({"spill_device_limit": "50%"})
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    runtime = Runtime.from_options(opts)
+    br = BufferResource.from_options(runtime, rmm.mr.CudaMemoryResource(), opts)
 
     # Verify device memory limit is set (exact value depends on system memory)
     mem_avail = br.memory_available(MemoryType.DEVICE)
@@ -536,7 +537,8 @@ def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> 
         pytest.skip("Pinned memory not supported on this system")
 
     opts = Options({"pinned_memory": "True"})
-    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    runtime = Runtime.from_options(opts)
+    br = BufferResource.from_options(runtime, rmm.mr.CudaMemoryResource(), opts)
     assert br.pinned_mr is not None
 
 
@@ -548,12 +550,11 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
             "spill_device_limit": "1GiB",
         }
     )
+    runtime = Runtime.from_options(opts)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    comm = single_comm.new_communicator(opts, ProgressThread())
+    single_comm.new_communicator(opts, ProgressThread(runtime))
 
-    with Context.from_options(
-        comm.logger, mr, opts, Statistics.from_options(opts)
-    ) as ctx:
+    with Context.from_options(runtime, mr) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
         assert ctx.stream_pool_size() == 8
@@ -562,10 +563,10 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
 
 def test_context_from_options_uses_default_when_options_empty() -> None:
     opts = Options()
+    runtime = Runtime.from_options(opts)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts) as ctx:
+    with Context.from_options(runtime, mr) as ctx:
         assert ctx is not None
         assert not ctx.statistics().enabled
         assert ctx.stream_pool_size() == 16  # Default
@@ -574,32 +575,30 @@ def test_context_from_options_uses_default_when_options_empty() -> None:
 
 def test_context_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "on"})
+    runtime = Runtime.from_options(opts)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(
-        comm.logger, mr, opts, Statistics.from_options(opts)
-    ) as ctx:
+    with Context.from_options(runtime, mr) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
 
 
 def test_context_from_options_creates_buffer_resource() -> None:
     opts = Options()
+    runtime = Runtime.from_options(opts)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts) as ctx:
+    with Context.from_options(runtime, mr) as ctx:
         assert ctx is not None
         assert ctx.br() is not None
 
 
 def test_context_from_options_can_create_channel() -> None:
     opts = Options()
+    runtime = Runtime.from_options(opts)
     mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    comm = single_comm.new_communicator(opts, ProgressThread())
 
-    with Context.from_options(comm.logger, mr, opts) as ctx:
+    with Context.from_options(runtime, mr) as ctx:
         assert ctx is not None
         channel: Channel[Any] = ctx.create_channel()
         assert channel is not None

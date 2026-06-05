@@ -47,7 +47,7 @@ class ShufflingActor(RapidsMPFActor):
         batch_size: int = -1,
         total_nparts: int = -1,
     ):
-        super().__init__(nranks, statistics=None)
+        super().__init__(nranks)
         self._num_rows: int = num_rows
         self._batch_size: int = batch_size
         self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
@@ -89,7 +89,7 @@ class ShufflingActor(RapidsMPFActor):
         columns_to_hash = (1,)
 
         mr = rmm.mr.get_current_device_resource()
-        br = BufferResource(mr)
+        br = BufferResource(self._runtime, mr)
         stream = DEFAULT_STREAM  # use the default stream
 
         # Calculate the expected output partitions on all ranks

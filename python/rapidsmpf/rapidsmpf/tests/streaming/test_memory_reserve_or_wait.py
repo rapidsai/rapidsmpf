@@ -10,13 +10,10 @@ import pytest
 
 import rmm.mr
 
-from rapidsmpf.communicator.single import (
-    new_communicator as single_process_comm,
-)
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
@@ -32,12 +29,13 @@ def make_context(
     if overwrite_options is not None:
         env.update(overwrite_options)
     options = Options(env)
-    comm = single_process_comm(options, ProgressThread())
+    runtime = Runtime.from_options(options)
     br = BufferResource(
+        runtime,
         rmm.mr.CudaMemoryResource(),
         memory_limits={MemoryType.DEVICE: dev_limit},
     )
-    return Context(comm.logger, br, options)
+    return Context(runtime, br)
 
 
 def test_memory_is_available() -> None:

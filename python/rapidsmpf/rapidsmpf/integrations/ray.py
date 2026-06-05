@@ -13,10 +13,11 @@ from ray.actor import ActorClass
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.statistics import Statistics
+from rapidsmpf.runtime import Runtime
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.statistics import Statistics
 
 
 class RapidsMPFActor:
@@ -38,11 +39,15 @@ class RapidsMPFActor:
     >>> ray.get([actor.status_check.remote() for actor in actors]
     """
 
-    def __init__(self, nranks: int, statistics: Statistics | None = None):
+    def __init__(self, nranks: int, runtime: Runtime | None = None):
         self._rank: int = -1
         self._nranks: int = nranks
         self._comm: Communicator | None = None
-        self._stats = Statistics(enable=False) if statistics is None else statistics
+        self._runtime: Runtime = (
+            runtime
+            if runtime is not None
+            else Runtime.from_options(Options(get_environment_variables()))
+        )
 
     def setup_root(self) -> tuple[int, bytes]:
         """
@@ -59,8 +64,8 @@ class RapidsMPFActor:
             self._nranks,
             None,
             None,
-            Options(get_environment_variables()),
-            ProgressThread(self._stats),
+            self._runtime.options,
+            ProgressThread(self._runtime),
         )
         self._rank = self._comm.rank
         self._comm.logger.trace(f"Rank {self._rank} created as root")
@@ -85,8 +90,8 @@ class RapidsMPFActor:
                 self._nranks,
                 None,
                 root_address,
-                Options(get_environment_variables()),
-                ProgressThread(self._stats),
+                self._runtime.options,
+                ProgressThread(self._runtime),
             )
             self._rank = self._comm.rank
             self._comm.logger.trace(f"Rank {self._rank} created")
@@ -150,7 +155,7 @@ class RapidsMPFActor:
         -------
         Statistics object.
         """
-        return self._stats
+        return self._runtime.statistics
 
     def nranks(self) -> int:
         """

@@ -24,7 +24,10 @@ using namespace rapidsmpf::shuffler::detail;
 class ChunkTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(
+            Runtime::from_options(config::Options{}),
+            cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
     }
 

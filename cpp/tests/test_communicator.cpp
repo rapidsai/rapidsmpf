@@ -24,7 +24,9 @@ class BaseCommunicatorTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = rapidsmpf::BufferResource::create(*mr);
+        br = rapidsmpf::BufferResource::create(
+            rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}), *mr
+        );
         stream = rmm::cuda_stream_default;
     }
 

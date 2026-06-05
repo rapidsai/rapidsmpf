@@ -25,8 +25,8 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.shuffler import Shuffler
-from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
@@ -240,8 +240,12 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
     rmm.mr.set_current_device_resource(mr)
 
-    stats = Statistics(enable=args.statistics)
-    progress_thread = ProgressThread(stats)
+    env = get_environment_variables()
+    if args.statistics:
+        env["statistics"] = "True"
+    runtime = Runtime.from_options(Options({**options.get_strings(), **env}))
+    stats = runtime.statistics
+    progress_thread = ProgressThread(runtime)
     if args.comm == "mpi":
         comm = rapidsmpf.communicator.mpi.new_communicator(
             MPI.COMM_WORLD, options, progress_thread
@@ -259,7 +263,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     memory_limits = (
         None if args.spill_device is None else {MemoryType.DEVICE: args.spill_device}
     )
-    br = BufferResource(mr, memory_limits=memory_limits, statistics=stats)
+    br = BufferResource(runtime, mr, memory_limits=memory_limits)
 
     args.out_nparts = args.out_nparts if args.out_nparts is not None else comm.nranks
     args.part_size = args.part_size if args.part_size is not None else args.local_size

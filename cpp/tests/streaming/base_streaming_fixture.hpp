@@ -13,6 +13,7 @@
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -43,16 +44,19 @@ class BaseStreamingFixture : public ::testing::Test {
         rapidsmpf::config::Options options(std::move(env_vars));
 
         stream = cudf::get_default_stream();
+        runtime = rapidsmpf::Runtime::from_options(std::move(options));
         br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, std::move(memory_limits)
+            runtime,
+            mr_cuda,
+            rapidsmpf::PinnedMemoryResource::Disabled,
+            std::move(memory_limits)
         );
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            std::move(options), GlobalEnvironment->comm_->logger(), br
-        );
+        ctx = std::make_shared<rapidsmpf::streaming::Context>(runtime, br);
     }
 
     rmm::cuda_stream_view stream;
     rmm::mr::cuda_memory_resource mr_cuda;
+    std::shared_ptr<rapidsmpf::Runtime> runtime;
     std::shared_ptr<rapidsmpf::BufferResource> br;
     std::shared_ptr<rapidsmpf::streaming::Context> ctx;
 };

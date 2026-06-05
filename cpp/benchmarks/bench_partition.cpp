@@ -60,7 +60,9 @@ static void BM_PartitionAndPack(benchmark::State& state) {
 
     // Create a pool memory resource with 50% of GPU memory
     rmm::mr::pool_memory_resource pool_mr{rmm::mr::cuda_memory_resource{}, pool_size};
-    auto br = rapidsmpf::BufferResource::create(pool_mr);
+    auto br = rapidsmpf::BufferResource::create(
+        rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}), pool_mr
+    );
 
     // Create input table
     auto table = create_int_table(num_rows, stream);
@@ -111,7 +113,9 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
 
     // Create a pool memory resource with 50% of GPU memory
     rmm::mr::pool_memory_resource pool_mr{rmm::mr::cuda_memory_resource{}, pool_size};
-    auto br = rapidsmpf::BufferResource::create(pool_mr);
+    auto br = rapidsmpf::BufferResource::create(
+        rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}), pool_mr
+    );
 
     // Create input table
     auto table = create_int_table(num_rows, stream);

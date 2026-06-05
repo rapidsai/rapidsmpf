@@ -379,8 +379,7 @@ class Buffer {
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.
  *
- * @param statistics Statistics object used to record the copy operation. Use
- * `Statistics::disabled()` to skip recording.
+ * @param statistics Statistics object used to record the copy operation.
  * @param dst Destination buffer.
  * @param src Source buffer.
  * @param size Number of bytes to copy.
@@ -390,7 +389,7 @@ class Buffer {
  * @throws std::invalid_argument If the requested range is out of bounds.
  */
 void buffer_copy(
-    std::shared_ptr<Statistics> statistics,
+    Statistics& statistics,
     Buffer& dst,
     Buffer const& src,
     std::size_t size,

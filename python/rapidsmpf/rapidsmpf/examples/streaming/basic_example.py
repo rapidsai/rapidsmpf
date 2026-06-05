@@ -10,12 +10,9 @@ import pylibcudf
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.communicator.single import (
-    new_communicator as single_process_comm,
-)
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.streaming.core.actor import (
     define_actor,
     run_actor_network,
@@ -38,12 +35,9 @@ def main() -> int:
     options = Options(get_environment_variables())
 
     # Create a communicator and context that will be used by all streaming actors.
-    comm = single_process_comm(options, ProgressThread())
-    ctx = Context(
-        logger=comm.logger,
-        br=BufferResource(rmm.mr.get_current_device_resource()),
-        options=options,
-    )
+    runtime = Runtime.from_options(options)
+    br = BufferResource(runtime, rmm.mr.get_current_device_resource())
+    ctx = Context(runtime, br)
 
     # Create some pylibcudf tables as input to the streaming graph.
     tables = [

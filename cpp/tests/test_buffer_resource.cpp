@@ -55,6 +55,7 @@ std::unique_ptr<Buffer> zeros(
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
+        Runtime::from_options(config::Options{}),
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}}
@@ -122,6 +123,7 @@ TEST(BufferResource, ReservationReleasing) {
     // Create a buffer resource that always reports 10 KiB of available host and device
     // memory.
     auto br = BufferResource::create(
+        Runtime::from_options(config::Options{}),
         cudf::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
@@ -175,7 +177,10 @@ TEST(BufferResource, MemoryLimit) {
 
     // Create a buffer resource that limits available device memory to 10 KiB.
     auto br = BufferResource::create(
-        mr_cuda, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, 10_KiB}}
+        Runtime::from_options(config::Options{}),
+        mr_cuda,
+        PinnedMemoryResource::Disabled,
+        {{MemoryType::DEVICE, 10_KiB}}
     );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
@@ -264,7 +269,12 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     if (max_pool_size.has_value() && *max_pool_size > 0) {
         memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
-    auto br = BufferResource::create(cuda_mr, pinned_mr, std::move(memory_limits));
+    auto br = BufferResource::create(
+        Runtime::from_options(config::Options{}),
+        cuda_mr,
+        pinned_mr,
+        std::move(memory_limits)
+    );
 
     // First 1 KiB reservation always succeeds.
     auto [r1, ob1] = br->reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
@@ -289,15 +299,19 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
-    auto stats = Statistics::create();
+    auto runtime = Runtime::from_options(
+        {std::unordered_map<std::string, std::string>{{"statistics", "true"}}}
+    );
+    auto& stats = runtime->statistics();
+    EXPECT_TRUE(stats.enabled());
     auto pinned_mr = PinnedMemoryResource::make_if_available();
     auto br = BufferResource::create(
+        runtime,
         mr_cuda,
         pinned_mr,
         {},
         std::nullopt,
-        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
-        stats
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking)
     );
     auto stream = cudf::get_default_stream();
 
@@ -329,26 +343,26 @@ TEST(BufferResource, AllocStatistics) {
     stream.synchronize();
 
     // device: 2 allocations of device_size each.
-    auto const dev_bytes = stats->get_stat("alloc-device-bytes");
+    auto const dev_bytes = stats.get_stat("alloc-device-bytes");
     EXPECT_EQ(dev_bytes.count(), 2u);
     EXPECT_EQ(dev_bytes.value(), static_cast<double>(2 * device_size));
 
     // pinned_host: 1 allocation of pinned_size (if available).
     if (pinned_mr != PinnedMemoryResource::Disabled) {
-        auto const pinned_bytes = stats->get_stat("alloc-pinned_host-bytes");
+        auto const pinned_bytes = stats.get_stat("alloc-pinned_host-bytes");
         EXPECT_EQ(pinned_bytes.count(), 1u);
         EXPECT_EQ(pinned_bytes.value(), static_cast<double>(pinned_size));
-        EXPECT_EQ(stats->get_stat("alloc-pinned_host-time").count(), 1u);
+        EXPECT_EQ(stats.get_stat("alloc-pinned_host-time").count(), 1u);
     }
 
     // host: 1 allocation of host_size.
-    auto const host_bytes = stats->get_stat("alloc-host-bytes");
+    auto const host_bytes = stats.get_stat("alloc-host-bytes");
     EXPECT_EQ(host_bytes.count(), 1u);
     EXPECT_EQ(host_bytes.value(), static_cast<double>(host_size));
 
     // timing stats should have the same count as bytes stats.
-    EXPECT_EQ(stats->get_stat("alloc-device-time").count(), 2u);
-    EXPECT_EQ(stats->get_stat("alloc-host-time").count(), 1u);
+    EXPECT_EQ(stats.get_stat("alloc-device-time").count(), 2u);
+    EXPECT_EQ(stats.get_stat("alloc-host-time").count(), 1u);
 }
 
 class BufferResourceReserveOrFailTest : public ::testing::Test {
@@ -357,6 +371,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
         // Create a buffer resource with limited device memory (10 KiB) and unlimited
         // host memory. BufferResource auto-wraps mr_cuda for allocation tracking.
         br = BufferResource::create(
+            Runtime::from_options(config::Options{}),
             mr_cuda,
             PinnedMemoryResource::Disabled,
             std::unordered_map<MemoryType, std::int64_t>{{MemoryType::DEVICE, 10_KiB}}
@@ -419,7 +434,10 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
+        br = BufferResource::create(
+            Runtime::from_options(config::Options{}),
+            cudf::get_current_device_resource_ref()
+        );
         stream = cudf::get_default_stream();
 
         // initialize the host pattern
@@ -641,11 +659,11 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 
         // Setup br1 with statistics for its device memory
         mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = BufferResource::create(*mr1);
+        br1 = BufferResource::create(Runtime::from_options(config::Options{}), *mr1);
 
         // Setup br2 with statistics for its device memory
         mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = BufferResource::create(*mr2);
+        br2 = BufferResource::create(Runtime::from_options(config::Options{}), *mr2);
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -731,7 +749,7 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
     auto dst = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
-    auto statistics = br->statistics();
+    auto& statistics = br->statistics();
 
     // Negative offsets
     EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, -1, 0), std::invalid_argument);
@@ -792,7 +810,9 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     constexpr std::size_t N = 1024;
 
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(
+        Runtime::from_options(config::Options{}), cudf::get_current_device_resource_ref()
+    );
     std::weak_ptr<BufferResource> weak_br = br;
     auto stream = cudf::get_default_stream();
 
@@ -823,7 +843,10 @@ TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
 
     std::weak_ptr<BufferResource> weak_br;
     {
-        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+        auto br = BufferResource::create(
+            Runtime::from_options(config::Options{}),
+            cudf::get_current_device_resource_ref()
+        );
         weak_br = br;
     }
     ASSERT_TRUE(weak_br.expired());

@@ -6,7 +6,7 @@
 # =================================================================================
 
 set(cython_modules config.pyx config_defaults.pyx cuda_stream.pyx error.pyx progress_thread.pyx
-                   rmm_resource_adaptor.pyx shuffler.pyx statistics.pyx
+                   rmm_resource_adaptor.pyx runtime.pyx shuffler.pyx statistics.pyx
 )
 
 # Add cupti module conditionally if CUPTI support is enabled

@@ -178,12 +178,12 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             {
                 // Use libcudf to copy the table_view().
                 auto const nbytes = data_alloc_size(MemoryType::DEVICE);
-                auto statistics = br->statistics();
-                StreamOrderedTiming timing{stream(), statistics};
+                auto& statistics = br->statistics();
+                StreamOrderedTiming timing{stream(), statistics.shared_from_this()};
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
-                statistics->record_copy(
+                statistics.record_copy(
                     MemoryType::DEVICE, MemoryType::DEVICE, nbytes, std::move(timing)
                 );
                 // And update the provided `reservation`.
@@ -192,13 +192,13 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             }
         case MemoryType::PINNED_HOST:  // Case 1b.
             {
-                StreamOrderedTiming timing{stream(), br->statistics()};
+                StreamOrderedTiming timing{stream(), br->statistics().shared_from_this()};
 
                 // use cudf pack with pinned mr
                 auto packed_pinned = cudf::pack(table_view(), stream(), br->pinned_mr());
                 auto nbytes = packed_pinned.gpu_data->size();
 
-                br->statistics()->record_copy(
+                br->statistics().record_copy(
                     MemoryType::DEVICE, MemoryType::PINNED_HOST, nbytes, std::move(timing)
                 );
                 // update the provided `reservation`

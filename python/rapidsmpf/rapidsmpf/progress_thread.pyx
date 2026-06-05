@@ -4,38 +4,32 @@
 
 from libcpp.memory cimport make_shared
 
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.runtime cimport Runtime
 
 
 cdef class ProgressThread:
     """
     A progress thread that can execute arbitrary functions.
 
-    The `ProgressThread` class provides an interface for executing arbitrary
+    The ``ProgressThread`` class provides an interface for executing arbitrary
     functions in a separate thread. The functions are executed in the order they
     were registered, and a newly registered function will only execute for the
     first time in the next iteration of the progress thread.
 
     Parameters
     ----------
-    statistics
-        The statistics instance to use. If None, statistics is disabled.
+    runtime
+        The Runtime context providing statistics and configuration.
 
     Notes
     -----
     This class is designed to handle background tasks and progress tracking in
     distributed operations. It is typically used in conjunction with the
-    `Shuffler` class to track progress of data movement operations.
+    ``Shuffler`` class to track progress of data movement operations.
     """
-    def __init__(
-        self,
-        Statistics statistics = None,
-    ):
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
-
+    def __init__(self, Runtime runtime not None):
         with nogil:
-            self._handle = make_shared[cpp_ProgressThread](statistics._handle)
+            self._handle = make_shared[cpp_ProgressThread](runtime._handle)
 
     def __dealloc__(self):
         with nogil:

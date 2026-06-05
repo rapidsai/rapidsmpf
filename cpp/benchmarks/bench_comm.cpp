@@ -210,7 +210,7 @@ Duration run(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics> statistics
+    rapidsmpf::Statistics& statistics
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -240,7 +240,7 @@ Duration run(
                 + i * static_cast<std::uint64_t>(comm->nranks())
             ));
             if (rank != comm->rank()) {
-                statistics->add_bytes_stat("all-to-all-recv", buf->size);
+                statistics.add_bytes_stat("all-to-all-recv", buf->size);
                 futures.push_back(comm->recv(rank, tag, std::move(buf)));
             }
         }
@@ -250,7 +250,7 @@ Duration run(
                 + i * static_cast<std::uint64_t>(comm->nranks())
             ));
             if (rank != comm->rank()) {
-                statistics->add_bytes_stat("all-to-all-send", buf->size);
+                statistics.add_bytes_stat("all-to-all-send", buf->size);
                 futures.push_back(comm->send(std::move(buf), rank, tag));
             }
         }
@@ -284,9 +284,10 @@ int main(int argc, char** argv) {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // We'll only measure the last run, so start disabled.
-    auto stats = rapidsmpf::Statistics::disabled();
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
-    auto logger = rapidsmpf::Logger::from_options(options);
+    auto runtime = rapidsmpf::Runtime::from_options(options);
+    runtime->statistics().disable();
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
+    auto logger = runtime->logger().shared_from_this();
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
@@ -313,21 +314,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto& log = comm->logger();
+    auto& log = runtime->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     auto br = BufferResource::create(
+        runtime,
         mr,
         PinnedMemoryResource::Disabled,
         {},
         std::chrono::milliseconds{1},
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
-        stats
+        std::make_shared<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
     // Print benchmark/hardware info.
@@ -346,7 +345,7 @@ int main(int argc, char** argv) {
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log->print(ss.str());
+        log.print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -355,7 +354,7 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log->print("CUPTI memory monitoring enabled");
+        log.print("CUPTI memory monitoring enabled");
     }
 #endif
 
@@ -367,9 +366,10 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            stats->enable();
+            runtime->statistics().enable();
         }
-        auto const elapsed = run(comm, args, stream, br.get(), stats).count();
+        auto const elapsed =
+            run(comm, args, stream, br.get(), runtime->statistics()).count();
         std::stringstream ss;
         ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
@@ -382,7 +382,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log->print(ss.str());
+        log.print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -400,9 +400,9 @@ int main(int argc, char** argv) {
                   / elapsed_mean
               )
            << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
-        log->print(ss.str());
+        log.print(ss.str());
     }
-    log->print(stats->report({.header = "Statistics (of the last run):"}));
+    log.print(runtime->statistics().report({.header = "Statistics (of the last run):"}));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
@@ -413,7 +413,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log->print(
+            log.print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -422,12 +422,12 @@ int main(int argc, char** argv) {
 
             // Print callback summary for rank 0
             if (comm->rank() == 0) {
-                log->print(
+                log.print(
                     "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
                 );
             }
         } catch (std::exception const& e) {
-            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

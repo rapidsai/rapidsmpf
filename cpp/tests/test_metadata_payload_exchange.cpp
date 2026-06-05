@@ -27,7 +27,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = BufferResource::create(*mr);
+        br = BufferResource::create(Runtime::from_options(config::Options{}), *mr);
         stream = rmm::cuda_stream_default;
         statistics = Statistics::create();
 

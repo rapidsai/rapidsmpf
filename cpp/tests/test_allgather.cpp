@@ -34,7 +34,10 @@ class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
         stream = cudf::get_default_stream();
-        br = rapidsmpf::BufferResource::create(rmm::mr::cuda_memory_resource{});
+        br = rapidsmpf::BufferResource::create(
+            rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}),
+            rmm::mr::cuda_memory_resource{}
+        );
     }
 
     void TearDown() override {
@@ -295,6 +298,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     if (this_rank == 0) {
         // Recreate the buffer resource and allgather with the delayed MR.
         delay_br = rapidsmpf::BufferResource::create(
+            rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}),
             DelayedMemoryResource{br->device_mr(), std::chrono::milliseconds(500)}
         );
         allgather =
@@ -363,7 +367,9 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 TEST(PostBox, spill_uses_remaining_amount) {
     auto stream = cudf::get_default_stream();
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-    auto br = rapidsmpf::BufferResource::create(*mr);
+    auto br = rapidsmpf::BufferResource::create(
+        rapidsmpf::Runtime::from_options(rapidsmpf::config::Options{}), *mr
+    );
 
     rapidsmpf::coll::detail::PostBox postbox;
 

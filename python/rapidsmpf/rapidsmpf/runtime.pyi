@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
+
+from rapidsmpf.communicator.communicator import Logger
+from rapidsmpf.config import Options
+from rapidsmpf.statistics import Statistics
+
+class Runtime:
+    def __init__(self, options: Options) -> None: ...
+
+    @classmethod
+    def from_options(cls, options: Options) -> Runtime: ...
+
+    def reset(self, new_options: Options) -> None: ...
+
+    @property
+    def options(self) -> Options: ...
+
+    @property
+    def statistics(self) -> Statistics: ...
+
+    @property
+    def logger(self) -> Logger: ...

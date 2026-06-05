@@ -249,13 +249,13 @@ Shuffler::Shuffler(
                             br_->reserve_or_fail(size, MEMORY_TYPES)
                         );
                     },
-                    br_->statistics()
+                    br_->statistics().shared_from_this()
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
-      statistics_{br_->statistics()},
+      statistics_{br_->statistics().shared_from_this()},
       finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
@@ -295,7 +295,7 @@ void Shuffler::shutdown() {
     );
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
-        auto& log = comm_->logger();
+        auto& log = comm_->logger();  // TODO: replace with Runtime
         log->debug("Shuffler.shutdown() - initiate");
         comm_->progress_thread()->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
@@ -308,7 +308,7 @@ detail::Chunk Shuffler::create_chunk(PartID pid, PackedData&& packed_data) {
 }
 
 void Shuffler::insert_into_received(detail::Chunk&& chunk) {
-    auto& log = comm_->logger();
+    auto& log = comm_->logger();  // TODO: replace with Runtime
     log->trace("insert_into_received: ", chunk);
 
     if (chunk.is_control_message()) {

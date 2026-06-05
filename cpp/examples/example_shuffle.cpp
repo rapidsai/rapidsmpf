@@ -26,28 +26,27 @@ int main(int argc, char** argv) {
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
-    // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = rapidsmpf::Statistics::create();
+    // Create a runtime context owning options, statistics, and logger.
+    auto runtime = rapidsmpf::Runtime::from_options(options);
 
     // The communicator has a progress thread where the shuffler event loop executes. A
     // single progress thread may be used by multiple shufflers simultaneously.
-    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
 
     // Now we have to create a Communicator, which we will use throughout the
     // example. Multiple concurrent shuffles are possible on the same communicator by
     // providing differentiating "OpID" arguments.
     std::shared_ptr<rapidsmpf::Communicator> comm = std::make_shared<rapidsmpf::MPI>(
-        MPI_COMM_WORLD, progress_thread, rapidsmpf::Logger::from_options(options)
+        MPI_COMM_WORLD, progress_thread, runtime->logger().shared_from_this()
     );
 
-
     // The Communicator provides a logger.
-    auto& log = comm->logger();
+    auto& log = runtime->logger();
 
     // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    auto br = rapidsmpf::BufferResource::create(mr);
+    auto br = rapidsmpf::BufferResource::create(runtime, mr);
 
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
@@ -122,12 +121,10 @@ int main(int argc, char** argv) {
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
-    log->print(
-        "Finished shuffle with ", local_outputs.size(), " local output partitions"
-    );
+    log.print("Finished shuffle with ", local_outputs.size(), " local output partitions");
 
     // Log the statistics report.
-    log->print(stats->report());
+    log.print(runtime->statistics().report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

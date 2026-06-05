@@ -541,19 +541,11 @@ TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
 
 class SpillingStreamingFanout : public BaseStreamingFixture {
     void SetUp() override {
-        SetUpWithThreads(4);
-
         // override br and context with no device memory
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {
             {MemoryType::DEVICE, 0},
         };
-        br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_limits
-        );
-        auto options = ctx->options();
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_->logger(), br
-        );
+        SetUpWithThreads(4, memory_limits);
     }
 };
 

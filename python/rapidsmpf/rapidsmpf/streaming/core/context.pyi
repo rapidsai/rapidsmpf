@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from rapidsmpf.config import Options
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait import MemoryReserveOrWait
@@ -21,17 +22,14 @@ from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 class Context:
     def __init__(
         self,
-        logger: Logger,
+        runtime: Runtime,
         br: BufferResource,
-        options: Options | None = None,
     ) -> None: ...
     @classmethod
     def from_options(
         cls: type[Self],
-        logger: Logger,
+        runtime: Runtime,
         mr: RmmResourceAdaptor,
-        options: Options,
-        statistics: Statistics | None = None,
     ) -> Self: ...
     def __enter__(self) -> Context: ...
     def __exit__(
@@ -41,6 +39,7 @@ class Context:
         traceback: Any | None,
     ) -> bool: ...
     def shutdown(self) -> None: ...
+    def runtime(self) -> Runtime: ...
     def options(self) -> Options: ...
     def logger(self) -> Logger: ...
     def br(self) -> BufferResource: ...

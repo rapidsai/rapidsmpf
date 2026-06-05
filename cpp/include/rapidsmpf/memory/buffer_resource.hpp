@@ -28,7 +28,7 @@
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
-#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
@@ -88,6 +88,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
      *
+     * @param runtime Runtime context providing statistics and configuration.
      * @param device_mr Device memory resource used for device allocations. To ensure
      * allocations are tracked for memory-limit accounting and statistics, use
      * `BufferResource::device_mr()` instead of the original memory resource after
@@ -101,36 +102,33 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * disables the dedicated spill-check thread.
      * @param stream_pool CUDA stream pool used for operations that do not take an
      * explicit CUDA stream.
-     * @param statistics Statistics instance used for runtime metrics.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
+        std::shared_ptr<Runtime> runtime,
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
-            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking)
     );
 
     /**
      * @brief Construct a BufferResource from configuration options.
      *
-     * This factory method creates a BufferResource using configuration options to
-     * initialize all components. The supplied device memory resource is wrapped in
-     * an internal `RmmResourceAdaptor` for allocation tracking.
+     * This factory method creates a BufferResource using the Runtime's options and
+     * statistics to initialize all components. The supplied device memory resource is
+     * wrapped in an internal `RmmResourceAdaptor` for allocation tracking.
      *
+     * @param runtime Runtime context providing options and statistics.
      * @param mr A device-accessible RMM memory resource.
-     * @param options Configuration options.
-     * @param statistics The statistics instance to use (disabled by default).
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
-        config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Runtime> runtime,
+        cuda::mr::any_resource<cuda::mr::device_accessible> mr
     );
 
     ~BufferResource() noexcept = default;
@@ -498,12 +496,20 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     SpillManager& spill_manager();
 
     /**
-     * @brief Gets a shared pointer to the statistics associated with this buffer
-     * resource.
+     * @brief Returns the Runtime associated with this buffer resource.
      *
-     * @return Shared pointer the Statistics instance.
+     * Callers that need shared ownership can call `runtime().shared_from_this()`.
+     *
+     * @return Reference to the Runtime.
      */
-    std::shared_ptr<Statistics> statistics() const noexcept;
+    [[nodiscard]] Runtime& runtime() const noexcept;
+
+    /**
+     * @brief Returns the statistics collector.
+     *
+     * @return Reference to the `Statistics` instance.
+     */
+    [[nodiscard]] Statistics& statistics() const noexcept;
 
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
@@ -512,7 +518,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<Runtime> runtime
     );
 
     std::mutex mutex_;
@@ -527,10 +533,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
     SpillManager spill_manager_;
-    std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<Runtime> runtime_;
 };
-
-static_assert(StatisticsProvider<BufferResource>);
 
 /**
  * @brief Parse the `spill_device_limit` parameter from configuration options.

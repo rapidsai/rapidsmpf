@@ -9,9 +9,8 @@
 
 #include <coro/coro.hpp>
 
-#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/runtime.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -40,35 +39,24 @@ class CoroThreadPoolExecutor {
      *
      * @param num_streaming_threads Number of threads used to execute coroutines.
      * Must be greater than zero.
-     * @param statistics Statistics collector associated with the executor. If not
-     * provided, statistics collection is disabled. TODO: statistics are not
-     * currently collected. In the future, libcoro's thread start and stop callbacks
-     * should be used to track coroutine execution statistics.
+     * @param runtime Runtime context providing configuration and statistics.
      */
     CoroThreadPoolExecutor(
-        std::uint32_t num_streaming_threads,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::uint32_t num_streaming_threads, std::shared_ptr<Runtime> runtime
     );
 
     /**
-     * @brief Construct an executor from configuration options.
+     * @brief Construct an executor from a Runtime.
      *
-     * Reads the `num_streaming_threads` option. If the option is not set,
-     * a single streaming thread is used by default.
+     * Reads the `num_streaming_threads` option from `runtime->options()`. If
+     * the option is not set, a single streaming thread is used by default.
      *
-     * @param options Configuration options used to initialize the executor.
-     * @param statistics Statistics collector associated with the executor. If not
-     * provided, statistics collection is disabled. TODO: statistics are not
-     * currently collected. In the future, libcoro's thread start and stop callbacks
-     * should be used to track coroutine execution statistics.
+     * @param runtime Runtime context providing configuration and statistics.
      *
      * @throws std::invalid_argument If `num_streaming_threads` is present but not a
      * positive integer.
      */
-    CoroThreadPoolExecutor(
-        config::Options options,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
-    );
+    explicit CoroThreadPoolExecutor(std::shared_ptr<Runtime> runtime);
 
     ~CoroThreadPoolExecutor() noexcept;
 
@@ -159,7 +147,7 @@ class CoroThreadPoolExecutor {
   private:
     std::atomic<bool> is_shutdown_{false};
     std::unique_ptr<coro::thread_pool> executor_;
-    std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<Runtime> runtime_;
     std::thread::id creator_thread_id_;
 };
 

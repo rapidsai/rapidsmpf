@@ -5,48 +5,56 @@
 
 #include <utility>
 
-#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/runtime.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/utils/string.hpp>
+
+namespace {
+
+std::uint32_t get_num_streaming_threads(rapidsmpf::Runtime* runtime) {
+    RAPIDSMPF_EXPECTS(runtime != nullptr, "runtime cannot be NULL");
+    return runtime->options().get<std::uint32_t>(
+        "num_streaming_threads", [](std::string const& s) -> std::uint32_t {
+            auto const v = rapidsmpf::parse_string<int>(s);
+            if (v > 0) {
+                return static_cast<std::uint32_t>(v);
+            }
+            RAPIDSMPF_FAIL(
+                "num_streaming_threads must be a positive integer", std::invalid_argument
+            );
+        }
+    );
+}
+
+}  // namespace
 
 namespace rapidsmpf::streaming {
 
 CoroThreadPoolExecutor::CoroThreadPoolExecutor(
-    std::uint32_t num_streaming_threads, std::shared_ptr<Statistics> statistics
+    std::uint32_t num_streaming_threads, std::shared_ptr<Runtime> runtime
 )
     : executor_{coro::thread_pool::make_unique(
           coro::thread_pool::options{.thread_count = num_streaming_threads}
       )},
-      statistics_{std::move(statistics)},
+      runtime_{std::move(runtime)},
       creator_thread_id_{std::this_thread::get_id()} {
+    RAPIDSMPF_EXPECTS(runtime_ != nullptr, "runtime cannot be NULL");
     RAPIDSMPF_EXPECTS(
         num_streaming_threads > 0,
         "num_streaming_threads must be a positive integer",
         std::invalid_argument
     );
-    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "statistics cannot be NULL");
 }
 
-CoroThreadPoolExecutor::CoroThreadPoolExecutor(
-    config::Options options, std::shared_ptr<Statistics> statistics
-)
-    : CoroThreadPoolExecutor(
-          options.get<std::uint32_t>(
-              "num_streaming_threads",
-              [](std::string const& s) -> std::uint32_t {
-                  auto const v = parse_string<int>(s);
-                  if (v > 0) {
-                      return static_cast<std::uint32_t>(v);
-                  }
-                  RAPIDSMPF_FAIL(
-                      "num_streaming_threads must be a positive integer",
-                      std::invalid_argument
-                  );
-              }
-          ),
-          std::move(statistics)
-      ) {}
+CoroThreadPoolExecutor::CoroThreadPoolExecutor(std::shared_ptr<Runtime> runtime)
+    : executor_{coro::thread_pool::make_unique(
+          coro::thread_pool::options{
+              .thread_count = get_num_streaming_threads(runtime.get())
+          }
+      )},
+      runtime_{std::move(runtime)},
+      creator_thread_id_{std::this_thread::get_id()} {}
 
 CoroThreadPoolExecutor::~CoroThreadPoolExecutor() noexcept {
     shutdown();

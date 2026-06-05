@@ -10,12 +10,14 @@ import pytest
 
 import pylibcudf as plc
 
+from rapidsmpf.config import Options
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.shuffler import (
     Shuffler,
 )
@@ -35,7 +37,7 @@ def test_shuffler_single_nonempty_partition(
     stream: Stream,
     total_num_partitions: int,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Runtime.from_options(Options()), device_mr)
 
     shuffler = Shuffler(
         comm,
@@ -99,7 +101,7 @@ def test_shuffler_uniform(
     batch_size: int | None,
     total_num_partitions: int,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(Runtime.from_options(Options()), device_mr)
 
     # Every rank creates the full input dataframe and all the expected partitions
     # (also partitions this rank might not get after the shuffle).

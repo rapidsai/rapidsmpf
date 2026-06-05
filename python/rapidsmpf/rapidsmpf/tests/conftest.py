@@ -12,6 +12,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.runtime import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -86,8 +87,9 @@ def _mpi_comm(*, _mpi_disabled: bool) -> Communicator:
 
     from rapidsmpf.communicator.mpi import new_communicator
 
+    opts = Options(get_environment_variables())
     return new_communicator(
-        MPI.COMM_WORLD, Options(get_environment_variables()), ProgressThread()
+        MPI.COMM_WORLD, opts, ProgressThread(Runtime.from_options(opts))
     )
 
 
@@ -103,7 +105,8 @@ def _ucxx_comm() -> Communicator:
     """
     from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
-    return ucxx_mpi_setup(None, Options(get_environment_variables()), ProgressThread())
+    opts = Options(get_environment_variables())
+    return ucxx_mpi_setup(None, opts, ProgressThread(Runtime.from_options(opts)))
 
 
 @pytest.fixture(

@@ -12,26 +12,29 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.spill_manager import SpillManager
+from rapidsmpf.runtime import Runtime
 from rapidsmpf.statistics import Statistics
 
 class BufferResource:
     def __init__(
         self,
+        runtime: Runtime,
         device_mr: DeviceMemoryResource,
         *,
         pinned_mr: PinnedMemoryResource | None = None,
         memory_limits: Mapping[MemoryType, int] | None = None,
         periodic_spill_check: float | None = 1e-3,
         stream_pool: CudaStreamPool | None = None,
-        statistics: Statistics | None = None,
     ) -> None: ...
     @classmethod
     def from_options(
         cls: type[Self],
+        runtime: Runtime,
         mr: DeviceMemoryResource,
         options: Options,
-        statistics: Statistics | None = None,
     ) -> Self: ...
+    @property
+    def runtime(self) -> Runtime: ...
     @property
     def device_mr(self) -> OwningDeviceMemoryResource: ...
     @property

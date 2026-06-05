@@ -50,7 +50,9 @@ TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
     constexpr std::size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(
+        Runtime::from_options(config::Options{}), cudf::get_current_device_resource_ref()
+    );
 
     // Create a CUDA stream for each partition.
     // To stress-test stream handling, assign random priorities so streams are more

@@ -23,12 +23,14 @@ void Environment::SetUp() {
 
     RAPIDSMPF_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
 
-    options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
+    runtime_ = rapidsmpf::Runtime::from_options(
+        rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables())
+    );
 
     comm_ = std::make_shared<rapidsmpf::MPI>(
         mpi_comm_,
-        std::make_shared<rapidsmpf::ProgressThread>(),
-        rapidsmpf::Logger::from_options(options_)
+        std::make_shared<rapidsmpf::ProgressThread>(runtime_),
+        runtime_->logger().shared_from_this()
     );
 }
 
@@ -50,9 +52,6 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
         return split_comm_;
     }
 
-    // Initialize configuration options from environment variables.
-    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
-
     // Create and cache the new split communicator
     int rank;
     RAPIDSMPF_MPI(MPI_Comm_rank(mpi_comm_, &rank));
@@ -60,7 +59,7 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     RAPIDSMPF_MPI(MPI_Comm_split(mpi_comm_, rank, 0, &split_comm));
     return std::shared_ptr<rapidsmpf::MPI>(
         new rapidsmpf::MPI(
-            split_comm, comm_->progress_thread(), rapidsmpf::Logger::from_options(options)
+            split_comm, comm_->progress_thread(), runtime_->logger().shared_from_this()
         ),
         // Don't leak the split handle.
         [comm = split_comm](rapidsmpf::MPI* x) mutable {
