@@ -14,8 +14,7 @@ function(find_and_configure_cucascade)
     GLOBAL_TARGETS cuCascade::cucascade_topology_discovery
     CPM_ARGS
     GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
-    GIT_TAG 6a8cf0f7c545c601cec4b41a0da22ad6a17eeb7c
-    GIT_SHALLOW FALSE
+    GIT_TAG main
     OPTIONS "CUCASCADE_BUILD_TESTS OFF"
             "CUCASCADE_BUILD_BENCHMARKS OFF"
             "CUCASCADE_BUILD_SHARED_LIBS OFF"
