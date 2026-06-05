@@ -4,3 +4,35 @@
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
+
+add_executable(bench_streaming_shuffle "bench_streaming_shuffle.cpp")
+set_target_properties(
+  bench_streaming_shuffle
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/benchmarks"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  bench_streaming_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                                  "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_streaming_shuffle
+  PRIVATE rapidsmpf::rapidsmpf
+          ucxx::ucxx
+          cudf_streaming::cudf_streaming
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          bench_utils
+)
+install(
+  TARGETS bench_streaming_shuffle
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(ndsh)
