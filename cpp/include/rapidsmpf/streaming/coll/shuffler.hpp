@@ -8,10 +8,10 @@
 #include <coro/event.hpp>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <cudf_streaming/streaming/partition.hpp>
 
 namespace rapidsmpf::streaming {
 
