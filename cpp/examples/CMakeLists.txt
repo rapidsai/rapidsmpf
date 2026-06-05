@@ -5,6 +5,34 @@
 # cmake-format: on
 # =================================================================================
 
+if(BUILD_CUDF_TESTS)
+  add_executable(example_shuffle "example_shuffle.cpp" "../benchmarks/utils/random_data.cu")
+  set_target_properties(
+    example_shuffle
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/examples"
+               CXX_STANDARD 20
+               CXX_STANDARD_REQUIRED ON
+               CXX_EXTENSIONS ON
+               CUDA_STANDARD 20
+               CUDA_STANDARD_REQUIRED ON
+  )
+  target_compile_options(
+    example_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                            "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  )
+  target_link_libraries(
+    example_shuffle
+    PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx cudf_streaming::cudf_streaming
+            $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  )
+  install(
+    TARGETS example_shuffle
+    COMPONENT testing
+    DESTINATION bin/examples/librapidsmpf
+    EXCLUDE_FROM_ALL
+  )
+endif()
+
 if(RAPIDSMPF_HAVE_CUPTI)
   add_executable(example_cupti_monitor "example_cupti_monitor.cpp")
   set_target_properties(
