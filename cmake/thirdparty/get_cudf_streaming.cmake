@@ -5,8 +5,8 @@
 # cmake-format: on
 # =================================================================================
 
-# This function finds cudf_streaming for test/benchmark use only.
-# It does NOT add cudf_streaming to any rapidsmpf export set.
+# This function finds cudf_streaming for test/benchmark use only. It does NOT add cudf_streaming to
+# any rapidsmpf export set.
 function(find_and_configure_cudf_streaming)
 
   if(TARGET cudf_streaming::cudf_streaming)
