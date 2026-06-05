@@ -77,7 +77,6 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
-      - libcudf =${{ minor_version }}
       - libnuma
       - libpmix-devel >=5.0,<6.0
       - librmm =${{ minor_version }}
@@ -114,15 +113,14 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cuda-cupti-dev
         - cuda-nvml-dev
-        - libcudf =${{ minor_version }}
         - libpmix-devel >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
+        - libnuma
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
         - librmm =${{ minor_version }}
-        - libcudf =${{ minor_version }}
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -134,7 +132,6 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cupti
-          - libcudf
           - openmpi
           - librmm
     about:
@@ -160,15 +157,14 @@ outputs:
         - cuda-cupti-dev
         - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
-        - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
         - openmpi >=5.0
+        - libnuma
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
         - librmm =${{ minor_version }}
-        - libcudf =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - libucxx ${{ ucxx_version }}
       ignore_run_exports:
@@ -180,7 +176,6 @@ outputs:
         by_name:
           - cuda-cupti
           - librmm
-          - libcudf
           - openmpi
     about:
       homepage: https://github.com/rapidsai/rapidsmpf
