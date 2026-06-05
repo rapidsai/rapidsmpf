@@ -339,7 +339,9 @@ target_compile_definitions(
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
-add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+if(NOT TARGET rapidsmpf::rapidsmpf)
+  add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+endif()
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
