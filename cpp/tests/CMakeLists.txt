@@ -71,6 +71,7 @@ disable_sign_conversion_warning(test_sources)
 target_sources(
   test_sources
   PRIVATE test_allgather.cpp
+          test_allgather_packed_data.cpp
           test_allreduce.cu
           test_buffer.cpp
           test_buffer_resource.cpp
@@ -87,6 +88,7 @@ target_sources(
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
+          test_shuffler_packed_data.cpp
           test_sparse_alltoall.cpp
           test_spill_manager.cpp
           test_statistics.cpp
