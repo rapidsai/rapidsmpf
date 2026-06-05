@@ -6,7 +6,8 @@
 
 #include <cstddef>
 
-#include <cudf/detail/utilities/cuda_memcpy.hpp>
+#include <cuda_runtime.h>
+
 #include <rmm/cuda_stream_view.hpp>
 
 namespace rapidsmpf {
@@ -44,7 +45,7 @@ namespace rapidsmpf {
 [[nodiscard]] inline cudaError_t cuda_memcpy_async(
     void* dst, void const* src, std::size_t count, rmm::cuda_stream_view stream
 ) {
-    return cudf::detail::memcpy_async(dst, src, count, stream);
+    return cudaMemcpyAsync(dst, src, count, cudaMemcpyDefault, stream.value());
 }
 
 }  // namespace rapidsmpf
