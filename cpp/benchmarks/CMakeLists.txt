@@ -5,8 +5,6 @@
 # cmake-format: on
 # =================================================================================
 
-add_library(bench_utils INTERFACE)
-target_sources(bench_utils INTERFACE utils/random_data.cu)
 add_executable(bench_comm "bench_comm.cpp")
 set_target_properties(
   bench_comm
@@ -24,7 +22,7 @@ target_compile_options(
 )
 target_link_libraries(
   bench_comm PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
-                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_comm
@@ -54,36 +52,10 @@ target_compile_options(
 target_link_libraries(
   bench_memory_resources
   PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark benchmark::benchmark_main
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_memory_resources
-  COMPONENT benchmarking
-  DESTINATION bin/benchmarks/librapidsmpf
-  EXCLUDE_FROM_ALL
-)
-
-add_executable(bench_pack "bench_pack.cpp")
-set_target_properties(
-  bench_pack
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/benchmarks"
-             CXX_STANDARD 20
-             CXX_STANDARD_REQUIRED ON
-             CXX_EXTENSIONS ON
-             CUDA_STANDARD 20
-             CUDA_STANDARD_REQUIRED ON
-             LINK_FLAGS "-Wl,--allow-shlib-undefined"
-)
-target_compile_options(
-  bench_pack PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
-)
-target_link_libraries(
-  bench_pack PRIVATE rapidsmpf::rapidsmpf benchmark::benchmark benchmark::benchmark_main
-                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
-)
-install(
-  TARGETS bench_pack
   COMPONENT benchmarking
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
