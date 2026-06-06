@@ -119,6 +119,8 @@ outputs:
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
         - libnuma
+        - libcudf-streaming =${{ minor_version }}
+        - libcudf =${{ minor_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
@@ -126,6 +128,8 @@ outputs:
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - libcudf-streaming =${{ minor_version }}
+        - libcudf =${{ minor_version }}
       ignore_run_exports:
         from_package:
           - ${{ compiler("c") }}
@@ -136,6 +140,8 @@ outputs:
           - cuda-cupti
           - openmpi
           - librmm
+          - libcudf-streaming
+          - libcudf
     about:
       homepage: https://github.com/rapidsai/rapidsmpf
       license: Apache-2.0
