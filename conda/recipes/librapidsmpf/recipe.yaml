@@ -119,8 +119,6 @@ outputs:
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
         - libnuma
-        - libcudf-streaming =${{ minor_version }}
-        - libcudf =${{ minor_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti

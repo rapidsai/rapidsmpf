@@ -38,7 +38,6 @@ classifiers = [
 [project.optional-dependencies]
 test = [
     "cuda-core>=0.7.0",
-    "cudf-streaming==26.8.*,>=0.0.0a0",
     "cupy-cuda13x>=13.6.0,!=14.0.0,!=14.1.0",
     "numpy >=1.23,<3.0",
     "psutil",

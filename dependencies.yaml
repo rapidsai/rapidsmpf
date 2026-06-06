@@ -649,24 +649,4 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - &cudf_streaming_unsuffixed cudf-streaming==26.8.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - cudf-streaming-cu12==26.8.*,>=0.0.0a0
-          - matrix:
-              cuda: "13.*"
-              cuda_suffixed: "true"
-            packages:
-              - cudf-streaming-cu13==26.8.*,>=0.0.0a0
-          - matrix:
-            packages:
-              - *cudf_streaming_unsuffixed
+          - cudf-streaming==26.8.*,>=0.0.0a0
