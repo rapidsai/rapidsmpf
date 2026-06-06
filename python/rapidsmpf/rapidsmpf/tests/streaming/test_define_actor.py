@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING
 
 import pylibcudf as plc
 import pytest
+from cudf_streaming.streaming.table_chunk import TableChunk
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 
 cudf = pytest.importorskip("cudf")

@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pylibcudf as plc
 import pytest
+from cudf_streaming.integrations.partition import unpack_and_concat
 from pylibcudf.contiguous_split import pack
 
 from rapidsmpf.coll import AllGather
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.testing import assert_eq

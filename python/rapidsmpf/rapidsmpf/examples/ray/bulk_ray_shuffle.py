@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING
 
 import pylibcudf as plc
 import ray
-
-import rmm.mr
-
-from rapidsmpf.integrations.cudf.partition import (
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+
+import rmm.mr
+
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
