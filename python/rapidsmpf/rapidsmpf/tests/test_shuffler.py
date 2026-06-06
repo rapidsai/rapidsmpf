@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pylibcudf as plc
 import pytest
+
+pytest.importorskip("cudf_streaming")
 from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,

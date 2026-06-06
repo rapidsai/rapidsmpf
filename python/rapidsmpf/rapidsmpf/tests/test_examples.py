@@ -9,6 +9,8 @@ import numpy as np
 import pylibcudf as plc
 import pytest
 
+pytest.importorskip("cudf_streaming")
+
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
 

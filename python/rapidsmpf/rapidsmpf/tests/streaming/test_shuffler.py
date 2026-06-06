@@ -9,6 +9,8 @@ import cupy as cp
 import numpy as np
 import pylibcudf as plc
 import pytest
+
+pytest.importorskip("cudf_streaming")
 from cudf_streaming.integrations.partition import split_and_pack, unpack_and_concat
 from cudf_streaming.streaming.partition import (
     partition_and_pack,

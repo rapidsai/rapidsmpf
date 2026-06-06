@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import pylibcudf as plc
 import pytest
+
+pytest.importorskip("cudf_streaming")
 from cudf_streaming.streaming.table_chunk import TableChunk
 
 from rapidsmpf.streaming.core.actor import run_actor_network
