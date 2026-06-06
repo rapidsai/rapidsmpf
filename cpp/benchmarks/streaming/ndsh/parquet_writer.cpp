@@ -11,11 +11,11 @@
 
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 
@@ -30,7 +30,8 @@ rapidsmpf::streaming::Actor write_parquet(
     auto builder = cudf::io::chunked_parquet_writer_options::builder(sink);
     auto msg = co_await ch_in->receive();
     RAPIDSMPF_EXPECTS(!msg.empty(), "Writing from empty channel not supported");
-    auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
+    auto chunk =
+        co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(ctx);
     auto table = chunk.table_view();
     auto metadata = cudf::io::table_input_metadata(table);
     CudaEvent event;
@@ -51,7 +52,10 @@ rapidsmpf::streaming::Actor write_parquet(
         if (msg.empty()) {
             break;
         }
-        chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
+        chunk =
+            co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(
+                ctx
+            );
         table = chunk.table_view();
         RAPIDSMPF_EXPECTS(
             static_cast<std::size_t>(table.num_columns()) == column_names.size(),

@@ -10,6 +10,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cudf_streaming/streaming/table_chunk.hpp>
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
@@ -21,7 +22,6 @@
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
@@ -48,15 +48,17 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     {
         std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
-            inputs.emplace_back(to_message(
-                i,
-                std::make_unique<TableChunk>(
-                    std::make_unique<cudf::table>(
-                        expects[i], stream, ctx->br()->device_mr()
-                    ),
-                    stream
+            inputs.emplace_back(
+                cudf_streaming::streaming::to_message(
+                    i,
+                    std::make_unique<cudf_streaming::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(
+                            expects[i], stream, ctx->br()->device_mr()
+                        ),
+                        stream
+                    )
                 )
-            ));
+            );
         }
 
         actors.push_back(actor::push_to_channel(ctx, ch1, std::move(inputs)));
@@ -71,7 +73,8 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     for (std::size_t i = 0; i < expects.size(); ++i) {
         EXPECT_EQ(outputs[i].sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            outputs[i].get<TableChunk>().table_view(), expects[i].view()
+            outputs[i].get<cudf_streaming::streaming::TableChunk>().table_view(),
+            expects[i].view()
         );
     }
 }

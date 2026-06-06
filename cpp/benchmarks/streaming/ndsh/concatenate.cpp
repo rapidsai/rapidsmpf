@@ -11,13 +11,13 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 
@@ -43,9 +43,9 @@ streaming::Actor concatenate(
     }
     if (messages.size() == 0) {
         co_await ch_out->send(
-            streaming::to_message(
+            cudf_streaming::streaming::to_message(
                 0,
-                std::make_unique<streaming::TableChunk>(
+                std::make_unique<cudf_streaming::streaming::TableChunk>(
                     std::make_unique<cudf::table>(), concat_stream
                 )
             )
@@ -53,7 +53,7 @@ streaming::Actor concatenate(
     } else if (messages.size() == 1) {
         co_await ch_out->send(std::move(messages[0]));
     } else {
-        std::vector<streaming::TableChunk> chunks;
+        std::vector<cudf_streaming::streaming::TableChunk> chunks;
         std::vector<cudf::table_view> views;
         if (order == ConcatOrder::LINEARIZE) {
             std::ranges::sort(messages, std::less{}, [](auto&& msg) {
@@ -63,13 +63,13 @@ streaming::Actor concatenate(
         chunks.reserve(messages.size());
         views.reserve(messages.size());
         for (auto&& msg : messages) {
-            auto chunk =
-                co_await msg.release<streaming::TableChunk>().make_available(ctx);
+            auto chunk = co_await msg.release<cudf_streaming::streaming::TableChunk>()
+                             .make_available(ctx);
             cuda_stream_join(concat_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
         }
-        auto result = std::make_unique<streaming::TableChunk>(
+        auto result = std::make_unique<cudf_streaming::streaming::TableChunk>(
             cudf::concatenate(views, concat_stream, ctx->br()->device_mr()), concat_stream
         );
         cuda_stream_join(
@@ -78,7 +78,9 @@ streaming::Actor concatenate(
             &event
         );
         chunks.clear();
-        co_await ch_out->send(streaming::to_message(0, std::move(result)));
+        co_await ch_out->send(
+            cudf_streaming::streaming::to_message(0, std::move(result))
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }

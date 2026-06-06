@@ -320,7 +320,7 @@ rapidsmpf::Duration do_run(
         for (auto finished_partition : shuffler.local_partitions()) {
             auto packed_chunks = shuffler.extract(finished_partition);
             auto output_partition = cudf_streaming::integrations::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
+                cudf_streaming::integrations::unspill_partitions(
                     std::move(packed_chunks), br, rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,

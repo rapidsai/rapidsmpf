@@ -23,6 +23,8 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/timestamps.hpp>
+#include <cudf_streaming/streaming/parquet.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
@@ -31,8 +33,6 @@
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/parquet.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "concatenate.hpp"
@@ -80,7 +80,7 @@ rapidsmpf::streaming::Actor read_lineitem(
                    : rapidsmpf::ndsh::make_date_filter<cudf::timestamp_ms>(
                          stream, date, "l_shipdate", cudf::ast::ast_operator::LESS_EQUAL
                      );
-    return rapidsmpf::streaming::actor::read_parquet(
+    return cudf_streaming::streaming::actor::read_parquet(
         ctx,
         comm,
         ch_out,
@@ -134,7 +134,7 @@ rapidsmpf::streaming::Actor postprocess_group_by(
         (co_await ch_in->receive()).empty(), "Expecting concatenated input at this point"
     );
     auto chunk =
-        co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
+        co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(ctx);
     auto stream = chunk.stream();
     auto columns =
         cudf::table{chunk.table_view(), stream, ctx->br()->device_mr()}.release();
@@ -167,9 +167,9 @@ rapidsmpf::streaming::Actor postprocess_group_by(
     );
     columns.push_back(std::move(count));
     co_await ch_out->send(
-        rapidsmpf::streaming::to_message(
+        cudf_streaming::streaming::to_message(
             msg.sequence_number(),
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
+            std::make_unique<cudf_streaming::streaming::TableChunk>(
                 std::make_unique<cudf::table>(std::move(columns)), stream
             )
         )
@@ -197,7 +197,9 @@ rapidsmpf::streaming::Actor select_columns_for_groupby(
             break;
         }
         auto chunk =
-            co_await msg.release<rapidsmpf::streaming::TableChunk>().make_available(ctx);
+            co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(
+                ctx
+            );
         auto chunk_stream = chunk.stream();
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
@@ -257,9 +259,9 @@ static __device__ void calculate_charge(double *charge, double discprice, double
             std::make_unique<cudf::column>(discount, chunk_stream, ctx->br()->device_mr())
         );
         co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
+            cudf_streaming::streaming::to_message(
                 sequence_number,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                std::make_unique<cudf_streaming::streaming::TableChunk>(
                     std::make_unique<cudf::table>(std::move(result)), chunk_stream
                 )
             )

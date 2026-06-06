@@ -158,7 +158,7 @@
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
-        <func>rapidsmpf::streaming::TableChunk::spill_to_host</func>
+        <func>cudf_streaming::streaming::TableChunk::spill_to_host</func>
         <path>.*/streaming/cudf/table_chunk.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>

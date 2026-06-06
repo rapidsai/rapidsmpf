@@ -115,7 +115,9 @@ if(BUILD_CUDF_TESTS)
   target_sources(
     test_sources PRIVATE test_partition.cpp test_shuffler.cpp test_shuffler_many_streams.cpp
   )
-  target_link_libraries(test_sources PRIVATE cudf_streaming::cudf_streaming cudf::cudftestutil)
+  target_link_libraries(
+    test_sources PRIVATE cudf_streaming::cudf_streaming cudf::cudftestutil cudf::cudftestutil_impl
+  )
   target_compile_definitions(test_sources PRIVATE RAPIDSMPF_HAVE_CUDF)
 
   if(RAPIDSMPF_HAVE_STREAMING)
