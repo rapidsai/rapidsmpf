@@ -79,7 +79,6 @@ default_role = "any"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
 }
 

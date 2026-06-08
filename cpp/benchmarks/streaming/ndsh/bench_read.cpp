@@ -20,6 +20,7 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/types.hpp>
+#include <cudf_streaming/streaming/parquet.hpp>
 #include <rmm/detail/format.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 
@@ -31,7 +32,6 @@
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
-#include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -56,7 +56,7 @@ rapidsmpf::streaming::Actor read_parquet(
     if (columns.has_value()) {
         options.set_column_names(*columns);
     }
-    return rapidsmpf::streaming::actor::read_parquet(
+    return cudf_streaming::streaming::actor::read_parquet(
         ctx, comm, ch_out, num_producers, options, num_rows_per_chunk
     );
 }
@@ -75,8 +75,8 @@ rapidsmpf::streaming::Actor consume_channel_parallel(
             if (msg.empty()) {
                 break;
             }
-            if (msg.holds<rapidsmpf::streaming::TableChunk>()) {
-                auto chunk = co_await msg.release<rapidsmpf::streaming::TableChunk>()
+            if (msg.holds<cudf_streaming::streaming::TableChunk>()) {
+                auto chunk = co_await msg.release<cudf_streaming::streaming::TableChunk>()
                                  .make_available(ctx);
                 ctx->logger()->print(
                     "Consumed chunk with ",

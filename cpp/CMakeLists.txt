@@ -54,6 +54,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
+option(BUILD_CUDF_TESTS "Build tests/benchmarks that require cudf" OFF)
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -69,6 +70,7 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
+message(STATUS "  BUILD_CUDF_TESTS        : ${BUILD_CUDF_TESTS}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
@@ -130,7 +132,6 @@ rapids_find_package(
 
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cudf.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 
@@ -167,6 +168,10 @@ if(BUILD_SLURM_SUPPORT)
   endif()
 endif()
 
+if(BUILD_CUDF_TESTS)
+  include(../cmake/thirdparty/get_cudf_streaming.cmake)
+endif()
+
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
@@ -193,9 +198,6 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
-  src/integrations/cudf/bloom_filter.cu
-  src/integrations/cudf/partition.cpp
-  src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
@@ -236,11 +238,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/leaf_actor.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/spillable_messages.cpp
-            src/streaming/cudf/bloom_filter.cpp
-            src/streaming/cudf/partition.cpp
-            src/streaming/cudf/parquet.cpp
-            src/streaming/cudf/table_chunk.cpp
-            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -314,8 +311,8 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro> CUDA::cudart_static
+  PUBLIC rmm::rmm CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+         CUDA::cudart_static
   PRIVATE cuco::cuco
           cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
@@ -342,7 +339,13 @@ target_compile_definitions(
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
-add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+# Guard: when BUILD_CUDF_TESTS is enabled, cudf_streaming is fetched via CPM and its own
+# cmake/thirdparty/get_rapidsmpf.cmake calls rapids_cpm_find(rapidsmpf ...) which creates this alias
+# target. Without the guard we get "cannot create ALIAS target because another target with the same
+# name already exists" due to the circular dependency (rapidsmpf -> cudf_streaming -> rapidsmpf).
+if(NOT TARGET rapidsmpf::rapidsmpf)
+  add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+endif()
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------

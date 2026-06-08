@@ -46,7 +46,6 @@ export RAPIDS_PY_API
 ./ci/build_wheel.sh "${package_name}" "${package_dir}" --stable
 
 python -m auditwheel repair \
-    --exclude libcudf.so \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \

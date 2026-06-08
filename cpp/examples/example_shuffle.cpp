@@ -8,9 +8,10 @@
 #include <mpi.h>
 #include <unistd.h>
 
+#include <cudf_streaming/integrations/partition.hpp>
+
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -76,7 +77,7 @@ int main(int argc, char** argv) {
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
-        rapidsmpf::partition_and_pack(
+        cudf_streaming::integrations::partition_and_pack(
             local_input,
             {0},  // columns_to_hash
             static_cast<int>(total_num_partitions),
@@ -110,8 +111,8 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
+            cudf_streaming::integrations::unpack_and_concat(
+                cudf_streaming::integrations::unspill_partitions(
                     std::move(packed_chunks), br.get(), rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,

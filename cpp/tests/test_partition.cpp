@@ -9,13 +9,13 @@
 
 #include <cudf/contiguous_split.hpp>
 #include <cudf/utilities/traits.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
+#include <cudf_streaming/integrations/utils.hpp>
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/integrations/cudf/partition.hpp>
-#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -25,6 +25,7 @@
 #include "utils.hpp"
 
 using namespace rapidsmpf;
+using namespace cudf_streaming::integrations;
 
 class NumOfPartitions : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {};
 
@@ -49,7 +50,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
-    auto chunks = rapidsmpf::partition_and_pack(
+    auto chunks = cudf_streaming::integrations::partition_and_pack(
         expect, {1}, num_partitions, hash_fn, seed, stream, br.get()
     );
 
@@ -60,8 +61,9 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, br.get());
+    auto result = cudf_streaming::integrations::unpack_and_concat(
+        std::move(chunks_vector), stream, br.get()
+    );
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -82,7 +84,8 @@ TEST_P(NumOfPartitions, split_and_pack) {
         splits.emplace_back(i * num_rows / num_partitions);
     }
 
-    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, br.get());
+    auto chunks =
+        cudf_streaming::integrations::split_and_pack(expect, splits, stream, br.get());
 
     // Convert to a vector (restoring the original order).
     std::vector<rapidsmpf::PackedData> chunks_vector;
@@ -91,8 +94,9 @@ TEST_P(NumOfPartitions, split_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, br.get());
+    auto result = cudf_streaming::integrations::unpack_and_concat(
+        std::move(chunks_vector), stream, br.get()
+    );
 
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
@@ -118,13 +122,16 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     input.push_back(create_packed_data(metadata, payload, stream, br.get()));
 
     // Device -> Device (moves data)
-    auto on_gpu = unspill_partitions(std::move(input), br.get(), AllowOverbooking::YES);
+    auto on_gpu = cudf_streaming::integrations::unspill_partitions(
+        std::move(input), br.get(), AllowOverbooking::YES
+    );
     ASSERT_EQ(on_gpu.size(), 1);
     EXPECT_EQ(on_gpu[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
     EXPECT_EQ(*on_gpu[0].metadata, metadata);
 
     // Device -> Host
-    auto back_on_host = spill_partitions(std::move(on_gpu), br.get());
+    auto back_on_host =
+        cudf_streaming::integrations::spill_partitions(std::move(on_gpu), br.get());
     ASSERT_EQ(back_on_host.size(), 1);
     EXPECT_EQ(back_on_host[0].data->mem_type(), rapidsmpf::MemoryType::HOST);
     EXPECT_EQ(*back_on_host[0].metadata, metadata);

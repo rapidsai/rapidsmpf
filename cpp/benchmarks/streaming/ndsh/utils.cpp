@@ -18,6 +18,7 @@
 
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/parquet_metadata.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -35,7 +36,6 @@
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 namespace detail {
@@ -114,9 +114,9 @@ streaming::Actor consume_channel(
         if (msg.empty()) {
             break;
         }
-        if (msg.holds<streaming::TableChunk>()) {
-            auto chunk =
-                co_await msg.release<streaming::TableChunk>().make_available(ctx);
+        if (msg.holds<cudf_streaming::streaming::TableChunk>()) {
+            auto chunk = co_await msg.release<cudf_streaming::streaming::TableChunk>()
+                             .make_available(ctx);
             ctx->logger()->print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),

@@ -29,7 +29,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" --no-clang-tidy librapidsmpf
+        ./build.sh -v -n --cmake-args="\"-DBUILD_CUPTI_SUPPORT=ON -DBUILD_CUDF_TESTS=ON\"" --no-clang-tidy librapidsmpf
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -77,8 +77,9 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
-      - libcudf =${{ minor_version }}
       - libnuma
+      - libcudf =${{ minor_version }}
+      - libcudf-streaming =${{ minor_version }}
       - libpmix-devel >=5.0,<6.0
       - librmm =${{ minor_version }}
       - libucxx ${{ ucxx_version }}
@@ -92,7 +93,6 @@ outputs:
       script:
         content: |
           cmake --install cpp/build
-          cmake --install cpp/build --component=benchmarking
           cmake --install cpp/build --component=tools
       dynamic_linking:
         overlinking_behavior: "error"
@@ -102,7 +102,6 @@ outputs:
         ignore:
           # See https://github.com/rapidsai/build-planning/issues/160
           - lib/librapidsmpf.so
-          - lib/librapidsmpfndsh.so
       string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
     requirements:
       build:
@@ -114,15 +113,14 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cuda-cupti-dev
         - cuda-nvml-dev
-        - libcudf =${{ minor_version }}
         - libpmix-devel >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
+        - libnuma
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
         - librmm =${{ minor_version }}
-        - libcudf =${{ minor_version }}
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -135,8 +133,9 @@ outputs:
         by_name:
           - cuda-cupti
           - libcudf
-          - openmpi
+          - libcudf-streaming
           - librmm
+          - openmpi
     about:
       homepage: https://github.com/rapidsai/rapidsmpf
       license: Apache-2.0
@@ -148,7 +147,8 @@ outputs:
     build:
       script:
         content: |
-          cmake --install cpp/build --component testing
+          cmake --install cpp/build --component=testing
+          cmake --install cpp/build --component=benchmarking
       string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
     requirements:
       build:
@@ -161,14 +161,17 @@ outputs:
         - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
+        - libcudf-streaming =${{ minor_version }}
         - librmm =${{ minor_version }}
         - openmpi >=5.0
+        - libnuma
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
-        - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
+        - libcudf-streaming =${{ minor_version }}
+        - librmm =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - libucxx ${{ ucxx_version }}
       ignore_run_exports:
@@ -180,7 +183,6 @@ outputs:
         by_name:
           - cuda-cupti
           - librmm
-          - libcudf
           - openmpi
     about:
       homepage: https://github.com/rapidsai/rapidsmpf

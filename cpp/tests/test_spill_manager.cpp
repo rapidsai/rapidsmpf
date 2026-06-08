@@ -6,11 +6,8 @@
 
 #include <gtest/gtest.h>
 
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
-#include <cudf_test/table_utilities.hpp>
 #include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -29,7 +26,7 @@ TEST(SpillManager, SpillFunction) {
     // currently configured limit.
     std::int64_t mem_available = 10_KiB;
     auto br = BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, mem_available}}
     );

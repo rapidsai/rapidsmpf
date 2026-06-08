@@ -7,18 +7,18 @@
 #include <gtest/gtest.h>
 
 #include <cudf/copying.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
+#include <cudf_streaming/streaming/partition.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
-#include <rapidsmpf/streaming/cudf/partition.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
@@ -76,23 +76,25 @@ class StreamingShuffler : public BaseStreamingShuffle,
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<Message> input_chunks;
         for (unsigned int i = 0; i < num_chunks; ++i) {
-            input_chunks.emplace_back(to_message(
-                i,
-                std::make_unique<TableChunk>(
-                    std::make_unique<cudf::table>(
-                        cudf::slice(
-                            full_input_table,
-                            {static_cast<cudf::size_type>(i * chunk_size),
-                             static_cast<cudf::size_type>((i + 1) * chunk_size)},
-                            stream
-                        )
-                            .at(0),
-                        stream,
-                        ctx->br()->device_mr()
-                    ),
-                    stream
+            input_chunks.emplace_back(
+                cudf_streaming::streaming::to_message(
+                    i,
+                    std::make_unique<cudf_streaming::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(
+                            cudf::slice(
+                                full_input_table,
+                                {static_cast<cudf::size_type>(i * chunk_size),
+                                 static_cast<cudf::size_type>((i + 1) * chunk_size)},
+                                stream
+                            )
+                                .at(0),
+                            stream,
+                            ctx->br()->device_mr()
+                        ),
+                        stream
+                    )
                 )
-            ));
+            );
         }
 
         // Create and run the streaming pipeline.
@@ -104,7 +106,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
 
             auto ch2 = ctx->create_channel();
             actors.push_back(
-                actor::partition_and_pack(
+                cudf_streaming::streaming::actor::partition_and_pack(
                     ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
                 )
             );
@@ -113,7 +115,9 @@ class StreamingShuffler : public BaseStreamingShuffle,
             actors.emplace_back(make_shuffler_actor_fn(ch2, ch3));
 
             auto ch4 = ctx->create_channel();
-            actors.push_back(actor::unpack_and_concat(ctx, ch3, ch4));
+            actors.push_back(
+                cudf_streaming::streaming::actor::unpack_and_concat(ctx, ch3, ch4)
+            );
 
             actors.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
 
@@ -150,7 +154,9 @@ class StreamingShuffler : public BaseStreamingShuffle,
         // Concat all output chunks to a single table.
         std::vector<cudf::table_view> output_chunks_as_views;
         for (auto& chunk : output_chunks) {
-            output_chunks_as_views.push_back(chunk.get<TableChunk>().table_view());
+            output_chunks_as_views.push_back(
+                chunk.get<cudf_streaming::streaming::TableChunk>().table_view()
+            );
         }
         auto result_table = cudf::concatenate(output_chunks_as_views);
 

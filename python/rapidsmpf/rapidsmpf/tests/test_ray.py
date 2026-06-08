@@ -14,6 +14,7 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 import pytest
 
 ray = pytest.importorskip("ray")
+cudf = pytest.importorskip("cudf")
 
 if TYPE_CHECKING:
     from collections.abc import Generator
