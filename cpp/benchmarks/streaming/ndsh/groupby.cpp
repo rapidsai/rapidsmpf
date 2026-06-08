@@ -12,11 +12,11 @@
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/types.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 
@@ -35,7 +35,10 @@ streaming::Actor chunkwise_group_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
+        auto chunk =
+            co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(
+                ctx
+            );
         auto stream = chunk.stream();
         auto table = chunk.table_view();
         auto agg_requests = std::vector<cudf::groupby::aggregation_request>();
@@ -62,9 +65,9 @@ streaming::Actor chunkwise_group_by(
             std::ranges::move(a.results, std::back_inserter(result));
         }
         co_await ch_out->send(
-            streaming::to_message(
+            cudf_streaming::streaming::to_message(
                 msg.sequence_number(),
-                std::make_unique<streaming::TableChunk>(
+                std::make_unique<cudf_streaming::streaming::TableChunk>(
                     std::make_unique<cudf::table>(std::move(result)), stream
                 )
             )

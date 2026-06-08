@@ -5,20 +5,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pylibcudf as plc
 import pytest
 
-import pylibcudf as plc
-from rmm.pylibrmm.stream import DEFAULT_STREAM
-
-from rapidsmpf.integrations.cudf.partition import (
+pytest.importorskip("cudf_streaming")
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     spill_partitions,
     split_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+
+from rmm.pylibrmm.stream import DEFAULT_STREAM
+
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
+
+cudf = pytest.importorskip("cudf")
 
 if TYPE_CHECKING:
     import rmm.mr

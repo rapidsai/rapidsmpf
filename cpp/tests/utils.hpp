@@ -4,10 +4,12 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -21,10 +23,14 @@
 
 #include <cuda/memory_resource>
 
+#ifdef RAPIDSMPF_HAVE_CUDF
+#include <cudf/copying.hpp>
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#endif  // RAPIDSMPF_HAVE_CUDF
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -99,15 +105,6 @@ template <typename T>
 }
 
 template <typename T>
-[[nodiscard]] inline std::unique_ptr<cudf::column> iota_column(
-    std::size_t nrows, T start = 0
-) {
-    std::vector<T> vec = iota_vector(nrows, start);
-    cudf::test::fixed_width_column_wrapper<T> ret(vec.begin(), vec.end());
-    return ret.release();
-}
-
-template <std::integral T = std::int64_t>
 [[nodiscard]] inline std::vector<T> random_vector(
     std::int64_t seed,
     std::size_t nelem,
@@ -119,6 +116,16 @@ template <std::integral T = std::int64_t>
     std::vector<T> ret(nelem);
     std::generate(ret.begin(), ret.end(), [&]() { return dist(rng); });
     return ret;
+}
+
+#ifdef RAPIDSMPF_HAVE_CUDF
+template <typename T>
+[[nodiscard]] inline std::unique_ptr<cudf::column> iota_column(
+    std::size_t nrows, T start = 0
+) {
+    std::vector<T> vec = iota_vector(nrows, start);
+    cudf::test::fixed_width_column_wrapper<T> ret(vec.begin(), vec.end());
+    return ret.release();
 }
 
 [[nodiscard]] inline std::unique_ptr<cudf::column> random_column(
@@ -160,6 +167,7 @@ template <std::integral T = std::int64_t>
 ) {
     return sort_table(table->view(), column_indices);
 }
+#endif  // RAPIDSMPF_HAVE_CUDF
 
 /// @brief Create a PackedData object from a host buffer
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(

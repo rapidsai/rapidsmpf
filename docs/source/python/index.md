@@ -17,8 +17,6 @@ frameworks.
 The Python API includes ready-to-use integrations with:
 
 - **Ray** (`rapidsmpf.integrations.ray`) — use RapidsMPF within Ray tasks and actors.
-- **cuDF** (`rapidsmpf.integrations.cudf`) — partition and pack/unpack cuDF tables for
-  use with the Shuffler.
 
 ```{toctree}
 ---

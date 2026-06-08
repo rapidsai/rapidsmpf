@@ -12,12 +12,12 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 // Helper function to create a table with a single int column
@@ -69,7 +69,7 @@ static void BM_PartitionAndPack(benchmark::State& state) {
     std::vector<cudf::size_type> columns_to_hash{0};
 
     for (auto _ : state) {
-        auto pack_partitions = rapidsmpf::partition_and_pack(
+        auto pack_partitions = cudf_streaming::integrations::partition_and_pack(
             *table,
             columns_to_hash,
             num_partitions,
@@ -121,7 +121,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
 
     for (auto _ : state) {
         for (int i = 0; i < num_partitions; i++) {
-            auto pack_partitions = rapidsmpf::partition_and_pack(
+            auto pack_partitions = cudf_streaming::integrations::partition_and_pack(
                 *table,
                 columns_to_hash,
                 total_npartitions,

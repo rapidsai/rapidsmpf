@@ -10,6 +10,10 @@
 #include <mpi.h>
 #include <unistd.h>
 
+#include <cudf_streaming/integrations/partition.hpp>
+#include <cudf_streaming/streaming/partition.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
+
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/bootstrap/utils.hpp>
@@ -18,7 +22,6 @@
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -26,8 +29,6 @@
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/partition.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -281,7 +282,7 @@ rapidsmpf::Duration run(
         );
         auto ch2 = ctx->create_channel();
         actors.push_back(
-            rapidsmpf::streaming::actor::partition_and_pack(
+            cudf_streaming::streaming::actor::partition_and_pack(
                 ctx,
                 ch1,
                 ch2,
@@ -298,7 +299,9 @@ rapidsmpf::Duration run(
             )
         );
         auto ch4 = ctx->create_channel();
-        actors.push_back(rapidsmpf::streaming::actor::unpack_and_concat(ctx, ch3, ch4));
+        actors.push_back(
+            cudf_streaming::streaming::actor::unpack_and_concat(ctx, ch3, ch4)
+        );
         actors.push_back(consumer(ctx, ch4));
     }
     auto const t0_elapsed = rapidsmpf::Clock::now();

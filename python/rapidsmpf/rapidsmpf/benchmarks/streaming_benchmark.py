@@ -10,11 +10,11 @@ import time
 from typing import TYPE_CHECKING
 
 import cupy as cp
-from mpi4py import MPI
-
 import pylibcudf as plc
-import rmm.mr
+from mpi4py import MPI
 from pylibcudf.contiguous_split import pack
+
+import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.bootstrap
@@ -159,7 +159,7 @@ def streaming_shuffle(
         # NOTE: This will require part_size amount of GPU memory.
         chunks: dict[int, PackedData] = {}
         for i in range(output_nparts):
-            chunks[i] = PackedData.from_cudf_packed_columns(
+            chunks[i] = PackedData.from_cudf_packed_columns(  # type: ignore[attr-defined]
                 pack(dummy_table), DEFAULT_STREAM, br
             )
 

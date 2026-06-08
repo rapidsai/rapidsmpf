@@ -6,20 +6,23 @@ import math
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pylibcudf as plc
 import pytest
 
-import pylibcudf as plc
-
-from rapidsmpf.integrations.cudf.partition import (
+pytest.importorskip("cudf_streaming")
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import (
     Shuffler,
 )
 from rapidsmpf.testing import assert_eq
+
+cudf = pytest.importorskip("cudf")
 
 if TYPE_CHECKING:
     import rmm.mr

@@ -10,20 +10,20 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pylibcudf as plc
+from cudf_streaming.integrations.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+    unspill_partitions,
+)
 from mpi4py import MPI
 
-import pylibcudf as plc
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.bootstrap
 import rapidsmpf.communicator.mpi
 from rapidsmpf.config import Options, get_environment_variables
-from rapidsmpf.integrations.cudf.partition import (
-    partition_and_pack,
-    unpack_and_concat,
-    unspill_partitions,
-)
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread

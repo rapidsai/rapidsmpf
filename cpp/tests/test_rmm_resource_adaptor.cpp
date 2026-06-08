@@ -17,6 +17,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -220,7 +221,7 @@ TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
 }
 
 TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
 
     mr.begin_scoped_memory_record();
     auto scope = mr.end_scoped_memory_record();
@@ -231,7 +232,7 @@ TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
 
     mr.begin_scoped_memory_record();
     void* p = mr.allocate_sync(1_MiB);
@@ -246,7 +247,7 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -272,7 +273,7 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -299,7 +300,7 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
 
     // Allocate in outer scope
     mr.begin_scoped_memory_record();  // Outer
@@ -327,7 +328,7 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
     constexpr int num_allocs_per_thread = 8;
     constexpr std::size_t alloc_size = 1_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     std::vector<std::thread> threads;
     std::vector<std::vector<void*>> allocations(num_threads);
     std::vector<rapidsmpf::ScopedMemoryRecord> records(num_threads);
@@ -396,7 +397,7 @@ TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
     constexpr std::size_t outer_alloc_size = 1_MiB;
     constexpr std::size_t inner_alloc_size = 2_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     void* outer_alloc = nullptr;
     void* inner_alloc = nullptr;
     rapidsmpf::ScopedMemoryRecord inner_record;

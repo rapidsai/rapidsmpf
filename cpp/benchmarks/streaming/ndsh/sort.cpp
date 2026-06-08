@@ -11,10 +11,10 @@
 
 #include <cudf/sorting.hpp>
 #include <cudf/types.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::ndsh {
 
@@ -29,7 +29,7 @@ rapidsmpf::streaming::Actor chunkwise_sort_by(
 ) {
     streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    auto make_table = [&](streaming::TableChunk& chunk) {
+    auto make_table = [&](cudf_streaming::streaming::TableChunk& chunk) {
         if (std::ranges::equal(keys, values)) {
             return cudf::sort(
                 chunk.table_view().select(keys),
@@ -54,10 +54,15 @@ rapidsmpf::streaming::Actor chunkwise_sort_by(
         if (msg.empty()) {
             break;
         }
-        auto chunk = co_await msg.release<streaming::TableChunk>().make_available(ctx);
+        auto chunk =
+            co_await msg.release<cudf_streaming::streaming::TableChunk>().make_available(
+                ctx
+            );
         co_await ch_out->send(to_message(
             msg.sequence_number(),
-            std::make_unique<streaming::TableChunk>(make_table(chunk), chunk.stream())
+            std::make_unique<cudf_streaming::streaming::TableChunk>(
+                make_table(chunk), chunk.stream()
+            )
         ));
     }
     co_await ch_out->drain(ctx->executor());

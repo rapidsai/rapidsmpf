@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pylibcudf
+
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 if TYPE_CHECKING:

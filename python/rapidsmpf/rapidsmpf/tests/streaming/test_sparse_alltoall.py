@@ -7,14 +7,17 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pylibcudf as plc
 import pytest
 
-import pylibcudf as plc
+pytest.importorskip("cudf_streaming")
+from cudf_streaming.integrations.partition import unpack_and_concat
 
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.coll.sparse_alltoall import SparseAlltoall
 from rapidsmpf.testing import assert_eq
+
+cudf = pytest.importorskip("cudf")
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
@@ -24,7 +27,7 @@ if TYPE_CHECKING:
 def make_packed_data(context: Context, values: np.ndarray) -> PackedData:
     stream = context.get_stream_from_pool()
     table = plc.Table([plc.Column.from_array(values, stream=stream)])
-    return PackedData.from_cudf_packed_columns(
+    return PackedData.from_cudf_packed_columns(  # type: ignore[attr-defined, no-any-return]
         plc.contiguous_split.pack(table, stream=stream),
         stream,
         context.br(),

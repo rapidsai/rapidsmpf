@@ -9,13 +9,13 @@
 #include <gtest/gtest.h>
 
 #include <cudf/utilities/memory_resource.hpp>
+#include <cudf_streaming/integrations/partition.hpp>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "environment.hpp"

@@ -25,7 +25,6 @@ add_subdirectory(bootstrap)
 add_subdirectory(coll)
 add_subdirectory(memory)
 add_subdirectory(communicator)
-add_subdirectory(integrations/cudf)
 add_subdirectory(rrun)
 add_subdirectory(utils)
 
