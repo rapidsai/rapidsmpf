@@ -206,6 +206,7 @@ add_library(
   src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cpp
   src/memory/scoped_memory_record.cpp
+  src/memory/spill.cpp
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp

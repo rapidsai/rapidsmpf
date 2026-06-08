@@ -11,10 +11,8 @@ import pytest
 pytest.importorskip("cudf_streaming")
 from cudf_streaming.integrations.partition import (
     partition_and_pack,
-    spill_partitions,
     split_and_pack,
     unpack_and_concat,
-    unspill_partitions,
 )
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -107,31 +105,3 @@ def test_split_and_pack_unpack_out_of_range(
             br=br,
             stream=DEFAULT_STREAM,
         )
-
-
-@pytest.mark.parametrize("cols", [[[1, 2, 3], [2, 2, 1]], [[], []]])
-@pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
-def test_spill_unspill_roundtrip(
-    device_mr: rmm.mr.CudaMemoryResource, cols: list[list[int]], num_partitions: int
-) -> None:
-    br = BufferResource(device_mr)
-    expect = _make_table(cols)
-    partitions = partition_and_pack(
-        expect,
-        columns_to_hash=(1,),
-        num_partitions=num_partitions,
-        br=br,
-        stream=DEFAULT_STREAM,
-    )
-
-    # Spill roundtrip
-    spilled = spill_partitions(partitions.values(), br=br)
-    unspilled = unspill_partitions(spilled, br=br, allow_overbooking=False)
-
-    got = unpack_and_concat(
-        unspilled,
-        br=br,
-        stream=DEFAULT_STREAM,
-    )
-    # Since the row order isn't preserved, we sort the rows by the first column.
-    assert_eq(expect, got, sort_rows=0)

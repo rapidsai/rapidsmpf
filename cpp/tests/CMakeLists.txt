@@ -88,6 +88,7 @@ target_sources(
           test_rmm_resource_adaptor.cpp
           test_sparse_alltoall.cpp
           test_spill_manager.cpp
+          test_spilling.cpp
           test_statistics.cpp
           test_stream_ordered_timing.cpp
           test_system_info.cpp
