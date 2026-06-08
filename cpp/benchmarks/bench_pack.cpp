@@ -8,16 +8,15 @@
 
 #include <benchmark/benchmark.h>
 
+#include <cudf/contiguous_split.hpp>
+#include <cudf/table/table.hpp>
+#include <cudf/types.hpp>
+#include <cudf/utilities/span.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
-
-#include <cudf/contiguous_split.hpp>
-#include <cudf/table/table.hpp>
-#include <cudf/types.hpp>
-#include <cudf/utilities/span.hpp>
 
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>

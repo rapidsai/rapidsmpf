@@ -11,8 +11,6 @@
 #include <cuda_runtime_api.h>
 #include <mpi.h>
 
-#include <rmm/mr/cuda_async_memory_resource.hpp>
-
 #include <cudf/aggregation.hpp>
 #include <cudf/ast/expressions.hpp>
 #include <cudf/binaryop.hpp>
@@ -25,6 +23,7 @@
 #include <cudf/wrappers/timestamps.hpp>
 #include <cudf_streaming/streaming/parquet.hpp>
 #include <cudf_streaming/streaming/table_chunk.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>

@@ -8,16 +8,15 @@
 
 #include <benchmark/benchmark.h>
 
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_buffer.hpp>
-#include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/mr/pool_memory_resource.hpp>
-
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 #include <cudf_streaming/integrations/partition.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
 
 #include <rapidsmpf/utils/misc.hpp>
 

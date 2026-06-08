@@ -10,12 +10,11 @@
 #include <thrust/random.h>
 #include <thrust/transform.h>
 
+#include <cudf/types.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
-
-#include <cudf/types.hpp>
 
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/utils/misc.hpp>

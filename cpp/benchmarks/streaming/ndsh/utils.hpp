@@ -16,14 +16,13 @@
 
 #include <cuda/memory_resource>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <cudf/ast/expressions.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 #include <cudf_streaming/streaming/parquet.hpp>
 #include <cudf_streaming/streaming/table_chunk.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>

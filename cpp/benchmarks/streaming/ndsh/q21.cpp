@@ -12,9 +12,6 @@
 
 #include <cuda_runtime_api.h>
 
-#include <rmm/mr/cuda_async_memory_resource.hpp>
-
-#include <coro/when_all.hpp>
 #include <cudf/aggregation.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/context.hpp>
@@ -30,6 +27,9 @@
 #include <cudf_streaming/streaming/bloom_filter.hpp>
 #include <cudf_streaming/streaming/parquet.hpp>
 #include <cudf_streaming/streaming/table_chunk.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+
+#include <coro/when_all.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/nvtx.hpp>

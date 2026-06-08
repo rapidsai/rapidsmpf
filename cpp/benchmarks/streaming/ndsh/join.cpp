@@ -9,8 +9,6 @@
 #include <memory>
 #include <vector>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <cudf/column/column_view.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/contiguous_split.hpp>
@@ -23,6 +21,7 @@
 #include <cudf/utilities/span.hpp>
 #include <cudf_streaming/integrations/partition.hpp>
 #include <cudf_streaming/streaming/table_chunk.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/cuda_event.hpp>

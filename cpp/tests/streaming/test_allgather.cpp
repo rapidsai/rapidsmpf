@@ -10,8 +10,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <coro/latch.hpp>
 #include <cudf_streaming/integrations/partition.hpp>
+
+#include <coro/latch.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>

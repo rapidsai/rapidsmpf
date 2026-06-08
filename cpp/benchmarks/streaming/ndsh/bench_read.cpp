@@ -16,15 +16,15 @@
 #include <cuda_runtime_api.h>
 #include <getopt.h>
 
-#include <rmm/detail/format.hpp>
-#include <rmm/mr/cuda_async_memory_resource.hpp>
-
-#include <coro/when_all.hpp>
 #include <cudf/context.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/types.hpp>
 #include <cudf_streaming/streaming/parquet.hpp>
+#include <rmm/detail/format.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+
+#include <coro/when_all.hpp>
 
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
