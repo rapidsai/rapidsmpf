@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
@@ -17,6 +18,7 @@
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
+#include <numaif.h>
 #endif
 
 #include <cucascade/memory/topology_discovery.hpp>
@@ -100,24 +102,98 @@ bool set_cpu_affinity(std::string const& cpu_affinity_list) {
 }
 
 /**
- * @brief Set NUMA memory binding for the current process.
+ * @brief Result of attempting to apply a NUMA memory policy.
  *
- * @param memory_binding Vector of NUMA node IDs to bind memory to.
- * @return true on success, false on failure or if NUMA is not available.
+ * `applied` means the process memory policy was changed successfully and can be
+ * verified. `unavailable` means binding should be treated as unsupported in the
+ * current OS/container/task context. `failed` means an unexpected error
+ * occurred while applying a policy that should have been usable.
  */
-bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
+enum class numa_binding_status {
+    applied,
+    unavailable,
+    failed
+};
+
 #if RAPIDSMPF_HAVE_NUMA
-    if (memory_binding.empty()) {
+/**
+ * @brief Check whether a NUMA node is present in an allowed-node bitmask.
+ *
+ * @param allowed_nodes Bitmask returned by a memory-policy query.
+ * @param node NUMA node ID to check.
+ * @return true if @p node is non-negative, within the bitmask bounds, and set in
+ * @p allowed_nodes; false otherwise.
+ */
+bool node_is_allowed(struct bitmask const* allowed_nodes, int node) {
+    return node >= 0 && allowed_nodes != nullptr
+           && static_cast<unsigned int>(node) < allowed_nodes->size
+           && numa_bitmask_isbitset(allowed_nodes, static_cast<unsigned int>(node)) != 0;
+}
+
+/**
+ * @brief Check whether all requested NUMA nodes are allowed for this task.
+ *
+ * Queries the kernel's `MPOL_F_MEMS_ALLOWED` mask and verifies that each node in
+ * @p memory_binding is available to the current process. If the query or
+ * bitmask allocation fails, the nodes are treated as unavailable so callers can
+ * skip memory binding instead of attempting an invalid policy.
+ *
+ * @param memory_binding NUMA node IDs requested by topology discovery.
+ * @return true if every requested node is allowed; false otherwise.
+ */
+bool all_nodes_allowed(std::vector<int> const& memory_binding) {
+    struct bitmask* allowed_nodes = numa_allocate_nodemask();
+    if (allowed_nodes == nullptr) {
         return false;
     }
 
-    if (numa_available() == -1) {
+    int mode = 0;
+    errno = 0;
+    long const rc = get_mempolicy(
+        &mode, allowed_nodes->maskp, allowed_nodes->size, nullptr, MPOL_F_MEMS_ALLOWED
+    );
+    if (rc != 0) {
+        numa_free_nodemask(allowed_nodes);
         return false;
+    }
+
+    bool allowed = std::ranges::all_of(memory_binding, [&](int node) {
+        return node_is_allowed(allowed_nodes, node);
+    });
+    numa_free_nodemask(allowed_nodes);
+    return allowed;
+}
+#endif
+
+/**
+ * @brief Set NUMA memory binding for the current process.
+ *
+ * Uses `set_mempolicy(MPOL_BIND, ...)` directly so failures can be classified
+ * from `errno`. Empty bindings, unavailable NUMA support, disallowed memory
+ * nodes, and unsupported/blocked memory-policy syscalls are reported as
+ * `numa_binding_status::unavailable`. Unexpected allocation or syscall failures
+ * are reported as `numa_binding_status::failed`.
+ *
+ * @param memory_binding Vector of NUMA node IDs to bind memory allocations to.
+ * @return Status indicating whether binding was applied, unavailable, or failed.
+ */
+numa_binding_status set_numa_memory_binding(std::vector<int> const& memory_binding) {
+#if RAPIDSMPF_HAVE_NUMA
+    if (memory_binding.empty()) {
+        return numa_binding_status::unavailable;
+    }
+
+    if (numa_available() == -1) {
+        return numa_binding_status::unavailable;
+    }
+
+    if (!all_nodes_allowed(memory_binding)) {
+        return numa_binding_status::unavailable;
     }
 
     struct bitmask* nodemask = numa_allocate_nodemask();
     if (!nodemask) {
-        return false;
+        return numa_binding_status::failed;
     }
 
     numa_bitmask_clearall(nodemask);
@@ -127,14 +203,62 @@ bool set_numa_memory_binding(std::vector<int> const& memory_binding) {
         }
     }
 
-    numa_set_membind(nodemask);
+    errno = 0;
+    long const rc = set_mempolicy(MPOL_BIND, nodemask->maskp, nodemask->size);
     numa_free_nodemask(nodemask);
 
-    return true;
+    if (rc == 0) {
+        return numa_binding_status::applied;
+    }
+
+    if (errno == EPERM || errno == ENOSYS) {
+        return numa_binding_status::unavailable;
+    }
+
+    return numa_binding_status::failed;
 #else
     std::ignore = memory_binding;
-    return false;
+    return numa_binding_status::unavailable;
 #endif
+}
+
+/**
+ * @brief Compare two NUMA node lists as sets.
+ *
+ * Sorts and de-duplicates copies of the input vectors before comparing them, so
+ * order and repeated entries do not affect validation.
+ *
+ * @param lhs First NUMA node list.
+ * @param rhs Second NUMA node list.
+ * @return true if both lists contain the same unique nodes.
+ */
+bool same_nodes(std::vector<int> lhs, std::vector<int> rhs) {
+    std::ranges::sort(lhs);
+    std::ranges::sort(rhs);
+    auto lhs_unique = std::ranges::unique(lhs);
+    auto rhs_unique = std::ranges::unique(rhs);
+    lhs.erase(lhs_unique.begin(), lhs_unique.end());
+    rhs.erase(rhs_unique.begin(), rhs_unique.end());
+    return lhs == rhs;
+}
+
+/**
+ * @brief Format a NUMA node list for diagnostics.
+ *
+ * @param nodes NUMA node IDs to format.
+ * @return A compact string in bracketed comma-separated form, e.g. `[0,1]`.
+ */
+std::string format_nodes(std::vector<int> const& nodes) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (i > 0) {
+            out << ",";
+        }
+        out << nodes[i];
+    }
+    out << "]";
+    return out.str();
 }
 
 /**
@@ -159,6 +283,8 @@ void apply_bindings(
     unsigned int gpu_id,
     bind_options const& options
 ) {
+    bool verify_memory_binding = false;
+
     if (options.cpu && !gpu_info.cpu_affinity_list.empty()) {
         if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
             throw std::runtime_error(
@@ -169,7 +295,9 @@ void apply_bindings(
     }
 
     if (options.memory && !gpu_info.memory_binding.empty()) {
-        if (!set_numa_memory_binding(gpu_info.memory_binding)) {
+        numa_binding_status const status =
+            set_numa_memory_binding(gpu_info.memory_binding);
+        if (status == numa_binding_status::failed) {
 #if RAPIDSMPF_HAVE_NUMA
             throw std::runtime_error(
                 "rapidsmpf::rrun::bind(): failed to set NUMA memory binding for GPU "
@@ -177,6 +305,7 @@ void apply_bindings(
             );
 #endif
         }
+        verify_memory_binding = status == numa_binding_status::applied;
     }
 
     if (options.network && !gpu_info.network_devices.empty()) {
@@ -200,7 +329,7 @@ void apply_bindings(
         if (options.cpu) {
             expected.cpu_affinity = gpu_info.cpu_affinity_list;
         }
-        if (options.memory) {
+        if (options.memory && verify_memory_binding) {
             expected.memory_binding = gpu_info.memory_binding;
         }
         if (options.network) {
@@ -211,7 +340,7 @@ void apply_bindings(
         if (options.cpu) {
             actual.cpu_affinity = rapidsmpf::bootstrap::get_current_cpu_affinity();
         }
-        if (options.memory) {
+        if (options.memory && verify_memory_binding) {
             actual.numa_nodes = rapidsmpf::get_current_numa_nodes();
         }
         if (options.network) {
@@ -232,6 +361,8 @@ void apply_bindings(
                 "rapidsmpf::rrun::bind(): NUMA memory binding verification failed "
                 "for GPU "
                 + std::to_string(gpu_id)
+                + " (expected: " + format_nodes(expected.memory_binding)
+                + ", actual: " + format_nodes(actual.numa_nodes) + ")"
             );
         }
         if (!result.ucx_ok) {
@@ -286,6 +417,11 @@ unsigned int resolve_gpu_id(std::optional<unsigned int> gpu_id) {
 /**
  * @brief Get PCI bus ID for a GPU via topology discovery.
  *
+ * Clears `CUDA_VISIBLE_DEVICES` while discovering topology because cuCascade
+ * filters and renumbers devices when that variable is set. This helper is
+ * best-effort metadata lookup: invalid GPU IDs, topology discovery failures,
+ * and missing devices return an empty string instead of throwing.
+ *
  * @param gpu_id Physical GPU device index.
  * @return PCI bus ID string, or empty string if not found.
  */
@@ -294,8 +430,16 @@ std::string get_gpu_pci_bus_id(int gpu_id) {
         return {};
     }
 
+    // cuCascade topology discovery honors CUDA_VISIBLE_DEVICES by filtering
+    // and renumbering GPUs to visible ordinals. `gpu_id` is a physical index,
+    // so inspect the unfiltered topology for this best-effort metadata lookup.
+    ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
     cucascade::memory::topology_discovery discovery;
-    if (!discovery.discover()) {
+    try {
+        if (!discovery.discover()) {
+            return {};
+        }
+    } catch (...) {
         return {};
     }
 
@@ -314,9 +458,10 @@ void bind(std::optional<unsigned int> gpu_id, bind_options const& options) {
 
     // Temporarily clear CUDA_VISIBLE_DEVICES so the topology discovery layer
     // sees all physical GPUs. When the variable restricts visibility to a
-    // single device, NVML remaps it to index 0 and a lookup by the real
-    // physical ID would fail. The ScopedEnvVar guard restores the original
-    // value when the scope exits (including on exception).
+    // single device, cuCascade filters and renumbers the returned topology to
+    // visible ordinals. `id` is the physical GPU index to bind to, so a lookup
+    // by that ID must use the unfiltered topology. The ScopedEnvVar guard
+    // restores the original value when the scope exits (including on exception).
     ScopedEnvVar cvd_guard("CUDA_VISIBLE_DEVICES", nullptr);
 
     cucascade::memory::topology_discovery discovery;
@@ -407,20 +552,7 @@ binding_validation validate_binding(
     }
 
     if (!expected.memory_binding.empty()) {
-        if (actual.numa_nodes.empty()) {
-            result.numa_ok = false;
-        } else {
-            bool found = false;
-            for (int actual_node : actual.numa_nodes) {
-                if (std::ranges::find(expected.memory_binding, actual_node)
-                    != expected.memory_binding.end())
-                {
-                    found = true;
-                    break;
-                }
-            }
-            result.numa_ok = found;
-        }
+        result.numa_ok = same_nodes(actual.numa_nodes, expected.memory_binding);
     }
 
     if (!expected.network_devices.empty()) {
