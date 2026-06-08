@@ -64,9 +64,8 @@ rapids-logger "Run tools smoketests"
 ./run_cpp_tools_smoketests.sh
 
 # Ensure rrun is runnable
-# TODO: Reenable. Disabled to unblock CI while "terminated by signal 11" were raised.
-# rapids-logger "Run rrun gtests"
-# ./run_rrun_tests.sh
+rapids-logger "Run rrun gtests"
+./run_rrun_tests.sh
 
 BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
 
