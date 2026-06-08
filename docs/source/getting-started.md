@@ -1,7 +1,7 @@
 # Getting Started
 
 Building rapidsmpf from source is recommended when running nightly/upstream versions,
-since dependencies on non-ABI-stable libraries (e.g., pylibcudf) could cause temporary
+since dependencies on non-ABI-stable libraries could cause temporary
 breakage leading to issues such as segmentation faults. Stable versions can be installed
 from conda or pip packages.
 

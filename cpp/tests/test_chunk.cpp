@@ -9,8 +9,9 @@
 #include <driver_types.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/memory_resource.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -24,8 +25,8 @@ using namespace rapidsmpf::shuffler::detail;
 class ChunkTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
-        stream = cudf::get_default_stream();
+        br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+        stream = rmm::cuda_stream_view{};
     }
 
     std::shared_ptr<BufferResource> br;
@@ -66,8 +67,7 @@ TEST_P(ChunkFromPackedDataTest, RoundTrip) {
         std::vector<std::uint8_t>{1, 2, 3, 4}
     );
 
-    auto data =
-        std::make_unique<rmm::device_buffer>(data_size, cudf::get_default_stream());
+    auto data = std::make_unique<rmm::device_buffer>(data_size, rmm::cuda_stream_view{});
     if (data_size > 0) {
         std::vector<std::uint8_t> host_data(data_size);
         std::iota(host_data.begin(), host_data.end(), std::uint8_t{5});

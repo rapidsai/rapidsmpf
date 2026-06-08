@@ -105,12 +105,9 @@ echo "${NEXT_UCXX_SHORT_TAG}.00" > UCXX_VERSION
 sed_runner "s/ucxx==.*/ucxx==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" dependencies.yaml
 
 DEPENDENCIES=(
-  cudf
-  libcudf
   librapidsmpf
   librapidsmpf-tests
   librmm
-  pylibcudf
   rapidsmpf
   rmm
 )

@@ -9,11 +9,10 @@
 
 #include <gtest/gtest.h>
 
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
-#include <cudf_test/table_utilities.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -55,7 +54,7 @@ std::unique_ptr<Buffer> zeros(
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}}
     );
@@ -122,7 +121,7 @@ TEST(BufferResource, ReservationReleasing) {
     // Create a buffer resource that always reports 10 KiB of available host and device
     // memory.
     auto br = BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
     );
@@ -171,7 +170,7 @@ TEST(BufferResource, ReservationReleasing) {
 
 TEST(BufferResource, MemoryLimit) {
     rmm::mr::cuda_memory_resource mr_cuda;
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     // Create a buffer resource that limits available device memory to 10 KiB.
     auto br = BufferResource::create(
@@ -299,7 +298,7 @@ TEST(BufferResource, AllocStatistics) {
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
         stats
     );
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     constexpr std::size_t device_size = 4_KiB;
     constexpr std::size_t pinned_size = 8_KiB;
@@ -419,8 +418,8 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
-        stream = cudf::get_default_stream();
+        br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+        stream = rmm::cuda_stream_view{};
 
         // initialize the host pattern
         host_pattern.resize(buffer_size);
@@ -631,7 +630,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
     void SetUp() override {
         buffer_size = 1_KiB;
-        stream = cudf::get_default_stream();
+        stream = rmm::cuda_stream_view{};
 
         // Host pattern for initialization and verification
         host_pattern.resize(buffer_size);
@@ -792,9 +791,9 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     constexpr std::size_t N = 1024;
 
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     std::weak_ptr<BufferResource> weak_br = br;
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
@@ -821,7 +820,7 @@ TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
 
     std::weak_ptr<BufferResource> weak_br;
     {
-        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+        auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
         weak_br = br;
     }
     ASSERT_TRUE(weak_br.expired());

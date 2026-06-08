@@ -20,8 +20,13 @@ target_compile_options(
 )
 target_link_libraries(
   bench_streaming_shuffle
-  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+  PRIVATE rapidsmpf::rapidsmpf
+          ucxx::ucxx
+          cudf_streaming::cudf_streaming
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          bench_utils
 )
 install(
   TARGETS bench_streaming_shuffle

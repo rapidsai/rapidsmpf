@@ -7,11 +7,11 @@
 
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <cudf_streaming/streaming/table_chunk.hpp>
 
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "../utils/random_data.hpp"
@@ -58,15 +58,17 @@ inline Actor random_table_generator(
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
         auto res =
             ctx->br()->reserve_device_memory_and_spill(nbytes, AllowOverbooking::NO);
-        co_await ch_out->send(to_message(
-            seq,
-            std::make_unique<TableChunk>(
-                std::make_unique<cudf::table>(random_table(
-                    ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
-                )),
-                stream
+        co_await ch_out->send(
+            cudf_streaming::streaming::to_message(
+                seq,
+                std::make_unique<cudf_streaming::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(random_table(
+                        ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
+                    )),
+                    stream
+                )
             )
-        ));
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }

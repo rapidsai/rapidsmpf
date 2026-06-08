@@ -8,16 +8,16 @@ import argparse
 import math
 
 import numpy as np
-import ray
-
 import pylibcudf as plc
-import rmm
-
-from rapidsmpf.integrations.cudf.partition import (
+import ray
+from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+
+import rmm
+
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.shuffler import Shuffler

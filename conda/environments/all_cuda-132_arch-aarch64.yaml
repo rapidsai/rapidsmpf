@@ -28,7 +28,7 @@ dependencies:
 - gcc_linux-aarch64=14.*
 - gdb
 - ipython
-- libcudf==26.8.*,>=0.0.0a0
+- libcudf-streaming==26.8.*,>=0.0.0a0
 - libnuma
 - libpmix-devel >=5.0,<6.0
 - librmm==26.8.*,>=0.0.0a0
@@ -47,7 +47,6 @@ dependencies:
 - psutil
 - pyarrow
 - pydata-sphinx-theme>=0.15.4
-- pylibcudf==26.8.*,>=0.0.0a0
 - pytest
 - python>=3.11
 - rapids-build-backend>=0.4.0,<0.5.0

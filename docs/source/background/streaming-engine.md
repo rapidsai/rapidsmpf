@@ -56,9 +56,8 @@ operation in the query plan. Parallelism is obtained by using a
 multi-threaded executor to handle the concurrent actors that thus result.
 
 For use with data processing engines, we provide a number of utility actors
-that layer a streaming (out of core) execution model over the
-GPU-accelerated [libcudf](https://docs.rapids.ai/api/libcudf/stable/)
-library.
+that layer a streaming (out of core) execution model over
+GPU-accelerated libraries.
 
 ```
 +------+     +--------+     +--------+     +------+

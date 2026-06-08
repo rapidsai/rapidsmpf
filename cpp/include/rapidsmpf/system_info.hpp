@@ -47,21 +47,16 @@ int get_current_numa_node() noexcept;
 /**
  * @brief Get current NUMA node(s) for memory binding.
  *
- * Queries the NUMA node associated with the CPU on which the calling thread is
- * currently executing. This is a best-effort approach and may not be accurate
- * in all cases.
- *
- * Since processes are typically scheduled on CPUs that are local to their
- * memory, using the CPU's NUMA node (via `numa_node_of_cpu`) provides a
- * reasonable approximation that works well in practice for topology-aware
- * binding scenarios. This intentionally avoids querying the process memory
- * binding policy programmatically.
+ * Queries the process memory policy and returns the NUMA nodes from which the
+ * process may allocate memory. This reflects bindings applied via
+ * `numa_set_membind()` rather than the NUMA node of the CPU currently running
+ * the caller.
  *
  * If NUMA support is not available or the NUMA node cannot be determined, the
  * function returns a vector containing a single element, `0`, which corresponds
  * to the single implicit NUMA node on non-NUMA systems.
  *
- * @return Vector of NUMA node IDs associated with the calling thread.
+ * @return Vector of NUMA node IDs in the current memory policy.
  */
 std::vector<int> get_current_numa_nodes() noexcept;
 

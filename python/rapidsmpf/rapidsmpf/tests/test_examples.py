@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pylibcudf as plc
 import pytest
 
-import pylibcudf as plc
+pytest.importorskip("cudf_streaming")
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
+
+cudf = pytest.importorskip("cudf")
 
 MPI = pytest.importorskip("mpi4py.MPI")
 from rapidsmpf.examples.bulk_mpi_shuffle import bulk_mpi_shuffle  # noqa: E402

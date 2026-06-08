@@ -8,7 +8,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>

@@ -7,19 +7,22 @@ from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pylibcudf as plc
 import pytest
 
-import pylibcudf as plc
+pytest.importorskip("cudf_streaming")
+from cudf_streaming.integrations.partition import unpack_and_concat
+from cudf_streaming.streaming.table_chunk import TableChunk
 
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.coll.allgather import AllGather, allgather
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
+
+cudf = pytest.importorskip("cudf")
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -49,7 +52,7 @@ def test_allgather_actor(context: Context, comm: Communicator) -> None:
     ]
     inputs = [
         PackedDataChunk.from_packed_data(
-            PackedData.from_cudf_packed_columns(
+            PackedData.from_cudf_packed_columns(  # type: ignore[attr-defined]
                 plc.contiguous_split.pack(table, stream=stream),
                 stream,
                 context.br(),
@@ -104,7 +107,7 @@ async def generate_inputs(
         msg = Message(
             i,
             PackedDataChunk.from_packed_data(
-                PackedData.from_cudf_packed_columns(
+                PackedData.from_cudf_packed_columns(  # type: ignore[attr-defined]
                     plc.contiguous_split.pack(table, stream=stream),
                     stream,
                     context.br(),
