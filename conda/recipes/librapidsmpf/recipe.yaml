@@ -78,8 +78,8 @@ cache:
       - cuda-cupti-dev
       - cuda-nvml-dev
       - libnuma
-      - libcudf-streaming =${{ minor_version }}
       - libcudf =${{ minor_version }}
+      - libcudf-streaming =${{ minor_version }}
       - libpmix-devel >=5.0,<6.0
       - librmm =${{ minor_version }}
       - libucxx ${{ ucxx_version }}
@@ -132,8 +132,10 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cupti
-          - openmpi
+          - libcudf
+          - libcudf-streaming
           - librmm
+          - openmpi
     about:
       homepage: https://github.com/rapidsai/rapidsmpf
       license: Apache-2.0
@@ -145,7 +147,7 @@ outputs:
     build:
       script:
         content: |
-          cmake --install cpp/build --component testing
+          cmake --install cpp/build --component=testing
           cmake --install cpp/build --component=benchmarking
       string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
     requirements:
@@ -158,8 +160,8 @@ outputs:
         - cuda-cupti-dev
         - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
-        - libcudf-streaming =${{ minor_version }}
         - libcudf =${{ minor_version }}
+        - libcudf-streaming =${{ minor_version }}
         - librmm =${{ minor_version }}
         - openmpi >=5.0
         - libnuma
@@ -167,8 +169,8 @@ outputs:
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
-        - libcudf-streaming =${{ minor_version }}
         - libcudf =${{ minor_version }}
+        - libcudf-streaming =${{ minor_version }}
         - librmm =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - libucxx ${{ ucxx_version }}

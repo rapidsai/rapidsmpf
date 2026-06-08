@@ -70,7 +70,7 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
-message(STATUS "  BUILD_CUDF_TESTS          : ${BUILD_CUDF_TESTS}")
+message(STATUS "  BUILD_CUDF_TESTS        : ${BUILD_CUDF_TESTS}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
