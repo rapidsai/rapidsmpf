@@ -117,10 +117,6 @@ class HostMemoryResource : public WithBufferResourceBackRef {
     /**
      * @brief Compares this resource to another resource.
      *
-     * `HostMemoryResource` is otherwise stateless, so equality reduces to
-     * the back-reference contract from `WithBufferResourceBackRef`: two
-     * instances are equal iff they reference the same owning
-     * `BufferResource`, or are both standalone.
      *
      * @param other The resource to compare with.
      * @return True if the two instances reference the same owning
