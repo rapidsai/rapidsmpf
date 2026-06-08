@@ -4,8 +4,10 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstdlib>
 #include <functional>
 #include <memory>
@@ -191,6 +193,49 @@ bool is_running_under_valgrind();
 template <typename T>
 constexpr T safe_div(T x, T y) {
     return (y == 0) ? 0 : x / y;
+}
+
+/**
+ * @brief Computes the ceiling of the division of two integers.
+ *
+ * Returns the smallest integer not less than `x / y`. Both operands must be
+ * non-negative and the denominator must be non-zero.
+ *
+ * @tparam T An integral type.
+ * @param x The numerator (must be non-negative).
+ * @param y The denominator (must be positive).
+ * @return T The ceiling of `x / y`.
+ */
+template <std::integral T>
+constexpr T ceil_div(T x, T y) {
+    return (x + y - 1) / y;
+}
+
+/**
+ * @brief Splits the index range `[0, count)` into exactly `num_chunks` contiguous chunks.
+ *
+ * Each chunk is a half-open `[begin, end)` index pair. Chunks are front-loaded with
+ * size `ceil(count / num_chunks)`; the last non-empty chunk may be smaller and, when
+ * `count < num_chunks`, the trailing chunks are empty (`begin == end`). The chunks
+ * exactly tile `[0, count)`, so their sizes sum to `count`.
+ *
+ * Unlike `std::ranges::chunk_view` (C++23), this always yields exactly `num_chunks`
+ * chunks, injecting empty trailing chunks as needed.
+ *
+ * @param count The number of elements to split.
+ * @param num_chunks The number of chunks to produce (must be positive).
+ * @return A lazy view of `num_chunks` `std::pair<std::size_t, std::size_t>` `[begin,
+ * end)` index pairs.
+ */
+[[nodiscard]] inline auto chunk_indices(std::size_t count, std::size_t num_chunks) {
+    std::size_t const chunk_size = ceil_div(count, num_chunks);
+    return std::views::iota(std::size_t{0}, num_chunks)
+           | std::views::transform([count, chunk_size](std::size_t k) {
+                 return std::pair<std::size_t, std::size_t>{
+                     std::min(k * chunk_size, count),
+                     std::min((k + 1) * chunk_size, count)
+                 };
+             });
 }
 
 // Macro to concatenate two tokens x and y.
