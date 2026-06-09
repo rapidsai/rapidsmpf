@@ -235,9 +235,13 @@ void test_shuffler(
 
     EXPECT_NO_THROW(shuffler.wait(wait_timeout));
 
-    for (auto j : shuffler.local_partitions()) {
+    for (auto local_pidx : shuffler.local_partitions()) {
         validate_partition_data(
-            shuffler.extract(j), total_num_partitions, total_num_rows, j, *br
+            shuffler.extract(local_pidx),
+            total_num_partitions,
+            total_num_rows,
+            local_pidx,
+            *br
         );
     }
 }

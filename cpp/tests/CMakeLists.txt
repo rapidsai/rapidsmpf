@@ -110,6 +110,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_message.cpp
             streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
+            streaming/test_shuffler.cpp
   )
 endif()
 
@@ -122,7 +123,7 @@ if(BUILD_CUDF_TESTS)
   target_compile_definitions(test_sources PRIVATE RAPIDSMPF_HAVE_CUDF)
 
   if(RAPIDSMPF_HAVE_STREAMING)
-    target_sources(test_sources PRIVATE streaming/test_leaf_actor.cpp streaming/test_shuffler.cpp)
+    target_sources(test_sources PRIVATE streaming/test_leaf_actor.cpp)
   endif()
 endif()
 
