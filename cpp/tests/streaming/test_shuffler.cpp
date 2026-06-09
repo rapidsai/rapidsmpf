@@ -13,6 +13,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -98,25 +99,21 @@ TEST_P(StreamingShuffler, basic_shuffler) {
     const int64_t base = static_cast<int64_t>(comm->rank()) * num_rows;
     std::vector<Message> input_chunks;  // Message contains a PartitionMapChunk
     for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
-        ContentDescription cd{};
         std::unordered_map<shuffler::PartID, PackedData> chunks;
         chunks.reserve(num_partitions);
         for (size_t j = 0; j < num_partitions; ++j) {
             auto [start, end] = pieces[chunk_idx * num_partitions + j];
             // end > start is guaranteed.
-            auto [it, _] = chunks.emplace(
+            chunks.emplace(
                 static_cast<shuffler::PartID>(j),
                 generate_packed_data<int64_t>(
                     end - start, base + static_cast<int64_t>(start), stream, *br
                 )
             );
-            cd.content_size(it->second.data->mem_type()) += it->second.data->size;
         }
-        input_chunks.emplace_back(Message(
-            chunk_idx,
-            std::make_unique<PartitionMapChunk>(std::move(chunks)),
-            std::move(cd)
-        ));
+        input_chunks.emplace_back(
+            to_message(chunk_idx, std::make_unique<PartitionMapChunk>(std::move(chunks)))
+        );
     }
     EXPECT_EQ(input_chunks.size(), num_chunks);
 
@@ -150,7 +147,7 @@ TEST_P(StreamingShuffler, basic_shuffler) {
 
         auto p_vec = chunk.release<PartitionVectorChunk>();
         // for each local pid, it should receive num_chunks * nranks chunks.
-        EXPECT_EQ(p_vec.data.size(), num_chunks * n_ranks);
+        ASSERT_EQ(p_vec.data.size(), num_chunks * n_ranks);
 
         // since values are offset by rank, if we sort packed data by their first element,
         // then it will be in rank & chunk-index order.

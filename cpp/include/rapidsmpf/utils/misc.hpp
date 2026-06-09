@@ -199,7 +199,8 @@ constexpr T safe_div(T x, T y) {
  * @brief Computes the ceiling of the division of two integers.
  *
  * Returns the smallest integer not less than `x / y`. Both operands must be
- * non-negative and the denominator must be non-zero.
+ * non-negative and the denominator must be non-zero. Computed as `x / y + (x % y != 0)`
+ * to avoid the overflow (and signed UB)
  *
  * @tparam T An integral type.
  * @param x The numerator (must be non-negative).
@@ -208,7 +209,7 @@ constexpr T safe_div(T x, T y) {
  */
 template <std::integral T>
 constexpr T ceil_div(T x, T y) {
-    return (x + y - 1) / y;
+    return x / y + (x % y != 0 ? T{1} : T{0});
 }
 
 /**
