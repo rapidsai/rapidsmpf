@@ -16,7 +16,6 @@ import ray
 from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
-    unspill_partitions,
 )
 
 import rmm.mr
@@ -24,6 +23,7 @@ import rmm.mr
 from rapidsmpf.integrations.ray import RapidsMPFActor, setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.spill import unspill_partitions
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics

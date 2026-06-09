@@ -168,10 +168,6 @@ if(BUILD_SLURM_SUPPORT)
   endif()
 endif()
 
-if(BUILD_CUDF_TESTS)
-  include(../cmake/thirdparty/get_cudf_streaming.cmake)
-endif()
-
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
@@ -206,6 +202,7 @@ add_library(
   src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cpp
   src/memory/scoped_memory_record.cpp
+  src/memory/spill.cpp
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
@@ -345,6 +342,10 @@ rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 # name already exists" due to the circular dependency (rapidsmpf -> cudf_streaming -> rapidsmpf).
 if(NOT TARGET rapidsmpf::rapidsmpf)
   add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+endif()
+
+if(BUILD_CUDF_TESTS)
+  include(../cmake/thirdparty/get_cudf_streaming.cmake)
 endif()
 
 # ##################################################################################################

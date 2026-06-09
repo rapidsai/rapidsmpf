@@ -13,6 +13,7 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -112,7 +113,7 @@ int main(int argc, char** argv) {
         // convenience function.
         local_outputs.push_back(
             cudf_streaming::integrations::unpack_and_concat(
-                cudf_streaming::integrations::unspill_partitions(
+                rapidsmpf::unspill_partitions(
                     std::move(packed_chunks), br.get(), rapidsmpf::AllowOverbooking::YES
                 ),
                 stream,

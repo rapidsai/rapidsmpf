@@ -13,10 +13,10 @@ pytest.importorskip("cudf_streaming")
 from cudf_streaming.integrations.partition import (
     partition_and_pack,
     unpack_and_concat,
-    unspill_partitions,
 )
 
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.spill import unspill_partitions
 from rapidsmpf.shuffler import (
     Shuffler,
 )

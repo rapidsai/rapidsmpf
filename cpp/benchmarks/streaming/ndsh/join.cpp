@@ -28,6 +28,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
@@ -121,7 +122,7 @@ coro::task<streaming::Message> broadcast(
                 0,
                 std::make_unique<cudf_streaming::streaming::TableChunk>(
                     cudf_streaming::integrations::unpack_and_concat(
-                        cudf_streaming::integrations::unspill_partitions(
+                        rapidsmpf::unspill_partitions(
                             std::move(result), ctx->br().get(), AllowOverbooking::YES
                         ),
                         stream,
@@ -602,7 +603,7 @@ streaming::Actor shuffle(
                 pid,
                 std::make_unique<cudf_streaming::streaming::TableChunk>(
                     cudf_streaming::integrations::unpack_and_concat(
-                        cudf_streaming::integrations::unspill_partitions(
+                        rapidsmpf::unspill_partitions(
                             std::move(packed_data), ctx->br().get(), AllowOverbooking::YES
                         ),
                         stream,
