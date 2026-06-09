@@ -15,7 +15,7 @@ rapids-generate-version > ./VERSION
 
 rapids-logger "Begin py build"
 
-CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
+CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp librapidsmpf rapidsmpf --cuda "$RAPIDS_CUDA_VERSION")")
 
 RAPIDS_PACKAGE_VERSION=$(head -1 ./VERSION)
 export RAPIDS_PACKAGE_VERSION
