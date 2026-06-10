@@ -117,11 +117,11 @@ bool ProgressThread::is_running() const {
     return active_;
 }
 
-Runtime& ProgressThread::runtime() const noexcept {
-    return *runtime_;
+std::shared_ptr<Runtime> const& ProgressThread::runtime() const noexcept {
+    return runtime_;
 }
 
-Statistics& ProgressThread::statistics() const noexcept {
+std::shared_ptr<Statistics> const& ProgressThread::statistics() const noexcept {
     return runtime_->statistics();
 }
 
@@ -137,7 +137,7 @@ void ProgressThread::event_loop() {
     // Notify all waiting functions that we've completed an iteration
     cv_.notify_all();
 
-    runtime_->statistics().add_duration_stat(
+    runtime_->statistics()->add_duration_stat(
         "event-loop-total", Clock::now() - t0_event_loop
     );
 }

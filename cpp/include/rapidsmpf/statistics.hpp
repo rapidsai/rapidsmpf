@@ -649,15 +649,16 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
  *
  * Example usage:
  * @code
- * void foo(Statistics& stats, RmmResourceAdaptor& mr) {
+ * void foo(std::shared_ptr<Statistics> stats, RmmResourceAdaptor& mr) {
  *     RAPIDSMPF_MEMORY_PROFILE(stats, mr);
  *     RAPIDSMPF_MEMORY_PROFILE(stats, mr, "custom_name");
  * }
  * @endcode
  *
- * The first argument is a `Statistics&` reference. Pass `Statistics::disabled()`
- * to disable recording (`create_memory_recorder` returns a no-op recorder when the
- * statistics instance is disabled).
+ * The first argument is a non-null `std::shared_ptr<Statistics>`. Pass an
+ * instance created with `Statistics::disabled()` to disable recording
+ * (`create_memory_recorder` returns a no-op recorder when the statistics
+ * instance is disabled).
  * The second argument is the device memory resource. Recording is only active
  * when the underlying resource is an `RmmResourceAdaptor`; other device
  * resources yield a no-op recorder.
@@ -678,12 +679,18 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, __func__)
 
 // Version with custom function name
-#define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                       \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =      \
-        (stats).create_memory_recorder(                                       \
-            (mr),                                                             \
-            std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-                + std::string(funcname) + ")"                                 \
-        )
+#define RAPIDSMPF_MEMORY_PROFILE_3(stats, mr, funcname)                                 \
+    auto const& RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) = (stats); \
+    RAPIDSMPF_EXPECTS(                                                                  \
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__) != nullptr,        \
+        "RAPIDSMPF_MEMORY_PROFILE: stats must not be null"                              \
+    );                                                                                  \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =                \
+        RAPIDSMPF_CONCAT(_rapidsmpf_memory_profile_stats_, __LINE__)                    \
+            -> create_memory_recorder(                                                  \
+                (mr),                                                                   \
+                std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "("       \
+                    + std::string(funcname) + ")"                                       \
+            )
 
 }  // namespace rapidsmpf

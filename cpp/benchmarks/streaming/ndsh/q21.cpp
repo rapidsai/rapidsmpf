@@ -996,10 +996,10 @@ int main(int argc, char** argv) {
         timings.push_back(pipeline.count());
         timings.push_back(compute.count());
         auto& statistics = ctx->statistics();
-        comm->logger()->print(statistics.report(
+        comm->logger()->print(statistics->report(
             {.mr = ctx->br()->device_mr(), .pinned_mr = ctx->br()->try_pinned_mr()}
         ));
-        statistics.clear();
+        statistics->clear();
     }
 
     if (comm->rank() == 0) {

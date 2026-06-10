@@ -47,7 +47,7 @@ from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.runtime cimport Runtime
-from rapidsmpf.statistics cimport Statistics, cpp_Statistics
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef extern from *:
@@ -124,20 +124,6 @@ cdef extern from * nogil:
         size_t,
         vector[MemoryType],
     ) except +ex_handler
-
-
-cdef extern from *:
-    """
-    // Return a shared_ptr to the Statistics owned by a BufferResource,
-    // using enable_shared_from_this so the BR stays alive.
-    inline std::shared_ptr<rapidsmpf::Statistics>
-    cpp_br_statistics_ptr(rapidsmpf::BufferResource& br) {
-        return br.statistics().shared_from_this();
-    }
-    """
-    shared_ptr[cpp_Statistics] cpp_br_statistics_ptr(
-        cpp_BufferResource& br
-    ) except +ex_handler nogil
 
 
 @no_gc_clear
@@ -561,7 +547,7 @@ cdef class BufferResource:
         """
         cdef Statistics ret = Statistics.__new__(Statistics)
         with nogil:
-            ret._handle = cpp_br_statistics_ptr(self._handle.get()[0])
+            ret._handle = deref(self._handle).statistics()
         return ret
 
 

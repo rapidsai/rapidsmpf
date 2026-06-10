@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
 
     // Create a runtime context owning options, statistics, and logger.
     auto runtime = rapidsmpf::Runtime::from_options(options);
+    auto log = runtime->logger();
 
     // The communicator has a progress thread where the shuffler event loop executes. A
     // single progress thread may be used by multiple shufflers simultaneously.
@@ -36,12 +37,8 @@ int main(int argc, char** argv) {
     // Now we have to create a Communicator, which we will use throughout the
     // example. Multiple concurrent shuffles are possible on the same communicator by
     // providing differentiating "OpID" arguments.
-    std::shared_ptr<rapidsmpf::Communicator> comm = std::make_shared<rapidsmpf::MPI>(
-        MPI_COMM_WORLD, progress_thread, runtime->logger().shared_from_this()
-    );
-
-    // The Communicator provides a logger.
-    auto& log = runtime->logger();
+    std::shared_ptr<rapidsmpf::Communicator> comm =
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, progress_thread, log);
 
     // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -121,10 +118,12 @@ int main(int argc, char** argv) {
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
-    log.print("Finished shuffle with ", local_outputs.size(), " local output partitions");
+    log->print(
+        "Finished shuffle with ", local_outputs.size(), " local output partitions"
+    );
 
     // Log the statistics report.
-    log.print(runtime->statistics().report());
+    log->print(runtime->statistics()->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

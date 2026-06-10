@@ -626,7 +626,7 @@ TEST(OptionsTest, BufferResourceFromOptionsCreatesInstanceWithExplicitOptions) {
     RmmResourceAdaptor mr{cuda_mr};
     auto br = BufferResource::from_options(Runtime::from_options(opts), mr);
 
-    EXPECT_TRUE(br->statistics().enabled());
+    EXPECT_TRUE(br->statistics()->enabled());
     EXPECT_EQ(br->stream_pool().get_pool_size(), 8);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 1_GiB);
 }
@@ -637,7 +637,7 @@ TEST(OptionsTest, BufferResourceFromOptionsUsesDefaultWhenOptionsEmpty) {
     rmm::mr::cuda_memory_resource cuda_mr;
     RmmResourceAdaptor mr{cuda_mr};
     auto br = BufferResource::from_options(Runtime::from_options(opts), mr);
-    EXPECT_FALSE(br->statistics().enabled());
+    EXPECT_FALSE(br->statistics()->enabled());
     EXPECT_EQ(br->stream_pool().get_pool_size(), 16);
     auto [_, total_mem] = rmm::available_device_memory();
     auto expected = rmm::align_down(total_mem * 4 / 5, rmm::CUDA_ALLOCATION_ALIGNMENT);
@@ -652,7 +652,7 @@ TEST(OptionsTest, BufferResourceFromOptionsEnablesStatisticsWhenRequested) {
     RmmResourceAdaptor mr{cuda_mr};
     auto br = BufferResource::from_options(Runtime::from_options(opts), mr);
 
-    EXPECT_TRUE(br->statistics().enabled());
+    EXPECT_TRUE(br->statistics()->enabled());
 }
 
 TEST(OptionsTest, BufferResourceFromOptionsAcceptsPercentageForDeviceLimit) {
@@ -700,7 +700,7 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
     auto ctx = streaming::Context::from_options(Runtime::from_options(opts), mr);
 
     ASSERT_NE(ctx, nullptr);
-    EXPECT_TRUE(ctx->statistics().enabled());
+    EXPECT_TRUE(ctx->statistics()->enabled());
     EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 8);
 }
 
@@ -712,7 +712,7 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
     auto ctx = streaming::Context::from_options(Runtime::from_options(opts), mr);
 
     ASSERT_NE(ctx, nullptr);
-    EXPECT_FALSE(ctx->statistics().enabled());
+    EXPECT_FALSE(ctx->statistics()->enabled());
     EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 16);  // Default
 }
 
@@ -725,7 +725,7 @@ TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
     auto ctx = streaming::Context::from_options(Runtime::from_options(opts), mr);
 
     ASSERT_NE(ctx, nullptr);
-    EXPECT_TRUE(ctx->statistics().enabled());
+    EXPECT_TRUE(ctx->statistics()->enabled());
 }
 
 TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {

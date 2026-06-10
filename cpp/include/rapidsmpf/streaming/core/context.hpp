@@ -122,9 +122,10 @@ class Context {
     /**
      * @brief Returns the Runtime context.
      *
-     * @return Shared pointer to the Runtime.
+     * @return A const reference to the `shared_ptr<Runtime>` owned by this
+     * Context. Always non-null.
      */
-    [[nodiscard]] Runtime& runtime() const noexcept;
+    [[nodiscard]] std::shared_ptr<Runtime> const& runtime() const noexcept;
 
     /**
      * @brief Returns the configuration options.
@@ -136,9 +137,10 @@ class Context {
     /**
      * @brief Returns the logger.
      *
-     * @return A reference to the Logger.
+     * @return A const reference to the `shared_ptr<Logger>` owned by the
+     * underlying Runtime. Always non-null.
      */
-    [[nodiscard]] Logger& logger() const noexcept;
+    [[nodiscard]] std::shared_ptr<Logger> const& logger() const noexcept;
 
     /**
      * @brief Returns the coroutine executor.
@@ -178,9 +180,10 @@ class Context {
     /**
      * @brief Returns the statistics collector.
      *
-     * @return A reference to the statistics instance.
+     * @return A const reference to the `shared_ptr<Statistics>` owned by the
+     * underlying Runtime. Always non-null.
      */
-    [[nodiscard]] Statistics& statistics() const noexcept;
+    [[nodiscard]] std::shared_ptr<Statistics> const& statistics() const noexcept;
 
     /**
      * @brief Create a new channel associated with this context.

@@ -180,18 +180,18 @@ class ProgressThread {
     /**
      * @brief Returns the Runtime associated with this progress thread.
      *
-     * Callers that need shared ownership can call `runtime().shared_from_this()`.
-     *
-     * @return Reference to the Runtime.
+     * @return A const reference to the `shared_ptr<Runtime>` owned by this
+     * ProgressThread. Always non-null.
      */
-    [[nodiscard]] Runtime& runtime() const noexcept;
+    [[nodiscard]] std::shared_ptr<Runtime> const& runtime() const noexcept;
 
     /**
      * @brief Returns the statistics collector.
      *
-     * @return Reference to the `Statistics` instance.
+     * @return A const reference to the `shared_ptr<Statistics>` owned by the
+     * underlying Runtime. Always non-null.
      */
-    [[nodiscard]] Statistics& statistics() const noexcept;
+    [[nodiscard]] std::shared_ptr<Statistics> const& statistics() const noexcept;
 
   private:
     /**

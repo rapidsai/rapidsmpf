@@ -249,13 +249,13 @@ Shuffler::Shuffler(
                             br_->reserve_or_fail(size, MEMORY_TYPES)
                         );
                     },
-                    br_->statistics().shared_from_this()
+                    br_->statistics()
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
-      statistics_{br_->statistics().shared_from_this()},
+      statistics_{br_->statistics()},
       finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"

@@ -285,9 +285,10 @@ int main(int argc, char** argv) {
 
     // We'll only measure the last run, so start disabled.
     auto runtime = rapidsmpf::Runtime::from_options(options);
-    runtime->statistics().disable();
+    auto statistics = runtime->statistics();
+    statistics->disable();
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
-    auto logger = runtime->logger().shared_from_this();
+    auto log = runtime->logger();
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
@@ -296,17 +297,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         mpi::init(&argc, &argv);
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, progress_thread, logger);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, progress_thread, log);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, log
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
             comm = rapidsmpf::ucxx::init_using_mpi(
-                MPI_COMM_WORLD, options, progress_thread, logger
+                MPI_COMM_WORLD, options, progress_thread, log
             );
         }
     } else {
@@ -314,7 +315,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto& log = runtime->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -354,7 +354,7 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log.print("CUPTI memory monitoring enabled");
+        log->print("CUPTI memory monitoring enabled");
     }
 #endif
 
@@ -366,10 +366,9 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            runtime->statistics().enable();
+            statistics->enable();
         }
-        auto const elapsed =
-            run(comm, args, stream, br.get(), runtime->statistics()).count();
+        auto const elapsed = run(comm, args, stream, br.get(), *statistics).count();
         std::stringstream ss;
         ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
@@ -382,7 +381,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -400,9 +399,9 @@ int main(int argc, char** argv) {
                   / elapsed_mean
               )
            << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
-        log.print(ss.str());
+        log->print(ss.str());
     }
-    log.print(runtime->statistics().report({.header = "Statistics (of the last run):"}));
+    log->print(statistics->report({.header = "Statistics (of the last run):"}));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
@@ -413,7 +412,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log.print(
+            log->print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -427,7 +426,7 @@ int main(int argc, char** argv) {
                 );
             }
         } catch (std::exception const& e) {
-            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

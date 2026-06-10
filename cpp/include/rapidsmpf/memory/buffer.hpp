@@ -379,7 +379,9 @@ class Buffer {
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.
  *
- * @param statistics Statistics object used to record the copy operation.
+ * @param statistics Statistics object used to record the copy operation. Taken
+ * by value to keep the instance alive until the deferred CUDA host callback
+ * recording the timing has fired.
  * @param dst Destination buffer.
  * @param src Source buffer.
  * @param size Number of bytes to copy.
@@ -389,7 +391,7 @@ class Buffer {
  * @throws std::invalid_argument If the requested range is out of bounds.
  */
 void buffer_copy(
-    Statistics& statistics,
+    std::shared_ptr<Statistics> statistics,
     Buffer& dst,
     Buffer const& src,
     std::size_t size,

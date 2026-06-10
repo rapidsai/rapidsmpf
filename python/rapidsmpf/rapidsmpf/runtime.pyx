@@ -3,34 +3,10 @@
 """Python bindings for rapidsmpf::Runtime."""
 
 from cython.operator cimport dereference as deref
-from libcpp.memory cimport shared_ptr
 
-from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.communicator.communicator cimport Logger, cpp_Logger
-from rapidsmpf.config cimport Options, cpp_Options
-from rapidsmpf.statistics cimport Statistics, cpp_Statistics
-
-
-cdef extern from *:
-    """
-    // Return a shared_ptr to the Statistics owned by this Runtime,
-    // using enable_shared_from_this so the Runtime stays alive.
-    inline std::shared_ptr<rapidsmpf::Statistics>
-    cpp_runtime_statistics_ptr(rapidsmpf::Runtime& rt) {
-        return rt.statistics().shared_from_this();
-    }
-    // Return a shared_ptr to the Logger owned by this Runtime.
-    inline std::shared_ptr<rapidsmpf::Logger>
-    cpp_runtime_logger_ptr(rapidsmpf::Runtime& rt) {
-        return rt.logger().shared_from_this();
-    }
-    """
-    shared_ptr[cpp_Statistics] cpp_runtime_statistics_ptr(
-        cpp_Runtime& rt
-    ) except +ex_handler nogil
-    shared_ptr[cpp_Logger] cpp_runtime_logger_ptr(
-        cpp_Runtime& rt
-    ) except +ex_handler nogil
+from rapidsmpf.communicator.communicator cimport Logger
+from rapidsmpf.config cimport Options
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef class Runtime:
@@ -133,7 +109,7 @@ cdef class Runtime:
         """
         cdef Statistics ret = Statistics.__new__(Statistics)
         with nogil:
-            ret._handle = cpp_runtime_statistics_ptr(deref(self._handle))
+            ret._handle = deref(self._handle).statistics()
         return ret
 
     @property
@@ -149,5 +125,5 @@ cdef class Runtime:
         """
         cdef Logger ret = Logger.__new__(Logger)
         with nogil:
-            ret._handle = cpp_runtime_logger_ptr(deref(self._handle))
+            ret._handle = deref(self._handle).logger()
         return ret

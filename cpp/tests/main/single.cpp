@@ -24,8 +24,7 @@ void Environment::SetUp() {
         rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables())
     );
     comm_ = std::make_shared<rapidsmpf::Single>(
-        std::make_shared<rapidsmpf::ProgressThread>(runtime_),
-        runtime_->logger().shared_from_this()
+        std::make_shared<rapidsmpf::ProgressThread>(runtime_), runtime_->logger()
     );
     split_comm_ = comm_;
 }

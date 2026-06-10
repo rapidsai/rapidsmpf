@@ -87,8 +87,8 @@ TEST_P(ProgressThreadEvents, events) {
         progress_threads[thread]->stop();
     }
 
-    if (statistics.enabled() && num_functions > 0) {
-        EXPECT_THAT(statistics.report(), ::testing::HasSubstr("event-loop-total"));
+    if (statistics->enabled() && num_functions > 0) {
+        EXPECT_THAT(statistics->report(), ::testing::HasSubstr("event-loop-total"));
     }
 }
 

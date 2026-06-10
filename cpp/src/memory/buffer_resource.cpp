@@ -215,7 +215,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
-    StreamOrderedTiming timing{stream, runtime_->statistics().shared_from_this()};
+    StreamOrderedTiming timing{stream, runtime_->statistics()};
     std::unique_ptr<Buffer> ret;
     switch (mem_type) {
     case MemoryType::HOST:
@@ -242,7 +242,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
     release(reservation, size);
-    runtime_->statistics().record_alloc(mem_type, size, std::move(timing));
+    runtime_->statistics()->record_alloc(mem_type, size, std::move(timing));
     return ret;
 }
 
@@ -321,11 +321,11 @@ SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
 
-Runtime& BufferResource::runtime() const noexcept {
-    return *runtime_;
+std::shared_ptr<Runtime> const& BufferResource::runtime() const noexcept {
+    return runtime_;
 }
 
-Statistics& BufferResource::statistics() const noexcept {
+std::shared_ptr<Statistics> const& BufferResource::statistics() const noexcept {
     return runtime_->statistics();
 }
 

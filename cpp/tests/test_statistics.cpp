@@ -338,7 +338,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create();
     {
-        RAPIDSMPF_MEMORY_PROFILE(*stats, mr);
+        RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     auto const& records = stats->get_memory_records();
@@ -353,7 +353,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::disabled();
     {
-        RAPIDSMPF_MEMORY_PROFILE(*stats, mr);
+        RAPIDSMPF_MEMORY_PROFILE(stats, mr);
         mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     auto const& records = stats->get_memory_records();

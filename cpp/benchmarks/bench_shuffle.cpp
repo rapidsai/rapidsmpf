@@ -302,7 +302,9 @@ rapidsmpf::Duration do_run(
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         if (args.enable_memory_profiler) {
-            RAPIDSMPF_MEMORY_PROFILE(statistics, br->device_mr(), "shuffling");
+            RAPIDSMPF_MEMORY_PROFILE(
+                statistics.shared_from_this(), br->device_mr(), "shuffling"
+            );
         }
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
@@ -547,7 +549,7 @@ int main(int argc, char** argv) {
     auto& stats = runtime->statistics();
 
     // We're only going to measure the last run, so disable initially.
-    stats.disable();
+    stats->disable();
     auto br = rapidsmpf::BufferResource::create(
         runtime,
         stat_enabled_mr,
@@ -560,7 +562,7 @@ int main(int argc, char** argv) {
 
     std::shared_ptr<rapidsmpf::Communicator> comm;
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
-    auto logger = runtime->logger().shared_from_this();
+    auto log = runtime->logger();
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
             std::cerr
@@ -570,17 +572,17 @@ int main(int argc, char** argv) {
             return 1;
         }
         rapidsmpf::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, progress_thread, logger);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, progress_thread, log);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, log
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
             comm = rapidsmpf::ucxx::init_using_mpi(
-                MPI_COMM_WORLD, options, progress_thread, logger
+                MPI_COMM_WORLD, options, progress_thread, log
             );
         }
     } else {
@@ -590,7 +592,6 @@ int main(int argc, char** argv) {
 
     args.pprint(*comm);
 
-    auto& log = runtime->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
 
     // Print benchmark/hardware info.
@@ -610,7 +611,7 @@ int main(int argc, char** argv) {
         ss << "    Total Memory: "
            << rapidsmpf::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -619,7 +620,7 @@ int main(int argc, char** argv) {
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
         cupti_monitor->start_monitoring();
-        log.print("CUPTI memory monitoring enabled");
+        log->print("CUPTI memory monitoring enabled");
     }
 #endif
 
@@ -628,15 +629,16 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics before the last run so only last-run data is reported.
         if (i == total_num_runs - 1) {
-            stats.enable();
+            stats->enable();
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
-            elapsed = run_hash_partition_with_datagen(comm, args, stream, br.get(), stats)
-                          .count();
+            elapsed =
+                run_hash_partition_with_datagen(comm, args, stream, br.get(), *stats)
+                    .count();
         } else {
             elapsed =
-                run_hash_partition_inline(comm, args, stream, br.get(), stats).count();
+                run_hash_partition_inline(comm, args, stream, br.get(), *stats).count();
         }
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::format_duration(elapsed)
@@ -647,7 +649,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -673,15 +675,15 @@ int main(int argc, char** argv) {
                   )
                << " (avg)";
         }
-        log.print(ss.str());
+        log->print(ss.str());
     }
 
     if (args.enable_memory_profiler) {
-        log.print(stats.report(
+        log->print(stats->report(
             {.mr = stat_enabled_mr, .header = "Statistics (of the last run):"}
         ));
     } else {
-        log.print(stats.report({.header = "Statistics (of the last run):"}));
+        log->print(stats->report({.header = "Statistics (of the last run):"}));
     }
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -693,7 +695,7 @@ int main(int argc, char** argv) {
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
             cupti_monitor->write_csv(csv_filename);
-            log.print(
+            log->print(
                 "CUPTI memory data written to " + csv_filename + " ("
                 + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
                 + std::to_string(cupti_monitor->get_total_callback_count())
@@ -702,12 +704,12 @@ int main(int argc, char** argv) {
 
             // Print callback summary for rank 0
             if (comm->rank() == 0) {
-                log.print(
+                log->print(
                     "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
                 );
             }
         } catch (std::exception const& e) {
-            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }
     }
 #endif

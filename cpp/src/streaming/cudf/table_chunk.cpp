@@ -168,6 +168,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     //    specified memory type. The original memory type of the chunk does
     //    not matter.
     BufferResource* br = reservation.br();
+    auto statistics = br->statistics();
 
     // If the table view is available and the table is not packed, we can use libcudf to
     // copy the table in device memory, or pack it to pinned/ host memory. Else, fall
@@ -178,12 +179,11 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             {
                 // Use libcudf to copy the table_view().
                 auto const nbytes = data_alloc_size(MemoryType::DEVICE);
-                auto& statistics = br->statistics();
-                StreamOrderedTiming timing{stream(), statistics.shared_from_this()};
+                StreamOrderedTiming timing{stream(), statistics};
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
-                statistics.record_copy(
+                statistics->record_copy(
                     MemoryType::DEVICE, MemoryType::DEVICE, nbytes, std::move(timing)
                 );
                 // And update the provided `reservation`.
@@ -192,13 +192,13 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
             }
         case MemoryType::PINNED_HOST:  // Case 1b.
             {
-                StreamOrderedTiming timing{stream(), br->statistics().shared_from_this()};
+                StreamOrderedTiming timing{stream(), statistics};
 
                 // use cudf pack with pinned mr
                 auto packed_pinned = cudf::pack(table_view(), stream(), br->pinned_mr());
                 auto nbytes = packed_pinned.gpu_data->size();
 
-                br->statistics().record_copy(
+                statistics->record_copy(
                     MemoryType::DEVICE, MemoryType::PINNED_HOST, nbytes, std::move(timing)
                 );
                 // update the provided `reservation`
@@ -255,7 +255,7 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
     auto const nbytes = packed_data_->data->size;
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
     auto data = br->make_buffer(nbytes, packed_data_->stream(), reservation);
-    buffer_copy(br->statistics(), *data, *packed_data_->data, nbytes);
+    buffer_copy(std::move(statistics), *data, *packed_data_->data, nbytes);
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 

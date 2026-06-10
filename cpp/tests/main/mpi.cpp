@@ -30,7 +30,7 @@ void Environment::SetUp() {
     comm_ = std::make_shared<rapidsmpf::MPI>(
         mpi_comm_,
         std::make_shared<rapidsmpf::ProgressThread>(runtime_),
-        runtime_->logger().shared_from_this()
+        runtime_->logger()
     );
 }
 
@@ -58,9 +58,7 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     MPI_Comm split_comm = MPI_COMM_NULL;
     RAPIDSMPF_MPI(MPI_Comm_split(mpi_comm_, rank, 0, &split_comm));
     return std::shared_ptr<rapidsmpf::MPI>(
-        new rapidsmpf::MPI(
-            split_comm, comm_->progress_thread(), runtime_->logger().shared_from_this()
-        ),
+        new rapidsmpf::MPI(split_comm, comm_->progress_thread(), runtime_->logger()),
         // Don't leak the split handle.
         [comm = split_comm](rapidsmpf::MPI* x) mutable {
             delete x;

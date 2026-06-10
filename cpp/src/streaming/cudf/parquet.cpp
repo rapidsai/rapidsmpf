@@ -107,7 +107,7 @@ class FileCache {
     std::optional<Message> get(std::shared_ptr<Context> ctx, Key const& key) const {
         auto& stats = ctx->statistics();
 
-        stats.add_report_entry(
+        stats->add_report_entry(
             "unbounded_file_read_cache hits",
             {"unbounded_file_read_cache hits"},
             Statistics::Formatter::HitRate
@@ -118,7 +118,7 @@ class FileCache {
             std::lock_guard lock(mutex_);
             auto it = cache_.find(key);
             if (it == cache_.end()) {
-                stats.add_stat("unbounded_file_read_cache hits", 0);
+                stats->add_stat("unbounded_file_read_cache hits", 0);
                 return std::nullopt;
             }
             mid = it->second;
@@ -126,8 +126,8 @@ class FileCache {
         auto const size =
             ctx->spillable_messages()->get_content_description(mid).content_size();
 
-        stats.add_stat("unbounded_file_read_cache hits", 1);
-        stats.add_bytes_stat("unbounded_file_read_cache saved", size);
+        stats->add_stat("unbounded_file_read_cache hits", 1);
+        stats->add_bytes_stat("unbounded_file_read_cache saved", size);
         auto reservation = ctx->br()->reserve_or_fail(size, MEMORY_TYPES);
         return ctx->spillable_messages()->copy(mid, reservation);
     }

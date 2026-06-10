@@ -303,7 +303,7 @@ TEST(BufferResource, AllocStatistics) {
         {std::unordered_map<std::string, std::string>{{"statistics", "true"}}}
     );
     auto& stats = runtime->statistics();
-    EXPECT_TRUE(stats.enabled());
+    EXPECT_TRUE(stats->enabled());
     auto pinned_mr = PinnedMemoryResource::make_if_available();
     auto br = BufferResource::create(
         runtime,
@@ -343,26 +343,26 @@ TEST(BufferResource, AllocStatistics) {
     stream.synchronize();
 
     // device: 2 allocations of device_size each.
-    auto const dev_bytes = stats.get_stat("alloc-device-bytes");
+    auto const dev_bytes = stats->get_stat("alloc-device-bytes");
     EXPECT_EQ(dev_bytes.count(), 2u);
     EXPECT_EQ(dev_bytes.value(), static_cast<double>(2 * device_size));
 
     // pinned_host: 1 allocation of pinned_size (if available).
     if (pinned_mr != PinnedMemoryResource::Disabled) {
-        auto const pinned_bytes = stats.get_stat("alloc-pinned_host-bytes");
+        auto const pinned_bytes = stats->get_stat("alloc-pinned_host-bytes");
         EXPECT_EQ(pinned_bytes.count(), 1u);
         EXPECT_EQ(pinned_bytes.value(), static_cast<double>(pinned_size));
-        EXPECT_EQ(stats.get_stat("alloc-pinned_host-time").count(), 1u);
+        EXPECT_EQ(stats->get_stat("alloc-pinned_host-time").count(), 1u);
     }
 
     // host: 1 allocation of host_size.
-    auto const host_bytes = stats.get_stat("alloc-host-bytes");
+    auto const host_bytes = stats->get_stat("alloc-host-bytes");
     EXPECT_EQ(host_bytes.count(), 1u);
     EXPECT_EQ(host_bytes.value(), static_cast<double>(host_size));
 
     // timing stats should have the same count as bytes stats.
-    EXPECT_EQ(stats.get_stat("alloc-device-time").count(), 2u);
-    EXPECT_EQ(stats.get_stat("alloc-host-time").count(), 1u);
+    EXPECT_EQ(stats->get_stat("alloc-device-time").count(), 2u);
+    EXPECT_EQ(stats->get_stat("alloc-host-time").count(), 1u);
 }
 
 class BufferResourceReserveOrFailTest : public ::testing::Test {
@@ -749,7 +749,7 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
 
     auto src = create_and_initialize_buffer(MemoryType::HOST, N);
     auto dst = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
-    auto& statistics = br->statistics();
+    auto const& statistics = br->statistics();
 
     // Negative offsets
     EXPECT_THROW(buffer_copy(statistics, *dst, *src, 10, -1, 0), std::invalid_argument);

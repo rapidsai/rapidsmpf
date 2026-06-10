@@ -18,8 +18,8 @@ cdef extern from "<rapidsmpf/runtime.hpp>" nogil:
         void reset(cpp_Options new_options) except +ex_handler
 
         cpp_Options& options() noexcept
-        cpp_Statistics& statistics() noexcept
-        cpp_Logger& logger() noexcept
+        const shared_ptr[cpp_Statistics]& statistics() noexcept
+        const shared_ptr[cpp_Logger]& logger() noexcept
 
 
 cdef class Runtime:

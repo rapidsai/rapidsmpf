@@ -124,16 +124,16 @@ void Context::shutdown() noexcept {
     }
 }
 
-Runtime& Context::runtime() const noexcept {
-    return *runtime_;
+std::shared_ptr<Runtime> const& Context::runtime() const noexcept {
+    return runtime_;
 }
 
 config::Options& Context::options() const noexcept {
-    return runtime().options();
+    return runtime_->options();
 }
 
-Logger& Context::logger() const noexcept {
-    return runtime().logger();
+std::shared_ptr<Logger> const& Context::logger() const noexcept {
+    return runtime_->logger();
 }
 
 std::shared_ptr<CoroThreadPoolExecutor> const& Context::executor() const noexcept {
@@ -150,7 +150,7 @@ std::shared_ptr<MemoryReserveOrWait> const& Context::memory(
     return memory_[static_cast<std::size_t>(mem_type)];
 }
 
-Statistics& Context::statistics() const noexcept {
+std::shared_ptr<Statistics> const& Context::statistics() const noexcept {
     return br_->statistics();
 }
 

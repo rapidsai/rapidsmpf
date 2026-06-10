@@ -60,7 +60,7 @@ AllReduce::AllReduce(
     // Note: after this copy, we must check out_buffer's write event before receiving into
     // in_buffer. See StartPreRemainder in the event loop.
     // TODO: make Communicator statistics-aware, and pass its statistics instance here.
-    buffer_copy(*Statistics::disabled(), *out_buffer_, *in_buffer_, in_buffer_->size);
+    buffer_copy(Statistics::disabled(), *out_buffer_, *in_buffer_, in_buffer_->size);
 
     auto const rank = comm_->rank();
     if (rank < 2 * non_pow2_remainder_) {

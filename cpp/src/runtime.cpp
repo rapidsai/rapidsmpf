@@ -37,12 +37,12 @@ void Runtime::reset(config::Options new_options) noexcept {
     logger_ = Logger::from_options(options_);
 }
 
-Statistics& Runtime::statistics() const noexcept {
-    return *statistics_;
+std::shared_ptr<Statistics> const& Runtime::statistics() const noexcept {
+    return statistics_;
 }
 
-Logger& Runtime::logger() const noexcept {
-    return *logger_;
+std::shared_ptr<Logger> const& Runtime::logger() const noexcept {
+    return logger_;
 }
 
 }  // namespace rapidsmpf

@@ -117,7 +117,7 @@ streaming::Actor consume_channel(
         if (msg.holds<streaming::TableChunk>()) {
             auto chunk =
                 co_await msg.release<streaming::TableChunk>().make_available(ctx);
-            ctx->logger().print(
+            ctx->logger()->print(
                 "Consumed chunk with ",
                 chunk.table_view().num_rows(),
                 " rows and ",
@@ -173,7 +173,7 @@ create_context(
     );
 
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(runtime);
-    auto logger = runtime->logger().shared_from_this();
+    auto logger = runtime->logger();
     std::shared_ptr<Communicator> comm;
     switch (arguments.comm_type) {
     case CommType::MPI:

@@ -41,7 +41,7 @@ void Environment::SetUp() {
         MPI_COMM_WORLD,
         runtime_->options(),
         std::make_shared<rapidsmpf::ProgressThread>(runtime_),
-        runtime_->logger().shared_from_this()
+        runtime_->logger()
     );
 }
 

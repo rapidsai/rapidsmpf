@@ -25,21 +25,10 @@ namespace rapidsmpf {
  * Any class that needs access to options, statistics, or logging should store
  * a `std::shared_ptr<Runtime>` member and delegate to it.
  *
- * The three runtime objects are exposed **by reference**:
- *
  * @code{.cpp}
  * auto rt = rapidsmpf::Runtime::from_options(options);
- * rt->logger().info("Hello from rank ", rt->logger().verbosity_level());
- * rt->statistics().add_bytes_stat("foo", 42);
- * @endcode
- *
- * Leaf APIs that require a `std::shared_ptr<Statistics>` or
- * `std::shared_ptr<Logger>` can obtain one via `shared_from_this()` on the
- * sub-object:
- *
- * @code{.cpp}
- * auto stats_ptr = rt->statistics().shared_from_this();
- * auto log_ptr   = rt->logger().shared_from_this();
+ * rt->logger()->info("Hello from rank ", rt->logger()->verbosity_level());
+ * rt->statistics()->add_bytes_stat("foo", 42);
  * @endcode
  */
 class Runtime : public std::enable_shared_from_this<Runtime> {
@@ -83,16 +72,18 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     /**
      * @brief Returns the statistics collector.
      *
-     * @return A reference to the `Statistics` instance owned by this Runtime.
+     * @return A const reference to the `shared_ptr<Statistics>` owned by this
+     * Runtime. Always non-null.
      */
-    [[nodiscard]] Statistics& statistics() const noexcept;
+    [[nodiscard]] std::shared_ptr<Statistics> const& statistics() const noexcept;
 
     /**
      * @brief Returns the logger.
      *
-     * @return A reference to the `Logger` instance owned by this Runtime.
+     * @return A const reference to the `shared_ptr<Logger>` owned by this
+     * Runtime. Always non-null.
      */
-    [[nodiscard]] Logger& logger() const noexcept;
+    [[nodiscard]] std::shared_ptr<Logger> const& logger() const noexcept;
 
 
   private:
