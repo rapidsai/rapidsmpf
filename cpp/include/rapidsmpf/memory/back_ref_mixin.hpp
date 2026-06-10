@@ -51,7 +51,11 @@ class BackRefMixin {
      * but its owner has been destroyed.
      */
     BackRefMixin(BackRefMixin const& other)
-        : weak_{other.weak_}, strong_{promote(other)} {}
+        // Reuse `other`'s strong ref when present; otherwise lock its weak ref,
+        // which throws `std::bad_weak_ptr` if `other` is uninstalled or expired.
+        : weak_{other.weak_},
+          strong_{other.strong_ ? other.strong_ : std::shared_ptr<BackRef>{other.weak_}} {
+    }
 
     /**
      * @brief Copy assignment with the same semantics as the copy constructor.
@@ -65,8 +69,10 @@ class BackRefMixin {
      */
     BackRefMixin& operator=(BackRefMixin const& other) {
         if (this != &other) {
-            // Promote first so a throw leaves *this unchanged.
-            auto promoted = promote(other);
+            // Promote first so a throw leaves *this unchanged. Locking an
+            // uninstalled or expired weak ref throws `std::bad_weak_ptr`.
+            auto promoted =
+                other.strong_ ? other.strong_ : std::shared_ptr<BackRef>{other.weak_};
             weak_ = other.weak_;
             strong_ = std::move(promoted);
         }
@@ -121,20 +127,6 @@ class BackRefMixin {
     }
 
   private:
-    /**
-     * @brief Compute the promoted strong reference for a copy from @p other.
-     *
-     * @throws std::bad_weak_ptr if @p other has no installed back-reference,
-     * or if its owner has been destroyed.
-     */
-    static std::shared_ptr<BackRef> promote(BackRefMixin const& other) {
-        if (other.strong_) {
-            return other.strong_;
-        }
-        // Throws if @p other is uninstalled (empty weak_ptr) or expired.
-        return std::shared_ptr<BackRef>{other.weak_};
-    }
-
     std::weak_ptr<BackRef> weak_{};
     std::shared_ptr<BackRef> strong_{};
 };
