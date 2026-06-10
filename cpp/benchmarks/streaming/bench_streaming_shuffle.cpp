@@ -361,7 +361,6 @@ int main(int argc, char** argv) {
     RAPIDSMPF_EXPECTS(comm->nranks() == 1, "only single-rank runs are supported");
 
     set_current_rmm_resource(args.rmm_mr);
-    auto stat_enabled_mr = set_device_mem_resource_with_stats();
     std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits{};
     if (args.device_mem_limit_mb >= 0) {
         memory_limits[rapidsmpf::MemoryType::DEVICE] = args.device_mem_limit_mb << 20;
@@ -373,7 +372,7 @@ int main(int argc, char** argv) {
                          ? rapidsmpf::PinnedMemoryResource::Disabled
                          : rapidsmpf::PinnedMemoryResource::make_if_available();
     auto br = rapidsmpf::BufferResource::create(
-        stat_enabled_mr,
+        rmm::mr::get_current_device_resource_ref(),
         pinned_mr,
         std::move(memory_limits),
         std::nullopt,
@@ -382,6 +381,11 @@ int main(int argc, char** argv) {
         ),
         stats
     );
+
+    // Route all device allocations through the BufferResource's internal
+    // tracking adaptor so the memory profiler captures every allocation,
+    // including those made via the current device resource.
+    rmm::mr::set_current_device_resource(br->device_mr());
 
     auto& log = *comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -450,7 +454,7 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto record = stat_enabled_mr.get_main_record();
+            auto record = br->device_mr_adaptor().get_main_record();
             ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
                << rapidsmpf::format_nbytes(
@@ -464,7 +468,7 @@ int main(int argc, char** argv) {
     auto statistics = ctx->statistics();
     if (args.enable_memory_profiler) {
         log.print(statistics->report({
-            .mr = stat_enabled_mr,
+            .mr = br->device_mr(),
             .pinned_mr = pinned_mr,
             .header = "Statistics (of the last run):",
         }));

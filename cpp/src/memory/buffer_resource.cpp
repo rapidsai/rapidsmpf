@@ -132,6 +132,10 @@ rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
     return rmm::device_async_resource_ref{owning_mr_};
 }
 
+RmmResourceAdaptor const& BufferResource::device_mr_adaptor() const noexcept {
+    return owning_mr_;
+}
+
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }

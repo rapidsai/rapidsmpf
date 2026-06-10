@@ -205,6 +205,19 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
 
     /**
+     * @brief Access the internal device memory resource adaptor.
+     *
+     * `BufferResource` wraps the device memory resource in an internal
+     * `RmmResourceAdaptor` for allocation tracking. This exposes that adaptor
+     * directly, e.g. to query allocation statistics via `get_main_record()` or
+     * `current_allocated()`.
+     *
+     * @return Reference to the internal device `RmmResourceAdaptor`. The
+     * reference is valid for as long as this `BufferResource` is alive.
+     */
+    [[nodiscard]] RmmResourceAdaptor const& device_mr_adaptor() const noexcept;
+
+    /**
      * @brief Get the RMM host memory resource.
      *
      * The returned reference follows the same lifetime contract as

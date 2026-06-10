@@ -638,13 +638,16 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             host_pattern[i] = static_cast<std::uint8_t>(i % 256);
         }
 
-        // Setup br1 with statistics for its device memory
-        mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = BufferResource::create(*mr1);
+        // `BufferResource` wraps the device resource in an internal
+        // `RmmResourceAdaptor` for allocation tracking, so just pass a vanilla
+        // resource; `device_total()` reads back the per-resource record.
+        br1 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+        br2 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+    }
 
-        // Setup br2 with statistics for its device memory
-        mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = BufferResource::create(*mr2);
+    /// @brief Cumulative device bytes allocated through @p br.
+    static std::int64_t device_total(BufferResource& br) {
+        return br.device_mr_adaptor().get_main_record().total();
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -661,23 +664,21 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             );
         });
         buf1->stream().synchronize();
-        EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(buffer_size));
         return buf1;
     }
 
     void verify_memory_allocation(
         std::size_t expected_br1_total, std::size_t expected_br2_total
     ) {
-        EXPECT_EQ(mr1->get_main_record().total(), expected_br1_total);
-        EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(expected_br1_total));
+        EXPECT_EQ(device_total(*br2), static_cast<std::int64_t>(expected_br2_total));
     }
 
     std::size_t buffer_size;
     rmm::cuda_stream_view stream;
     std::vector<std::uint8_t> host_pattern;
 
-    std::unique_ptr<RmmResourceAdaptor> mr1;
-    std::unique_ptr<RmmResourceAdaptor> mr2;
     std::shared_ptr<BufferResource> br1;
     std::shared_ptr<BufferResource> br2;
 };
@@ -834,19 +835,17 @@ TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     EXPECT_THROW(target = original, std::bad_weak_ptr);
 }
 
-TEST(RmmResourceAdaptor, CopyWithoutBackRefDoesNotThrow) {
-    // A default-constructed (no `set_backref` ever called) adaptor must be
-    // freely copyable: both `weak_` and `strong_` start empty and copies of
-    // such adaptors should be a no-op for the back-ref. This is the contract
-    // existing callers (tests, benchmarks, Python bindings) rely on.
+TEST(RmmResourceAdaptor, CopyWithoutBackRefThrows) {
+    // A `set_backref()` must be installed before an adaptor is copied. Copying
+    // an uninstalled adaptor throws `std::bad_weak_ptr`.
     rmm::mr::cuda_memory_resource cuda_mr;
 
     RmmResourceAdaptor original{any_device_resource{cuda_mr}};
 
-    EXPECT_NO_THROW({ RmmResourceAdaptor copy{original}; });
+    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
 
     RmmResourceAdaptor target{any_device_resource{cuda_mr}};
-    EXPECT_NO_THROW(target = original);
+    EXPECT_THROW(target = original, std::bad_weak_ptr);
 }
 
 // Regression guard for a latent side effect of switching `BufferResource` from

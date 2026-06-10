@@ -27,10 +27,11 @@ namespace rapidsmpf {
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
  *
- * Inherits the `WithBufferResourceBackRef` lifetime contract: standalone
- * adaptors make no claim on any owner, but adaptors installed by
- * `BufferResource::create()` keep their owning `BufferResource` alive for
- * as long as any copy of the adaptor lives.
+ * Inherits the `WithBufferResourceBackRef` lifetime contract: a
+ * back-reference must be installed via `set_backref()` before the adaptor
+ * is copied (copying an uninstalled adaptor throws `std::bad_weak_ptr`).
+ * Adaptors installed by `BufferResource::create()` keep their owning
+ * `BufferResource` alive for as long as any copy of the adaptor lives.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<

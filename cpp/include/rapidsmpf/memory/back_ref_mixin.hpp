@@ -19,8 +19,9 @@ namespace rapidsmpf {
  * Inherit this mixin into a type whose copies should share ownership of an
  * external @p BackRef instance. Each instance is in one of two states:
  *
- * - **Uninstalled** (default-constructed): the instance makes no claim on
- *   any owner. Copies of it stay uninstalled and never throw.
+ * - **Uninstalled** (default-constructed): the instance is not bound to any
+ *   owner. Copying an uninstalled instance throws `std::bad_weak_ptr`; a
+ *   back-reference must be installed via `set_backref()` before copying.
  * - **Installed** (after `set_backref()`): the instance is bound to a
  *   specific owner. Each copy of an installed instance acquires shared
  *   ownership of that owner for the lifetime of the copy. If the owner has
@@ -43,12 +44,11 @@ class BackRefMixin {
      * @brief Acquire shared ownership of @p other's back-referenced owner.
      *
      * After construction, *this* references the same owner as @p other and
-     * keeps it alive for as long as *this* lives. If @p other is
-     * uninstalled, *this* is uninstalled too.
+     * keeps it alive for as long as *this* lives.
      *
      * @param other Mixin to copy from.
-     * @throws std::bad_weak_ptr if @p other is installed but its owner has
-     * been destroyed.
+     * @throws std::bad_weak_ptr if @p other is uninstalled, or is installed
+     * but its owner has been destroyed.
      */
     BackRefMixin(BackRefMixin const& other)
         : weak_{other.weak_}, strong_{promote(other)} {}
@@ -60,8 +60,8 @@ class BackRefMixin {
      *
      * @param other Mixin to copy from.
      * @return Reference to this.
-     * @throws std::bad_weak_ptr if @p other is installed but its owner has
-     * been destroyed.
+     * @throws std::bad_weak_ptr if @p other is uninstalled, or is installed
+     * but its owner has been destroyed.
      */
     BackRefMixin& operator=(BackRefMixin const& other) {
         if (this != &other) {
@@ -124,20 +124,15 @@ class BackRefMixin {
     /**
      * @brief Compute the promoted strong reference for a copy from @p other.
      *
-     * Returns an empty `shared_ptr` when @p other has no installed
-     * back-reference (so default-constructed mixins copy without throwing).
+     * @throws std::bad_weak_ptr if @p other has no installed back-reference,
+     * or if its owner has been destroyed.
      */
     static std::shared_ptr<BackRef> promote(BackRefMixin const& other) {
         if (other.strong_) {
             return other.strong_;
         }
-        // Distinguish "never installed" (default-constructed weak_ptr) from
-        // "installed but expired": only the former is owner-equal to a
-        // default-constructed weak_ptr.
-        if (owner_equal(other.weak_, std::weak_ptr<BackRef>{})) {
-            return {};
-        }
-        return std::shared_ptr<BackRef>{other.weak_};  // throws if expired
+        // Throws if @p other is uninstalled (empty weak_ptr) or expired.
+        return std::shared_ptr<BackRef>{other.weak_};
     }
 
     std::weak_ptr<BackRef> weak_{};
