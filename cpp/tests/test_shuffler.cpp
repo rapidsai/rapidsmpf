@@ -110,8 +110,19 @@ namespace {
 
 using MemoryLimitsMap = std::unordered_map<rapidsmpf::MemoryType, std::int64_t>;
 
-// Help function to get the `memory_limits` argument for a `BufferResource`
-// that prioritizes the specified memory type.
+/**
+ * @brief Build a `memory_limits` map for a `BufferResource` that prioritizes one memory
+ * type.
+ *
+ * All memory types are initialised to unlimited. If @p priorities is not
+ * `MemoryType::DEVICE`, the device-memory limit is then set to zero, forcing
+ * the `BufferResource` to allocate exclusively in host memory. Host memory is
+ * never zeroed because it backs metadata and control-message allocations that
+ * must always succeed.
+ *
+ * @param priorities The memory type to keep unlimited (all others are zeroed).
+ * @return A map from each `MemoryType` to its byte limit (`std::int64_t`).
+ */
 MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
     using namespace rapidsmpf;
 
@@ -130,19 +141,35 @@ MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
     return ret;
 }
 
-// Conservation-preserving data model shared by the shuffler round-trip tests.
-//
-// We split the index range [0, total_num_rows) into total_num_partitions^2 contiguous
-// sub-regions via chunk_indices (front-loaded, so when N < P*P the trailing sub-regions
-// are empty). Sub-region (local_pidx, split_idx) is piece k = local_pidx*P + split_idx
-// and is routed to destination partition split_idx; input region local_pidx is the union
-// of its P sub-regions. The pieces exactly tile [0,N), so the total shuffled data == N
-// regardless of rank/partition counts (conservation). A per-shuffle `base` offset is
-// added to every value so distinct shuffles carry distinct data.
+/// Conservation-preserving data model shared by the shuffler round-trip tests.
+///
+/// The index range `[0, total_num_rows)` is split into `total_num_partitions^2`
+/// contiguous sub-regions via `chunk_indices` (front-loaded, so trailing sub-regions
+/// are empty when `N < P*P`). Sub-region `(local_pidx, split_idx)` is piece
+/// `k = local_pidx * P + split_idx` and is routed to destination partition
+/// `split_idx`. The pieces exactly tile `[0, N)`, so the total shuffled row
+/// count equals `N` regardless of rank or partition counts (conservation). A
+/// per-shuffle `base` offset is added to every value so distinct shuffles carry
+/// distinct data.
 
-// Produces the non-empty sub-regions of one owned input region `local_pidx`, keyed by
-// destination partition. Since local_partitions() across ranks partition [0,P), every
-// input region is produced exactly once, so rows are not replicated.
+
+/**
+ * @brief Build the input data for one owned partition region ready for insertion.
+ *
+ * Produces all non-empty sub-regions of the input region `local_pidx`, keyed by
+ * their destination partition. Because `local_partitions()` across all ranks
+ * partitions `[0, P)`, every input region is produced exactly once and rows are
+ * never replicated.
+ *
+ * @param total_num_partitions Total number of shuffle partitions `P`.
+ * @param total_num_rows       Total row count `N` tiled across all sub-regions.
+ * @param local_pidx           Index of the locally-owned input region to generate.
+ * @param stream               CUDA stream used for device allocations.
+ * @param br                   Buffer resource used to allocate packed data.
+ * @param base                 Offset added to every generated value (default 0).
+ * @return Map from destination `PartID` to the corresponding `PackedData` chunk;
+ *         empty sub-regions are omitted.
+ */
 std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>
 make_partition_data(
     rapidsmpf::shuffler::PartID total_num_partitions,
@@ -172,8 +199,22 @@ make_partition_data(
     return chunks;
 }
 
-// Verifies that the `received` chunks for partition `j` match the non-empty sub-regions
-// expected for it.
+/**
+ * @brief Verify that received chunks for a partition match the expected sub-regions.
+ *
+ * Recomputes the non-empty `(offset, count)` sub-regions expected for partition
+ * `j` from the same conservation model used by `make_partition_data`, then
+ * checks that @p received contains exactly those chunks (in any order). Chunks
+ * are sorted by their embedded offset before comparison so the validation is
+ * order-independent.
+ *
+ * @param received             Chunks extracted from the shuffler for partition `j`.
+ * @param total_num_partitions Total number of shuffle partitions `P`.
+ * @param total_num_rows       Total row count `N` used to tile sub-regions.
+ * @param j                    Destination partition index being validated.
+ * @param br                   Buffer resource used for unpacking received data.
+ * @param base                 Offset that was added to every generated value (default 0).
+ */
 void validate_partition_data(
     std::vector<rapidsmpf::PackedData> received,
     rapidsmpf::shuffler::PartID total_num_partitions,
@@ -215,12 +256,27 @@ void validate_partition_data(
     }
 }
 
+/**
+ * @brief Execute a full shuffler round-trip and validate every local partition.
+ *
+ * For each locally-owned partition, generates input data with `make_partition_data`,
+ * inserts it into the shuffler, signals insertion completion, then waits (with a
+ * 30-second timeout to catch deadlocks) and validates every received partition
+ * with `validate_partition_data`.
+ *
+ * @param shuffler             The shuffler instance under test.
+ * @param total_num_partitions Total number of shuffle partitions `P`.
+ * @param total_num_rows       Total row count `N` distributed across all sub-regions.
+ * @param stream               CUDA stream used for device allocations.
+ * @param br                   Buffer resource used to allocate and validate data.
+ */
 void test_shuffler(
     rapidsmpf::shuffler::Shuffler& shuffler,
     rapidsmpf::shuffler::PartID total_num_partitions,
     std::size_t total_num_rows,
     rmm::cuda_stream_view stream,
-    rapidsmpf::BufferResource* br
+    rapidsmpf::BufferResource* br,
+    std::int64_t base = 0
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
@@ -228,7 +284,7 @@ void test_shuffler(
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
-            total_num_partitions, total_num_rows, local_pidx, stream, *br
+            total_num_partitions, total_num_rows, local_pidx, stream, *br, base
         ));
     }
     shuffler.insert_finished();
@@ -241,7 +297,8 @@ void test_shuffler(
             total_num_partitions,
             total_num_rows,
             local_pidx,
-            *br
+            *br,
+            base
         );
     }
 }
@@ -338,7 +395,8 @@ class ConcurrentShuffleTest : public ::testing::TestWithParam<
             total_num_partitions,
             100'000,  // total_num_rows
             stream,
-            br.get()
+            br.get(),
+            static_cast<std::int64_t>(t_id)
         ));
     }
 
