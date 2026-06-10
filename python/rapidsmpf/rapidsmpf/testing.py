@@ -127,7 +127,8 @@ def generate_packed_data(
     A ``PackedData`` containing the integer sequence.
     """
     data = np.arange(offset, offset + n_elements, dtype=_DTYPE).tobytes()
-    gpu_data = rmm.DeviceBuffer.to_device(data, stream=stream)
+    gpu_data = rmm.DeviceBuffer(size=len(data), stream=stream, mr=br.device_mr)
+    gpu_data.copy_from_host(data, stream=stream)
     return PackedData.from_device_buffer(gpu_data, data, stream, br)
 
 
