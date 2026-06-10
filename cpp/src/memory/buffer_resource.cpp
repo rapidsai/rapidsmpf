@@ -65,22 +65,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics)
     }};
 
-    // Install the back-reference on every internal resource *after*
-    // construction so that `weak_from_this()` is valid. Each resource holds
-    // only a `weak_ptr`, avoiding a reference cycle. When downstream code
-    // promotes a non-owning `resource_ref` returned by `device_mr()`,
-    // `host_mr()`, `pinned_mr()`, or `try_pinned_mr()` to an owning
-    // `cuda::mr::any_resource` (for example internally in `rmm::device_buffer`
-    // or any cudf API that stores the MR by owning value), CCCL deep-copies
-    // the resource. The copy promotes the weak ref to a
-    // `shared_ptr<BufferResource>`, acquiring shared ownership so the
-    // `BufferResource` stays alive for as long as the owning resource exists.
-    auto const weak_br = br->weak_from_this();
-    br->owning_mr_.set_backref(weak_br);
-    br->host_mr_.set_backref(weak_br);
-    if (br->pinned_mr_.has_value()) {
-        br->pinned_mr_->set_backref(weak_br);
-    }
+    // Install the back-reference on the device adaptor *after* construction so
+    // that `weak_from_this()` is valid. The adaptor holds only a `weak_ptr`,
+    // avoiding a reference cycle. When downstream code promotes a non-owning
+    // `resource_ref` returned by `device_mr()` to an owning
+    // `cuda::mr::any_resource`.
+    br->owning_mr_.set_backref(br->weak_from_this());
     return br;
 }
 

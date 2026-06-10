@@ -13,7 +13,6 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/memory/back_ref_mixin.hpp>
 
 namespace rapidsmpf {
 
@@ -29,13 +28,8 @@ namespace rapidsmpf {
  * region. THP can improve device-host memory transfer performance for large
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
- *
- * Inherits the `WithBufferResourceBackRef` lifetime contract: standalone
- * instances make no claim on any owner, but instances installed by
- * `BufferResource::create()` keep their owning `BufferResource` alive for
- * as long as any copy of the resource lives.
  */
-class HostMemoryResource : public WithBufferResourceBackRef {
+class HostMemoryResource {
   public:
     HostMemoryResource() = default;
     ~HostMemoryResource() = default;
@@ -117,18 +111,23 @@ class HostMemoryResource : public WithBufferResourceBackRef {
     /**
      * @brief Compares this resource to another resource.
      *
+     * All instances are stateless and interchangeable, so this always returns
+     * true.
      *
      * @param other The resource to compare with.
-     * @return True if the two instances reference the same owning
-     * `BufferResource`, or are both standalone.
+     * @return true
      */
-    [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
-        return WithBufferResourceBackRef::operator==(other);
+    [[nodiscard]] bool operator==(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
+        return true;
     }
 
     /// @copydoc operator==
-    [[nodiscard]] bool operator!=(HostMemoryResource const& other) const noexcept {
-        return !(*this == other);
+    [[nodiscard]] bool operator!=(
+        [[maybe_unused]] HostMemoryResource const& other
+    ) const noexcept {
+        return false;
     }
 
     /**

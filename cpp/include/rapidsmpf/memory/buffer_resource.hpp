@@ -220,40 +220,27 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Get the RMM host memory resource.
      *
-     * The returned reference follows the same lifetime contract as
-     * `device_mr()`: callers must keep this `BufferResource` alive while
-     * using the non-owning reference directly, but storing the reference
-     * into an owning `cuda::mr::any_resource<cuda::mr::host_accessible>`
-     * (or any container that does so internally) keeps this
-     * `BufferResource` alive for as long as that owning storage lives.
-     *
      * @return Reference to the RMM resource used for host allocations.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
      *
-     * The returned reference follows the same lifetime contract as
-     * `device_mr()`: callers must keep this `BufferResource` alive while
-     * using the non-owning reference directly, but storing the reference
-     * into an owning `any_host_device_resource` keeps this `BufferResource`
-     * alive for as long as that owning storage lives.
-     *
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
      * @brief Get the pinned host memory resource if available.
      *
-     * The returned value is an owning resource. While it (or any copy of
-     * it) is alive, this `BufferResource` is kept alive too.
-     *
-     * @return The pinned host memory resource as an `any_resource`, or
-     * `std::nullopt` if pinned host memory is not available.
+     * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
+     * pinned host memory is not available.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**
@@ -545,14 +532,13 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-
-    // Following memory resources are installed with a back-reference to this instance
-    // during `create()` factory method. This ensures that the `BufferResource` stays
-    // alive for as long as the memory resources are alive.
+    // The device adaptor is installed with a back-reference to this instance
+    // during the `create()` factory method, so the `BufferResource` stays alive
+    // for as long as copies of the device adaptor are alive. The pinned and host
+    // resources do not (yet) carry a back-reference.
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
-
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};

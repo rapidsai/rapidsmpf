@@ -20,7 +20,6 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -89,17 +88,10 @@ struct PinnedPoolProperties {
  * This resource allocates and deallocates pinned host memory asynchronously through
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
- *
- * Inherits the `WithBufferResourceBackRef` lifetime contract: standalone
- * instances (e.g. those returned by `make_if_available()` /
- * `from_options()`) make no claim on any owner, but instances installed by
- * `BufferResource::create()` keep their owning `BufferResource` alive for
- * as long as any copy of the resource lives.
  */
 class PinnedMemoryResource final
     : public cuda::mr::shared_resource<
-          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>,
-      public WithBufferResourceBackRef {
+          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>> {
     using shared_base = cuda::mr::shared_resource<
         detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>;
 
@@ -180,16 +172,11 @@ class PinnedMemoryResource final
     /**
      * @brief Equality comparison.
      *
-     * Two resources are equal iff they share the same underlying memory
-     * pool **and** reference the same owning `BufferResource` (or are both
-     * standalone).
-     *
      * @param other The other resource to compare.
-     * @return True if both resources share the same pool and the same
-     * owning `BufferResource`.
+     * @return True if the two resources share the same underlying shared state.
      */
     [[nodiscard]] bool operator==(PinnedMemoryResource const& other) const noexcept {
-        return get() == other.get() && WithBufferResourceBackRef::operator==(other);
+        return get() == other.get();
     }
 
     /**

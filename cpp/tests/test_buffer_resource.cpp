@@ -854,13 +854,13 @@ TEST(RmmResourceAdaptor, CopyWithoutBackRefThrows) {
 TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     constexpr std::size_t kAllocBytes = 1_MiB;
 
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     auto stats = Statistics::create();
     ASSERT_TRUE(stats->enabled());
 
     {
         auto rec = stats->create_memory_recorder(br->device_mr(), "br-scope");
-        rmm::device_buffer buf{kAllocBytes, cudf::get_default_stream(), br->device_mr()};
+        rmm::device_buffer buf{kAllocBytes, rmm::cuda_stream_view{}, br->device_mr()};
     }
 
     auto const& records = stats->get_memory_records();
