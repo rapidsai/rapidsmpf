@@ -9,7 +9,7 @@ source rapids-init-pip
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 
 CPP_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_cpp librapidsmpf rapidsmpf --cuda "$RAPIDS_CUDA_VERSION")")
-PYTHON_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_python rapidsmpf rapidsmpf --pure --cuda "$RAPIDS_CUDA_VERSION")")
+PYTHON_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_python rapidsmpf rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")")
 
 # generate constraints (possibly pinning to oldest support versions of dependencies)
 rapids-generate-pip-constraints test_python "${PIP_CONSTRAINT}"
