@@ -49,8 +49,8 @@ cdef class Shuffler:
     Notes
     -----
     This class is designed to handle distributed operations by partitioning data
-    and redistributing it across ranks in a cluster. It is typically used in
-    distributed data processing workflows involving cuDF tables.
+    and redistributing it across ranks in a cluster. It operates on caller-provided
+    packed payloads and is independent of any particular dataframe implementation.
 
     The caller promises that inserted buffers are stream-ordered with respect to
     their own stream, and extracted buffers are likewise guaranteed to be stream-

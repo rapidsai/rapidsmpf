@@ -54,7 +54,6 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
-option(BUILD_CUDF_TESTS "Build tests/benchmarks that require cudf" OFF)
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -70,7 +69,6 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
-message(STATUS "  BUILD_CUDF_TESTS        : ${BUILD_CUDF_TESTS}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
@@ -336,16 +334,8 @@ target_compile_definitions(
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
-# Guard: when BUILD_CUDF_TESTS is enabled, cudf_streaming is fetched via CPM and its own
-# cmake/thirdparty/get_rapidsmpf.cmake calls rapids_cpm_find(rapidsmpf ...) which creates this alias
-# target. Without the guard we get "cannot create ALIAS target because another target with the same
-# name already exists" due to the circular dependency (rapidsmpf -> cudf_streaming -> rapidsmpf).
 if(NOT TARGET rapidsmpf::rapidsmpf)
   add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
-endif()
-
-if(BUILD_CUDF_TESTS)
-  include(../cmake/thirdparty/get_cudf_streaming.cmake)
 endif()
 
 # ##################################################################################################

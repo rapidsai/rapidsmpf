@@ -9,12 +9,6 @@ some larger runtime.
 
 ## Streaming Engine
 
-Basic streaming pipeline example in Python.  In this example we have 3 {term}`Actor`s
-in the {term}`Network`: push_to_channel->count_num_rows->pull_from_channel.
-
-*note: push_to_channel/pull_from_channel are convenience functions which simulate scans/writes*
-
-```{literalinclude} ../../../python/rapidsmpf/rapidsmpf/examples/streaming/basic_example.py
-:language: python
-:lines: 34-
-```
+The Python streaming API exposes {term}`Actor`, {term}`Channel`, and message primitives
+for downstream libraries that need to assemble their own pipelines. See
+{doc}`api` for the available classes and functions.

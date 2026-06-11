@@ -116,16 +116,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
   )
 endif()
 
-# cudf-dependent test sources, gated behind BUILD_CUDF_TESTS
-if(BUILD_CUDF_TESTS)
-  target_sources(test_sources PRIVATE test_partition.cpp)
-  target_link_libraries(
-    test_sources PRIVATE cudf_streaming::cudf_streaming cudf::cudftestutil cudf::cudftestutil_impl
-  )
-  target_compile_definitions(test_sources PRIVATE RAPIDSMPF_HAVE_CUDF)
-
-endif()
-
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
   set_target_properties(

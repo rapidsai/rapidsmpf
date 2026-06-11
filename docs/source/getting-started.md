@@ -88,14 +88,14 @@ mpirun -np 2 cpp/build/gtests/mpi_tests
 cd cpp/build && ctest -R mpi_tests_2
 ```
 
-We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we use a
+We can also run the communication benchmark. To assign each MPI rank its own GPU, we use a
 [binder script](https://github.com/LStuber/binding/blob/master/binder.sh):
 
 ```bash
 # The binder script requires numactl: mamba install numactl
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
-mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
+mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_comm -C mpi
 ```
 
 ## UCX

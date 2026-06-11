@@ -92,11 +92,11 @@ void print_usage(std::string_view prog_name) {
         << "  # Passthrough: multiple (4) tasks per node, one task per GPU, two nodes.\n"
         << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=4 --cpus-per-task=36 \\\n"
         << "      --gpus-per-task=1 --gres=gpu:4 \\\n"
-        << "      rrun ./benchmarks/bench_shuffle -C ucxx\n\n"
+        << "      rrun ./benchmarks/bench_comm -C ucxx\n\n"
         << "  # Hybrid mode: one task per node, 4 GPUs per task, two nodes.\n"
         << "  srun --mpi=pmix --nodes=2 --ntasks-per-node=1 --cpus-per-task=144 \\\n"
         << "      --gpus-per-task=4 --gres=gpu:4 \\\n"
-        << "      rrun -n 4 ./benchmarks/bench_shuffle -C ucxx\n\n"
+        << "      rrun -n 4 ./benchmarks/bench_comm -C ucxx\n\n"
         << std::endl;
 }
 

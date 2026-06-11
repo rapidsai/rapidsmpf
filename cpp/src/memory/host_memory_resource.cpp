@@ -20,7 +20,6 @@ namespace {
  * Attempts to mark the specified memory region as eligible for Transparent Huge Pages
  * (THP) using `madvise(MADV_HUGEPAGE)`. This is a best-effort optimization that can
  * improve device to host memory transfer performance for sufficiently large buffers.
- * See <https://github.com/rapidsai/cudf/pull/13914>.
  *
  * @param ptr Pointer to the start of the memory region.
  * @param size Size of the region in bytes.
