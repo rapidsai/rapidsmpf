@@ -110,6 +110,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_lineariser.cpp
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
+            streaming/test_partition.cpp
             streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
             streaming/test_shuffler.cpp
