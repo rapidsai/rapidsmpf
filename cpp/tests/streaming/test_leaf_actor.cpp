@@ -4,17 +4,15 @@
  */
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <tuple>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf_streaming/streaming/table_chunk.hpp>
-#include <cudf_test/table_utilities.hpp>
-
-#include <rapidsmpf/communicator/single.hpp>
-#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -23,7 +21,6 @@
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
-#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -33,12 +30,11 @@ namespace actor = rapidsmpf::streaming::actor;
 using StreamingLeafTasks = BaseStreamingFixture;
 
 TEST_F(StreamingLeafTasks, PushAndPullChunks) {
-    constexpr int num_rows = 100;
     constexpr int num_chunks = 10;
 
-    std::vector<cudf::table> expects;
+    std::vector<int> expects;
     for (int i = 0; i < num_chunks; ++i) {
-        expects.emplace_back(random_table_with_index(i, num_rows, 0, 10));
+        expects.push_back(i * 10);
     }
 
     std::vector<Actor> actors;
@@ -49,15 +45,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
         std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
             inputs.emplace_back(
-                cudf_streaming::streaming::to_message(
-                    i,
-                    std::make_unique<cudf_streaming::streaming::TableChunk>(
-                        std::make_unique<cudf::table>(
-                            expects[i], stream, ctx->br()->device_mr()
-                        ),
-                        stream
-                    )
-                )
+                i, std::make_unique<int>(expects[i]), ContentDescription{}
             );
         }
 
@@ -72,10 +60,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
         EXPECT_EQ(outputs[i].sequence_number(), i);
-        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            outputs[i].get<cudf_streaming::streaming::TableChunk>().table_view(),
-            expects[i].view()
-        );
+        EXPECT_EQ(outputs[i].release<int>(), expects[i]);
     }
 }
 
