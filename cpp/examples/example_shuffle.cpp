@@ -38,8 +38,9 @@ int main(int argc, char** argv) {
     // Now we have to create a Communicator, which we will use throughout the
     // example. Multiple concurrent shuffles are possible on the same communicator by
     // providing differentiating "OpID" arguments.
-    std::shared_ptr<rapidsmpf::Communicator> comm =
-        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options, progress_thread);
+    std::shared_ptr<rapidsmpf::Communicator> comm = std::make_shared<rapidsmpf::MPI>(
+        MPI_COMM_WORLD, progress_thread, rapidsmpf::Logger::from_options(options)
+    );
 
 
     // The Communicator provides a logger.

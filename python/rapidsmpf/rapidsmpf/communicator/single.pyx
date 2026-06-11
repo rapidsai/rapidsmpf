@@ -4,15 +4,16 @@
 from libcpp.memory cimport make_shared, shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.communicator.communicator cimport Communicator
-from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.communicator.communicator cimport Communicator, cpp_Logger
+from rapidsmpf.config cimport Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
 
 
 cdef extern from "<rapidsmpf/communicator/single.hpp>" nogil:
     cdef cppclass cpp_Single_Communicator "rapidsmpf::Single":
         cpp_Single_Communicator(
-            cpp_Options options, shared_ptr[cpp_ProgressThread]
+            shared_ptr[cpp_ProgressThread],
+            shared_ptr[cpp_Logger]
         ) except +ex_handler
 
 
@@ -23,7 +24,7 @@ def new_communicator(Options options not None, ProgressThread progress_thread no
     Parameters
     ----------
     options
-        Configuration options.
+        Configuration options. Used to construct the communicator's logger.
     progress_thread
         Progress thread for the communicator.
 
@@ -34,6 +35,7 @@ def new_communicator(Options options not None, ProgressThread progress_thread no
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
         ret._handle = make_shared[cpp_Single_Communicator](
-            options._handle, progress_thread._handle
+            progress_thread._handle,
+            cpp_Logger.from_options(options._handle)
         )
     return ret
