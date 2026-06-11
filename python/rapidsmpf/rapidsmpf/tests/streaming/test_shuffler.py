@@ -14,7 +14,7 @@ from rapidsmpf.streaming.chunks.partition import (
     PartitionMapChunk,
     PartitionVectorChunk,
 )
-from rapidsmpf.streaming.coll.shuffler import ShufflerAsync
+from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel
 from rapidsmpf.streaming.core.message import Message
@@ -133,31 +133,6 @@ async def generate_inputs(
     await ch.drain(context)
 
 
-@define_actor()
-async def do_shuffle(
-    context: Context,
-    comm: Communicator,
-    ch_in: Channel[PartitionMapChunk],
-    ch_out: Channel[PartitionVectorChunk],
-    op_id: int,
-    num_partitions: int,
-    *,
-    partition_assignment: PartitionAssignment = PartitionAssignment.ROUND_ROBIN,
-) -> None:
-    shuffle = ShufflerAsync(
-        context, comm, op_id, num_partitions, partition_assignment=partition_assignment
-    )
-    while (msg := await ch_in.recv(context)) is not None:
-        chunk = PartitionMapChunk.from_message(msg, br=context.br())
-        shuffle.insert(chunk.to_packed_data_map())
-    await shuffle.insert_finished(context)
-    for pid in shuffle.local_partitions():
-        data = shuffle.extract(pid)
-        out_chunk = PartitionVectorChunk.from_packed_data_list(data, context.br())
-        await ch_out.send(context, Message(pid, out_chunk))
-    await ch_out.drain(context)
-
-
 @pytest.mark.parametrize("num_partitions", [4, 8])
 def test_shuffler_runtime_obeys_contiguous_assignment(
     context: Context,
@@ -176,7 +151,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
     actors.append(generate_inputs(context, ch_in, num_rows, num_chunks, num_partitions))
     ch_shuffled: Channel[PartitionVectorChunk] = context.create_channel()
     actors.append(
-        do_shuffle(
+        shuffler(
             context,
             comm,
             ch_in,
@@ -232,7 +207,7 @@ def test_shuffler_object_interface(
     actors.append(generate_inputs(context, ch_in, num_rows, num_chunks, num_partitions))
     ch_shuffled: Channel[PartitionVectorChunk] = context.create_channel()
     actors.append(
-        do_shuffle(
+        shuffler(
             context,
             comm,
             ch_in,
