@@ -96,7 +96,7 @@ cdef class PartitionMapChunk:
             self._handle.reset()
 
     @staticmethod
-    def from_packed_data_map(dict data not None, BufferResource br not None):
+    def from_packed_data_map(data not None, BufferResource br not None):
         """
         Construct a PartitionMapChunk from a mapping of partition ID to PackedData.
 
@@ -272,7 +272,7 @@ cdef class PartitionVectorChunk:
             self._handle.reset()
 
     @staticmethod
-    def from_packed_data_list(list data not None, BufferResource br not None):
+    def from_packed_data_list(data not None, BufferResource br not None):
         """
         Construct a PartitionVectorChunk from a sequence of PackedData.
 
