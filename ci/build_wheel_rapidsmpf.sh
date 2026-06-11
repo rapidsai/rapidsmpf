@@ -11,7 +11,7 @@ source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 
-LIBRAPIDSMPF_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
+LIBRAPIDSMPF_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_cpp librapidsmpf rapidsmpf --cuda "$RAPIDS_CUDA_VERSION")")
 echo "librapidsmpf-${RAPIDS_PY_CUDA_SUFFIX} @ file://$(echo "${LIBRAPIDSMPF_WHEELHOUSE}"/librapidsmpf_*.whl)" >> "${PIP_CONSTRAINT}"
 
 rapids-logger "Generating build requirements"
@@ -58,5 +58,5 @@ python -m auditwheel repair \
 
 ./ci/validate_wheel.sh "${package_dir}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"
 
-RAPIDS_PACKAGE_NAME="$(rapids-package-name wheel_python rapidsmpf --stable --cuda)"
+RAPIDS_PACKAGE_NAME="$(rapids-artifact-name wheel_python rapidsmpf rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")"
 export RAPIDS_PACKAGE_NAME
