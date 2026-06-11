@@ -389,12 +389,14 @@ if(RAPIDSMPF_CLANG_TIDY)
       "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
   )
 
-  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries. adding
+  # `-Wno-ignored-optimization-argument`, otherwise clang-tidy errors on GCC-only optimization flags
+  # (e.g. `-fno-merge-constants`) injected by the conda compiler activation scripts.
   set_target_properties(
     rapidsmpf
     PROPERTIES
       CXX_CLANG_TIDY
-      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments;--extra-arg=-Wno-ignored-optimization-argument"
   )
 endif()
 
