@@ -6,37 +6,20 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-import numpy as np
-import pylibcudf as plc
 import pytest
 
-pytest.importorskip("cudf_streaming")
-from cudf_streaming.integrations.partition import unpack_and_concat
-
-from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.coll.sparse_alltoall import SparseAlltoall
-from rapidsmpf.testing import assert_eq
-
-cudf = pytest.importorskip("cudf")
+from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.memory.packed_data import PackedData
     from rapidsmpf.streaming.core.context import Context
 
 
-def make_packed_data(context: Context, values: np.ndarray) -> PackedData:
+def make_packed_data(context: Context, value: int) -> PackedData:
     stream = context.get_stream_from_pool()
-    table = plc.Table([plc.Column.from_array(values, stream=stream)])
-    return PackedData.from_cudf_packed_columns(  # type: ignore[attr-defined, no-any-return]
-        plc.contiguous_split.pack(table, stream=stream),
-        stream,
-        context.br(),
-    )
-
-
-def unpack_table(context: Context, packed_data: PackedData) -> plc.Table:
-    stream = context.get_stream_from_pool()
-    return unpack_and_concat([packed_data], stream, context.br())
+    return generate_packed_data(1, value, stream, context.br())
 
 
 def test_sparse_alltoall_non_participating_ranks(
@@ -64,24 +47,13 @@ def test_sparse_alltoall_non_participating_ranks(
     )
 
     if comm.rank == 0:
-        exchange.insert(1, make_packed_data(context, np.array([11], dtype=np.int32)))
-        exchange.insert(1, make_packed_data(context, np.array([29], dtype=np.int32)))
+        exchange.insert(1, make_packed_data(context, 11))
+        exchange.insert(1, make_packed_data(context, 29))
 
     asyncio.run(exchange.insert_finished(context))
 
     if comm.rank == 1:
         results = exchange.extract(0)
         assert len(results) == 2
-        stream = context.get_stream_from_pool()
-        assert_eq(
-            unpack_table(context, results[0]),
-            plc.Table(
-                [plc.Column.from_array(np.array([11], dtype=np.int32), stream=stream)]
-            ),
-        )
-        assert_eq(
-            unpack_table(context, results[1]),
-            plc.Table(
-                [plc.Column.from_array(np.array([29], dtype=np.int32), stream=stream)]
-            ),
-        )
+        validate_packed_data(results[0], 1, 11)
+        validate_packed_data(results[1], 1, 29)
