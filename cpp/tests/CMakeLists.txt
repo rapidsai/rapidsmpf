@@ -86,6 +86,7 @@ target_sources(
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
+          test_shuffler.cpp
           test_sparse_alltoall.cpp
           test_spill_manager.cpp
           test_spilling.cpp
@@ -99,7 +100,8 @@ target_sources(
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
-    PRIVATE streaming/test_allreduce.cpp
+    PRIVATE streaming/test_allgather.cpp
+            streaming/test_allreduce.cpp
             streaming/test_channel.cpp
             streaming/test_error_handling.cpp
             streaming/test_fanout.cpp
@@ -108,24 +110,20 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_message.cpp
             streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
+            streaming/test_shuffler.cpp
   )
 endif()
 
 # cudf-dependent test sources, gated behind BUILD_CUDF_TESTS
 if(BUILD_CUDF_TESTS)
-  target_sources(
-    test_sources PRIVATE test_partition.cpp test_shuffler.cpp test_shuffler_many_streams.cpp
-  )
+  target_sources(test_sources PRIVATE test_partition.cpp test_shuffler_many_streams.cpp)
   target_link_libraries(
     test_sources PRIVATE cudf_streaming::cudf_streaming cudf::cudftestutil cudf::cudftestutil_impl
   )
   target_compile_definitions(test_sources PRIVATE RAPIDSMPF_HAVE_CUDF)
 
   if(RAPIDSMPF_HAVE_STREAMING)
-    target_sources(
-      test_sources PRIVATE streaming/test_allgather.cpp streaming/test_leaf_actor.cpp
-                           streaming/test_shuffler.cpp
-    )
+    target_sources(test_sources PRIVATE streaming/test_leaf_actor.cpp)
   endif()
 endif()
 

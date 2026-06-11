@@ -233,6 +233,44 @@ TEST(MiscTest, SafeCastZeroAndBoundaries) {
     EXPECT_THROW(safe_cast<std::uint8_t>(std::uint16_t{256}), std::overflow_error);
 }
 
+// Test ceil_div edge cases. `ceil_div` is constexpr, so these are all
+// constant-evaluated and verified at compile time.
+TEST(MiscTest, CeilDiv) {
+    // Basic behavior.
+    static_assert(ceil_div(0, 1) == 0);
+    static_assert(ceil_div(1, 1) == 1);
+    static_assert(ceil_div(10, 5) == 2);  // exact division
+    static_assert(ceil_div(11, 5) == 3);  // remainder rounds up
+    static_assert(ceil_div(9, 5) == 2);
+    static_assert(ceil_div(1, 5) == 1);  // numerator smaller than denominator
+    static_assert(ceil_div(5, 1) == 5);  // denominator of one
+
+    // A zero numerator always yields zero, regardless of denominator.
+    static_assert(ceil_div(0u, 1u) == 0u);
+    static_assert(ceil_div(0u, 7u) == 0u);
+    static_assert(
+        ceil_div(std::size_t{0}, std::numeric_limits<std::size_t>::max())
+        == std::size_t{0}
+    );
+
+    // Large unsigned values that would overflow the naive `(x + y - 1) / y`.
+    constexpr auto umax = std::numeric_limits<std::uint64_t>::max();
+    static_assert(ceil_div(umax, umax) == std::uint64_t{1});  // `x + y - 1` wraps to 0
+    static_assert(ceil_div(umax - 1, umax) == std::uint64_t{1});
+    static_assert(ceil_div(umax, std::uint64_t{1}) == umax);
+    // `umax` is odd, so ceil(umax / 2) rounds up to 2^63.
+    static_assert(ceil_div(umax, std::uint64_t{2}) == (umax / 2) + 1);
+
+    // Large signed values near the maximum must not trigger signed-overflow UB.
+    constexpr auto imax = std::numeric_limits<std::int64_t>::max();
+    static_assert(ceil_div(imax, imax) == std::int64_t{1});
+    static_assert(ceil_div(imax - 1, imax) == std::int64_t{1});
+    static_assert(ceil_div(imax, std::int64_t{1}) == imax);
+    static_assert(ceil_div(imax, std::int64_t{2}) == (imax / 2) + 1);
+
+    SUCCEED();
+}
+
 // Test mixed signed/unsigned of different sizes
 TEST(MiscTest, SafeCastMixedSignednessAndSize) {
     // std::int64_t to std::uint32_t

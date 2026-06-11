@@ -3,18 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <ranges>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <cudf/copying.hpp>
-#include <cudf_streaming/integrations/partition.hpp>
-#include <cudf_streaming/streaming/partition.hpp>
-#include <cudf_streaming/streaming/table_chunk.hpp>
-#include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -55,13 +54,12 @@ TEST_F(BaseStreamingShuffle, zero_owned_partitions_completes) {
 class StreamingShuffler : public BaseStreamingShuffle,
                           public ::testing::WithParamInterface<int> {
   public:
-    const unsigned int num_partitions = 10;
-    const unsigned int num_rows = 1000;
-    const unsigned int num_chunks = 5;
-    const unsigned int chunk_size = num_rows / num_chunks;
-    const std::int64_t seed = 42;
-    const cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
-    const OpID op_id = 0;
+    static constexpr size_t num_partitions = 10;
+    static constexpr size_t num_rows = 1000;
+    static constexpr size_t num_chunks = 5;
+    static constexpr OpID op_id = 0;
+
+    shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin;
 
     void SetUp() override {
         BaseStreamingShuffle::SetUpWithThreads(GetParam());
@@ -69,100 +67,6 @@ class StreamingShuffler : public BaseStreamingShuffle,
 
     void TearDown() override {
         BaseStreamingShuffle::TearDown();
-    }
-
-    void run_test(auto make_shuffler_actor_fn) {
-        // Create the full input table and slice it into chunks.
-        cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
-        std::vector<Message> input_chunks;
-        for (unsigned int i = 0; i < num_chunks; ++i) {
-            input_chunks.emplace_back(
-                cudf_streaming::streaming::to_message(
-                    i,
-                    std::make_unique<cudf_streaming::streaming::TableChunk>(
-                        std::make_unique<cudf::table>(
-                            cudf::slice(
-                                full_input_table,
-                                {static_cast<cudf::size_type>(i * chunk_size),
-                                 static_cast<cudf::size_type>((i + 1) * chunk_size)},
-                                stream
-                            )
-                                .at(0),
-                            stream,
-                            ctx->br()->device_mr()
-                        ),
-                        stream
-                    )
-                )
-            );
-        }
-
-        // Create and run the streaming pipeline.
-        std::vector<Message> output_chunks;
-        {
-            std::vector<Actor> actors;
-            auto ch1 = ctx->create_channel();
-            actors.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
-
-            auto ch2 = ctx->create_channel();
-            actors.push_back(
-                cudf_streaming::streaming::actor::partition_and_pack(
-                    ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
-                )
-            );
-
-            auto ch3 = ctx->create_channel();
-            actors.emplace_back(make_shuffler_actor_fn(ch2, ch3));
-
-            auto ch4 = ctx->create_channel();
-            actors.push_back(
-                cudf_streaming::streaming::actor::unpack_and_concat(ctx, ch3, ch4)
-            );
-
-            actors.push_back(actor::pull_from_channel(ctx, ch4, output_chunks));
-
-            run_actor_network(std::move(actors));
-        }
-
-        auto comm = GlobalEnvironment->comm_;
-        std::unique_ptr<cudf::table> expected_table;
-        if (comm->nranks() == 1) {  // full_input table is expected
-            expected_table = std::make_unique<cudf::table>(std::move(full_input_table));
-        } else {  // full_input table is replicated on all ranks
-            // local partitions
-            auto [table, offsets] = cudf::hash_partition(
-                full_input_table.view(), {1}, num_partitions, hash_function, seed
-            );
-
-            auto local_pids = shuffler::Shuffler::local_partitions(
-                comm, num_partitions, shuffler::Shuffler::round_robin
-            );
-
-            // every partition is replicated on all ranks
-            std::vector<cudf::table_view> expected_tables;
-            for (auto pid : local_pids) {
-                auto t_view =
-                    cudf::slice(table->view(), {offsets[pid], offsets[pid + 1]}).at(0);
-                // this will be replicated on all ranks
-                for (rapidsmpf::Rank rank = 0; rank < comm->nranks(); ++rank) {
-                    expected_tables.push_back(t_view);
-                }
-            }
-            expected_table = cudf::concatenate(expected_tables);
-        }
-
-        // Concat all output chunks to a single table.
-        std::vector<cudf::table_view> output_chunks_as_views;
-        for (auto& chunk : output_chunks) {
-            output_chunks_as_views.push_back(
-                chunk.get<cudf_streaming::streaming::TableChunk>().table_view()
-            );
-        }
-        auto result_table = cudf::concatenate(output_chunks_as_views);
-
-        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            sort_table(result_table->view()), sort_table(expected_table->view())
-        );
     }
 };
 
@@ -175,12 +79,107 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+// Verifies end-to-end correctness of the streaming shuffler actor.
+//
+// Each rank sends num_chunks messages, where each message is a PartitionMapChunk covering
+// all num_partitions partitions. The data for partition j in chunk c_idx on rank r is a
+// contiguous integer sequence whose values encode both the rank and the row range, making
+// them globally unique and independently verifiable.
+//
+// After shuffling, each local partition should have received exactly num_chunks * nranks
+// packed-data items (one per (rank, chunk) pair). The items are sorted by their first
+// element — which equals rank * num_rows + row_start — to reconstruct rank-major,
+// chunk-minor order, and then validated against the expected row range from `pieces`.
 TEST_P(StreamingShuffler, basic_shuffler) {
-    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Actor {
-        return actor::shuffler(
-            ctx, GlobalEnvironment->comm_, ch_in, ch_out, op_id, num_partitions
+    auto comm = GlobalEnvironment->comm_;
+    // split a span [0, num_rows) into num_partitions * num_chunks contiguous pieces.
+    auto const pieces = rapidsmpf::chunk_indices(num_rows, num_partitions * num_chunks);
+
+    // each rank contributes num_chunks messages, each covering num_partitions pieces.
+    const int64_t base = static_cast<int64_t>(comm->rank()) * num_rows;
+    std::vector<Message> input_chunks;  // Message contains a PartitionMapChunk
+    for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
+        std::unordered_map<shuffler::PartID, PackedData> chunks;
+        chunks.reserve(num_partitions);
+        for (size_t j = 0; j < num_partitions; ++j) {
+            auto [start, end] = pieces[chunk_idx * num_partitions + j];
+            // end > start is guaranteed.
+            chunks.emplace(
+                static_cast<shuffler::PartID>(j),
+                generate_packed_data<int64_t>(
+                    end - start, base + static_cast<int64_t>(start), stream, *br
+                )
+            );
+        }
+        input_chunks.emplace_back(
+            to_message(chunk_idx, std::make_unique<PartitionMapChunk>(std::move(chunks)))
         );
-    }));
+    }
+    EXPECT_EQ(input_chunks.size(), num_chunks);
+
+    // Create and run the streaming pipeline.
+    std::vector<Message> output_chunks;
+    {
+        std::vector<Actor> actors;
+        auto ch1 = ctx->create_channel();
+        actors.push_back(actor::push_to_channel(ctx, ch1, std::move(input_chunks)));
+
+        auto ch2 = ctx->create_channel();
+        actors.emplace_back(
+            actor::shuffler(ctx, comm, ch1, ch2, op_id, num_partitions, partition_owner)
+        );
+
+        actors.push_back(actor::pull_from_channel(ctx, ch2, output_chunks));
+
+        run_actor_network(std::move(actors));
+    }
+
+    auto local_pids =
+        shuffler::Shuffler::local_partitions(comm, num_partitions, partition_owner);
+
+    // Since all partitions are non-empty, each local partition ID should a corresponding
+    // output chunk.
+    EXPECT_EQ(local_pids.size(), output_chunks.size());
+    const size_t n_ranks = static_cast<size_t>(comm->nranks());
+    for (auto& chunk : output_chunks) {
+        auto pid = chunk.sequence_number();
+        std::erase_if(local_pids, [pid](auto& p) { return p == pid; });
+
+        auto p_vec = chunk.release<PartitionVectorChunk>();
+        // for each local pid, it should receive num_chunks * nranks chunks.
+        ASSERT_EQ(p_vec.data.size(), num_chunks * n_ranks);
+
+        // since values are offset by rank, if we sort packed data by their first element,
+        // then it will be in rank & chunk-index order.
+        std::ranges::sort(p_vec.data, [](auto& a, auto& b) {
+            std::int64_t oa{}, ob{};
+            std::memcpy(&oa, a.metadata->data(), sizeof(std::int64_t));
+            std::memcpy(&ob, b.metadata->data(), sizeof(std::int64_t));
+            return oa < ob;
+        });
+
+        // p_vec.data is sorted by first element, so entries are ordered
+        // (rank=0,chunk=0), (rank=0,chunk=1), ..., (rank=1,chunk=0), ...
+        // i.e. flat index r*num_chunks + c_idx.
+        for (size_t r = 0; r < n_ranks; ++r) {
+            auto r_base = static_cast<int64_t>(r) * num_rows;  // rank-base offset
+            for (size_t c_idx = 0; c_idx < num_chunks; ++c_idx) {
+                const auto [start, end] = pieces[c_idx * num_partitions + pid];
+                SCOPED_TRACE(
+                    "pid=" + std::to_string(pid) + ", rank=" + std::to_string(r)
+                    + ", chunk_idx=" + std::to_string(c_idx)
+                );
+                validate_packed_data<int64_t>(
+                    std::move(p_vec.data[r * num_chunks + c_idx]),
+                    end - start,
+                    r_base + static_cast<int64_t>(start),
+                    stream,
+                    *br
+                );
+            }
+        }
+    }
+    EXPECT_TRUE(local_pids.empty());
 }
 
 class ShufflerAsyncTest
