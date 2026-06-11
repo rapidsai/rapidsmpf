@@ -170,6 +170,7 @@ def test_shuffler_runtime_obeys_contiguous_assignment(
 
     # Single rank, so every partition is local to this rank.
     assert set(received_pids) == set(range(num_partitions))
+    assert len(received_pids) == num_partitions
 
     # Validate the data routed to each local partition. Across the ``num_chunks``
     # inputs, partition ``pid`` receives the packed sequence ``generate_inputs``
