@@ -7,43 +7,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pylibcudf as plc
 import pytest
-
-pytest.importorskip("cudf_streaming")
-from cudf_streaming.integrations.partition import unpack_and_concat
 
 from rapidsmpf.coll.sparse_alltoall import SparseAlltoall
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.testing import assert_eq
-
-cudf = pytest.importorskip("cudf")
+from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
 if TYPE_CHECKING:
     import rmm.mr
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
-
-
-def generate_packed_data(
-    n_elements: int, offset: int, stream: Stream, br: BufferResource
-) -> PackedData:
-    """Generate packed integer data with a predictable payload."""
-    values = np.arange(offset, offset + n_elements, dtype=np.int32)
-    table = plc.Table([plc.Column.from_array(values, stream=stream)])
-    packed_columns = plc.contiguous_split.pack(table, stream=stream)
-    return PackedData.from_cudf_packed_columns(packed_columns, stream, br)  # type: ignore[attr-defined, no-any-return]
-
-
-def unpack_table(
-    packed_data: PackedData,
-    stream: Stream,
-    br: BufferResource,
-) -> plc.Table:
-    """Unpack a PackedData payload into a single-column table."""
-    return unpack_and_concat([packed_data], stream, br)
 
 
 def expected_peers(comm: Communicator) -> tuple[list[int], list[int]]:
@@ -103,19 +77,7 @@ def test_basic(
         results = sparse_alltoall.extract(src)
         assert len(results) == n_inserts
         for ordinal, result in enumerate(results):
-            expected = plc.Table(
-                [
-                    plc.Column.from_array(
-                        np.arange(
-                            make_offset(src, comm.rank, ordinal),
-                            make_offset(src, comm.rank, ordinal) + 4,
-                            dtype=np.int32,
-                        ),
-                        stream=stream,
-                    )
-                ]
-            )
-            assert_eq(unpack_table(result, stream, br), expected)
+            validate_packed_data(result, 4, make_offset(src, comm.rank, ordinal))
 
 
 def test_non_participating_ranks(
@@ -156,18 +118,13 @@ def test_non_participating_ranks(
     if comm.rank == 1:
         results = sparse_alltoall.extract(0)
         assert len(results) == 2
-        assert_eq(
-            unpack_table(results[0], stream, br),
-            plc.Table(
-                [plc.Column.from_array(np.array([11], dtype=np.int32), stream=stream)]
-            ),
-        )
-        assert_eq(
-            unpack_table(results[1], stream, br),
-            plc.Table(
-                [plc.Column.from_array(np.array([29], dtype=np.int32), stream=stream)]
-            ),
-        )
+        actual_offsets = [
+            int(np.frombuffer(result.to_host_bytes(), dtype=np.int64)[0])
+            for result in results
+        ]
+        assert actual_offsets == [11, 29]
+        validate_packed_data(results[0], 1, 11)
+        validate_packed_data(results[1], 1, 29)
 
 
 def test_invalid_peers_raise(

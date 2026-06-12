@@ -7,6 +7,8 @@ from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
+from rmm.pylibrmm.device_buffer cimport DeviceBuffer
+from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
@@ -57,6 +59,21 @@ cdef extern from *:
         );
     }
 
+    std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_device_buffer(
+        const std::uint8_t* metadata,
+        std::size_t metadata_size,
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        rmm::cuda_stream_view stream,
+        rapidsmpf::BufferResource* br
+    ) {
+        auto meta = std::make_unique<std::vector<std::uint8_t>>(
+            metadata, metadata + metadata_size
+        );
+        return std::make_unique<rapidsmpf::PackedData>(
+            std::move(meta), br->move(std::move(gpu_data), stream)
+        );
+    }
+
     std::vector<std::uint8_t> cpp_packed_data_to_host_bytes(
         rapidsmpf::PackedData* pd
     ) {
@@ -85,6 +102,14 @@ cdef extern from *:
         size_t size,
         cpp_BufferResource* br,
     ) except + nogil
+
+    unique_ptr[cpp_PackedData] cpp_packed_data_from_device_buffer(
+        const uint8_t* metadata,
+        size_t metadata_size,
+        unique_ptr[device_buffer] gpu_data,
+        cuda_stream_view stream,
+        cpp_BufferResource* br,
+    ) except +ex_handler nogil
 
     vector[uint8_t] cpp_packed_data_to_host_bytes(
         cpp_PackedData* pd,
@@ -138,6 +163,51 @@ cdef class PackedData:
             data_ptr = <const uint8_t*>&data[0]
         with nogil:
             ret.c_obj = cpp_packed_data_from_host_bytes(data_ptr, size, _br)
+        ret._br = br
+        return ret
+
+    @classmethod
+    def from_device_buffer(
+        cls,
+        DeviceBuffer gpu_data not None,
+        const uint8_t[::1] metadata not None,
+        Stream stream not None,
+        BufferResource br not None,
+    ):
+        """
+        Construct a PackedData from an rmm device buffer and host metadata.
+
+        Takes ownership of ``gpu_data``; the input buffer is left empty after this
+        call. The metadata bytes are copied into a host-side metadata buffer.
+
+        Parameters
+        ----------
+        gpu_data
+            Device buffer holding the data payload. Consumed by this call.
+        metadata
+            Contiguous buffer of host bytes (bytes, bytearray, or buffer-protocol
+            object). Must be non-empty.
+        stream
+            CUDA stream used to take ownership of the device buffer.
+        br
+            Buffer resource for memory management.
+
+        Returns
+        -------
+        A new PackedData instance owning the device buffer.
+        """
+        cdef cpp_BufferResource* _br = br.ptr()
+        cdef size_t meta_size = len(metadata)
+        cdef const uint8_t* meta_ptr = NULL
+        if meta_size > 0:
+            meta_ptr = <const uint8_t*>&metadata[0]
+        cdef cuda_stream_view sv = stream.view()
+        cdef unique_ptr[device_buffer] gpu = move(gpu_data.c_obj)
+        cdef PackedData ret = cls.__new__(cls)
+        with nogil:
+            ret.c_obj = cpp_packed_data_from_device_buffer(
+                meta_ptr, meta_size, move(gpu), sv, _br
+            )
         ret._br = br
         return ret
 

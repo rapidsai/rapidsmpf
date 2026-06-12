@@ -3,16 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
+#include <chrono>
 #include <random>
+#include <unordered_map>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/memory_resource.hpp>
-#include <cudf_streaming/integrations/partition.hpp>
-#include <rmm/cuda_stream.hpp>
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_buffer.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
@@ -50,7 +49,7 @@ TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
     constexpr std::size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
 
     // Create a CUDA stream for each partition.
     // To stress-test stream handling, assign random priorities so streams are more
