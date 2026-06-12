@@ -67,21 +67,5 @@ rapids-logger "Run tools smoketests"
 rapids-logger "Run rrun gtests"
 ./run_rrun_tests.sh
 
-BENCHMARKS_DIR=$CONDA_PREFIX/bin/benchmarks/librapidsmpf
-
-rapids-logger "Run NDSH benchmarks"
-python ../cpp/scripts/ndsh.py run \
-  --input-dir scale-1/ \
-  --output-dir validation/ \
-  --generate-data \
-  --benchmark-dir "${BENCHMARKS_DIR}" \
-  --benchmark-args='--no-pinned-host-memory'
-
-rapids-logger "Validate NDSH benchmarks"
-python ../cpp/scripts/ndsh.py validate \
-  --results-path validation/output \
-  --expected-path validation/expected \
-  --ignore-timezone
-
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

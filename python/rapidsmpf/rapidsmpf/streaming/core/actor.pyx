@@ -315,16 +315,13 @@ def run_actor_network(Context ctx not None, *, actors):
 
     Examples
     --------
-    >>> ch: Channel[TableChunk] = context.create_channel()
+    >>> ch: Channel = context.create_channel()
     >>> cpp_actor, output = pull_from_channel(context, ch_in=ch)
     ...
     >>> @define_actor()
     ... async def python_actor(ctx: Context, ch_out: Channel) -> None:
     ...     # Send one message and close.
-    ...     await ch_out.send(
-    ...         context,
-    ...         Message(42, TableChunk.from_pylibcudf_table(...))
-    ...     )
+    ...     await ch_out.send(context, Message(42, payload))
     ...     await ch_out.drain(context)
     ...
     >>> run_actor_network(
@@ -332,8 +329,7 @@ def run_actor_network(Context ctx not None, *, actors):
     ...     actors=[cpp_actor, python_actor(context, ch_out=ch)]
     ... )
     >>> results = output.release()
-    >>> tbl = TableChunk.from_message(results[0])
-    >>> tbl.sequence_number
+    >>> results[0].sequence_number
     42
     """
 

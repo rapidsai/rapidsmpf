@@ -53,6 +53,6 @@ endif()
 
 # Debug options
 if(CMAKE_BUILD_TYPE MATCHES Debug)
-  message(VERBOSE "CUDF: Building with debugging flags")
+  message(VERBOSE "RAPIDSMPF: Building with debugging flags")
   list(APPEND RAPIDSMPF_CUDA_FLAGS -Xcompiler=-rdynamic)
 endif()
