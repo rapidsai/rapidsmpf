@@ -338,10 +338,10 @@ cdef class BufferResource:
         ``BufferResource``, keeping it alive for as long as the returned adaptor (or
         any copies of it) lives.
 
-        Use this instead of constructing a standalone ``RmmResourceAdaptor`` when you
-        need to pass one to APIs that copy the adaptor, such as
-        :meth:`~rapidsmpf.Statistics.memory_profiling` or
-        :meth:`~rapidsmpf.Statistics.report`.
+        This is the only way to obtain an ``RmmResourceAdaptor``; use it when you need
+        to pass one to APIs that copy the adaptor, such as
+        :meth:`~rapidsmpf.statistics.Statistics.memory_profiling` or
+        :meth:`~rapidsmpf.statistics.Statistics.report`.
 
         Returns
         -------
