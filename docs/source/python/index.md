@@ -6,7 +6,7 @@ frameworks.
 
 ## Quickstart
 
-- {doc}`quickstart` — Streaming Engine example
+- {doc}`quickstart` — Streaming Engine overview
 
 ## API Reference
 

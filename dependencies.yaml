@@ -27,7 +27,6 @@ files:
       - py_version
       - rapids_build_skbuild
       - test_cpp
-      - test_cpp_ndsh
       - test_python
       - docs
   devcontainers:
@@ -51,7 +50,6 @@ files:
       - py_version
       - rapids_build_skbuild
       - test_cpp
-      - test_cpp_ndsh
       - test_python
       - docs
   test_cpp:
@@ -62,7 +60,6 @@ files:
       - depends_on_librapidsmpf_tests
       - py_version
       - test_cpp
-      - test_cpp_ndsh
   test_python:
     output: none
     includes:
@@ -75,8 +72,6 @@ files:
       - py_version
       - run_rapidsmpf
       - test_python
-      - depends_on_pylibcudf
-      - depends_on_cudf_streaming
   checks:
     output: none
     includes:
@@ -170,8 +165,6 @@ files:
     includes:
       - depends_on_ray
       - test_python
-      - depends_on_pylibcudf
-      - depends_on_cudf_streaming
 channels:
   - rapidsai-nightly
   - rapidsai
@@ -390,18 +383,6 @@ dependencies:
           - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
-          - libcudf-streaming==26.8.*,>=0.0.0a0
-  test_cpp_ndsh:
-    common:
-      - output_types: conda
-        packages:
-          # NDSH validation dependencies
-          - duckdb
-          - numpy
-          - pyarrow
-          - pip
-          - pip:
-            - tpchgen-cli
   test_python:
     common:
       - output_types: conda
@@ -620,33 +601,3 @@ dependencies:
       - output_types: [requirements, pyproject]
         packages:
           - ray>=2.55.1
-  depends_on_pylibcudf:
-    common:
-      - output_types: conda
-        packages:
-          - &pylibcudf_unsuffixed pylibcudf==26.8.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - pylibcudf-cu12==26.8.*,>=0.0.0a0
-          - matrix:
-              cuda: "13.*"
-              cuda_suffixed: "true"
-            packages:
-              - pylibcudf-cu13==26.8.*,>=0.0.0a0
-          - matrix:
-            packages:
-              - *pylibcudf_unsuffixed
-  depends_on_cudf_streaming:
-    common:
-      - output_types: conda
-        packages:
-          - cudf-streaming==26.8.*,>=0.0.0a0

@@ -181,25 +181,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * mr.allocate(...); // safe
      * @endcode
      *
-     * In the common case, no explicit promotion is needed because RMM and cuDF containers
-     * that store a memory resource do this internally:
+     * In the common case, no explicit promotion is needed because RMM containers that
+     * store a memory resource do this internally:
      * @code
      * auto br = BufferResource::create(...);
      * rmm::device_buffer buf{1024, stream, br->device_mr()};
      * br.reset();  // safe: `buf` keeps the BufferResource alive internally
-     * @endcode
-     *
-     * Returned objects from cuDF APIs typically behave the same way:
-     * @code
-     * auto br = BufferResource::create(...);
-     * auto col = cudf::make_numeric_column(
-     *     cudf::data_type{cudf::type_id::INT32},
-     *     1000,
-     *     cudf::mask_state::UNALLOCATED,
-     *     stream,
-     *     br->device_mr()
-     * );
-     * br.reset();  // safe: `col` keeps the BufferResource alive internally
      * @endcode
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;

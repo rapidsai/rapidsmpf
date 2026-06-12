@@ -23,19 +23,12 @@
 
 #include <cuda/memory_resource>
 
-#ifdef RAPIDSMPF_HAVE_CUDF
-#include <cudf/copying.hpp>
-#include <cudf/sorting.hpp>
-#include <cudf/table/table.hpp>
-#include <cudf/table/table_view.hpp>
-#include <cudf_test/column_wrapper.hpp>
-#endif  // RAPIDSMPF_HAVE_CUDF
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 /**
@@ -118,57 +111,6 @@ template <typename T>
     return ret;
 }
 
-#ifdef RAPIDSMPF_HAVE_CUDF
-template <typename T>
-[[nodiscard]] inline std::unique_ptr<cudf::column> iota_column(
-    std::size_t nrows, T start = 0
-) {
-    std::vector<T> vec = iota_vector(nrows, start);
-    cudf::test::fixed_width_column_wrapper<T> ret(vec.begin(), vec.end());
-    return ret.release();
-}
-
-[[nodiscard]] inline std::unique_ptr<cudf::column> random_column(
-    std::int64_t seed,
-    std::size_t nrows,
-    std::int64_t min = std::numeric_limits<std::int64_t>::min(),
-    std::int64_t max = std::numeric_limits<std::int64_t>::max()
-) {
-    std::vector<std::int64_t> vec = random_vector(seed, nrows, min, max);
-    cudf::test::fixed_width_column_wrapper<std::int64_t> ret(vec.begin(), vec.end());
-    return ret.release();
-}
-
-[[nodiscard]] inline cudf::table random_table_with_index(
-    std::int64_t seed,
-    std::size_t nrows,
-    std::int64_t min = std::numeric_limits<std::int64_t>::min(),
-    std::int64_t max = std::numeric_limits<std::int64_t>::max()
-) {
-    std::vector<std::unique_ptr<cudf::column>> cols;
-    cols.push_back(iota_column<std::int64_t>(nrows));
-    cols.push_back(random_column(seed, nrows, min, max));
-    return cudf::table(std::move(cols));
-}
-
-[[nodiscard]] inline cudf::table sort_table(
-    cudf::table_view const& table,
-    std::vector<cudf::size_type> const& /* column_indices */ = {0}
-) {
-    if (table.num_columns() == 0) {
-        return cudf::table(table);
-    }
-    return cudf::gather(table, cudf::sorted_order(table.select({0}))->view())->release();
-}
-
-[[nodiscard]] inline cudf::table sort_table(
-    std::unique_ptr<cudf::table> const& table,
-    std::vector<cudf::size_type> const& column_indices = {0}
-) {
-    return sort_table(table->view(), column_indices);
-}
-#endif  // RAPIDSMPF_HAVE_CUDF
-
 /// @brief Create a PackedData object from a host buffer
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
     std::span<std::uint8_t const> metadata,
@@ -192,58 +134,70 @@ template <typename T>
 /**
  * @brief Generate a packed data object with the given number of elements and offset.
  *
- * Both metadata and GPU data contain the same integer sequence.
+ * Both metadata and GPU data contain the same integer sequence of type T.
  *
+ * @tparam T Element type stored in the buffer (default: int).
  * @param n_elements Number of elements in the sequence.
  * @param offset Starting value of the sequence.
  * @param stream CUDA stream for device allocation.
  * @param br Buffer resource used for allocations.
  * @return A packed data object containing metadata and GPU data.
  */
+template <typename T = int>
 [[nodiscard]] inline rapidsmpf::PackedData generate_packed_data(
-    int n_elements,
-    int offset,
+    std::size_t n_elements,
+    T offset,
     rmm::cuda_stream_view stream,
-    rapidsmpf::BufferResource& br
+    rapidsmpf::BufferResource& br,
+    rapidsmpf::AllowOverbooking allow_overbooking = rapidsmpf::AllowOverbooking::YES
 ) {
-    auto values = iota_vector<int>(n_elements, offset);
+    auto const values = iota_vector<T>(n_elements, offset);
+    auto const* bytes = reinterpret_cast<std::uint8_t const*>(values.data());
 
-    auto metadata = std::make_unique<std::vector<std::uint8_t>>(n_elements * sizeof(int));
-    std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
-
-    auto data = std::make_unique<rmm::device_buffer>(
-        values.data(), n_elements * sizeof(int), stream, br.device_mr()
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
+        bytes, bytes + values.size() * sizeof(T)
     );
+    auto [reservation, _] =
+        br.reserve(rapidsmpf::MemoryType::DEVICE, metadata->size(), allow_overbooking);
+    auto data = br.make_buffer(stream, std::move(reservation));
 
-    return {std::move(metadata), br.move(std::move(data), stream)};
+    data->write_access([d_ptr = metadata->data(), m_size = metadata->size()](
+                           std::byte* ptr, rmm::cuda_stream_view op_stream
+                       ) {
+        RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(ptr, d_ptr, m_size, op_stream));
+    });
+
+    return {std::move(metadata), std::move(data)};
 }
 
 /**
  * @brief Validate a packed data object by checking metadata and GPU data contents.
  *
+ * @tparam T Element type stored in the buffer (default: int).
  * @param packed_data Packed data object to validate.
  * @param n_elements Expected number of elements.
  * @param offset Expected starting value of the sequence.
  * @param stream CUDA stream used for device-host transfers.
  * @param br Buffer resource used for host allocation.
  */
+template <typename T = int>
 inline void validate_packed_data(
     rapidsmpf::PackedData&& packed_data,
-    int n_elements,
-    int offset,
+    std::size_t n_elements,
+    T offset,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource& br
 ) {
     auto const& metadata = *packed_data.metadata;
-    EXPECT_EQ(n_elements * sizeof(int), metadata.size());
+    EXPECT_EQ(n_elements * sizeof(T), metadata.size());
 
-    for (int i = 0; i < n_elements; i++) {
-        int val;
-        std::memcpy(&val, metadata.data() + i * sizeof(int), sizeof(int));
-        EXPECT_EQ(offset + i, val);
+    for (std::size_t i = 0; i < n_elements; i++) {
+        T val;
+        std::memcpy(&val, metadata.data() + i * sizeof(T), sizeof(T));
+        EXPECT_EQ(offset + static_cast<T>(i), val);
     }
 
-    EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
+    EXPECT_EQ(n_elements * sizeof(T), packed_data.data->size);
 
     auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
     auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
