@@ -145,7 +145,7 @@ void CuptiMonitor::stop_monitoring() {
     impl_->stop_monitoring();
 }
 
-bool CuptiMonitor::is_monitoring() const noexcept {
+[[nodiscard]] bool CuptiMonitor::is_monitoring() const noexcept {
     return impl_->is_monitoring();
 }
 
@@ -153,7 +153,8 @@ void CuptiMonitor::capture_memory_sample() {
     impl_->capture_memory_sample();
 }
 
-std::vector<MemoryDataPoint> const& CuptiMonitor::get_memory_samples() const noexcept {
+[[nodiscard]] std::vector<MemoryDataPoint> const&
+CuptiMonitor::get_memory_samples() const noexcept {
     return impl_->get_memory_samples();
 }
 
@@ -161,7 +162,7 @@ void CuptiMonitor::clear_samples() {
     impl_->clear_samples();
 }
 
-std::size_t CuptiMonitor::get_sample_count() const noexcept {
+[[nodiscard]] std::size_t CuptiMonitor::get_sample_count() const noexcept {
     return impl_->get_sample_count();
 }
 
@@ -173,7 +174,7 @@ void CuptiMonitor::set_debug_output(bool enabled, std::size_t threshold_mb) {
     impl_->set_debug_output(enabled, threshold_mb);
 }
 
-std::unordered_map<CuptiCallbackId, std::size_t>
+[[nodiscard]] std::unordered_map<CuptiCallbackId, std::size_t>
 CuptiMonitor::get_callback_counters() const {
     return impl_->get_callback_counters();
 }
@@ -182,11 +183,11 @@ void CuptiMonitor::clear_callback_counters() {
     impl_->clear_callback_counters();
 }
 
-std::size_t CuptiMonitor::get_total_callback_count() const {
+[[nodiscard]] std::size_t CuptiMonitor::get_total_callback_count() const {
     return impl_->get_total_callback_count();
 }
 
-std::string CuptiMonitor::get_callback_summary() const {
+[[nodiscard]] std::string CuptiMonitor::get_callback_summary() const {
     return impl_->get_callback_summary();
 }
 

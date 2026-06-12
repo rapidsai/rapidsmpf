@@ -121,7 +121,7 @@ class CuptiMonitor {
      *
      * @return true if monitoring is active, false otherwise.
      */
-    bool is_monitoring() const noexcept;
+    [[nodiscard]] bool is_monitoring() const noexcept;
 
     /**
      * @brief Manually capture current memory usage.
@@ -136,7 +136,7 @@ class CuptiMonitor {
      *
      * @return const reference to vector of memory data points.
      */
-    std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
+    [[nodiscard]] std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
 
     /**
      * @brief Clear all collected memory samples.
@@ -148,7 +148,7 @@ class CuptiMonitor {
      *
      * @return number of samples.
      */
-    std::size_t get_sample_count() const noexcept;
+    [[nodiscard]] std::size_t get_sample_count() const noexcept;
 
     /**
      * @brief Write memory samples to CSV file.
@@ -174,7 +174,8 @@ class CuptiMonitor {
      *
      * @return unordered_map from CuptiCallbackId to call count.
      */
-    std::unordered_map<CuptiCallbackId, std::size_t> get_callback_counters() const;
+    [[nodiscard]] std::unordered_map<CuptiCallbackId, std::size_t>
+    get_callback_counters() const;
 
     /**
      * @brief Clear all callback counters.
@@ -188,7 +189,7 @@ class CuptiMonitor {
      *
      * @return total number of callbacks.
      */
-    std::size_t get_total_callback_count() const;
+    [[nodiscard]] std::size_t get_total_callback_count() const;
 
     /**
      * @brief Get a human-readable summary of callback counters.
@@ -197,7 +198,7 @@ class CuptiMonitor {
      *
      * @return string containing callback counter summary.
      */
-    std::string get_callback_summary() const;
+    [[nodiscard]] std::string get_callback_summary() const;
 
   private:
     struct Impl;
