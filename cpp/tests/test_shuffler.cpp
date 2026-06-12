@@ -459,7 +459,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // exposed via `device_mr_adaptor()`, so the test can observe per-rank
     // allocation counts via `get_main_record().num_current_allocs()`.
     auto br = rapidsmpf::BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryResource::Disabled,
         {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
         std::nullopt  // disable periodic spill check
