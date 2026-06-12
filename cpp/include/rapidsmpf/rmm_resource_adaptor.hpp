@@ -32,6 +32,13 @@ namespace rapidsmpf {
  * is copied (copying an uninstalled adaptor throws `std::bad_weak_ptr`).
  * Adaptors installed by `BufferResource::create()` keep their owning
  * `BufferResource` alive for as long as any copy of the adaptor lives.
+ *
+ * @note A standalone adaptor (constructed directly, without a `BufferResource`)
+ * has no back-reference and therefore **must not be copied**. Triggering
+ * operations include type-erasing the adaptor into an owning
+ * `cuda::mr::any_resource`, constructing an `rmm::device_buffer` with it as
+ * the memory resource, and passing it by value to `Statistics::MemoryRecorder`.
+ * Use `BufferResource::device_mr_adaptor()` to obtain a copyable adaptor.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<

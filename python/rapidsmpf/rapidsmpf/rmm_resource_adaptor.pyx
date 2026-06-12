@@ -3,36 +3,37 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
-from rmm.librmm.memory_resource cimport make_any_device_resource
-from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
-                                           UpstreamResourceAdaptor)
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 
 
-cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
-    """A RMM memory resource adaptor tailored to RapidsMPF."""
-    def __cinit__(
-        self,
-        DeviceMemoryResource upstream_mr,
-    ):
-        """
-        A RMM memory resource adaptor tailored to RapidsMPF.
+cdef class RmmResourceAdaptor(DeviceMemoryResource):
+    """
+    A RMM memory resource adaptor tailored to RapidsMPF.
 
-        Wraps a primary device memory resource and adds memory usage tracking
-        (lifetime stats plus per-thread scoped records).
+    Wraps a primary device memory resource and adds memory usage tracking
+    (lifetime stats plus per-thread scoped records).
 
-        Parameters
-        ----------
-        upstream_mr
-            The primary device memory resource used for allocations and deallocations.
-        """
-        self.c_obj.reset(
-            new cpp_RmmResourceAdaptor(
-                make_any_device_resource(upstream_mr.get_mr())
-            )
+    .. rubric:: Construction
+
+    This class cannot be constructed directly. A usable ``RmmResourceAdaptor``
+    is always owned by a :class:`~rapidsmpf.memory.buffer_resource.BufferResource`
+    (which installs the back-reference that makes the adaptor copyable). To obtain
+    one, create a ``BufferResource`` from a device memory resource and call
+    :meth:`~rapidsmpf.memory.buffer_resource.BufferResource.device_mr_adaptor`:
+
+    >>> br = BufferResource(rmm.mr.CudaMemoryResource())
+    >>> mr = br.device_mr_adaptor()
+
+    The returned adaptor holds shared ownership of its owning ``BufferResource``,
+    so it (and any copy of it) keeps the ``BufferResource`` alive.
+    """
+    def __init__(self, *args, **kwargs):
+        raise TypeError(
+            "RmmResourceAdaptor cannot be constructed directly; obtain one from "
+            "BufferResource.device_mr_adaptor()"
         )
-        self.c_ref = make_device_async_resource_ref(deref(self.c_obj))
 
     def __dealloc__(self):
         with nogil:
@@ -40,6 +41,30 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
 
     cdef cpp_RmmResourceAdaptor* get_handle(self):
         return self.c_obj.get()
+
+    @staticmethod
+    cdef RmmResourceAdaptor _from_cpp(const cpp_RmmResourceAdaptor& src):
+        """
+        Create a Python ``RmmResourceAdaptor`` by copying a back-ref'd C++ adaptor.
+
+        The copy acquires shared ownership of the owning ``BufferResource``,
+        keeping it alive for the lifetime of the returned Python object.
+
+        Parameters
+        ----------
+        src
+            The C++ ``RmmResourceAdaptor`` to copy from. Must have a back-reference
+            installed (i.e. it must have been obtained from a ``BufferResource``);
+            otherwise a ``std::bad_weak_ptr`` is raised.
+
+        Returns
+        -------
+        A new Python ``RmmResourceAdaptor`` wrapping the copied C++ adaptor.
+        """
+        cdef RmmResourceAdaptor ret = RmmResourceAdaptor.__new__(RmmResourceAdaptor)
+        ret.c_obj.reset(new cpp_RmmResourceAdaptor(src))
+        ret.c_ref = make_device_async_resource_ref(deref(ret.c_obj))
+        return ret
 
     def get_main_record(self):
         """Returns a copy of the main memory record.

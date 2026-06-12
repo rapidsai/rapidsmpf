@@ -80,7 +80,7 @@ class Context {
      * @note The current CUDA device must be set prior to calling this function.
      * Options that depend on device memory availability query the current device.
      *
-     * @param mr Device memory resource used by RapidsMPF. It is wrapped in an
+     * @param mr Device memory resource used by RapidsMPF. It will be wrapped in an
      * internal `RmmResourceAdaptor` for allocation tracking.
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its

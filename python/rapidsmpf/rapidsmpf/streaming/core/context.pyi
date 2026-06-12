@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from typing import Any, Self
 
+from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.communicator.communicator import Logger
 from rapidsmpf.config import Options
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait import MemoryReserveOrWait
@@ -29,7 +29,7 @@ class Context:
     def from_options(
         cls: type[Self],
         logger: Logger,
-        mr: RmmResourceAdaptor,
+        mr: DeviceMemoryResource,
         options: Options,
         statistics: Statistics | None = None,
     ) -> Self: ...
