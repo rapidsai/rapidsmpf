@@ -23,7 +23,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -193,10 +192,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
 
     /**
+     * @brief Access the internal device memory resource adaptor.
+     *
+     * `BufferResource` wraps the device memory resource in an internal
+     * `RmmResourceAdaptor` for allocation tracking. This exposes that adaptor
+     * directly, e.g. to query allocation statistics via `get_main_record()` or
+     * `current_allocated()`.
+     *
+     * @return Reference to the internal device `RmmResourceAdaptor`. The
+     * reference is valid for as long as this `BufferResource` is alive.
+     */
+    [[nodiscard]] RmmResourceAdaptor const& device_mr_adaptor() const noexcept;
+
+    /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
@@ -205,6 +218,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
@@ -213,6 +227,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
      * pinned host memory is not available.
      */
+    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**
@@ -495,6 +510,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
@@ -503,10 +519,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-    // Stable storage for the device MR returned by `device_mr()`. See
-    // `OwningResourceAdaptor` for the lifetime semantics. Installed by
-    // `create()` after construction.
-    std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
+    // The device adaptor is installed with a back-reference to this instance
+    // during the `create()` factory method, so the `BufferResource` stays alive
+    // for as long as copies of the device adaptor are alive. The pinned and host
+    // resources do not (yet) carry a back-reference.
+    RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;

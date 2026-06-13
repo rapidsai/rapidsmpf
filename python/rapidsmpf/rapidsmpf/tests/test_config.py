@@ -25,7 +25,6 @@ from rapidsmpf.memory.pinned_memory_resource import (
     is_pinned_memory_resources_supported,
 )
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.context import Context
 
@@ -548,7 +547,7 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
             "spill_device_limit": "1GiB",
         }
     )
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = rmm.mr.CudaMemoryResource()
     comm = single_comm.new_communicator(opts, ProgressThread())
 
     with Context.from_options(
@@ -562,7 +561,7 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
 
 def test_context_from_options_uses_default_when_options_empty() -> None:
     opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = rmm.mr.CudaMemoryResource()
     comm = single_comm.new_communicator(opts, ProgressThread())
 
     with Context.from_options(comm.logger, mr, opts) as ctx:
@@ -574,7 +573,7 @@ def test_context_from_options_uses_default_when_options_empty() -> None:
 
 def test_context_from_options_enables_statistics_when_requested() -> None:
     opts = Options({"statistics": "on"})
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = rmm.mr.CudaMemoryResource()
     comm = single_comm.new_communicator(opts, ProgressThread())
 
     with Context.from_options(
@@ -586,7 +585,7 @@ def test_context_from_options_enables_statistics_when_requested() -> None:
 
 def test_context_from_options_creates_buffer_resource() -> None:
     opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = rmm.mr.CudaMemoryResource()
     comm = single_comm.new_communicator(opts, ProgressThread())
 
     with Context.from_options(comm.logger, mr, opts) as ctx:
@@ -596,7 +595,7 @@ def test_context_from_options_creates_buffer_resource() -> None:
 
 def test_context_from_options_can_create_channel() -> None:
     opts = Options()
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = rmm.mr.CudaMemoryResource()
     comm = single_comm.new_communicator(opts, ProgressThread())
 
     with Context.from_options(comm.logger, mr, opts) as ctx:

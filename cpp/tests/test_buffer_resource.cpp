@@ -18,9 +18,9 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -638,13 +638,16 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             host_pattern[i] = static_cast<std::uint8_t>(i % 256);
         }
 
-        // Setup br1 with statistics for its device memory
-        mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = BufferResource::create(*mr1);
+        // `BufferResource` wraps the device resource in an internal
+        // `RmmResourceAdaptor` for allocation tracking, so just pass a vanilla
+        // resource; `device_total()` reads back the per-resource record.
+        br1 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+        br2 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+    }
 
-        // Setup br2 with statistics for its device memory
-        mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = BufferResource::create(*mr2);
+    /// @brief Cumulative device bytes allocated through @p br.
+    static std::int64_t device_total(BufferResource& br) {
+        return br.device_mr_adaptor().get_main_record().total();
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -661,23 +664,21 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             );
         });
         buf1->stream().synchronize();
-        EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(buffer_size));
         return buf1;
     }
 
     void verify_memory_allocation(
         std::size_t expected_br1_total, std::size_t expected_br2_total
     ) {
-        EXPECT_EQ(mr1->get_main_record().total(), expected_br1_total);
-        EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(expected_br1_total));
+        EXPECT_EQ(device_total(*br2), static_cast<std::int64_t>(expected_br2_total));
     }
 
     std::size_t buffer_size;
     rmm::cuda_stream_view stream;
     std::vector<std::uint8_t> host_pattern;
 
-    std::unique_ptr<RmmResourceAdaptor> mr1;
-    std::unique_ptr<RmmResourceAdaptor> mr2;
     std::shared_ptr<BufferResource> br1;
     std::shared_ptr<BufferResource> br2;
 };
@@ -797,8 +798,9 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
 
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
-    // which deep-copies the OwningResourceAdaptor. The copied adaptor acquires a
-    // `shared_ptr<BufferResource>`.
+    // which deep-copies the underlying `RmmResourceAdaptor`. Its
+    // `WithBufferResourceBackRef` base promotes the installed weak ref to a
+    // `shared_ptr<BufferResource>` during the copy.
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
     // Drop the original shared_ptr. The buffer's internally stored owning memory
@@ -814,11 +816,8 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 
-TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
+TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor adaptor{
-        cuda::mr::any_resource<cuda::mr::device_accessible>{cuda_mr}
-    };
 
     std::weak_ptr<BufferResource> weak_br;
     {
@@ -827,11 +826,48 @@ TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
     }
     ASSERT_TRUE(weak_br.expired());
 
-    OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
+    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
+    original.set_backref(weak_br);
 
-    using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
-    EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
+    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
 
-    AdaptorT target{adaptor, weak_br};
+    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
     EXPECT_THROW(target = original, std::bad_weak_ptr);
+}
+
+TEST(RmmResourceAdaptor, CopyWithoutBackRefThrows) {
+    // A `set_backref()` must be installed before an adaptor is copied. Copying
+    // an uninstalled adaptor throws `std::bad_weak_ptr`.
+    rmm::mr::cuda_memory_resource cuda_mr;
+
+    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
+
+    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
+
+    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
+    EXPECT_THROW(target = original, std::bad_weak_ptr);
+}
+
+// Regression guard for a latent side effect of switching `BufferResource` from
+// the old `OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>` wrapper
+// to inheriting `BackRefMixin<BufferResource>` directly on `RmmResourceAdaptor`.
+TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
+    constexpr std::size_t kAllocBytes = 1_MiB;
+
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto stats = Statistics::create();
+    ASSERT_TRUE(stats->enabled());
+
+    {
+        auto rec = stats->create_memory_recorder(br->device_mr(), "br-scope");
+        rmm::device_buffer buf{kAllocBytes, rmm::cuda_stream_view{}, br->device_mr()};
+    }
+
+    auto const& records = stats->get_memory_records();
+    ASSERT_EQ(records.count("br-scope"), 1u);
+    auto const& rec = records.at("br-scope");
+    EXPECT_EQ(rec.num_calls, 1u);
+    EXPECT_EQ(rec.global_peak, static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.peak(), static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.total(), static_cast<std::int64_t>(kAllocBytes));
 }

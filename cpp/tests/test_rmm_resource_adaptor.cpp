@@ -6,6 +6,7 @@
 
 #include <barrier>
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -20,6 +21,7 @@
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 #include "utils.hpp"
@@ -387,6 +389,10 @@ TEST(RmmResourceAdaptor, EqualityWithCudaMemoryResource) {
 
     // Both wrap same resouce but have difference shared states
     EXPECT_NE(adaptor_a, adaptor_b);
+
+    // A back-reference must be installed before the adaptor can be copied.
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    adaptor_a.set_backref(std::weak_ptr<BufferResource>{br});
 
     // A copy shares the same control block -> equal.
     RmmResourceAdaptor adaptor_a_copy = adaptor_a;

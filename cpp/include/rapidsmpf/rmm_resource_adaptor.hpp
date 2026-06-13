@@ -13,6 +13,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
@@ -25,10 +26,24 @@ namespace rapidsmpf {
  *
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
+ *
+ * Inherits the `WithBufferResourceBackRef` lifetime contract: a
+ * back-reference must be installed via `set_backref()` before the adaptor
+ * is copied (copying an uninstalled adaptor throws `std::bad_weak_ptr`).
+ * Adaptors installed by `BufferResource::create()` keep their owning
+ * `BufferResource` alive for as long as any copy of the adaptor lives.
+ *
+ * @note A standalone adaptor (constructed directly, without a `BufferResource`)
+ * has no back-reference and therefore **must not be copied**. Triggering
+ * operations include type-erasing the adaptor into an owning
+ * `cuda::mr::any_resource`, constructing an `rmm::device_buffer` with it as
+ * the memory resource, and passing it by value to `Statistics::MemoryRecorder`.
+ * Use `BufferResource::device_mr_adaptor()` to obtain a copyable adaptor.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
-          cuda::mr::any_resource<cuda::mr::device_accessible>>> {
+          cuda::mr::any_resource<cuda::mr::device_accessible>>>,
+      public WithBufferResourceBackRef {
     using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
     using shared_base =
         cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
@@ -53,13 +68,16 @@ class RmmResourceAdaptor
     /**
      * @brief Equality comparison.
      *
-     * Two adaptors are equal if and only if they share the same underlying shared state.
+     * Two adaptors are equal iff they share the same underlying shared
+     * state **and** reference the same owning `BufferResource` (or are
+     * both standalone).
      *
      * @param other The other adaptor to compare.
-     * @return True if both adaptors refer to the same shared resource instance.
+     * @return True if both adaptors share the same shared state and the
+     * same owning `BufferResource`.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
-        return get() == other.get();
+        return get() == other.get() && WithBufferResourceBackRef::operator==(other);
     }
 
     /**
