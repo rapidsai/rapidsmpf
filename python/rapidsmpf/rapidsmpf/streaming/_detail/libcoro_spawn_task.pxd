@@ -10,6 +10,14 @@ cdef extern from * nogil:
     #include <coro/task.hpp>
 
     /**
+     * @brief Callback used to resolve a Python asyncio.Future from C++.
+     *
+     * Takes an opaque pointer to the Python Future and an optional
+     * null-terminated error message. NULL means success.
+     */
+    using PyFutureCallback = void (*)(void*, const char *);
+
+    /**
      * @brief Await a C++ coro::task and notify a Python asyncio.Future on completion.
      *
      * This is a C++-only helper used by Cython bindings to bridge C++ coroutines
@@ -34,7 +42,7 @@ cdef extern from * nogil:
      * and the Python Future has been notified.
      */
     coro::task<void> cython_libcoro_task_wrapper(
-        void (*cpp_set_py_future)(void*, const char *),
+        PyFutureCallback cpp_set_py_future,
         rapidsmpf::OwningWrapper py_future,
         coro::task<void> task
     ) {
