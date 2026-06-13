@@ -4,6 +4,13 @@
  */
 
 
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <numeric>
+#include <vector>
+
 #include <gtest/gtest.h>
 
 #include <rmm/mr/limiting_resource_adaptor.hpp>
@@ -72,4 +79,57 @@ TEST(SpillManager, SpillFunction) {
     // A negative headroom is allowed.
     EXPECT_EQ(br->spill_manager().spill_to_make_headroom(-100_KiB), 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
+}
+
+// Verify that multiple concurrent `spill()` calls execute the spill function in
+// parallel. The spill function blocks at a rendezvous point until all worker
+// threads have entered it; with an exclusive lock this would deadlock and the
+// test would time out.
+TEST(SpillManager, ConcurrentSpill) {
+    constexpr int num_threads = 4;
+    constexpr auto rendezvous_timeout = std::chrono::seconds(5);
+
+    BufferResource br{
+        cudf::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryResource::Disabled,
+        {{MemoryType::DEVICE, []() -> std::int64_t { return 0; }}}
+    };
+
+    std::mutex m;
+    std::condition_variable cv;
+    int entered = 0;
+
+    SpillManager::SpillFunction func = [&](std::size_t amount) -> std::size_t {
+        std::unique_lock<std::mutex> lock(m);
+        ++entered;
+        if (entered == num_threads) {
+            cv.notify_all();
+        }
+        // If spill() calls run in parallel, all threads quickly reach
+        // `entered == num_threads` and proceed. If they're serialized, every
+        // thread but the last times out here, so a successful (non-timeout)
+        // wait_for is proof that the calls actually overlapped.
+        EXPECT_TRUE(cv.wait_for(lock, rendezvous_timeout, [&] {
+            return entered == num_threads;
+        })) << "spill() calls did not run concurrently";
+        return amount;
+    };
+
+    br.spill_manager().add_spill_function(func, /* priority = */ 0);
+
+    std::vector<std::future<std::size_t>> futures;
+    futures.reserve(num_threads);
+    for (int i = 0; i < num_threads; ++i) {
+        futures.emplace_back(std::async(std::launch::async, [&] {
+            return br.spill_manager().spill(1_KiB);
+        }));
+    }
+    auto const total_spilled = std::accumulate(
+        futures.begin(),
+        futures.end(),
+        std::size_t{0},
+        [](std::size_t sum, std::future<std::size_t>& f) { return sum + f.get(); }
+    );
+
+    EXPECT_EQ(total_spilled, num_threads * 1_KiB);
 }
