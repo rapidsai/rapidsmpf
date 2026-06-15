@@ -73,6 +73,9 @@ rapidsmpf::PackedData make_payload(
             std::memcpy(ptr, &payload_value, sizeof(payload_value));
         }
     });
+    // Wait for the copy to complete before the local `data` source goes out of
+    // scope.
+    data->latest_write_event().host_wait();
     return {std::move(metadata), std::move(data)};
 }
 

@@ -58,6 +58,9 @@ PackedData make_payload(
             )
         );
     });
+    // Wait for the copy to complete before the local `data` source goes out of
+    // scope.
+    data->latest_write_event().host_wait();
     return {std::move(metadata), std::move(data)};
 }
 
