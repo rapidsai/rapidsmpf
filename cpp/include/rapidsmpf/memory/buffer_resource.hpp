@@ -209,7 +209,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @return Reference to the RMM resource used for host allocations.
      */
-    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
@@ -218,7 +217,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      */
-    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
@@ -227,7 +225,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
      * pinned host memory is not available.
      */
-    // TODO: returned ref will not keep the BufferResource alive
     [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
 
     /**

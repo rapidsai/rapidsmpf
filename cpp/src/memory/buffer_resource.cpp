@@ -127,6 +127,7 @@ RmmResourceAdaptor const& BufferResource::device_mr_adaptor() const noexcept {
 }
 
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+    // TODO: returned ref will not keep the BufferResource alive
     return host_mr_;
 }
 
@@ -134,12 +135,14 @@ rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
+    // TODO: returned ref will not keep the BufferResource alive
     return *pinned_mr_;
 }
 
 std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
     // since any_host_device_resource is constructible from
     // host_device_async_resource_ref, optional can be returned as-is.
+    // TODO: returned ref will not keep the BufferResource alive
     return pinned_mr_;
 }
 
