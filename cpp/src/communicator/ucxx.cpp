@@ -361,9 +361,11 @@ class SharedResources {
         futures_.push_back(std::move(future));
     }
 
-    [[nodiscard]] std::size_t rank_endpoint_count() {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        return rank_to_endpoint_.size();
+    [[nodiscard]] bool all_barrier_maps_registered() {
+        std::scoped_lock lock(endpoints_mutex_, listener_mutex_);
+        auto const expected_size = safe_cast<std::size_t>(nranks());
+        return rank_to_endpoint_.size() == expected_size
+               && rank_to_listener_address_.size() == expected_size;
     }
 
     [[nodiscard]] RankToEndpointMap rank_to_endpoint_snapshot() {
@@ -380,7 +382,8 @@ class SharedResources {
      * worker may no longer be progressed when a peer attempts lazy endpoint
      * creation.
      *
-     * Must only be called on the root rank, after all ranks have connected.
+     * Must only be called on the root rank, after all ranks have connected and
+     * registered listener addresses.
      */
     void distribute_listener_addresses() {
         RankToEndpointMap rank_to_endpoint;
@@ -390,9 +393,19 @@ class SharedResources {
             if (listener_addresses_distributed_) {
                 return;
             }
-            listener_addresses_distributed_ = true;
+            auto const expected_size = safe_cast<std::size_t>(nranks());
+            RAPIDSMPF_EXPECTS(
+                rank_to_endpoint_.size() == expected_size,
+                "cannot distribute listener addresses before all endpoints are registered"
+            );
+            RAPIDSMPF_EXPECTS(
+                rank_to_listener_address_.size() == expected_size,
+                "cannot distribute listener addresses before all listener addresses are "
+                "registered"
+            );
             rank_to_endpoint = rank_to_endpoint_;
             rank_to_listener_address = rank_to_listener_address_;
+            listener_addresses_distributed_ = true;
         }
 
         // Pack all listener addresses (except the destination's own) into a
@@ -444,8 +457,8 @@ class SharedResources {
     }
 
     void barrier() {
-        // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_endpoint_count() != safe_cast<std::size_t>(nranks())) {
+        // The root needs endpoints and listener addresses for all ranks to continue.
+        while (rank_ == 0 && !all_barrier_maps_registered()) {
             progress_worker();
         }
 
