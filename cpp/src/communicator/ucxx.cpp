@@ -445,8 +445,7 @@ class SharedResources {
 
     void barrier() {
         // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_endpoint_count() != safe_cast<std::size_t>(nranks()))
-        {
+        while (rank_ == 0 && rank_endpoint_count() != safe_cast<std::size_t>(nranks())) {
             progress_worker();
         }
 
