@@ -361,6 +361,16 @@ class SharedResources {
         futures_.push_back(std::move(future));
     }
 
+    [[nodiscard]] std::size_t rank_endpoint_count() {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        return rank_to_endpoint_.size();
+    }
+
+    [[nodiscard]] RankToEndpointMap rank_to_endpoint_snapshot() {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        return rank_to_endpoint_;
+    }
+
     /**
      * @brief Distribute all listener addresses from root to every non-root rank.
      *
@@ -373,17 +383,24 @@ class SharedResources {
      * Must only be called on the root rank, after all ranks have connected.
      */
     void distribute_listener_addresses() {
-        if (listener_addresses_distributed_) {
-            return;
+        RankToEndpointMap rank_to_endpoint;
+        RankToListenerAddressMap rank_to_listener_address;
+        {
+            std::scoped_lock lock(endpoints_mutex_, listener_mutex_);
+            if (listener_addresses_distributed_) {
+                return;
+            }
+            listener_addresses_distributed_ = true;
+            rank_to_endpoint = rank_to_endpoint_;
+            rank_to_listener_address = rank_to_listener_address_;
         }
-        listener_addresses_distributed_ = true;
 
         // Pack all listener addresses (except the destination's own) into a
         // single DistributeListenerAddresses message per non-root rank.
         // Format: [ControlMessage][count][addr1_size][addr1]...[addrN_size][addrN]
         std::vector<std::shared_ptr<::ucxx::Request>> reqs;
         std::vector<std::unique_ptr<std::vector<std::uint8_t>>> bufs;
-        for (auto& [dst, ep] : rank_to_endpoint_) {
+        for (auto const& [dst, ep] : rank_to_endpoint) {
             if (dst == 0) {
                 continue;
             }
@@ -391,7 +408,7 @@ class SharedResources {
             auto const control = ControlMessage::DistributeListenerAddresses;
             std::size_t count{0};
             std::size_t total = sizeof(control) + sizeof(count);
-            for (auto& [src, addr] : rank_to_listener_address_) {
+            for (auto const& [src, addr] : rank_to_listener_address) {
                 if (src == dst) {
                     continue;
                 }
@@ -403,7 +420,7 @@ class SharedResources {
             std::size_t off{0};
             encode(packed->data(), &control, sizeof(control), off);
             encode(packed->data(), &count, sizeof(count), off);
-            for (auto& [src, addr] : rank_to_listener_address_) {
+            for (auto const& [src, addr] : rank_to_listener_address) {
                 if (src == dst) {
                     continue;
                 }
@@ -428,16 +445,17 @@ class SharedResources {
 
     void barrier() {
         // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<std::size_t>(nranks()))
+        while (rank_ == 0 && rank_endpoint_count() != safe_cast<std::size_t>(nranks()))
         {
             progress_worker();
         }
 
         if (rank_ == 0) {
+            auto const rank_to_endpoint = rank_to_endpoint_snapshot();
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
             requests.reserve(safe_cast<std::size_t>(nranks() - 1));
             // send to all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint) {
                 if (rank == 0) {
                     continue;
                 }
@@ -452,7 +470,7 @@ class SharedResources {
             requests.clear();
 
             // receive from all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint) {
                 if (rank == 0) {
                     continue;
                 }
@@ -469,7 +487,7 @@ class SharedResources {
             distribute_listener_addresses();
 
             // Everyone has reported, release other ranks.
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint) {
                 if (rank == 0) {
                     continue;
                 }
