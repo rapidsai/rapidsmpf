@@ -73,6 +73,11 @@ rapidsmpf::PackedData make_payload(
             std::memcpy(ptr, &payload_value, sizeof(payload_value));
         }
     });
+    // Wait for the copy to complete before the local `data` source goes out of
+    // scope. cuda_memcpy_async reads the source in stream order
+    // (cudaMemcpySrcAccessOrderStream), so returning without this wait would let the
+    // stream read a dangling pointer.
+    data->latest_write_event().host_wait();
     return {std::move(metadata), std::move(data)};
 }
 

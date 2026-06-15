@@ -24,6 +24,7 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -80,6 +81,11 @@ TEST_P(StreamingAllGather, basic) {
                 buf_data, data.data(), data.size() * sizeof(int), stream
             ));
         });
+        // Wait for the copy to complete before the local `data` source goes out of
+        // scope. cuda_memcpy_async reads the source in stream order
+        // (cudaMemcpySrcAccessOrderStream), so returning without this wait would let the
+        // stream read a dangling pointer.
+        buf->latest_write_event().host_wait();
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
         allgather.insert(sequence, PackedData{std::move(meta), std::move(buf)});
@@ -118,8 +124,7 @@ TEST_P(StreamingAllGather, basic) {
     pipeline.push_back(ctx->executor()->schedule(insert_finished()));
     pipeline.push_back(ctx->executor()->schedule(extract()));
     streaming::run_actor_network(std::move(pipeline));
-    std::vector<int> expected(size * size * n_inserts);
-    std::iota(expected.begin(), expected.end(), 0);
+    auto expected = iota_vector<int>(size * size * n_inserts);
     EXPECT_EQ(expected, result);
 }
 
@@ -188,7 +193,6 @@ TEST_P(StreamingAllGather, streaming_actor) {
         offset += msize;
         pd.stream().synchronize();
     }
-    std::vector<int> expected(size * size * n_inserts);
-    std::iota(expected.begin(), expected.end(), 0);
+    auto expected = iota_vector<int>(size * size * n_inserts);
     EXPECT_EQ(expected, actual);
 }
