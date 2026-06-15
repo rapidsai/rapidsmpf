@@ -202,7 +202,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Reference to the internal device `RmmResourceAdaptor`. The
      * reference is valid for as long as this `BufferResource` is alive.
      */
-    [[nodiscard]] RmmResourceAdaptor const& device_mr_adaptor() const noexcept;
+    [[nodiscard]] RmmResourceAdaptor& device_mr_adaptor() noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
@@ -516,10 +516,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-    // The device adaptor is installed with a back-reference to this instance
-    // during the `create()` factory method, so the `BufferResource` stays alive
-    // for as long as copies of the device adaptor are alive. The pinned and host
-    // resources do not (yet) carry a back-reference.
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;

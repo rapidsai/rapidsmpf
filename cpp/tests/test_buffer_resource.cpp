@@ -799,7 +799,7 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
     // which deep-copies the underlying `RmmResourceAdaptor`. Its
-    // `WithBufferResourceBackRef` base promotes the installed weak ref to a
+    // `BackRefMixin<BufferResource>` base promotes the installed weak ref to a
     // `shared_ptr<BufferResource>` during the copy.
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
@@ -816,41 +816,28 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 
-TEST(RmmResourceAdaptor, CopyThrowsWhenBackRefExpired) {
-    rmm::mr::cuda_memory_resource cuda_mr;
+TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    any_device_resource copy1{br->device_mr()};
+    any_device_resource copy2 = copy1;
 
-    std::weak_ptr<BufferResource> weak_br;
-    {
-        auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        weak_br = br;
-    }
-    ASSERT_TRUE(weak_br.expired());
+    RmmResourceAdaptor owned_copy = br->device_mr_adaptor();
+    any_device_resource owned_any{br->device_mr_adaptor()};
 
-    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
-    original.set_backref(weak_br);
+    // RmmResourceAdaptor == RmmResourceAdaptor (custom operator==).
+    EXPECT_EQ(owned_copy, br->device_mr_adaptor());
 
-    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
+    // any_resource == any_resource.
+    EXPECT_EQ(copy1, copy2);
+    EXPECT_EQ(copy1, owned_any);
 
-    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
-    EXPECT_THROW(target = original, std::bad_weak_ptr);
+    // any_resource == resource_ref (`device_mr()`).
+    EXPECT_EQ(copy1, br->device_mr());
+    EXPECT_EQ(owned_any, br->device_mr());
 }
 
-TEST(RmmResourceAdaptor, CopyWithoutBackRefThrows) {
-    // A `set_backref()` must be installed before an adaptor is copied. Copying
-    // an uninstalled adaptor throws `std::bad_weak_ptr`.
-    rmm::mr::cuda_memory_resource cuda_mr;
-
-    RmmResourceAdaptor original{any_device_resource{cuda_mr}};
-
-    EXPECT_THROW({ RmmResourceAdaptor copy{original}; }, std::bad_weak_ptr);
-
-    RmmResourceAdaptor target{any_device_resource{cuda_mr}};
-    EXPECT_THROW(target = original, std::bad_weak_ptr);
-}
-
-// Regression guard for a latent side effect of switching `BufferResource` from
-// the old `OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>` wrapper
-// to inheriting `BackRefMixin<BufferResource>` directly on `RmmResourceAdaptor`.
+// Guarantee that when stats enabled, br->device_mr() reference gets properly casted to an
+// RmmResourceAdaptor and used by the memory recorder.
 TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     constexpr std::size_t kAllocBytes = 1_MiB;
 

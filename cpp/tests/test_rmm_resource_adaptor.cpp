@@ -114,7 +114,8 @@ struct throw_at_limit_resource
 
 TEST(RmmResourceAdaptor, TracksAllocations) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr};
+    auto br = BufferResource::create(primary_mr);
+    auto& mr = br->device_mr_adaptor();
 
     EXPECT_EQ(mr.current_allocated(), 0);
 
@@ -129,21 +130,24 @@ TEST(RmmResourceAdaptor, TracksAllocations) {
 
 TEST(RmmResourceAdaptor, OOMPropagates) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
-    RmmResourceAdaptor mr{primary_mr};
+    auto br = BufferResource::create(primary_mr);
+    auto& mr = br->device_mr_adaptor();
 
     EXPECT_THROW((void)mr.allocate_sync(8_MiB), rmm::out_of_memory);
 }
 
 TEST(RmmResourceAdaptor, PropagatesNonOutOfMemoryExceptions) {
     throw_at_limit_resource<std::logic_error> primary_mr{1_MiB};
-    RmmResourceAdaptor mr{primary_mr};
+    auto br = BufferResource::create(primary_mr);
+    auto& mr = br->device_mr_adaptor();
 
     EXPECT_THROW(std::ignore = mr.allocate_sync(2_MiB), std::logic_error);
 }
 
 TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
-    RmmResourceAdaptor mr{primary_mr};
+    auto br = BufferResource::create(primary_mr);
+    auto& mr = br->device_mr_adaptor();
 
     auto main_record_before = mr.get_main_record();
     EXPECT_EQ(main_record_before.num_total_allocs(), 0);
@@ -223,7 +227,8 @@ TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
 }
 
 TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
 
     mr.begin_scoped_memory_record();
     auto scope = mr.end_scoped_memory_record();
@@ -234,7 +239,8 @@ TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
 
     mr.begin_scoped_memory_record();
     void* p = mr.allocate_sync(1_MiB);
@@ -249,7 +255,8 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -275,7 +282,8 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
 
     mr.begin_scoped_memory_record();  // Outer
 
@@ -302,7 +310,8 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
 
     // Allocate in outer scope
     mr.begin_scoped_memory_record();  // Outer
@@ -330,7 +339,8 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
     constexpr int num_allocs_per_thread = 8;
     constexpr std::size_t alloc_size = 1_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
     std::vector<std::thread> threads;
     std::vector<std::vector<void*>> allocations(num_threads);
     std::vector<rapidsmpf::ScopedMemoryRecord> records(num_threads);
@@ -382,19 +392,15 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
 }
 
 TEST(RmmResourceAdaptor, EqualityWithCudaMemoryResource) {
-    rmm::mr::cuda_memory_resource cuda_mr{};
+    auto br_a = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto br_b = BufferResource::create(rmm::mr::get_current_device_resource_ref());
 
-    RmmResourceAdaptor adaptor_a{cuda_mr};
-    RmmResourceAdaptor adaptor_b{cuda_mr};
+    RmmResourceAdaptor const& adaptor_a = br_a->device_mr_adaptor();
+    RmmResourceAdaptor const& adaptor_b = br_b->device_mr_adaptor();
 
-    // Both wrap same resouce but have difference shared states
     EXPECT_NE(adaptor_a, adaptor_b);
 
-    // A back-reference must be installed before the adaptor can be copied.
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    adaptor_a.set_backref(std::weak_ptr<BufferResource>{br});
-
-    // A copy shares the same control block -> equal.
+    // A copy shares the same control block and back-reference -> equal.
     RmmResourceAdaptor adaptor_a_copy = adaptor_a;
     EXPECT_EQ(adaptor_a, adaptor_a_copy);
 }
@@ -403,7 +409,8 @@ TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
     constexpr std::size_t outer_alloc_size = 1_MiB;
     constexpr std::size_t inner_alloc_size = 2_MiB;
 
-    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto& mr = br->device_mr_adaptor();
     void* outer_alloc = nullptr;
     void* inner_alloc = nullptr;
     rapidsmpf::ScopedMemoryRecord inner_record;

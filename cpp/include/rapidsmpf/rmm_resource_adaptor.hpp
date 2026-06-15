@@ -17,6 +17,7 @@
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
+class BufferResource;
 
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
@@ -27,23 +28,18 @@ namespace rapidsmpf {
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
  *
- * Inherits the `WithBufferResourceBackRef` lifetime contract: a
- * back-reference must be installed via `set_backref()` before the adaptor
- * is copied (copying an uninstalled adaptor throws `std::bad_weak_ptr`).
- * Adaptors installed by `BufferResource::create()` keep their owning
- * `BufferResource` alive for as long as any copy of the adaptor lives.
- *
- * @note A standalone adaptor (constructed directly, without a `BufferResource`)
- * has no back-reference and therefore **must not be copied**. Triggering
- * operations include type-erasing the adaptor into an owning
- * `cuda::mr::any_resource`, constructing an `rmm::device_buffer` with it as
- * the memory resource, and passing it by value to `Statistics::MemoryRecorder`.
- * Use `BufferResource::device_mr_adaptor()` to obtain a copyable adaptor.
+ * The primary-resource constructor is private: instances can only be created by
+ * `BufferResource`, which installs the back-reference before the adaptor becomes
+ * observable. Obtain one via `BufferResource::device_mr_adaptor()` (copies of
+ * which are valid). This guarantees the `BackRefMixin<BufferResource>` lifetime
+ * contract always holds — every adaptor a caller can reach already has a
+ * back-reference installed, so copies keep their owning `BufferResource` alive
+ * for as long as any copy lives.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
           cuda::mr::any_resource<cuda::mr::device_accessible>>>,
-      public WithBufferResourceBackRef {
+      public BackRefMixin<BufferResource> {
     using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
     using shared_base =
         cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
@@ -53,15 +49,6 @@ class RmmResourceAdaptor
     friend void get_property(
         RmmResourceAdaptor const&, cuda::mr::device_accessible
     ) noexcept {}
-
-    /**
-     * @brief Construct with the specified primary memory resource.
-     *
-     * @param primary_mr The primary memory resource.
-     */
-    explicit RmmResourceAdaptor(
-        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
-    );
 
     ~RmmResourceAdaptor() = default;
 
@@ -77,7 +64,7 @@ class RmmResourceAdaptor
      * same owning `BufferResource`.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
-        return get() == other.get() && WithBufferResourceBackRef::operator==(other);
+        return get() == other.get() && BackRefMixin<BufferResource>::operator==(other);
     }
 
     /**
@@ -138,6 +125,21 @@ class RmmResourceAdaptor
      * @see begin_scoped_memory_record()
      */
     ScopedMemoryRecord end_scoped_memory_record();
+
+  private:
+    // Only `BufferResource` may create the primary adaptor; all other instances
+    // are copies obtained via `BufferResource::device_mr_adaptor()`. This keeps
+    // the back-reference lifetime contract enforceable (see class docs).
+    friend class BufferResource;
+
+    /**
+     * @brief Construct with the specified primary memory resource.
+     *
+     * @param primary_mr The primary memory resource.
+     */
+    explicit RmmResourceAdaptor(
+        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
+    );
 };
 
 static_assert(cuda::mr::resource_with<RmmResourceAdaptor, cuda::mr::device_accessible>);

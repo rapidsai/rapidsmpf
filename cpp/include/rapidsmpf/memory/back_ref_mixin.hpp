@@ -14,25 +14,12 @@
 namespace rapidsmpf {
 
 /**
- * @brief Mixin that lets copies of the host object keep an external owner alive.
+ * @brief Mixin that lets copies of the this object keep an external object reference of
+ * type @p BackRef alive.
  *
- * Inherit this mixin into a type whose copies should share ownership of an
- * external @p BackRef instance. Each instance is in one of two states:
+ * @note Copying an instance without calling `set_backref()` throws `std::bad_weak_ptr`.
  *
- * - **Uninstalled** (default-constructed): the instance is not bound to any
- *   owner. Copying an uninstalled instance throws `std::bad_weak_ptr`; a
- *   back-reference must be installed via `set_backref()` before copying.
- * - **Installed** (after `set_backref()`): the instance is bound to a
- *   specific owner. Each copy of an installed instance acquires shared
- *   ownership of that owner for the lifetime of the copy. If the owner has
- *   been destroyed before the copy is made, copying throws
- *   `std::bad_weak_ptr`.
- *
- * Move operations transfer state without re-acquiring ownership. Equality
- * is owner-based: two instances compare equal iff they reference the same
- * owner, or are both uninstalled.
- *
- * @tparam BackRef Type of the back-referenced owner object.
+ * @tparam BackRef Type of the external object reference.
  */
 template <typename BackRef>
 class BackRefMixin {
@@ -51,8 +38,6 @@ class BackRefMixin {
      * but its owner has been destroyed.
      */
     BackRefMixin(BackRefMixin const& other)
-        // Reuse `other`'s strong ref when present; otherwise lock its weak ref,
-        // which throws `std::bad_weak_ptr` if `other` is uninstalled or expired.
         : weak_{other.weak_},
           strong_{other.strong_ ? other.strong_ : std::shared_ptr<BackRef>{other.weak_}} {
     }
@@ -69,8 +54,7 @@ class BackRefMixin {
      */
     BackRefMixin& operator=(BackRefMixin const& other) {
         if (this != &other) {
-            // Promote first so a throw leaves *this unchanged. Locking an
-            // uninstalled or expired weak ref throws `std::bad_weak_ptr`.
+            // Promote first so a throw leaves *this unchanged.
             auto promoted =
                 other.strong_ ? other.strong_ : std::shared_ptr<BackRef>{other.weak_};
             weak_ = other.weak_;
@@ -114,12 +98,19 @@ class BackRefMixin {
      * may copy it.
      *
      * @param backref Non-empty weak reference to the back-referenced owner.
-     * @throws std::invalid_argument if @p backref is empty.
+     * @throws std::invalid_argument if @p backref is empty, or if a
+     * back-reference is already installed on this instance.
      */
     void set_backref(std::weak_ptr<BackRef> backref) {
+        std::weak_ptr<BackRef> const empty_weak{};
         RAPIDSMPF_EXPECTS(
-            !owner_equal(backref, std::weak_ptr<BackRef>{}),
+            !owner_equal(backref, empty_weak),
             "set_backref: backref must not be empty",
+            std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(
+            owner_equal(weak_, empty_weak),
+            "set_backref: backref is already set",
             std::invalid_argument
         );
         weak_ = std::move(backref);
@@ -130,16 +121,5 @@ class BackRefMixin {
     std::weak_ptr<BackRef> weak_{};
     std::shared_ptr<BackRef> strong_{};
 };
-
-class BufferResource;
-
-/**
- * @brief Convenience alias: `BackRefMixin` instantiated for `BufferResource`.
- *
- * Inherit from this alias to give a type the back-reference lifetime
- * contract that `BufferResource::create()` installs on its internal
- * resources. See `BackRefMixin` for the contract.
- */
-using WithBufferResourceBackRef = BackRefMixin<BufferResource>;
 
 }  // namespace rapidsmpf

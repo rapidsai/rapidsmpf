@@ -50,7 +50,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
         device_async_resource_ref device_mr() noexcept
-        const cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
+        cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
 
 cdef class BufferResource:
     cdef object __weakref__
