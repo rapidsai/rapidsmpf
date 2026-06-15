@@ -75,8 +75,6 @@ std::byte const* Buffer::data() const {
 }
 
 std::byte* Buffer::exclusive_data_access() {
-    RAPIDSMPF_EXPECTS(is_latest_write_done(), "the latest write isn't done");
-
     bool expected = false;
     RAPIDSMPF_EXPECTS(
         lock_.compare_exchange_strong(
@@ -84,6 +82,17 @@ std::byte* Buffer::exclusive_data_access() {
         ),
         "the buffer is already locked"
     );
+    bool latest_write_done;
+    try {
+        latest_write_done = size == 0 || latest_write_event_.is_ready();
+    } catch (...) {
+        unlock();
+        throw;
+    }
+    if (!latest_write_done) {
+        unlock();
+        RAPIDSMPF_FAIL("the latest write isn't done");
+    }
     return std::visit(
         [](auto&& storage) -> std::byte* {
             return reinterpret_cast<std::byte*>(storage->data());

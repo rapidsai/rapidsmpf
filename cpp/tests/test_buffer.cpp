@@ -4,6 +4,7 @@
  */
 
 #include <cstring>
+#include <future>
 #include <memory>
 #include <random>
 #include <vector>
@@ -232,4 +233,41 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
 
     EXPECT_NO_THROW(buffer->rebind_stream(stream2));
     EXPECT_EQ(buffer->stream().value(), stream2.value());
+}
+
+TEST_P(BufferRebindStreamTest, ExclusiveDataAccessReleasesLockIfLatestWriteIsPending) {
+    MemoryType mem_type = GetParam();
+    auto stream = stream_pool->get_stream();
+
+    constexpr std::size_t test_size = 1_MiB;
+    auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
+    auto buffer = br->make_buffer(test_size, stream, reserve);
+    EXPECT_EQ(buffer->mem_type(), mem_type);
+
+    struct Gate {
+        std::promise<void> promise{};
+        std::future<void> future{promise.get_future()};
+
+        static void CUDART_CB wait_cb(void* data) noexcept {
+            static_cast<Gate*>(data)->future.wait();
+        }
+
+        void open() {
+            promise.set_value();
+        }
+    };
+
+    Gate gate;
+    buffer->write_access([&](std::byte*, rmm::cuda_stream_view op_stream) {
+        RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(op_stream.value(), Gate::wait_cb, &gate));
+    });
+
+    EXPECT_THROW(buffer->exclusive_data_access(), std::logic_error);
+    EXPECT_NO_THROW(static_cast<void>(buffer->data()));
+
+    gate.open();
+    stream.synchronize();
+    auto* ptr = buffer->exclusive_data_access();
+    EXPECT_NE(ptr, nullptr);
+    buffer->unlock();
 }
