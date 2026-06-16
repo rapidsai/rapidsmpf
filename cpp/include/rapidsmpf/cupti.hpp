@@ -1,22 +1,19 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 
-#include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <mutex>
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <vector>
-
-#include <cuda_runtime.h>
-#include <cupti.h>
 
 namespace rapidsmpf {
 
@@ -29,6 +26,45 @@ struct MemoryDataPoint {
     std::size_t total_memory;  ///< Total GPU memory in bytes
     std::size_t used_memory;  ///< Used GPU memory in bytes
 };
+
+/**
+ * @brief Public wrapper for a CUPTI callback identifier.
+ *
+ * Keeps CUPTI types out of the public RapidsMPF API while preserving the
+ * numeric callback identifier for callers that inspect callback counters.
+ */
+class CuptiCallbackId {
+  public:
+    using value_type = std::int32_t;
+
+    constexpr CuptiCallbackId() noexcept = default;
+
+    explicit constexpr CuptiCallbackId(value_type value) noexcept : value_(value) {}
+
+    [[nodiscard]] constexpr value_type underlying() const noexcept {
+        return value_;
+    }
+
+    friend constexpr bool operator==(
+        CuptiCallbackId const&, CuptiCallbackId const&
+    ) noexcept = default;
+
+  private:
+    value_type value_{};
+};
+
+}  // namespace rapidsmpf
+
+template <>
+struct std::hash<rapidsmpf::CuptiCallbackId> {
+    std::size_t operator()(rapidsmpf::CuptiCallbackId callback_id) const noexcept {
+        return std::hash<rapidsmpf::CuptiCallbackId::value_type>{}(
+            callback_id.underlying()
+        );
+    }
+};
+
+namespace rapidsmpf {
 
 /**
  * @brief CUDA memory monitoring using CUPTI (CUDA Profiling Tools Interface).
@@ -85,7 +121,7 @@ class CuptiMonitor {
      *
      * @return true if monitoring is active, false otherwise.
      */
-    bool is_monitoring() const noexcept;
+    [[nodiscard]] bool is_monitoring() const noexcept;
 
     /**
      * @brief Manually capture current memory usage.
@@ -100,7 +136,7 @@ class CuptiMonitor {
      *
      * @return const reference to vector of memory data points.
      */
-    std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
+    [[nodiscard]] std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
 
     /**
      * @brief Clear all collected memory samples.
@@ -112,7 +148,7 @@ class CuptiMonitor {
      *
      * @return number of samples.
      */
-    std::size_t get_sample_count() const noexcept;
+    [[nodiscard]] std::size_t get_sample_count() const noexcept;
 
     /**
      * @brief Write memory samples to CSV file.
@@ -133,12 +169,13 @@ class CuptiMonitor {
     /**
      * @brief Get callback counters for all monitored CUPTI callbacks.
      *
-     * Returns a map where keys are CUPTI callback IDs and values are the number
-     * of times each callback was triggered during monitoring.
+     * Returns a map where keys are RapidsMPF callback ID wrappers and values are
+     * the number of times each callback was triggered during monitoring.
      *
-     * @return unordered_map from CUpti_CallbackId to call count.
+     * @return unordered_map from CuptiCallbackId to call count.
      */
-    std::unordered_map<CUpti_CallbackId, std::size_t> get_callback_counters() const;
+    [[nodiscard]] std::unordered_map<CuptiCallbackId, std::size_t>
+    get_callback_counters() const;
 
     /**
      * @brief Clear all callback counters.
@@ -152,7 +189,7 @@ class CuptiMonitor {
      *
      * @return total number of callbacks.
      */
-    std::size_t get_total_callback_count() const;
+    [[nodiscard]] std::size_t get_total_callback_count() const;
 
     /**
      * @brief Get a human-readable summary of callback counters.
@@ -161,58 +198,11 @@ class CuptiMonitor {
      *
      * @return string containing callback counter summary.
      */
-    std::string get_callback_summary() const;
+    [[nodiscard]] std::string get_callback_summary() const;
 
   private:
-    // Boolean fields grouped together at beginning to reduce padding
-    bool enable_periodic_sampling_;
-    std::atomic<bool> monitoring_active_;
-    bool debug_output_enabled_{false};
-
-    std::chrono::milliseconds sampling_interval_ms_;
-    std::size_t debug_threshold_bytes_;
-    std::size_t last_used_mem_for_debug_{0};
-    CUpti_SubscriberHandle cupti_subscriber_;
-    std::thread sampling_thread_;
-
-    std::unordered_map<CUpti_CallbackId, std::size_t> callback_counters_;
-    mutable std::mutex mutex_;
-    std::vector<MemoryDataPoint> memory_samples_;
-
-    /**
-     * @brief Internal method to capture memory usage without locking.
-     */
-    void capture_memory_usage_impl();
-
-    /**
-     * @brief Periodic memory sampling thread function.
-     */
-    void periodic_memory_sampling();
-
-    /**
-     * @brief Subscribe to CUPTI callbacks.
-     */
-    CUptiResult subscribe();
-
-    /**
-     * @brief Unsubscribe from CUPTI callbacks.
-     */
-    void unsubscribe();
-
-    /**
-     * @brief Static wrapper function for CUPTI callback.
-     */
-    static void CUPTIAPI callback_wrapper(
-        void* userdata,
-        CUpti_CallbackDomain domain,
-        CUpti_CallbackId cbid,
-        void const* cbdata
-    );
-
-    /**
-     * @brief Instance method for CUPTI callback.
-     */
-    void callback(CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata);
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace rapidsmpf

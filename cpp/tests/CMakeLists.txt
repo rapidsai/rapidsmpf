@@ -235,6 +235,23 @@ target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
 
+add_executable(cupti_public_api_test test_cupti_public_api.cpp)
+set_target_properties(
+  cupti_public_api_test
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             COMPONENT testing
+)
+target_include_directories(cupti_public_api_test PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_definitions(cupti_public_api_test PRIVATE RAPIDSMPF_HAVE_CUPTI)
+target_compile_options(
+  cupti_public_api_test PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+)
+disable_sign_conversion_warning(cupti_public_api_test)
+add_test(NAME cupti_public_api_test COMMAND "gtests/cupti_public_api_test")
+
 # bootstrap_tests — standalone; compiles bootstrap sources directly so it does not depend on the
 # full rapidsmpf library (and its CUDA sources).
 add_executable(

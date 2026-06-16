@@ -82,9 +82,7 @@ TEST_P(StreamingAllGather, basic) {
             ));
         });
         // Wait for the copy to complete before the local `data` source goes out of
-        // scope. cuda_memcpy_async reads the source in stream order
-        // (cudaMemcpySrcAccessOrderStream), so returning without this wait would let the
-        // stream read a dangling pointer.
+        // scope.
         buf->latest_write_event().host_wait();
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
@@ -125,7 +123,6 @@ TEST_P(StreamingAllGather, basic) {
     pipeline.push_back(ctx->executor()->schedule(extract()));
     streaming::run_actor_network(std::move(pipeline));
     auto expected = iota_vector<int>(size * size * n_inserts);
-
     EXPECT_EQ(expected, result);
 }
 
@@ -158,9 +155,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
             ));
         });
         // Wait for the copy to complete before the local `data` source goes out of
-        // scope. cuda_memcpy_async reads the source in stream order
-        // (cudaMemcpySrcAccessOrderStream), so returning without this wait would let the
-        // stream read a dangling pointer.
+        // scope.
         buf->latest_write_event().host_wait();
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
