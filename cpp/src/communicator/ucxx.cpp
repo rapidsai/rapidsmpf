@@ -368,11 +368,6 @@ class SharedResources {
                && rank_to_listener_address_.size() == expected_size;
     }
 
-    [[nodiscard]] RankToEndpointMap rank_to_endpoint_snapshot() {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        return rank_to_endpoint_;
-    }
-
     /**
      * @brief Distribute all listener addresses from root to every non-root rank.
      *
@@ -386,8 +381,6 @@ class SharedResources {
      * registered listener addresses.
      */
     void distribute_listener_addresses() {
-        RankToEndpointMap rank_to_endpoint;
-        RankToListenerAddressMap rank_to_listener_address;
         {
             std::scoped_lock lock(endpoints_mutex_, listener_mutex_);
             if (listener_addresses_distributed_) {
@@ -403,8 +396,6 @@ class SharedResources {
                 "cannot distribute listener addresses before all listener addresses are "
                 "registered"
             );
-            rank_to_endpoint = rank_to_endpoint_;
-            rank_to_listener_address = rank_to_listener_address_;
             listener_addresses_distributed_ = true;
         }
 
@@ -413,7 +404,7 @@ class SharedResources {
         // Format: [ControlMessage][count][addr1_size][addr1]...[addrN_size][addrN]
         std::vector<std::shared_ptr<::ucxx::Request>> reqs;
         std::vector<std::unique_ptr<std::vector<std::uint8_t>>> bufs;
-        for (auto const& [dst, ep] : rank_to_endpoint) {
+        for (auto const& [dst, ep] : rank_to_endpoint_) {
             if (dst == 0) {
                 continue;
             }
@@ -421,7 +412,7 @@ class SharedResources {
             auto const control = ControlMessage::DistributeListenerAddresses;
             std::size_t count{0};
             std::size_t total = sizeof(control) + sizeof(count);
-            for (auto const& [src, addr] : rank_to_listener_address) {
+            for (auto const& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
@@ -433,7 +424,7 @@ class SharedResources {
             std::size_t off{0};
             encode(packed->data(), &control, sizeof(control), off);
             encode(packed->data(), &count, sizeof(count), off);
-            for (auto const& [src, addr] : rank_to_listener_address) {
+            for (auto const& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
@@ -463,11 +454,10 @@ class SharedResources {
         }
 
         if (rank_ == 0) {
-            auto const rank_to_endpoint = rank_to_endpoint_snapshot();
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
             requests.reserve(safe_cast<std::size_t>(nranks() - 1));
             // send to all other ranks
-            for (auto const& [rank, endpoint] : rank_to_endpoint) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
@@ -482,7 +472,7 @@ class SharedResources {
             requests.clear();
 
             // receive from all other ranks
-            for (auto const& [rank, endpoint] : rank_to_endpoint) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
@@ -499,7 +489,7 @@ class SharedResources {
             distribute_listener_addresses();
 
             // Everyone has reported, release other ranks.
-            for (auto const& [rank, endpoint] : rank_to_endpoint) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
