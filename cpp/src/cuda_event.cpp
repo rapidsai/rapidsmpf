@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <utility>
+
 #include <rapidsmpf/cuda_event.hpp>
 
 namespace rapidsmpf {
@@ -36,7 +38,7 @@ CudaEvent& CudaEvent::operator=(CudaEvent&& other) {
             "cannot move into an already-initialized CudaEvent",
             std::invalid_argument
         );
-        other.event_ = nullptr;
+        event_ = std::exchange(other.event_, nullptr);
     }
     return *this;
 }
