@@ -188,11 +188,16 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * rmm::device_buffer buf{1024, stream, br->device_mr()};
      * br.reset();  // safe: `buf` keeps the BufferResource alive internally
      * @endcode
+     *
+     * @note Device memory resource provided to the constructor is wrapped in an
+     * `RmmResourceAdaptor` for allocation tracking, and concretely the returned
+     * resource_ref points to that adaptor. See `device_mr_adaptor()` for a more
+     * convenient way to access the adaptor.
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
 
     /**
-     * @brief Access the internal device memory resource adaptor.
+     * @brief Access the concrete device memory resource adaptor.
      *
      * `BufferResource` wraps the device memory resource in an internal
      * `RmmResourceAdaptor` for allocation tracking. This exposes that adaptor
@@ -201,6 +206,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @return Reference to the internal device `RmmResourceAdaptor`. The
      * reference is valid for as long as this `BufferResource` is alive.
+     *
+     * @note To ensure that the allocations are properly tracked, use `device_mr()` or
+     * `device_mr_adaptor()` instead of the original memory resource passed to the
+     * constructor.
      */
     [[nodiscard]] RmmResourceAdaptor& device_mr_adaptor() noexcept;
 

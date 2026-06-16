@@ -28,13 +28,9 @@ class BufferResource;
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
  *
- * The primary-resource constructor is private: instances can only be created by
- * `BufferResource`, which installs the back-reference before the adaptor becomes
- * observable. Obtain one via `BufferResource::device_mr_adaptor()` (copies of
- * which are valid). This guarantees the `BackRefMixin<BufferResource>` lifetime
- * contract always holds — every adaptor a caller can reach already has a
- * back-reference installed, so copies keep their owning `BufferResource` alive
- * for as long as any copy lives.
+ * It is not possible to construct an `RmmResourceAdaptor` directly. Instead,
+ * obtain one by creating a `BufferResource` with the memory resource you wish to
+ * use for allocations and then obtain the adaptor with `device_mr_adaptor()`.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
@@ -55,16 +51,16 @@ class RmmResourceAdaptor
     /**
      * @brief Equality comparison.
      *
-     * Two adaptors are equal iff they share the same underlying shared
-     * state **and** reference the same owning `BufferResource` (or are
-     * both standalone).
+     * Two adaptors are equal iff they share the same underlying shared state.
+     * Because adaptors are privately constructed by `BufferResource` and a
+     * back-reference cannot be overwritten, sharing the same shared state
+     * implies referencing the same owning `BufferResource`.
      *
      * @param other The other adaptor to compare.
-     * @return True if both adaptors share the same shared state and the
-     * same owning `BufferResource`.
+     * @return True if both adaptors refer to the same shared resource instance.
      */
     [[nodiscard]] bool operator==(RmmResourceAdaptor const& other) const noexcept {
-        return get() == other.get() && BackRefMixin<BufferResource>::operator==(other);
+        return get() == other.get();
     }
 
     /**
