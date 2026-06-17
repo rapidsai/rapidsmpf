@@ -245,7 +245,7 @@ Shuffler::Shuffler(
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
                         return br_->make_buffer(
-                            br_->stream_pool().get_stream(),
+                            br_->stream_pool()->get_stream(),
                             br_->reserve_or_fail(size, MEMORY_TYPES)
                         );
                     },

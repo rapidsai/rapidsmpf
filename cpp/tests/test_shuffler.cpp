@@ -884,7 +884,7 @@ TEST(Shuffler, concurrent_wait) {
                     total_num_partitions,
                     total_num_rows,
                     local_pidx,
-                    br->stream_pool().get_stream(),
+                    br->stream_pool()->get_stream(),
                     *br
                 ));
             }));
