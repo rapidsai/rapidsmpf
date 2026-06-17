@@ -44,7 +44,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         int64_t memory_available(MemoryType mem_type) except +ex_handler
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
-        const cuda_stream_pool &stream_pool() except +ex_handler
+        const shared_ptr[cuda_stream_pool] &stream_pool() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
         device_async_resource_ref device_mr() noexcept
@@ -58,7 +58,6 @@ cdef class BufferResource:
     cdef PinnedMemoryResource _pinned_mr
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
-    cdef const cuda_stream_pool* stream_pool(self)
 
 
 cdef class OwningDeviceMemoryResource(DeviceMemoryResource):

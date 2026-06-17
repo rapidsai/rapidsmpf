@@ -496,7 +496,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
     )
 
     assert br.statistics.enabled
-    assert br.stream_pool_size() == 8
+    assert br.stream_pool.get_pool_size() == 8
     mem_avail = br.memory_available(MemoryType.DEVICE)
     assert mem_avail == 1024**3
 
@@ -506,7 +506,7 @@ def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
     br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
 
     assert not br.statistics.enabled
-    assert br.stream_pool_size() == 16
+    assert br.stream_pool.get_pool_size() == 16
 
     # We just check that memory_available returns a reasonable value
     mem_avail = br.memory_available(MemoryType.DEVICE)
@@ -556,7 +556,7 @@ def test_context_from_options_creates_instance_with_explicit_options() -> None:
     ) as ctx:
         assert ctx is not None
         assert ctx.statistics().enabled
-        assert ctx.stream_pool_size() == 8
+        assert ctx.br().stream_pool.get_pool_size() == 8
         assert ctx.logger() is not None
 
 
@@ -568,7 +568,7 @@ def test_context_from_options_uses_default_when_options_empty() -> None:
     with Context.from_options(comm.logger, mr, opts) as ctx:
         assert ctx is not None
         assert not ctx.statistics().enabled
-        assert ctx.stream_pool_size() == 16  # Default
+        assert ctx.br().stream_pool.get_pool_size() == 16  # Default
         assert ctx.logger() is not None
 
 

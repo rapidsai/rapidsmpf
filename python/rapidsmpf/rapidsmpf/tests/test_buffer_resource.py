@@ -82,12 +82,12 @@ def test_stream_pool() -> None:
 
     # Test with default stream pool size (16)
     br_default = BufferResource(mr)
-    assert br_default.stream_pool_size() == 16
+    assert br_default.stream_pool.get_pool_size() == 16
 
     # Test with custom stream pool
     custom_pool = rmm.pylibrmm.cuda_stream_pool.CudaStreamPool(pool_size=32)
     br_custom = BufferResource(mr, stream_pool=custom_pool)
-    assert br_custom.stream_pool_size() == 32
+    assert br_custom.stream_pool.get_pool_size() == 32
 
 
 def test_statistics() -> None:
