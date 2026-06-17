@@ -282,7 +282,7 @@ cdef class BufferResource:
 
         Returns
         -------
-        An rmm CudaStreamPool.
+        An RMM CudaStreamPool.
         """
         return self._stream_pool
 
