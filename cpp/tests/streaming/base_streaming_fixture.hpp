@@ -44,7 +44,7 @@ class BaseStreamingFixture : public ::testing::Test {
 
         stream = rmm::cuda_stream_view{};
         br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, std::move(memory_limits)
+            mr_cuda, rapidsmpf::PinnedMemoryDisabled, std::move(memory_limits)
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             std::move(options), GlobalEnvironment->comm_->logger(), br
