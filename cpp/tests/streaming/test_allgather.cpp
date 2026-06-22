@@ -154,6 +154,9 @@ TEST_P(StreamingAllGather, streaming_actor) {
                 buf_data, data.data(), data.size() * sizeof(int), stream
             ));
         });
+        // Wait for the copy to complete before the local `data` source goes out of
+        // scope.
+        buf->latest_write_event().host_wait();
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
         input_messages.emplace_back(
