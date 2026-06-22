@@ -121,7 +121,7 @@ async def generate_inputs(
 ) -> None:
     br = context.br()
     for i in range(num_chunks):
-        stream = context.get_stream_from_pool()
+        stream = context.br().stream_pool.get_stream()
         data = {
             pid: generate_packed_data(
                 num_rows, (i * num_partitions + pid) * num_rows, stream, br

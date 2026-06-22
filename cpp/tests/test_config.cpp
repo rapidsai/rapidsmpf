@@ -625,7 +625,7 @@ TEST(OptionsTest, BufferResourceFromOptionsCreatesInstanceWithExplicitOptions) {
     auto br = BufferResource::from_options(mr, opts, Statistics::from_options(opts));
 
     EXPECT_TRUE(br->statistics()->enabled());
-    EXPECT_EQ(br->stream_pool().get_pool_size(), 8);
+    EXPECT_EQ(br->stream_pool()->get_pool_size(), 8);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 1_GiB);
 }
 
@@ -636,7 +636,7 @@ TEST(OptionsTest, BufferResourceFromOptionsUsesDefaultWhenOptionsEmpty) {
     RmmResourceAdaptor mr{cuda_mr};
     auto br = BufferResource::from_options(mr, opts);
     EXPECT_FALSE(br->statistics()->enabled());
-    EXPECT_EQ(br->stream_pool().get_pool_size(), 16);
+    EXPECT_EQ(br->stream_pool()->get_pool_size(), 16);
     auto [_, total_mem] = rmm::available_device_memory();
     auto expected = rmm::align_down(total_mem * 4 / 5, rmm::CUDA_ALLOCATION_ALIGNMENT);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), expected);
@@ -703,7 +703,7 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_TRUE(ctx->statistics()->enabled());
-    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 8);
+    EXPECT_EQ(ctx->br()->stream_pool()->get_pool_size(), 8);
 }
 
 TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
@@ -717,7 +717,7 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
 
     ASSERT_NE(ctx, nullptr);
     EXPECT_FALSE(ctx->statistics()->enabled());
-    EXPECT_EQ(ctx->br()->stream_pool().get_pool_size(), 16);  // Default
+    EXPECT_EQ(ctx->br()->stream_pool()->get_pool_size(), 16);  // Default
 }
 
 TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 def _make_chunk(context: Context, num_rows: int, offset: int) -> PackedDataChunk:
-    stream = context.get_stream_from_pool()
+    stream = context.br().stream_pool.get_stream()
     return PackedDataChunk.from_packed_data(
         generate_packed_data(num_rows, offset, stream, context.br()),
         br=context.br(),

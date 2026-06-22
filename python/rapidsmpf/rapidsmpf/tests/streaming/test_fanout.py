@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 def _message(
     context: Context, sequence_number: int, n_elements: int = 3
 ) -> Message[PackedDataChunk]:
-    stream = context.get_stream_from_pool()
+    stream = context.br().stream_pool.get_stream()
     chunk = PackedDataChunk.from_packed_data(
         generate_packed_data(
             n_elements,

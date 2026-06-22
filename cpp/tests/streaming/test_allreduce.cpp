@@ -31,7 +31,7 @@ std::unique_ptr<Buffer> make_buffer(
     MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
-    auto stream = br->stream_pool().get_stream();
+    auto stream = br->stream_pool()->get_stream();
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->make_buffer(stream, std::move(reservation));
     buffer->write_access([&](std::byte* buf_data, rmm::cuda_stream_view s) {

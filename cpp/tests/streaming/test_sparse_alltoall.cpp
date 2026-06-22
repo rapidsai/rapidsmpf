@@ -46,7 +46,7 @@ PackedData make_payload(
     MemoryType mem_type,
     std::shared_ptr<BufferResource> const& br
 ) {
-    auto stream = br->stream_pool().get_stream();
+    auto stream = br->stream_pool()->get_stream();
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 

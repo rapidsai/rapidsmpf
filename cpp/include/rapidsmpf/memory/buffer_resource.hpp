@@ -473,9 +473,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Use this pool for operations that do not take an explicit CUDA stream.
      *
-     * @return Reference to the underlying CUDA stream pool.
+     * @return Shared pointer to the underlying CUDA stream pool.
      */
-    rmm::cuda_stream_pool const& stream_pool() const;
+    std::shared_ptr<rmm::cuda_stream_pool> const& stream_pool() const;
 
     /**
      * @brief Gets a reference to the spill manager used.

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def make_packed_data(context: Context, value: int) -> PackedData:
-    stream = context.get_stream_from_pool()
+    stream = context.br().stream_pool.get_stream()
     return generate_packed_data(1, value, stream, context.br())
 
 
