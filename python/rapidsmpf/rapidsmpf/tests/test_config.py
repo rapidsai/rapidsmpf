@@ -21,7 +21,6 @@ from rapidsmpf.memory.buffer_resource import (
     stream_pool_from_options,
 )
 from rapidsmpf.memory.pinned_memory_resource import (
-    PinnedMemoryResource,
     is_pinned_memory_resources_supported,
 )
 from rapidsmpf.progress_thread import ProgressThread
@@ -418,15 +417,18 @@ def test_statistics_from_options(*, opts: Options, expected_enabled: bool) -> No
         (Options(), False),  # Default case (disabled by default)
     ],
 )
-def test_pinned_memory_resource_from_options(
+def test_pinned_memory_from_options(
     *, opts: Options, expect_enabled_if_supported: bool
 ) -> None:
-    pmr = PinnedMemoryResource.from_options(opts)
+    # Pinned memory is now configured through the BufferResource; the resource is
+    # only available via `BufferResource.pinned_mr` (not constructible directly).
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
 
     if expect_enabled_if_supported and is_pinned_memory_resources_supported():
-        assert pmr is not None
+        assert br.pinned_mr is not None
+        assert br.pinned_mr.enabled
     else:
-        assert pmr is None
+        assert br.pinned_mr is None
 
 
 def test_device_limit_from_options_returns_configured_limit() -> None:

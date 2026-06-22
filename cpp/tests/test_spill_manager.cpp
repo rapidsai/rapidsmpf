@@ -27,7 +27,7 @@ TEST(SpillManager, SpillFunction) {
     std::int64_t mem_available = 10_KiB;
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
-        rapidsmpf::PinnedMemoryResource::Disabled,
+        PinnedMemoryDisabled,
         {{MemoryType::DEVICE, mem_available}}
     );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
