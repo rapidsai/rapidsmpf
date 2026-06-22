@@ -7,12 +7,18 @@ from rmm.pylibrmm.stream import Stream
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 
 class RmmResourceAdaptor(DeviceMemoryResource):
-    def __init__(
-        self,
-        upstream_mr: DeviceMemoryResource,
-    ): ...
-    @property
-    def get_upstream(self) -> DeviceMemoryResource: ...
+    """
+    A RMM memory resource adaptor tailored to RapidsMPF.
+
+    .. rubric:: Construction
+
+    This class cannot be constructed directly. Obtain a usable, copyable adaptor
+    from a :class:`~rapidsmpf.memory.buffer_resource.BufferResource` via
+    ``BufferResource.device_mr_adaptor()``. The returned adaptor holds shared
+    ownership of its owning ``BufferResource``.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None: ...
     def allocate(self, nbytes: int, stream: Stream = ...) -> int: ...
     def deallocate(self, ptr: int, nbytes: int, stream: Stream = ...) -> None: ...
     def get_main_record(self) -> ScopedMemoryRecord: ...
