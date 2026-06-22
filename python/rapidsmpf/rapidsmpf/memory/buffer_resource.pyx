@@ -11,7 +11,6 @@ from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
@@ -48,23 +47,6 @@ from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.statistics cimport Statistics
-
-
-cdef extern from *:
-    """
-    // Helper function to create a non-owning shared_ptr from a raw pointer
-    // The Python object retains ownership via its unique_ptr
-    std::shared_ptr<rmm::cuda_stream_pool> make_non_owning_stream_pool_ref(
-        rmm::cuda_stream_pool* ptr
-    ) {
-        return std::shared_ptr<rmm::cuda_stream_pool>(
-            ptr, [](rmm::cuda_stream_pool*){}
-        );
-    }
-    """
-    shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
-        cuda_stream_pool* ptr
-    ) except +ex_handler
 
 
 cdef extern from * nogil:
@@ -183,7 +165,7 @@ cdef class BufferResource:
         PinnedMemoryResource pinned_mr = None,
         memory_limits = None,
         periodic_spill_check = 1e-3,
-        stream_pool = None,
+        CudaStreamPool stream_pool = None,
         statistics = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
@@ -194,30 +176,13 @@ cdef class BufferResource:
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
 
-        # Handle stream pool parameter
         # If None, create a default pool with 16 streams
         if stream_pool is None:
             stream_pool = CudaStreamPool(
                 pool_size=16,
                 flags=CudaStreamFlags.NON_BLOCKING,
             )
-
-        if not isinstance(stream_pool, CudaStreamPool):
-            raise TypeError(
-                f"stream_pool must be an instance of CudaStreamPool, "
-                f"got {type(stream_pool)}"
-            )
-
-        # Keep the Python stream pool alive
         self._stream_pool = stream_pool
-        # Get raw pointer from the unique_ptr and create a non-owning shared_ptr
-        # The Python object keeps ownership via unique_ptr, so we use a no-op deleter
-        cdef shared_ptr[cuda_stream_pool] cpp_stream_pool = (
-            make_non_owning_stream_pool_ref(
-                (<CudaStreamPool>stream_pool).c_obj.get()
-            )
-        )
-
         if statistics is None:
             statistics = Statistics(enable=False)
 
@@ -245,7 +210,7 @@ cdef class BufferResource:
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,
-                cpp_stream_pool,
+                stream_pool.c_obj,
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
@@ -255,7 +220,7 @@ cdef class BufferResource:
         cls,
         DeviceMemoryResource mr not None,
         Options options not None,
-        statistics=None,
+        Statistics statistics=None,
     ):
         """
         Construct a BufferResource from configuration options.
@@ -311,8 +276,16 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
-    cdef const cuda_stream_pool* stream_pool(self):
-        return &deref(self._handle).stream_pool()
+    @property
+    def stream_pool(self):
+        """
+        The stream pool associated with this buffer resource.
+
+        Returns
+        -------
+        An RMM CudaStreamPool.
+        """
+        return self._stream_pool
 
     @property
     def device_mr(self):
@@ -546,17 +519,6 @@ cdef class BufferResource:
         with nogil:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
-
-    def stream_pool_size(self) -> int:
-        """
-        Get the size of the stream pool.
-
-        Returns
-        -------
-        int
-            The size of the stream pool.
-        """
-        return self.stream_pool().get_pool_size()
 
     @property
     def statistics(self):

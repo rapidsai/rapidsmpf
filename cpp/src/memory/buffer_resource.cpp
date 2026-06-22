@@ -313,8 +313,8 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
-rmm::cuda_stream_pool const& BufferResource::stream_pool() const {
-    return *stream_pool_;
+std::shared_ptr<rmm::cuda_stream_pool> const& BufferResource::stream_pool() const {
+    return stream_pool_;
 }
 
 SpillManager& BufferResource::spill_manager() {
