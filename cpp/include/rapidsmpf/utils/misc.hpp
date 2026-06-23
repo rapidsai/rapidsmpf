@@ -334,42 +334,6 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
 }
 
 /**
- * @brief Satisfied by specializations of `std::shared_ptr` and `std::weak_ptr`.
- *
- * Used to constrain ownership-aware utilities (e.g. `owner_equal`) to
- * smart-pointer types that participate in shared-ownership tracking.
- */
-template <typename T>
-concept SharedOrWeakPtr = requires {
-    typename T::element_type;
-    requires std::same_as<T, std::shared_ptr<typename T::element_type>>
-                 || std::same_as<T, std::weak_ptr<typename T::element_type>>;
-};
-
-/**
- * @brief Backport of `std::weak_ptr::owner_equal` / `std::owner_equal` from C++26.
- *
- * Returns whether @p a and @p b share ownership of the same managed object,
- * or are both empty. Mirrors the contract of the C++26 standard utilities.
- *
- * Both arguments must be `std::shared_ptr<T>` or `std::weak_ptr<T>` for the
- * **same** element type `T`; mismatched element types are rejected at
- * compile time.
- *
- * @tparam A `std::shared_ptr<T>` or `std::weak_ptr<T>`.
- * @tparam B `std::shared_ptr<T>` or `std::weak_ptr<T>` (same `T` as @p A).
- * @param a First pointer.
- * @param b Second pointer.
- * @return `true` iff @p a and @p b own the same managed object, or are both
- * empty.
- */
-template <SharedOrWeakPtr A, SharedOrWeakPtr B>
-    requires std::same_as<typename A::element_type, typename B::element_type>
-[[nodiscard]] constexpr bool owner_equal(A const& a, B const& b) noexcept {
-    return !a.owner_before(b) && !b.owner_before(a);
-}
-
-/**
  * @brief Safely casts a numeric value to another type with overflow checking.
  *
  * For integral conversions, the value must be representable in the

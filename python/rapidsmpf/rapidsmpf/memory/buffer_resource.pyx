@@ -45,7 +45,6 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
-from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.statistics cimport Statistics
 
 
@@ -302,26 +301,6 @@ cdef class BufferResource:
         return OwningDeviceMemoryResource._create(
             make_any_device_resource(deref(self._handle).device_mr())
         )
-
-    cpdef RmmResourceAdaptor device_mr_adaptor(self):
-        """
-        The internal device memory resource adaptor with a back-reference installed.
-
-        Returns a copyable ``RmmResourceAdaptor`` that holds shared ownership of this
-        ``BufferResource``, keeping it alive for as long as the returned adaptor (or
-        any copies of it) lives.
-
-        This is the only way to obtain an ``RmmResourceAdaptor``; use it when you need
-        to pass one to APIs that copy the adaptor, such as
-        :meth:`~rapidsmpf.statistics.Statistics.memory_profiling` or
-        :meth:`~rapidsmpf.statistics.Statistics.report`.
-
-        Returns
-        -------
-        A back-ref'd ``RmmResourceAdaptor`` whose copies keep this ``BufferResource``
-        alive.
-        """
-        return RmmResourceAdaptor._from_cpp(deref(self._handle).device_mr_adaptor())
 
     @property
     def pinned_mr(self):

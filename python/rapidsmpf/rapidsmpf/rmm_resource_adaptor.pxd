@@ -4,9 +4,10 @@
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.optional cimport optional
-from rmm.librmm.memory_resource cimport (device_async_resource_ref,
+from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
+                                         device_async_resource_ref,
                                          make_device_async_resource_ref)
-from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+from rmm.pylibrmm.memory_resource cimport UpstreamResourceAdaptor
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
@@ -14,7 +15,9 @@ from rapidsmpf.memory.scoped_memory_record cimport cpp_ScopedMemoryRecord
 
 cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
     cdef cppclass cpp_RmmResourceAdaptor"rapidsmpf::RmmResourceAdaptor":
-        cpp_RmmResourceAdaptor(const cpp_RmmResourceAdaptor&) except +ex_handler
+        cpp_RmmResourceAdaptor(
+            any_resource[device_accessible] primary_mr,
+        ) except +ex_handler
 
         cpp_ScopedMemoryRecord get_main_record() except +ex_handler
         uint64_t current_allocated() noexcept
@@ -27,9 +30,6 @@ cdef extern from *:
         cpp_RmmResourceAdaptor&) except +
 
 
-cdef class RmmResourceAdaptor(DeviceMemoryResource):
+cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
     cdef unique_ptr[cpp_RmmResourceAdaptor] c_obj
     cdef cpp_RmmResourceAdaptor* get_handle(self)
-
-    @staticmethod
-    cdef RmmResourceAdaptor _from_cpp(const cpp_RmmResourceAdaptor& src)

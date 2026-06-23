@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Formatter, Statistics
 
 if TYPE_CHECKING:
@@ -46,8 +46,7 @@ def test_get_empty_memory_records() -> None:
 
 
 def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    br = BufferResource(device_mr)
-    mr = br.device_mr_adaptor()
+    mr = RmmResourceAdaptor(device_mr)
     stats = Statistics(enable=True)
     with stats.memory_profiling(mr, "outer"):
         b1 = mr.allocate(1024)
@@ -150,8 +149,7 @@ def test_write_json_string_matches_file(tmp_path: pathlib.Path) -> None:
 
 
 def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    br = BufferResource(device_mr)
-    mr = br.device_mr_adaptor()
+    mr = RmmResourceAdaptor(device_mr)
     stats = Statistics(enable=True)
     with stats.memory_profiling(mr, "alloc"):
         mr.deallocate(mr.allocate(1024), 1024)
@@ -166,8 +164,7 @@ def test_write_json_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None
 
 
 def test_invalid_memory_record_names(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    br = BufferResource(device_mr)
-    mr = br.device_mr_adaptor()
+    mr = RmmResourceAdaptor(device_mr)
     stats = Statistics(enable=True)
     with stats.memory_profiling(mr, 'bad"name'):
         pass
