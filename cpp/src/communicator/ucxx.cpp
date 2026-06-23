@@ -145,8 +145,11 @@ class SharedResources {
     };  ///< Whether the root has already broadcast all listener addresses
 
   public:
-    std::shared_ptr<Logger> logger;  ///< UCXX logger (may be null before the
-                                     ///< owning `UCXX` instance has been constructed).
+    std::shared_ptr<Logger> logger;  ///< UCXX logger. Initialized from the
+                                     ///< configuration options so logging is
+                                     ///< available before the owning `UCXX`
+                                     ///< instance is constructed; the `UCXX`
+                                     ///< constructor may later override it.
     config::Options const options;
 
     /**
@@ -169,6 +172,7 @@ class SharedResources {
         : worker_{std::move(worker)},
           rank_{Rank(root ? 0 : -1)},
           nranks_{nranks},
+          logger{Logger::from_options(options)},
           options{std::move(options)} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
