@@ -9,8 +9,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf_test/table_utilities.hpp>
-
 #include <coro/coro.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
@@ -58,7 +56,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     inputs.reserve(n);
 
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
-        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
         auto const cd = msg.content_description();
         auto buf_cpy = br.make_buffer(cd.content_size(), stream, res);
         // cd needs to be updated to reflect the new buffer
@@ -75,7 +73,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     for (int i = 0; i < n; ++i) {
         std::vector<int> values(1024, 0);
         std::iota(values.begin(), values.end(), i);
-        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
         // allocate outside of buffer resource
         auto buffer = br.move(
             std::make_unique<rmm::device_buffer>(

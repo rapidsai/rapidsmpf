@@ -1,14 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from pylibcudf.contiguous_split cimport PackedColumns
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
+from rmm.pylibrmm.device_buffer cimport DeviceBuffer
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -60,6 +59,21 @@ cdef extern from *:
         );
     }
 
+    std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_device_buffer(
+        const std::uint8_t* metadata,
+        std::size_t metadata_size,
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        rmm::cuda_stream_view stream,
+        rapidsmpf::BufferResource* br
+    ) {
+        auto meta = std::make_unique<std::vector<std::uint8_t>>(
+            metadata, metadata + metadata_size
+        );
+        return std::make_unique<rapidsmpf::PackedData>(
+            std::move(meta), br->move(std::move(gpu_data), stream)
+        );
+    }
+
     std::vector<std::uint8_t> cpp_packed_data_to_host_bytes(
         rapidsmpf::PackedData* pd
     ) {
@@ -89,6 +103,14 @@ cdef extern from *:
         cpp_BufferResource* br,
     ) except + nogil
 
+    unique_ptr[cpp_PackedData] cpp_packed_data_from_device_buffer(
+        const uint8_t* metadata,
+        size_t metadata_size,
+        unique_ptr[device_buffer] gpu_data,
+        cuda_stream_view stream,
+        cpp_BufferResource* br,
+    ) except +ex_handler nogil
+
     vector[uint8_t] cpp_packed_data_to_host_bytes(
         cpp_PackedData* pd,
     ) except + nogil
@@ -101,52 +123,6 @@ cdef class PackedData:
         self.c_obj = move(obj)
         self._br = br
         return self
-
-    @classmethod
-    def from_cudf_packed_columns(
-        cls,
-        PackedColumns packed_columns not None,
-        Stream stream not None,
-        BufferResource br not None,
-    ):
-        """
-        Constructs a PackedData from CudfPackedColumns by taking the ownership of the
-        data and releasing ``packed_columns``.
-
-        Parameters
-        ----------
-        packed_columns
-            Packed data containing metadata and GPU data buffers
-
-        Returns
-        -------
-        A new PackedData instance containing the packed columns data
-
-        Raises
-        ------
-        ValueError
-            If the PackedColumns object is empty (has been released already).
-        """
-        cdef cuda_stream_view _stream = stream.view()
-        cdef cpp_BufferResource* _br = br.ptr()
-        cdef PackedData ret = cls.__new__(cls)
-        with nogil:
-            if not (packed_columns.c_obj != NULL and
-                    deref(packed_columns.c_obj).metadata and
-                    deref(packed_columns.c_obj).gpu_data):
-                raise ValueError("Cannot release empty PackedColumns")
-
-            # we cannot use packed_columns.release() because it returns a tuple of
-            # memoryview and gpumemoryview, and we need to take ownership of the
-            # underlying buffers
-            ret.c_obj = cpp_packed_data_from_buffers(
-                move(deref(packed_columns.c_obj).metadata),
-                move(deref(packed_columns.c_obj).gpu_data),
-                _stream,
-                _br,
-            )
-        ret._br = br
-        return ret
 
     def __init__(self):
         """Initialize an empty PackedData instance."""
@@ -187,6 +163,51 @@ cdef class PackedData:
             data_ptr = <const uint8_t*>&data[0]
         with nogil:
             ret.c_obj = cpp_packed_data_from_host_bytes(data_ptr, size, _br)
+        ret._br = br
+        return ret
+
+    @classmethod
+    def from_device_buffer(
+        cls,
+        DeviceBuffer gpu_data not None,
+        const uint8_t[::1] metadata not None,
+        Stream stream not None,
+        BufferResource br not None,
+    ):
+        """
+        Construct a PackedData from an rmm device buffer and host metadata.
+
+        Takes ownership of ``gpu_data``; the input buffer is left empty after this
+        call. The metadata bytes are copied into a host-side metadata buffer.
+
+        Parameters
+        ----------
+        gpu_data
+            Device buffer holding the data payload. Consumed by this call.
+        metadata
+            Contiguous buffer of host bytes (bytes, bytearray, or buffer-protocol
+            object). Must be non-empty.
+        stream
+            CUDA stream used to take ownership of the device buffer.
+        br
+            Buffer resource for memory management.
+
+        Returns
+        -------
+        A new PackedData instance owning the device buffer.
+        """
+        cdef cpp_BufferResource* _br = br.ptr()
+        cdef size_t meta_size = len(metadata)
+        cdef const uint8_t* meta_ptr = NULL
+        if meta_size > 0:
+            meta_ptr = <const uint8_t*>&metadata[0]
+        cdef cuda_stream_view sv = stream.view()
+        cdef unique_ptr[device_buffer] gpu = move(gpu_data.c_obj)
+        cdef PackedData ret = cls.__new__(cls)
+        with nogil:
+            ret.c_obj = cpp_packed_data_from_device_buffer(
+                meta_ptr, meta_size, move(gpu), sv, _br
+            )
         ret._br = br
         return ret
 

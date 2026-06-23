@@ -2,11 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import functools
 import os
 from typing import TYPE_CHECKING
-
-from cuda.core import system
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
@@ -18,9 +15,6 @@ ray = pytest.importorskip("ray")
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-from rapidsmpf.examples.ray.ray_shuffle_example import (  # noqa: E402
-    ShufflingActor,
-)
 from rapidsmpf.integrations.ray import (  # noqa: E402
     RapidsMPFActor,
     setup_ray_ucxx_cluster,
@@ -125,37 +119,3 @@ def test_disallowed_classes(ray_cluster: None) -> None:
 
     with pytest.raises(TypeError):
         setup_ray_ucxx_cluster(NonRapidsMPFActor, 1)
-
-
-@functools.cache
-def get_gpu_count() -> int:
-    return system.get_num_devices()  # type: ignore
-
-
-@pytest.mark.parametrize("num_workers", [1, 4])
-@pytest.mark.parametrize("batch_size", [-1, 10])
-@pytest.mark.parametrize("total_num_partitions", [1, 10])
-def test_ray_shuffle_actor(
-    ray_cluster: None, num_workers: int, batch_size: int, total_num_partitions: int
-) -> None:
-    gpu_count = get_gpu_count()
-
-    # Test shuffling actor that uses 1/num_workers fractional GPUs if
-    # gpu_count < num_workers or 1 GPU otherwise
-    @ray.remote(num_gpus=(gpu_count / num_workers) if gpu_count < num_workers else 1)
-    class TestShufflingActor(ShufflingActor): ...
-
-    # setup the UCXX cluster using TestShufflingActor
-    gpu_actors = setup_ray_ucxx_cluster(
-        TestShufflingActor,
-        num_workers,
-        batch_size=batch_size,
-        total_nparts=total_num_partitions,
-    )
-
-    try:
-        # call run on all actors remotely
-        ray.get([actor.run.remote() for actor in gpu_actors])
-    finally:
-        for actor in gpu_actors:
-            ray.kill(actor)

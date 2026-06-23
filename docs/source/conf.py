@@ -79,7 +79,6 @@ default_role = "any"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
 }
 
@@ -144,7 +143,6 @@ nitpick_ignore_regex = [
     # We're subclassing this from RMM, and sphinx can't find these methods.
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
     ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
-    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.get_upstream"),
     ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate"),
     ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate"),
 ]

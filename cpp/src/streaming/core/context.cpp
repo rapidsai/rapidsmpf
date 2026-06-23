@@ -104,7 +104,7 @@ Context::Context(
       ) {}
 
 std::shared_ptr<Context> Context::from_options(
-    RmmResourceAdaptor mr,
+    any_device_resource mr,
     std::shared_ptr<Logger> logger,
     config::Options options,
     std::shared_ptr<Statistics> statistics

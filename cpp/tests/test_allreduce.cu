@@ -151,7 +151,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     rapidsmpf::BufferResource* br, T const* data, std::size_t count, MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
-    auto stream = br->stream_pool().get_stream();
+    auto stream = br->stream_pool()->get_stream();
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->make_buffer(stream, std::move(reservation));
 

@@ -92,7 +92,6 @@ requirements:
     - mpi4py
     - openmpi >=5.0
     - pip
-    - pylibcudf =${{ minor_version }}
     - python =${{ py_abi_min }}
     - python-abi3 ${{ py_abi_min }}.*
     - rapids-build-backend >=0.4.0,<0.5.0
@@ -108,7 +107,6 @@ requirements:
     - librapidsmpf =${{ version }}
     - mpi4py
     - openmpi >=5.0
-    - pylibcudf =${{ minor_version }}
     - python
     - rmm =${{ minor_version }}
     - ucxx ${{ ucxx_version }}

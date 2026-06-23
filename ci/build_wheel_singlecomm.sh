@@ -44,9 +44,6 @@ export SITE_PACKAGES
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
-    --exclude libcudf.so \
-    --exclude libkvikio.so \
-    --exclude libnvcomp.so.5 \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
@@ -86,9 +83,6 @@ export RAPIDS_PY_API
 ./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}" --stable
 
 python -m auditwheel repair \
-    --exclude libcudf.so \
-    --exclude libkvikio.so \
-    --exclude libnvcomp.so.5 \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
@@ -99,3 +93,6 @@ python -m auditwheel repair \
 # Remove librapidsmpf package before validating rapidsmpf package
 rm "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"/librapidsmpf_*.whl
 ./ci/validate_wheel.sh "${package_dir_py}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"
+
+RAPIDS_PACKAGE_NAME="$(rapids-artifact-name wheel_python rapidsmpf-singlecomm rapidsmpf --stable --cuda "$RAPIDS_CUDA_VERSION")"
+export RAPIDS_PACKAGE_NAME

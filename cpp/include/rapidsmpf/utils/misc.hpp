@@ -4,8 +4,10 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstdlib>
 #include <functional>
 #include <memory>
@@ -193,6 +195,50 @@ constexpr T safe_div(T x, T y) {
     return (y == 0) ? 0 : x / y;
 }
 
+/**
+ * @brief Computes the ceiling of the division of two integers.
+ *
+ * Returns the smallest integer not less than `x / y`. Both operands must be
+ * non-negative and the denominator must be non-zero. Computed as `x / y + (x % y != 0)`
+ * to avoid the overflow (and signed UB)
+ *
+ * @tparam T An integral type.
+ * @param x The numerator (must be non-negative).
+ * @param y The denominator (must be positive).
+ * @return T The ceiling of `x / y`.
+ */
+template <std::integral T>
+constexpr T ceil_div(T x, T y) {
+    return x / y + (x % y != 0 ? T{1} : T{0});
+}
+
+/**
+ * @brief Splits the index range `[0, count)` into exactly `num_chunks` contiguous chunks.
+ *
+ * Each chunk is a half-open `[begin, end)` index pair. Chunks are front-loaded with
+ * size `ceil(count / num_chunks)`; the last non-empty chunk may be smaller and, when
+ * `count < num_chunks`, the trailing chunks are empty (`begin == end`). The chunks
+ * exactly tile `[0, count)`, so their sizes sum to `count`.
+ *
+ * Unlike `std::ranges::chunk_view` (C++23), this always yields exactly `num_chunks`
+ * chunks, injecting empty trailing chunks as needed.
+ *
+ * @param count The number of elements to split.
+ * @param num_chunks The number of chunks to produce (must be positive).
+ * @return A lazy view of `num_chunks` `std::pair<std::size_t, std::size_t>` `[begin,
+ * end)` index pairs.
+ */
+[[nodiscard]] inline auto chunk_indices(std::size_t count, std::size_t num_chunks) {
+    std::size_t const chunk_size = ceil_div(count, num_chunks);
+    return std::views::iota(std::size_t{0}, num_chunks)
+           | std::views::transform([count, chunk_size](std::size_t k) {
+                 return std::pair<std::size_t, std::size_t>{
+                     std::min(k * chunk_size, count),
+                     std::min((k + 1) * chunk_size, count)
+                 };
+             });
+}
+
 // Macro to concatenate two tokens x and y.
 #define RAPIDSMPF_CONCAT_DETAIL_(x, y) x##y
 #define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_DETAIL_(x, y)
@@ -285,6 +331,42 @@ template <std::ranges::input_range R, typename T, typename Proj = std::identity>
         }
     }
     return false;
+}
+
+/**
+ * @brief Satisfied by specializations of `std::shared_ptr` and `std::weak_ptr`.
+ *
+ * Used to constrain ownership-aware utilities (e.g. `owner_equal`) to
+ * smart-pointer types that participate in shared-ownership tracking.
+ */
+template <typename T>
+concept SharedOrWeakPtr = requires {
+    typename T::element_type;
+    requires std::same_as<T, std::shared_ptr<typename T::element_type>>
+                 || std::same_as<T, std::weak_ptr<typename T::element_type>>;
+};
+
+/**
+ * @brief Backport of `std::weak_ptr::owner_equal` / `std::owner_equal` from C++26.
+ *
+ * Returns whether @p a and @p b share ownership of the same managed object,
+ * or are both empty. Mirrors the contract of the C++26 standard utilities.
+ *
+ * Both arguments must be `std::shared_ptr<T>` or `std::weak_ptr<T>` for the
+ * **same** element type `T`; mismatched element types are rejected at
+ * compile time.
+ *
+ * @tparam A `std::shared_ptr<T>` or `std::weak_ptr<T>`.
+ * @tparam B `std::shared_ptr<T>` or `std::weak_ptr<T>` (same `T` as @p A).
+ * @param a First pointer.
+ * @param b Second pointer.
+ * @return `true` iff @p a and @p b own the same managed object, or are both
+ * empty.
+ */
+template <SharedOrWeakPtr A, SharedOrWeakPtr B>
+    requires std::same_as<typename A::element_type, typename B::element_type>
+[[nodiscard]] constexpr bool owner_equal(A const& a, B const& b) noexcept {
+    return !a.owner_before(b) && !b.owner_before(a);
 }
 
 /**

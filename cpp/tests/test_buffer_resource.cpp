@@ -9,19 +9,18 @@
 
 #include <gtest/gtest.h>
 
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
-#include <cudf_test/table_utilities.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -55,7 +54,7 @@ std::unique_ptr<Buffer> zeros(
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}}
     );
@@ -122,7 +121,7 @@ TEST(BufferResource, ReservationReleasing) {
     // Create a buffer resource that always reports 10 KiB of available host and device
     // memory.
     auto br = BufferResource::create(
-        cudf::get_current_device_resource_ref(),
+        rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryResource::Disabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
     );
@@ -171,7 +170,7 @@ TEST(BufferResource, ReservationReleasing) {
 
 TEST(BufferResource, MemoryLimit) {
     rmm::mr::cuda_memory_resource mr_cuda;
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     // Create a buffer resource that limits available device memory to 10 KiB.
     auto br = BufferResource::create(
@@ -299,7 +298,7 @@ TEST(BufferResource, AllocStatistics) {
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
         stats
     );
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     constexpr std::size_t device_size = 4_KiB;
     constexpr std::size_t pinned_size = 8_KiB;
@@ -419,8 +418,8 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
-        stream = cudf::get_default_stream();
+        br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+        stream = rmm::cuda_stream_view{};
 
         // initialize the host pattern
         host_pattern.resize(buffer_size);
@@ -631,7 +630,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
     void SetUp() override {
         buffer_size = 1_KiB;
-        stream = cudf::get_default_stream();
+        stream = rmm::cuda_stream_view{};
 
         // Host pattern for initialization and verification
         host_pattern.resize(buffer_size);
@@ -639,13 +638,16 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             host_pattern[i] = static_cast<std::uint8_t>(i % 256);
         }
 
-        // Setup br1 with statistics for its device memory
-        mr1 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br1 = BufferResource::create(*mr1);
+        // `BufferResource` wraps the device resource in an internal
+        // `RmmResourceAdaptor` for allocation tracking, so just pass a vanilla
+        // resource; `device_total()` reads back the per-resource record.
+        br1 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+        br2 = BufferResource::create(rmm::mr::cuda_memory_resource{});
+    }
 
-        // Setup br2 with statistics for its device memory
-        mr2 = std::make_unique<RmmResourceAdaptor>(rmm::mr::cuda_memory_resource{});
-        br2 = BufferResource::create(*mr2);
+    /// @brief Cumulative device bytes allocated through @p br.
+    static std::int64_t device_total(BufferResource& br) {
+        return br.device_mr_adaptor().get_main_record().total();
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
@@ -662,23 +664,21 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             );
         });
         buf1->stream().synchronize();
-        EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(buffer_size));
         return buf1;
     }
 
     void verify_memory_allocation(
         std::size_t expected_br1_total, std::size_t expected_br2_total
     ) {
-        EXPECT_EQ(mr1->get_main_record().total(), expected_br1_total);
-        EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
+        EXPECT_EQ(device_total(*br1), static_cast<std::int64_t>(expected_br1_total));
+        EXPECT_EQ(device_total(*br2), static_cast<std::int64_t>(expected_br2_total));
     }
 
     std::size_t buffer_size;
     rmm::cuda_stream_view stream;
     std::vector<std::uint8_t> host_pattern;
 
-    std::unique_ptr<RmmResourceAdaptor> mr1;
-    std::unique_ptr<RmmResourceAdaptor> mr2;
     std::shared_ptr<BufferResource> br1;
     std::shared_ptr<BufferResource> br2;
 };
@@ -792,14 +792,15 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     constexpr std::size_t N = 1024;
 
-    auto br = BufferResource::create(cudf::get_current_device_resource_ref());
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     std::weak_ptr<BufferResource> weak_br = br;
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
-    // which deep-copies the OwningResourceAdaptor. The copied adaptor acquires a
-    // `shared_ptr<BufferResource>`.
+    // which deep-copies the underlying `RmmResourceAdaptor`. Its
+    // `BackRefMixin<BufferResource>` base promotes the installed weak ref to a
+    // `shared_ptr<BufferResource>` during the copy.
     auto buf = std::make_unique<rmm::device_buffer>(N, stream, br->device_mr());
 
     // Drop the original shared_ptr. The buffer's internally stored owning memory
@@ -815,24 +816,45 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 
-TEST(OwningResourceAdaptor, CopyThrowsWhenBackRefExpired) {
-    rmm::mr::cuda_memory_resource cuda_mr;
-    RmmResourceAdaptor adaptor{
-        cuda::mr::any_resource<cuda::mr::device_accessible>{cuda_mr}
-    };
+TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    any_device_resource copy1{br->device_mr()};
+    any_device_resource copy2 = copy1;
 
-    std::weak_ptr<BufferResource> weak_br;
+    RmmResourceAdaptor owned_copy = br->device_mr_adaptor();
+    any_device_resource owned_any{br->device_mr_adaptor()};
+
+    // RmmResourceAdaptor == RmmResourceAdaptor (custom operator==).
+    EXPECT_EQ(owned_copy, br->device_mr_adaptor());
+
+    // any_resource == any_resource.
+    EXPECT_EQ(copy1, copy2);
+    EXPECT_EQ(copy1, owned_any);
+
+    // any_resource == resource_ref (`device_mr()`).
+    EXPECT_EQ(copy1, br->device_mr());
+    EXPECT_EQ(owned_any, br->device_mr());
+}
+
+// Guarantee that when stats enabled, br->device_mr() reference gets properly casted to an
+// RmmResourceAdaptor and used by the memory recorder.
+TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
+    constexpr std::size_t kAllocBytes = 1_MiB;
+
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto stats = Statistics::create();
+    ASSERT_TRUE(stats->enabled());
+
     {
-        auto br = BufferResource::create(cudf::get_current_device_resource_ref());
-        weak_br = br;
+        auto rec = stats->create_memory_recorder(br->device_mr(), "br-scope");
+        rmm::device_buffer buf{kAllocBytes, rmm::cuda_stream_view{}, br->device_mr()};
     }
-    ASSERT_TRUE(weak_br.expired());
 
-    OwningResourceAdaptor<RmmResourceAdaptor, BufferResource> original{adaptor, weak_br};
-
-    using AdaptorT = OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>;
-    EXPECT_THROW({ AdaptorT copy{original}; }, std::bad_weak_ptr);
-
-    AdaptorT target{adaptor, weak_br};
-    EXPECT_THROW(target = original, std::bad_weak_ptr);
+    auto const& records = stats->get_memory_records();
+    ASSERT_EQ(records.count("br-scope"), 1u);
+    auto const& rec = records.at("br-scope");
+    EXPECT_EQ(rec.num_calls, 1u);
+    EXPECT_EQ(rec.global_peak, static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.peak(), static_cast<std::int64_t>(kAllocBytes));
+    EXPECT_EQ(rec.scoped.total(), static_cast<std::int64_t>(kAllocBytes));
 }

@@ -153,7 +153,7 @@ required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.isort.sections]
 rapidsmpf = ["rapidsmpf"]
-rapids = ["rmm", "pylibcudf", "cudf"]
+rapids = ["rmm"]
 
 [tool.ruff.format]
 docstring-code-format = true

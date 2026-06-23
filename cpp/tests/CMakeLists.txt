@@ -42,9 +42,9 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-# Use an object library for test sources to avoid recompiling (especially cudf_tests) them for each
-# executable. Unlike STATIC libraries, OBJECT libraries always include all their object files when
-# linked, which is required for GTest tests that register via global constructors.
+# Use an object library for test sources to avoid recompiling them for each executable. Unlike
+# STATIC libraries, OBJECT libraries always include all their object files when linked, which is
+# required for GTest tests that register via global constructors.
 add_library(test_sources OBJECT)
 set_target_properties(
   test_sources
@@ -62,8 +62,7 @@ target_compile_options(
 )
 target_link_libraries(
   test_sources
-  PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl
-          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan
+  PRIVATE rapidsmpf::rapidsmpf $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> maybe_asan
   PUBLIC GTest::gmock GTest::gtest
 )
 disable_sign_conversion_warning(test_sources)
@@ -78,21 +77,20 @@ target_sources(
           test_communicator.cpp
           test_config.cpp
           test_cuda_stream.cpp
-          test_cudf_utils.cpp
           test_cupti_monitor.cpp
           test_error_macros.cpp
           test_host_buffer.cpp
           test_memory_resources.cpp
           test_metadata_payload_exchange.cpp
           test_misc.cpp
-          test_partition.cpp
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
           test_rmm_resource_adaptor.cpp
-          test_sparse_alltoall.cpp
-          test_shuffler_many_streams.cpp
           test_shuffler.cpp
+          test_shuffler_many_streams.cpp
+          test_sparse_alltoall.cpp
           test_spill_manager.cpp
+          test_spilling.cpp
           test_statistics.cpp
           test_stream_ordered_timing.cpp
           test_system_info.cpp
@@ -113,12 +111,9 @@ if(RAPIDSMPF_HAVE_STREAMING)
             streaming/test_memory_reserve_or_wait.cpp
             streaming/test_message.cpp
             streaming/test_partition.cpp
-            streaming/test_channel_metadata.cpp
-            streaming/test_read_parquet.cpp
-            streaming/test_shuffler.cpp
             streaming/test_sparse_alltoall.cpp
             streaming/test_spillable_messages.cpp
-            streaming/test_table_chunk.cpp
+            streaming/test_shuffler.cpp
   )
 endif()
 
@@ -239,6 +234,23 @@ target_link_libraries(
 target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
+
+add_executable(cupti_public_api_test test_cupti_public_api.cpp)
+set_target_properties(
+  cupti_public_api_test
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             COMPONENT testing
+)
+target_include_directories(cupti_public_api_test PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_definitions(cupti_public_api_test PRIVATE RAPIDSMPF_HAVE_CUPTI)
+target_compile_options(
+  cupti_public_api_test PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+)
+disable_sign_conversion_warning(cupti_public_api_test)
+add_test(NAME cupti_public_api_test COMMAND "gtests/cupti_public_api_test")
 
 # bootstrap_tests — standalone; compiles bootstrap sources directly so it does not depend on the
 # full rapidsmpf library (and its CUDA sources).

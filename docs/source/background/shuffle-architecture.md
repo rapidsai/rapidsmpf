@@ -140,7 +140,7 @@ it under nsys to capture a report:
 
 ```
 $ nsys profile -o spill --trace cuda,nvtx \
-   python -m rapidsmpf.benchmarks.streaming_benchmark --spill-device '1MiB' --out-nparts 4 --part-size 1MiB --local-size 24MiB
+   python spill.py
 ```
 
 The `rapidsmpf.report` command line interface can analyze the rapidsmpf
