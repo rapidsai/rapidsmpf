@@ -9,7 +9,6 @@ import pytest
 import rmm
 import rmm.mr
 
-from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
@@ -19,20 +18,7 @@ if TYPE_CHECKING:
 KIB = 1024
 
 
-def test_cannot_construct_directly() -> None:
-    """RmmResourceAdaptor is not constructible from Python.
-
-    A usable, copyable adaptor is always owned by a ``BufferResource`` (which
-    installs the back-reference). Direct construction must raise.
-    """
-    with pytest.raises(TypeError, match="device_mr_adaptor"):
-        RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-    with pytest.raises(TypeError, match="device_mr_adaptor"):
-        RmmResourceAdaptor()
-
-
 def test_tracks_allocations() -> None:
-    """A BufferResource-backed adaptor tracks allocations made through it."""
     base = rmm.mr.CudaMemoryResource()
     state = {"bytes": 0}
     track: list[int] = []
@@ -49,13 +35,10 @@ def test_tracks_allocations() -> None:
         track.append(ptr)
 
     upstream_mr = rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb)
-    br = BufferResource(upstream_mr)
-    mr_adaptor = br.device_mr_adaptor()
+    mr_adaptor = RmmResourceAdaptor(upstream_mr=upstream_mr)
 
-    # Drop external references; the back-ref'd adaptor keeps the BufferResource
-    # (and hence the upstream) alive. The adaptor is copyable, so it can be
-    # stored in an owning container such as rmm.DeviceBuffer.
-    del upstream_mr, br
+    # Delete upstream to check that adaptor keeps it alive.
+    del upstream_mr
 
     buf = rmm.DeviceBuffer(size=100 * KIB, mr=mr_adaptor)
     assert mr_adaptor.current_allocated == 100 * KIB
@@ -75,8 +58,9 @@ def test_except_type() -> None:
     def dealloc_cb(ptr: int, size: int, stream: Stream) -> None:
         return None
 
-    br = BufferResource(rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb))
-    mr = br.device_mr_adaptor()
+    mr = RmmResourceAdaptor(
+        upstream_mr=rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb),
+    )
 
     with pytest.raises(RuntimeError, match="not a MemoryError"):
         mr.allocate(1024)

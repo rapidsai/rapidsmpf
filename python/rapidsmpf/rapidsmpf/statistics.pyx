@@ -472,9 +472,7 @@ cdef class Statistics:
         Examples
         --------
         >>> import rmm
-        >>> from rapidsmpf.memory.buffer_resource import BufferResource
-        >>> br = BufferResource(rmm.mr.CudaMemoryResource())
-        >>> mr = br.device_mr_adaptor()
+        >>> mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
         >>> stats = Statistics(enable=True)
         >>> with stats.memory_profiling(mr, "outer"):
         ...     b1 = rmm.DeviceBuffer(size=1024, mr=mr)

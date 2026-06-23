@@ -10,6 +10,7 @@ import rmm.mr
 
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.context import Context
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def context(comm: Communicator) -> Generator[Context, None, None]:
     Fixture to get a streaming context.
     """
     options = Options(get_environment_variables())
-    mr = rmm.mr.CudaMemoryResource()
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(mr)
 
     with Context(comm.logger, br, options) as ctx:

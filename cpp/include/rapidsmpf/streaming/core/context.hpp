@@ -13,7 +13,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
@@ -80,8 +79,7 @@ class Context {
      * @note The current CUDA device must be set prior to calling this function.
      * Options that depend on device memory availability query the current device.
      *
-     * @param mr Device memory resource used by RapidsMPF. It will be wrapped in an
-     * internal `RmmResourceAdaptor` for allocation tracking.
+     * @param mr Device memory resource adaptor used by RapidsMPF.
      * @param logger The logger to use.
      * @param options Configuration options used to initialize the Context and its
      * components.
@@ -104,7 +102,7 @@ class Context {
      * thread.
      */
     static std::shared_ptr<Context> from_options(
-        any_device_resource mr,
+        RmmResourceAdaptor mr,
         std::shared_ptr<Communicator::Logger> logger,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()

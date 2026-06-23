@@ -17,7 +17,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
-#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -180,9 +180,7 @@ TEST_F(StatisticsTest, ReportSorting) {
 }
 
 TEST_F(StatisticsTest, MemoryProfiler) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
     auto stats = rapidsmpf::Statistics::create();
     auto stream = rmm::cuda_stream_view{};
@@ -277,9 +275,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::disabled();
     {
         auto const& records = stats->get_memory_records();
@@ -315,9 +311,7 @@ TEST_F(StatisticsTest, MemoryProfilerDisabled) {
 //     the dtor early-returned and the frame stayed on the stack.
 //  3. A follow-up recorder works correctly against the balanced stack.
 TEST_F(StatisticsTest, MemoryProfilerToggledMidScope) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create();
 
     {
@@ -343,9 +337,7 @@ TEST_F(StatisticsTest, MemoryProfilerToggledMidScope) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacro) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
@@ -360,9 +352,7 @@ TEST_F(StatisticsTest, MemoryProfilerMacro) {
 }
 
 TEST_F(StatisticsTest, MemoryProfilerMacroDisabled) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::disabled();
     {
         RAPIDSMPF_MEMORY_PROFILE(stats, mr);
@@ -402,9 +392,7 @@ TEST_F(StatisticsTest, InvalidStatNames) {
 }
 
 TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create();
     std::ignore = stats->create_memory_recorder(mr, "bad\"name");
     std::ostringstream ss;
@@ -412,9 +400,7 @@ TEST_F(StatisticsTest, InvalidMemoryRecordNames) {
 }
 
 TEST_F(StatisticsTest, JsonMemoryRecords) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto mr = br->device_mr_adaptor();
+    rapidsmpf::RmmResourceAdaptor mr{rmm::mr::get_current_device_resource_ref()};
     auto stats = rapidsmpf::Statistics::create();
     {
         auto rec = stats->create_memory_recorder(mr, "alloc");
