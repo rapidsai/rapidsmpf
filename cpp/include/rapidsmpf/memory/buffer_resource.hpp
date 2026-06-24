@@ -23,7 +23,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -189,8 +188,30 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * rmm::device_buffer buf{1024, stream, br->device_mr()};
      * br.reset();  // safe: `buf` keeps the BufferResource alive internally
      * @endcode
+     *
+     * @note Device memory resource provided to the constructor is wrapped in an
+     * `RmmResourceAdaptor` for allocation tracking, and concretely the returned
+     * resource_ref points to that adaptor. See `device_mr_adaptor()` for a more
+     * convenient way to access the adaptor.
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
+
+    /**
+     * @brief Access the concrete device memory resource adaptor.
+     *
+     * `BufferResource` wraps the device memory resource in an internal
+     * `RmmResourceAdaptor` for allocation tracking. This exposes that adaptor
+     * directly, e.g. to query allocation statistics via `get_main_record()` or
+     * `current_allocated()`.
+     *
+     * @return Reference to the internal device `RmmResourceAdaptor`. The
+     * reference is valid for as long as this `BufferResource` is alive.
+     *
+     * @note To ensure that the allocations are properly tracked, use `device_mr()` or
+     * `device_mr_adaptor()` instead of the original memory resource passed to the
+     * constructor.
+     */
+    [[nodiscard]] RmmResourceAdaptor& device_mr_adaptor() noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
@@ -495,6 +516,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
@@ -503,10 +525,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     std::mutex mutex_;
-    // Stable storage for the device MR returned by `device_mr()`. See
-    // `OwningResourceAdaptor` for the lifetime semantics. Installed by
-    // `create()` after construction.
-    std::optional<OwningResourceAdaptor<RmmResourceAdaptor, BufferResource>> owning_mr_;
+    RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;

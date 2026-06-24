@@ -20,6 +20,8 @@ from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
+from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
+                                             cpp_RmmResourceAdaptor)
 from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 from rapidsmpf.utils.time cimport cpp_Duration
 
@@ -48,6 +50,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
         device_async_resource_ref device_mr() noexcept
+        cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
 
 cdef class BufferResource:
     cdef object __weakref__
@@ -58,6 +61,7 @@ cdef class BufferResource:
     cdef PinnedMemoryResource _pinned_mr
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
+    cpdef RmmResourceAdaptor device_mr_adaptor(self)
 
 
 cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
