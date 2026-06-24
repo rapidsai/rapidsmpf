@@ -10,7 +10,7 @@
 
 #include <coro/coro.hpp>
 
-#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
@@ -53,7 +53,7 @@ class Context {
      */
     Context(
         config::Options options,
-        std::shared_ptr<Communicator::Logger> logger,
+        std::shared_ptr<Logger> logger,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
     );
@@ -67,7 +67,7 @@ class Context {
      */
     Context(
         config::Options options,
-        std::shared_ptr<Communicator::Logger> logger,
+        std::shared_ptr<Logger> logger,
         std::shared_ptr<BufferResource> br
     );
 
@@ -105,7 +105,7 @@ class Context {
      */
     static std::shared_ptr<Context> from_options(
         any_device_resource mr,
-        std::shared_ptr<Communicator::Logger> logger,
+        std::shared_ptr<Logger> logger,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
@@ -142,7 +142,7 @@ class Context {
     /**
      * @brief @return Shared pointer to the logger.
      */
-    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() const noexcept;
+    [[nodiscard]] std::shared_ptr<Logger> const& logger() const noexcept;
 
     /**
      * @brief Returns the coroutine executor.
@@ -228,7 +228,7 @@ class Context {
     std::atomic<bool> is_shutdown_{false};
     std::thread::id creator_thread_id_;
     config::Options options_;
-    std::shared_ptr<Communicator::Logger> logger_;
+    std::shared_ptr<Logger> logger_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     std::array<std::shared_ptr<MemoryReserveOrWait>, MEMORY_TYPES.size()> memory_ = {};

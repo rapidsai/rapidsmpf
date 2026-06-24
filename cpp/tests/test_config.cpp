@@ -688,8 +688,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
     config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(
         cuda_mr, comm->logger(), opts, Statistics::from_options(opts)
     );
@@ -703,8 +705,10 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -717,8 +721,10 @@ TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
     config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(
         cuda_mr, comm->logger(), opts, Statistics::from_options(opts)
     );
@@ -731,8 +737,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -742,8 +750,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);

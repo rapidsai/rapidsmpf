@@ -4,6 +4,7 @@
  */
 
 #include <stdexcept>
+#include <string>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/error.hpp>
@@ -11,9 +12,13 @@
 namespace rapidsmpf {
 
 
-Single::Single(config::Options options, std::shared_ptr<ProgressThread> progress_thread)
-    : logger_{std::make_shared<Logger>(0, std::move(options))},
-      progress_thread_{std::move(progress_thread)} {}
+Single::Single(
+    std::shared_ptr<ProgressThread> progress_thread, std::shared_ptr<Logger> logger
+)
+    : logger_{std::move(logger)}, progress_thread_{std::move(progress_thread)} {
+    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be null", std::invalid_argument);
+    logger_->set_name("0");
+}
 
 std::unique_ptr<Communicator::Future> Single::send(
     std::unique_ptr<std::vector<std::uint8_t>>, Rank, Tag
