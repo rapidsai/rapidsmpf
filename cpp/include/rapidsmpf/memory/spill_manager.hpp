@@ -74,11 +74,12 @@ class SpillManager {
      *
      * The spill function is prioritized according to the specified priority value.
      *
-     * @note A `SpillFunction` must not call back into `SpillManager::spill()`,
-     * `spill_to_make_headroom()`, `add_spill_function()`, or
-     * `remove_spill_function()`, directly or transitively, as this can deadlock.
-     * This includes allocations that may implicitly trigger spilling, such as
-     * `BufferResource::reserve_device_memory_and_spill()`.
+     * A `SpillFunction` must be safe to invoke concurrently with itself,
+     * since multiple `spill()` callers may execute spill functions in parallel.
+     * Furthermore, it must not call back into spill-related functions such as
+     * `SpillManager::spill()` or `spill_to_make_headroom()`, directly or
+     * transitively, as this can deadlock. This includes allocations that may
+     * implicitly trigger spilling, such as `reserve_device_memory_and_spill()`.
      *
      * @param spill_function The spill function to be added.
      * @param priority The priority level of the spill function (higher values indicate
