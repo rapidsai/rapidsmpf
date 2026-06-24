@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -212,6 +213,41 @@ TEST(MiscTest, SafeCastErrorMessageContainsLocation) {
         EXPECT_TRUE(msg.find("RapidsMPF cast error") != std::string::npos)
             << "Error message should contain 'RapidsMPF cast error': " << msg;
     }
+}
+
+// Test that error messages include the offending source value.
+TEST(MiscTest, SafeCastErrorMessageContainsValue) {
+    std::string msg;
+    int const cast_line = __LINE__ + 1;
+    try {
+        safe_cast<unsigned>(-1);
+        FAIL() << "Expected std::overflow_error";
+    } catch (const std::overflow_error& e) {
+        msg = e.what();
+    }
+
+    std::string const expected = "RapidsMPF cast error at: "
+                                 + std::string(__FILE__) + ":" + std::to_string(cast_line)
+                                 + ", value out of range (value=-1)";
+    EXPECT_EQ(msg, expected);
+}
+
+// Test that error messages include large unsigned source values.
+TEST(MiscTest, SafeCastErrorMessageContainsLargeUnsignedValue) {
+    std::string msg;
+    int const cast_line = __LINE__ + 1;
+    try {
+        safe_cast<std::int64_t>(UINT64_MAX);
+        FAIL() << "Expected std::overflow_error";
+    } catch (const std::overflow_error& e) {
+        msg = e.what();
+    }
+
+    std::string const expected = "RapidsMPF cast error at: "
+                                 + std::string(__FILE__) + ":" + std::to_string(cast_line)
+                                 + ", value out of range (value="
+                                 + std::to_string(UINT64_MAX) + ")";
+    EXPECT_EQ(msg, expected);
 }
 
 // Test zero and boundary values
