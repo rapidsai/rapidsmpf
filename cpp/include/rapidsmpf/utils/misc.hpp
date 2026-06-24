@@ -399,19 +399,10 @@ constexpr To safe_cast(
     } else if constexpr (std::is_integral_v<From> && std::is_integral_v<To>) {
         // Integer to integer.
         if (!std::in_range<To>(value)) {
-            auto const source_value = [&]() {
-                if constexpr (std::is_same_v<std::remove_cv_t<From>, bool>) {
-                    return std::string{value ? "true" : "false"};
-                } else if constexpr (std::is_signed_v<From>) {
-                    return std::to_string(static_cast<long long>(value));
-                } else {
-                    return std::to_string(static_cast<unsigned long long>(value));
-                }
-            }();
             throw std::overflow_error(
                 "RapidsMPF cast error at: " + std::string(loc.file_name()) + ":"
                 + std::to_string(loc.line()) + ", value out of range (value="
-                + source_value + ")"
+                + std::to_string(value) + ")"
             );
         }
         return static_cast<To>(value);
