@@ -20,7 +20,7 @@ dependencies:
 - cuda-nvtx-dev
 - cuda-sanitizer-api
 - cuda-version=13.3
-- cupy>=13.6.0,!=14.0.0,!=14.1.0
+- cupy>=14.0.1,!=14.1.0
 - cxx-compiler
 - cython>=3.2.2
 - doxygen=1.9.1
@@ -36,7 +36,7 @@ dependencies:
 - myst-nb
 - myst-parser
 - ninja
-- numpy >=1.23,<3.0
+- numpy >=2.0,<3.0
 - numpydoc
 - openmpi >=5.0
 - pre-commit
