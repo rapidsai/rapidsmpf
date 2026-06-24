@@ -11,28 +11,40 @@
 
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 
 namespace {
 
+// `HostMemoryResource` and `PinnedMemoryResource` are constructible only by a
+// `BufferResource`. The `any_resource` copies returned below each carry a
+// back-reference that keeps the (otherwise local) `BufferResource` alive, so no
+// external anchor is needed.
 std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resources() {
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
     std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> resources;
-    resources.emplace_back(rapidsmpf::HostMemoryResource{});
-    if (rapidsmpf::is_pinned_memory_resources_supported()) {
-        resources.emplace_back(*rapidsmpf::PinnedMemoryResource::make_if_available());
+    resources.emplace_back(br->host_mr());
+    if (auto pinned = br->try_pinned_mr(); pinned.has_value()) {
+        resources.emplace_back(*pinned);
     }
     return resources;
 }
 
 std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> make_device_resources() {
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
     std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> resources;
     resources.emplace_back(rmm::mr::cuda_memory_resource{});
     resources.emplace_back(rmm::mr::cuda_async_memory_resource{});
-    if (rapidsmpf::is_pinned_memory_resources_supported()) {
-        resources.emplace_back(*rapidsmpf::PinnedMemoryResource::make_if_available());
+    if (auto pinned = br->try_pinned_mr(); pinned.has_value()) {
+        resources.emplace_back(*pinned);
     }
     return resources;
 }

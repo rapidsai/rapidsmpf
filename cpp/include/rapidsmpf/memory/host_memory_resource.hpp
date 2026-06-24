@@ -13,8 +13,11 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 
 namespace rapidsmpf {
+
+class BufferResource;
 
 /**
  * @brief Host memory resource using standard CPU allocation.
@@ -28,10 +31,14 @@ namespace rapidsmpf {
  * region. THP can improve device-host memory transfer performance for large
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
+ *
+ * @note Instances are constructed only by `BufferResource`, which installs a
+ * back-reference (via `BackRefMixin<BufferResource>`) so that any copy of the
+ * resource keeps its owning `BufferResource` alive. There is no public
+ * constructor; obtain the resource through a `BufferResource`.
  */
-class HostMemoryResource {
+class HostMemoryResource : public BackRefMixin<BufferResource> {
   public:
-    HostMemoryResource() = default;
     ~HostMemoryResource() = default;
 
     HostMemoryResource(HostMemoryResource const&) = default;  ///< Copyable.
@@ -112,7 +119,9 @@ class HostMemoryResource {
      * @brief Compares this resource to another resource.
      *
      * All instances are stateless and interchangeable, so this always returns
-     * true.
+     * true. Instances can only be created by `BufferResource` (which installs
+     * the back-reference exactly once), so the back-reference does not affect
+     * equality.
      *
      * @param other The resource to compare with.
      * @return true
@@ -138,6 +147,12 @@ class HostMemoryResource {
     friend void get_property(
         HostMemoryResource const&, cuda::mr::host_accessible
     ) noexcept {}
+
+  private:
+    /// @brief Default construct. Private: only `BufferResource` creates instances.
+    HostMemoryResource() = default;
+
+    friend class BufferResource;
 };
 
 static_assert(cuda::mr::resource<HostMemoryResource>);
