@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -199,7 +200,7 @@ TEST(MiscTest, SafeCastFloatingPointConversions) {
     EXPECT_EQ(safe_cast<int>(-2.7), -2);
 }
 
-// Test that error messages include source location
+// Test that error messages include source location & value.
 TEST(MiscTest, SafeCastErrorMessageContainsLocation) {
     try {
         safe_cast<unsigned>(-1);
@@ -211,7 +212,22 @@ TEST(MiscTest, SafeCastErrorMessageContainsLocation) {
             << "Error message should contain file name: " << msg;
         EXPECT_TRUE(msg.find("RapidsMPF cast error") != std::string::npos)
             << "Error message should contain 'RapidsMPF cast error': " << msg;
+        EXPECT_TRUE(msg.find("value=-1") != std::string::npos)
+            << "Error message should contain 'value=-1': " << msg;
     }
+}
+
+// Test that error messages include large unsigned source values.
+TEST(MiscTest, SafeCastErrorMessageContainsLargeUnsignedValue) {
+    std::string msg;
+    try {
+        safe_cast<std::int64_t>(UINT64_MAX);
+        FAIL() << "Expected std::overflow_error";
+    } catch (const std::overflow_error& e) {
+        msg = e.what();
+    }
+    EXPECT_TRUE(msg.find("value=" + std::to_string(UINT64_MAX)) != std::string::npos)
+        << "Error message should contain large unsigned value: " << msg;
 }
 
 // Test zero and boundary values

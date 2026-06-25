@@ -15,7 +15,6 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
-#include <rapidsmpf/memory/owning_resource_adaptor.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -23,13 +22,15 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
+    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
-    : pinned_mr_{std::move(pinned_mr)},
+    : owning_mr_{std::move(device_mr)},
+      pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
@@ -56,6 +57,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics
 ) {
     std::shared_ptr<BufferResource> br{new BufferResource{
+        std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
@@ -63,18 +65,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics)
     }};
 
-    // Install the owning adaptor *after* construction so that `weak_from_this()` is
-    // valid.
-    //
-    // The adaptor stored inside `BufferResource` itself holds only a `weak_ptr`, avoiding
-    // a reference cycle. When downstream code promotes `device_mr()` from a non-owning
-    // `resource_ref` to an owning `cuda::mr::any_resource` (for example internally in
-    // `rmm::device_buffer`), CCCL deep-copies the adaptor. The copy promotes the weak
-    // ref to a `shared_ptr<BufferResource>`, acquiring shared ownership so the
-    // `BufferResource` stays alive for as long as the owning resource exists.
-    br->owning_mr_.emplace(
-        RmmResourceAdaptor{std::move(device_mr)}, br->weak_from_this()
-    );
+    // Install the back-reference on the device adaptor *after* construction so
+    // that `weak_from_this()` is valid. The adaptor holds only a `weak_ptr`,
+    // avoiding a reference cycle. When downstream code promotes a non-owning
+    // `resource_ref` returned by `device_mr()` to an owning
+    // `cuda::mr::any_resource`.
+    br->owning_mr_.set_backref(br->weak_from_this());
     return br;
 }
 
@@ -103,7 +99,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     );
     switch (mem_type) {
     case MemoryType::DEVICE:
-        return limit - owning_mr_->get().current_allocated();
+        return limit - owning_mr_.current_allocated();
     case MemoryType::PINNED_HOST:
         if (pinned_mr_ == PinnedMemoryResource::Disabled) {
             return 0;
@@ -123,10 +119,15 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
 }
 
 rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
-    return rmm::device_async_resource_ref{*owning_mr_};
+    return rmm::device_async_resource_ref{owning_mr_};
+}
+
+RmmResourceAdaptor& BufferResource::device_mr_adaptor() noexcept {
+    return owning_mr_;
 }
 
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+    // TODO: returned ref will not keep the BufferResource alive
     return host_mr_;
 }
 
@@ -134,12 +135,14 @@ rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
+    // TODO: returned ref will not keep the BufferResource alive
     return *pinned_mr_;
 }
 
 std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
     // since any_host_device_resource is constructible from
     // host_device_async_resource_ref, optional can be returned as-is.
+    // TODO: returned ref will not keep the BufferResource alive
     return pinned_mr_;
 }
 
