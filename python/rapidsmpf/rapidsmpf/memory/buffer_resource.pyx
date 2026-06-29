@@ -14,6 +14,8 @@ from libcpp.vector cimport vector
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rapidsmpf.utils.memory import check_reservation_size
+
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
                                          device_async_resource_ref,
                                          make_any_device_resource)
@@ -416,6 +418,7 @@ cdef class BufferResource:
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
+        check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
         with nogil:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
@@ -451,6 +454,7 @@ cdef class BufferResource:
             If overbooking is disabled and the buffer resource cannot free enough
             device memory through spilling to satisfy the request.
         """
+        check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
@@ -485,6 +489,7 @@ cdef class BufferResource:
         RuntimeError
             If no memory type in ``mem_types`` could satisfy the reservation.
         """
+        check_reservation_size(size)
         cdef vector[MemoryType] cpp_mem_types
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
