@@ -14,9 +14,10 @@ from libcpp.vector cimport vector
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rapidsmpf.utils.memory import check_reservation_size
+
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
-                                         device_async_resource_ref,
-                                         make_any_device_resource)
+                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -197,11 +198,13 @@ cdef class BufferResource:
         # checked cast requires the GIL
         stats_handle = (<Statistics?>statistics)._handle
 
-        # Keep the original Python device memory resource alive while the C++
-        # BufferResource holds resources derived from it. This anchor is likely
-        # redundant: `make_any_device_resource(...)` deep-copies the device MR
-        # into a self-sufficient owning any_resource. Kept defensively for now.
-        # TODO: drop this once verified against pool/upstream-adaptor MRs.
+        # Keep the original Python memory resources alive while the C++
+        # BufferResource holds resources derived from them. These anchors are
+        # likely redundant: `any_resource[device_accessible](...)` deep-copies
+        # the device MR into a self-sufficient owning any_resource, and
+        # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
+        # defensively for now.
+        # TODO: drop these once verified against pool/upstream-adaptor MRs.
         #       https://github.com/rapidsai/rapidsmpf/issues/1074
         self._device_mr = device_mr
 
@@ -222,7 +225,7 @@ cdef class BufferResource:
             cpp_pinned_pool = _props
         with nogil:
             self._handle = cpp_BufferResource.create(
-                make_any_device_resource(device_mr.get_mr()),
+                any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
@@ -326,7 +329,7 @@ cdef class BufferResource:
         The tracked device memory resource.
         """
         return OwningDeviceMemoryResource._create(
-            make_any_device_resource(deref(self._handle).device_mr())
+            any_resource[device_accessible](deref(self._handle).device_mr())
         )
 
     cpdef RmmResourceAdaptor device_mr_adaptor(self):
@@ -450,6 +453,7 @@ cdef class BufferResource:
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
+        check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
         with nogil:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
@@ -485,6 +489,7 @@ cdef class BufferResource:
             If overbooking is disabled and the buffer resource cannot free enough
             device memory through spilling to satisfy the request.
         """
+        check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
@@ -519,6 +524,7 @@ cdef class BufferResource:
         RuntimeError
             If no memory type in ``mem_types`` could satisfy the reservation.
         """
+        check_reservation_size(size)
         cdef vector[MemoryType] cpp_mem_types
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)

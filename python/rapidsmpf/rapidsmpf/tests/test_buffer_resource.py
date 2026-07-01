@@ -13,6 +13,7 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource, OwningDeviceMemoryResource
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
 from rapidsmpf.statistics import Statistics
+from rapidsmpf.utils.memory import _MAX_RESERVATION_BYTES
 
 
 def KiB(x: int) -> int:
@@ -74,6 +75,18 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
+
+
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
+def test_reserve_rejects_size_underflow(mem_type: MemoryType) -> None:
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+
+    with pytest.raises(ValueError, match="underflow"):
+        br.reserve(mem_type, _MAX_RESERVATION_BYTES + 1, allow_overbooking=True)
+
+    res, _ = br.reserve(mem_type, _MAX_RESERVATION_BYTES, allow_overbooking=True)
+    assert res.size == _MAX_RESERVATION_BYTES
 
 
 def test_stream_pool() -> None:
