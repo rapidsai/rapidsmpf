@@ -180,10 +180,11 @@ TEST_F(StatisticsTest, ReportSorting) {
 }
 
 TEST_F(StatisticsTest, MemoryProfiler) {
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
     auto mr = br->device_mr_adaptor();
-    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+    auto pinned_mr = br->try_pinned_mr();
     auto stats = rapidsmpf::Statistics::create();
     auto stream = rmm::cuda_stream_view{};
 
@@ -203,7 +204,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
         }
 
         // pinned host memory
-        if (pinned_mr != PinnedMemoryResource::Disabled) {
+        if (pinned_mr.has_value()) {
             void* ptr3 = pinned_mr->allocate(stream, 1_MiB);  // +1 MiB
             void* ptr4 = pinned_mr->allocate(stream, 2_MiB);  // +2 MiB
             pinned_mr->deallocate(stream, ptr3, 1_MiB);  // -1 MiB
@@ -269,7 +270,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
         "  main (all allocations using RmmResourceAdaptor)";
     EXPECT_EQ(main_line, kExpectedMainLine);
     static const std::string_view kExpectedPinnedLine =
-        pinned_mr == PinnedMemoryResource::Disabled
+        !pinned_mr.has_value()
             ? ""
             : "       1       3 MiB       3 MiB       4 MiB       2 MiB"
               "  main (all allocations using PinnedMemoryResource)";

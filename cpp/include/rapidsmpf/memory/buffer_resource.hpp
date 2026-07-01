@@ -91,9 +91,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * allocations are tracked for memory-limit accounting and statistics, use
      * `BufferResource::device_mr()` instead of the original memory resource after
      * construction.
-     * @param pinned_mr Pinned host memory resource used for
-     * `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryResource::Disabled` to
-     * disable pinned allocations.
+     * @param pinned_pool_properties Configuration for the pinned host memory pool
+     * used for `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryDisabled` to
+     * disable pinned allocations. The pinned resource is constructed internally and
+     * owned by the `BufferResource`; it is only created when pinned host memory is
+     * supported on the system (see `is_pinned_memory_resources_supported()`).
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
      * entries are treated as unlimited.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
@@ -105,7 +107,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
+        std::optional<PinnedPoolProperties> pinned_pool_properties = PinnedMemoryDisabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
@@ -217,6 +219,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
+     *
+     * @note The returned non-owning `resource_ref` does not by itself keep this
+     * `BufferResource` alive, but the underlying `HostMemoryResource` carries a
+     * back-reference: promoting the ref to an owning `cuda::mr::any_resource` (as
+     * RMM/CCCL containers do internally) keeps this `BufferResource` alive for the
+     * lifetime of that owning copy.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
@@ -225,16 +233,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
+     *
+     * @note The returned non-owning `resource_ref` does not by itself keep this
+     * `BufferResource` alive, but the underlying `PinnedMemoryResource` carries a
+     * back-reference: promoting the ref to an owning `cuda::mr::any_resource` (as
+     * RMM/CCCL containers do internally) keeps this `BufferResource` alive for the
+     * lifetime of that owning copy.
      */
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
      * @brief Get the pinned host memory resource if available.
      *
-     * @return The pinned host memory resource as an `any_resource`, or `std::nullopt` if
-     * pinned host memory is not available.
+     * @return A back-referenced copy of the pinned host memory resource, or
+     * `std::nullopt` if pinned host memory is not available. The returned handle
+     * keeps this `BufferResource` alive for as long as the handle (or any copy of
+     * it) lives.
      */
-    [[nodiscard]] std::optional<any_host_device_resource> try_pinned_mr() const noexcept;
+    [[nodiscard]] std::optional<PinnedMemoryResource> try_pinned_mr() const;
 
     /**
      * @brief Returns the currently available memory for a given memory type, in bytes.
@@ -340,9 +356,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST
-                && pinned_mr_ == PinnedMemoryResource::Disabled)
-            {
+            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
                 // Pinned host memory is only available if the memory resource is
                 // available.
                 continue;

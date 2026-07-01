@@ -55,7 +55,7 @@ TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryResource::Disabled,
+        PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 10_KiB}}
     );
     EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
@@ -122,7 +122,7 @@ TEST(BufferResource, ReservationReleasing) {
     // memory.
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryResource::Disabled,
+        PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
     );
     EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
@@ -174,7 +174,7 @@ TEST(BufferResource, MemoryLimit) {
 
     // Create a buffer resource that limits available device memory to 10 KiB.
     auto br = BufferResource::create(
-        mr_cuda, PinnedMemoryResource::Disabled, {{MemoryType::DEVICE, 10_KiB}}
+        mr_cuda, PinnedMemoryDisabled, {{MemoryType::DEVICE, 10_KiB}}
     );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
@@ -252,18 +252,18 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
 
     rmm::mr::cuda_memory_resource cuda_mr;
 
-    auto pinned_mr = PinnedMemoryResource::make_if_available(
-        get_current_numa_node(), PinnedPoolProperties{.max_pool_size = max_pool_size}
-    );
-    ASSERT_NE(pinned_mr, PinnedMemoryResource::Disabled);
-
     // Wire the PINNED_HOST limit to the pool's max_pool_size (or unlimited if the
     // pool is unbounded) so reservations respect the same ceiling as allocations.
     std::unordered_map<MemoryType, std::int64_t> memory_limits;
     if (max_pool_size.has_value() && *max_pool_size > 0) {
         memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
-    auto br = BufferResource::create(cuda_mr, pinned_mr, std::move(memory_limits));
+    auto br = BufferResource::create(
+        cuda_mr,
+        PinnedPoolProperties{.max_pool_size = max_pool_size},
+        std::move(memory_limits)
+    );
+    ASSERT_TRUE(br->try_pinned_mr().has_value());
 
     // First 1 KiB reservation always succeeds.
     auto [r1, ob1] = br->reserve(MemoryType::PINNED_HOST, 1_KiB, AllowOverbooking::NO);
@@ -289,10 +289,10 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(BufferResource, AllocStatistics) {
     rmm::mr::cuda_memory_resource mr_cuda;
     auto stats = Statistics::create();
-    auto pinned_mr = PinnedMemoryResource::make_if_available();
+    bool const pinned_available = is_pinned_memory_resources_supported();
     auto br = BufferResource::create(
         mr_cuda,
-        pinned_mr,
+        PinnedPoolProperties{},
         {},
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
@@ -314,7 +314,7 @@ TEST(BufferResource, AllocStatistics) {
         br->make_buffer(device_size, stream, r);
     }
     // Allocate pinned_host memory once (if available).
-    if (pinned_mr != PinnedMemoryResource::Disabled) {
+    if (pinned_available) {
         auto [r, _] =
             br->reserve(MemoryType::PINNED_HOST, pinned_size, AllowOverbooking::YES);
         br->make_buffer(pinned_size, stream, r);
@@ -333,7 +333,7 @@ TEST(BufferResource, AllocStatistics) {
     EXPECT_EQ(dev_bytes.value(), static_cast<double>(2 * device_size));
 
     // pinned_host: 1 allocation of pinned_size (if available).
-    if (pinned_mr != PinnedMemoryResource::Disabled) {
+    if (pinned_available) {
         auto const pinned_bytes = stats->get_stat("alloc-pinned_host-bytes");
         EXPECT_EQ(pinned_bytes.count(), 1u);
         EXPECT_EQ(pinned_bytes.value(), static_cast<double>(pinned_size));
@@ -357,7 +357,7 @@ class BufferResourceReserveOrFailTest : public ::testing::Test {
         // host memory. BufferResource auto-wraps mr_cuda for allocation tracking.
         br = BufferResource::create(
             mr_cuda,
-            PinnedMemoryResource::Disabled,
+            PinnedMemoryDisabled,
             std::unordered_map<MemoryType, std::int64_t>{{MemoryType::DEVICE, 10_KiB}}
         );
     }
@@ -813,6 +813,57 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
     // After the buffer is destroyed, no shared ownership should remain. If the
     // original adaptor held a strong back-reference, or another ownership cycle
     // existed, the BR would still be alive here.
+    EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
+}
+
+TEST(BufferResource, HostMrKeepsBufferResourceAlive) {
+    constexpr std::size_t N = 1024;
+
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    std::weak_ptr<BufferResource> weak_br = br;
+    auto stream = rmm::cuda_stream_view{};
+
+    // Allocate a HOST buffer. The underlying `HostBuffer` stores the host memory
+    // resource as an owning `any_resource`, which copies the `HostMemoryResource`.
+    // Its `BackRefMixin<BufferResource>` base promotes the installed weak ref to a
+    // `shared_ptr<BufferResource>` during the copy.
+    auto buf = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    // Drop the original shared_ptr. The buffer should keep the BR alive.
+    br.reset();
+    EXPECT_FALSE(weak_br.expired()) << "BR freed while host buffer still holds it";
+
+    EXPECT_NO_THROW(buf.reset());
+
+    // After the buffer is destroyed, no shared ownership should remain.
+    EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
+}
+
+TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    constexpr std::size_t N = 1024;
+
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), PinnedPoolProperties{}
+    );
+    std::weak_ptr<BufferResource> weak_br = br;
+    auto stream = rmm::cuda_stream_view{};
+
+    // Allocate a PINNED_HOST buffer. The underlying `HostBuffer` stores the pinned
+    // memory resource as an owning `any_resource`, which copies the
+    // `PinnedMemoryResource`. Its `BackRefMixin<BufferResource>` base promotes the
+    // installed weak ref to a `shared_ptr<BufferResource>` during the copy.
+    auto buf = br->make_buffer(stream, br->reserve_or_fail(N, MemoryType::PINNED_HOST));
+
+    // Drop the original shared_ptr. The buffer should keep the BR alive.
+    br.reset();
+    EXPECT_FALSE(weak_br.expired()) << "BR freed while pinned buffer still holds it";
+
+    EXPECT_NO_THROW(buf.reset());
+
+    // After the buffer is destroyed, no shared ownership should remain.
     EXPECT_TRUE(weak_br.expired()) << "BR not destructed, refcount cycle?";
 }
 

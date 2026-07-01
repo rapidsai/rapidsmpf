@@ -1,27 +1,39 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass
+
 from libcpp.optional cimport optional
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.config cimport Options, cpp_Options
-
-from rapidsmpf.utils.system_info import get_current_numa_node
 
 
 cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
     cdef bool_t cpp_is_pinned_memory_resources_supported \
         "rapidsmpf::is_pinned_memory_resources_supported"(...) except +ex_handler
 
-    cdef optional[cpp_PinnedMemoryResource] cpp_make_if_available \
-        "rapidsmpf::PinnedMemoryResource::make_if_available"(
-            int numa_id
-        ) except +ex_handler
 
-    cdef optional[cpp_PinnedMemoryResource] cpp_from_options \
-        "rapidsmpf::PinnedMemoryResource::from_options"(
-            cpp_Options options
-        ) except +ex_handler
+cdef extern from *:
+    """
+    #include <optional>
+
+    #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+
+    namespace {
+    // Copy a back-referenced `PinnedMemoryResource` into an optional. The copy
+    // promotes the back-reference, so the result keeps the owning
+    // `BufferResource` alive. Throws `std::bad_weak_ptr` if `src` carries no
+    // back-reference (which never happens for instances obtained from a
+    // `BufferResource`).
+    std::optional<rapidsmpf::PinnedMemoryResource>
+    cpp_copy_pinned_mr(rapidsmpf::PinnedMemoryResource const& src) {
+        return std::optional<rapidsmpf::PinnedMemoryResource>(src);
+    }
+    }  // namespace
+    """
+    optional[cpp_PinnedMemoryResource] cpp_copy_pinned_mr(
+        const cpp_PinnedMemoryResource&
+    ) except +ex_handler
 
 
 cpdef bool_t is_pinned_memory_resources_supported():
@@ -36,42 +48,73 @@ cpdef bool_t is_pinned_memory_resources_supported():
     return ret
 
 
+@dataclass
+class PinnedPoolProperties:
+    """
+    Configuration for a pinned (page-locked) host memory pool.
+
+    Pass an instance to
+    :class:`~rapidsmpf.memory.buffer_resource.BufferResource` to enable pinned
+    host memory; passing ``None`` instead disables it. The pool is only created
+    when pinned host memory is supported on this system (see
+    :func:`is_pinned_memory_resources_supported`).
+
+    Attributes
+    ----------
+    initial_pool_size
+        Initial size of the pinned host memory pool in bytes. The initial size
+        is important for pinned-memory performance, especially for the first
+        allocation. Defaults to ``0``.
+    max_pool_size
+        Maximum size of the pinned host memory pool in bytes, or ``None`` for no
+        limit. Defaults to ``None``.
+    numa_id
+        NUMA node from which pinned host memory should be allocated, or ``None``
+        to use the NUMA node of the calling thread. Defaults to ``None``.
+    """
+    initial_pool_size: int = 0
+    max_pool_size: object = None
+    numa_id: object = None
+
+
+cdef object create_pinned_pool_properties_from_cpp(cpp_PinnedPoolProperties props):
+    """Build a Python ``PinnedPoolProperties`` from a C++ ``PinnedPoolProperties``."""
+    cdef object max_pool_size = None
+    if props.max_pool_size.has_value():
+        max_pool_size = props.max_pool_size.value()
+    return PinnedPoolProperties(
+        initial_pool_size=props.initial_pool_size,
+        max_pool_size=max_pool_size,
+        numa_id=props.numa_id,
+    )
+
+
 cdef class PinnedMemoryResource:
     """
-    Memory resource that provides pinned (page-locked) host memory using a pool.
+    Opaque handle to a pinned (page-locked) host memory resource.
 
-    The resource allocates and deallocates pinned host memory asynchronously
-    through CUDA streams. Pinned memory enables higher bandwidth and lower
-    latency for device transfers compared to regular pageable host memory.
+    The resource provides pinned host memory using a pool, enabling higher
+    bandwidth and lower latency for device transfers compared to regular
+    pageable host memory.
 
-    The pool has no maximum size. To limit its growth, pass an explicit
-    ``PINNED_HOST`` entry in :class:`BufferResource`'s ``memory_limits``.
+    .. rubric:: Construction
 
-    Parameters
-    ----------
-    numa_id
-        NUMA node from which memory should be allocated. By default, the
-        resource uses the NUMA node of the calling thread.
+    This class cannot be constructed directly. A pinned memory resource is owned
+    by a :class:`~rapidsmpf.memory.buffer_resource.BufferResource` (which installs
+    the back-reference that makes the handle copyable). Configure pinned memory on
+    a ``BufferResource`` and obtain the handle via
+    :attr:`~rapidsmpf.memory.buffer_resource.BufferResource.pinned_mr`.
 
-    Raises
-    ------
-    RuntimeError
-        If pinned host memory pools are not supported by the current CUDA
-        version.
+    The returned handle holds shared ownership of its owning ``BufferResource``,
+    so it (and any copy of it) keeps the ``BufferResource`` alive.
     """
-    def __init__(self, numa_id = None):
-        cdef optional[cpp_PinnedMemoryResource] opt
-        cdef int c_numa_id = get_current_numa_node() if numa_id is None \
-            else <int?>numa_id
-        with nogil:
-            opt = cpp_make_if_available(c_numa_id)
-        if not opt.has_value():
-            raise RuntimeError(
-                "Pinned host memory is not supported on this system. "
-                "CUDA v12.6 is one of the requirements, but additional platform "
-                "or driver constraints may apply."
-            )
-        self._handle = opt
+    def __init__(self, *args, **kwargs):
+        raise TypeError(
+            "PinnedMemoryResource cannot be constructed directly; configure pinned "
+            "memory on a BufferResource (e.g. "
+            "`BufferResource(mr, pinned_pool=PinnedPoolProperties())`) and obtain it "
+            "via BufferResource.pinned_mr"
+        )
 
     def __dealloc__(self):
         with nogil:
@@ -80,50 +123,31 @@ cdef class PinnedMemoryResource:
     @property
     def enabled(self) -> bool:
         """
-        Check if pinned memory resource is enabled. ie. if pinned memory is supported
-        by the system and a valid instance is created.
+        Whether this handle wraps a valid pinned memory resource.
         """
         return self._handle.has_value()
 
     @staticmethod
-    def make_if_available(numa_id = None):
+    cdef PinnedMemoryResource _from_cpp(const cpp_PinnedMemoryResource& src):
         """
-        Create a pinned memory resource if the system supports pinned memory.
+        Create a Python ``PinnedMemoryResource`` by copying a back-ref'd C++ resource.
+
+        The copy acquires shared ownership of the owning ``BufferResource``,
+        keeping it alive for the lifetime of the returned Python object.
 
         Parameters
         ----------
-        numa_id
-            NUMA node to associate with the resource. Defaults to the current
-            NUMA node.
+        src
+            The C++ ``PinnedMemoryResource`` to copy from. Must have a
+            back-reference installed (i.e. it must have been obtained from a
+            ``BufferResource``); otherwise a ``std::bad_weak_ptr`` is raised.
 
         Returns
         -------
-        A pinned memory resource when supported, otherwise None.
+        A new Python ``PinnedMemoryResource`` wrapping the copied C++ resource.
         """
-        if is_pinned_memory_resources_supported():
-            return PinnedMemoryResource(numa_id)
-        return None
-
-    @classmethod
-    def from_options(cls, Options options not None):
-        """
-        Construct from configuration options.
-
-        Parameters
-        ----------
-        options
-            Configuration options.
-
-        Returns
-        -------
-        The constructed PinnedMemoryResource instance if pinned memory is enabled
-        and supported by the system, otherwise ``None``.
-        """
-        cdef optional[cpp_PinnedMemoryResource] opt_handle
-        with nogil:
-            opt_handle = cpp_from_options(options._handle)
-        if not opt_handle.has_value():
-            return None
-        cdef PinnedMemoryResource ret = cls.__new__(cls)
-        ret._handle = opt_handle
+        cdef PinnedMemoryResource ret = PinnedMemoryResource.__new__(
+            PinnedMemoryResource
+        )
+        ret._handle = cpp_copy_pinned_mr(src)
         return ret

@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -20,6 +21,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -31,6 +33,8 @@
 // NOLINTEND(modernize-macro-to-enum)
 
 namespace rapidsmpf {
+
+class BufferResource;
 
 /**
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
@@ -65,6 +69,16 @@ inline bool is_pinned_memory_resources_supported() {
 }
 
 /**
+ * @brief Sentinel used to disable pinned host memory.
+ *
+ * Pass this in place of a `PinnedPoolProperties` (e.g. to `BufferResource::create()`)
+ * to disable pinned host memory allocations. It is simply `std::nullopt` typed as
+ * `std::nullopt_t`, so it implicitly converts to an empty
+ * `std::optional<PinnedPoolProperties>`.
+ */
+constexpr std::nullopt_t PinnedMemoryDisabled = std::nullopt;
+
+/**
  * @brief Properties for configuring a pinned memory pool.
  */
 struct PinnedPoolProperties {
@@ -75,7 +89,31 @@ struct PinnedPoolProperties {
 
     /// @brief Maximum size of the pool. `std::nullopt` means no limit.
     std::optional<std::size_t> max_pool_size = std::nullopt;
+
+    /// @brief NUMA node from which pinned memory should be allocated. Defaults to
+    /// the NUMA node of the calling thread.
+    int numa_id = get_current_numa_node();
 };
+
+/**
+ * @brief Parse pinned memory pool properties from configuration options.
+ *
+ * Recognized options:
+ * - "pinned_memory": enable pinned memory.
+ * - "pinned_initial_pool_size" (bytes or percentage): initial pool size.
+ *   - Byte values (e.g. "1 MiB") are applied literally.
+ *   - Percentages (e.g. "10%") are relative to `get_host_memory_per_gpu()`.
+ * - "pinned_max_pool_size" (bytes, percentage, or disabled): maximum pool size.
+ *   - Byte and percentages uses the same parsing rules as "pinned_initial_pool_size".
+ *   - A disabled value (e.g. "off") leaves the pool unbounded.
+ *
+ * @param options Configuration options.
+ * @return The parsed `PinnedPoolProperties` when "pinned_memory" is enabled,
+ * otherwise `std::nullopt` (pinned host memory disabled).
+ */
+std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
+    config::Options options
+);
 
 /**
  * @brief Memory resource that provides pinned (page-locked) host memory using a pool.
@@ -88,50 +126,21 @@ struct PinnedPoolProperties {
  * This resource allocates and deallocates pinned host memory asynchronously through
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
+ *
+ * @note Instances are constructed only by `BufferResource`, which installs a
+ * back-reference (via `BackRefMixin<BufferResource>`) so that any copy of the
+ * resource keeps its owning `BufferResource` alive. There is no public
+ * constructor; obtain the resource through a `BufferResource`. Use the free
+ * function `is_pinned_memory_resources_supported()` to query availability.
  */
 class PinnedMemoryResource final
     : public cuda::mr::shared_resource<
-          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>> {
+          detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>,
+      public BackRefMixin<BufferResource> {
     using shared_base = cuda::mr::shared_resource<
         detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>;
 
   public:
-    /// @brief Sentinel value indicating that pinned host memory is disabled.
-    static constexpr std::nullopt_t Disabled = std::nullopt;
-
-    /**
-     * @brief Create a pinned memory resource if the system supports pinned memory.
-     *
-     * @param numa_id The NUMA node to associate with the resource. Defaults to the
-     * current NUMA node.
-     * @param pool_properties Properties for configuring the pinned memory pool.
-     *
-     * @return A `PinnedMemoryResource` when supported, otherwise `std::nullopt`.
-     *
-     * @see PinnedMemoryResource::PinnedMemoryResource
-     */
-    static std::optional<PinnedMemoryResource> make_if_available(
-        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
-    );
-
-    /**
-     * @brief Construct from configuration options.
-     *
-     * Recognized options:
-     * - "pinned_memory": enable pinned memory.
-     * - "pinned_initial_pool_size" (bytes or percentage): initial pool size.
-     *   - Byte values (e.g. "1 MiB") are applied literally.
-     *   - Percentages (e.g. "10%") are relative to `get_host_memory_per_gpu()`.
-     * - "pinned_max_pool_size" (bytes, percentage, or disabled): maximum pool size.
-     *   - Byte and percentages uses the same parsing rules as "pinned_initial_pool_size".
-     *   - A disabled value (e.g. "off") leaves the pool unbounded.
-     *
-     * @param options Configuration options.
-     * @return A `PinnedMemoryResource` if pinned memory is enabled and supported;
-     * otherwise `std::nullopt`.
-     */
-    static std::optional<PinnedMemoryResource> from_options(config::Options options);
-
     /**
      * @brief Allocates pinned host memory associated with a CUDA stream.
      *
@@ -171,6 +180,10 @@ class PinnedMemoryResource final
 
     /**
      * @brief Equality comparison.
+     *
+     * Instances can only be created by `BufferResource` (which installs the
+     * back-reference exactly once), so equality is determined solely by the
+     * underlying shared state.
      *
      * @param other The other resource to compare.
      * @return True if the two resources share the same underlying shared state.
@@ -217,16 +230,17 @@ class PinnedMemoryResource final
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
-     * Private — use `make_if_available` or `from_options` to obtain an instance.
+     * Private — only `BufferResource` constructs instances (it installs the
+     * back-reference immediately after construction).
      *
-     * @param numa_id NUMA node from which memory should be allocated.
-     * @param pool_properties Properties for configuring the pinned memory pool.
+     * @param pool_properties Properties for configuring the pinned memory pool,
+     * including the NUMA node from which memory should be allocated.
      *
      * @throws std::invalid_argument If pinned host memory pools are not supported.
      */
-    PinnedMemoryResource(
-        int numa_id = get_current_numa_node(), PinnedPoolProperties pool_properties = {}
-    );
+    explicit PinnedMemoryResource(PinnedPoolProperties pool_properties);
+
+    friend class BufferResource;
 
     PinnedPoolProperties pool_properties_;  ///< properties used to configure the pool
 };
