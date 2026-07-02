@@ -163,6 +163,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
      */
     Rank const dst = (comm_->rank() + 1) % comm_->nranks();
     Rank const src = (comm_->rank() + comm_->nranks() - 1) % comm_->nranks();
+    auto const& statistics = comm_->progress_thread()->statistics();
     // GPU data sends and metadata sends can be arbitrarily interleaved. To allow reuse of
     // `op_id` once `wait_and_extract()` returns, we rely on a number of invariants
     // enforced by the communication scheme.
@@ -223,6 +224,11 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 // of insertions from that rank.
                 mark_finish(chunk->sequence());
             } else {
+                if (chunk->data_size() > 0) {
+                    statistics->add_bytes_stat(
+                        "allgather-payload-send", chunk->data_size()
+                    );
+                }
                 auto buf = chunk->release_data_buffer();
                 sent_posted_.emplace_back(std::move(chunk));
                 sent_futures_.emplace_back(
@@ -260,6 +266,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
         for (auto&& chunk : to_receive_) {
             if (!chunk->is_ready()) {
                 break;
+            }
+            if (chunk->data_size() > 0) {
+                statistics->add_bytes_stat("allgather-payload-recv", chunk->data_size());
             }
             auto buf = chunk->release_data_buffer();
             receive_posted_.emplace_back(std::move(chunk));
