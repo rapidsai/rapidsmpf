@@ -22,6 +22,7 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 import asyncio
 
 import rapidsmpf.utils.string
+from rapidsmpf.utils.memory import check_reservation_size
 
 # Sentinel indicating that net_memory_delta estimation has not yet been implemented.
 #
@@ -394,6 +395,7 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
+        check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -444,6 +446,7 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
+        check_reservation_size(size)
         cdef shared_ptr[pair[unique_ptr[cpp_MemoryReservation], size_t]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -497,6 +500,7 @@ cdef class MemoryReserveOrWait:
         --------
         reserve_or_wait
         """
+        check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -602,6 +606,8 @@ async def reserve_memory(
     ...     allow_overbooking=False,
     ... )
     """
+    check_reservation_size(size)
+
     if allow_overbooking is None:
         allow_overbooking = ctx.options().get(
             "allow_overbooking_by_default",

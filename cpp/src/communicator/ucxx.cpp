@@ -267,7 +267,10 @@ class SharedResources {
         RAPIDSMPF_EXPECTS(
             rank_to_listener_address_
                 .emplace(
-                    rank_, ListenerAddress{.address = worker->getAddress(), .rank = rank_}
+                    rank_,
+                    ListenerAddress{
+                        .address = worker->addressBuilder().build(), .rank = rank_
+                    }
                 )
                 .second,
             "listener for given rank already exists"
@@ -428,12 +431,11 @@ class SharedResources {
                 listener_address_pack_into(addr, packed->data(), off);
             }
 
-            reqs.push_back(ep->amSend(
-                packed->data(),
-                packed->size(),
-                UCS_MEMORY_TYPE_HOST,
-                control_callback_info_
-            ));
+            reqs.push_back(
+                ep->amSendBuilder(packed->data(), packed->size(), UCS_MEMORY_TYPE_HOST)
+                    .receiverCallbackInfo(control_callback_info_)
+                    .build()
+            );
             bufs.push_back(std::move(packed));
         }
         while (std::ranges::any_of(reqs, [](auto const& r) { return !r->isCompleted(); }))
@@ -457,7 +459,9 @@ class SharedResources {
                 if (rank == 0) {
                     continue;
                 }
-                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+                requests.push_back(
+                    endpoint->amSendBuilder(nullptr, 0, UCS_MEMORY_TYPE_HOST).build()
+                );
             }
             while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
@@ -472,7 +476,7 @@ class SharedResources {
                 if (rank == 0) {
                     continue;
                 }
-                requests.push_back(endpoint->amRecv());
+                requests.push_back(endpoint->amRecvBuilder().build());
             }
             while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
@@ -489,7 +493,9 @@ class SharedResources {
                 if (rank == 0) {
                     continue;
                 }
-                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+                requests.push_back(
+                    endpoint->amSendBuilder(nullptr, 0, UCS_MEMORY_TYPE_HOST).build()
+                );
             }
             while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
@@ -500,17 +506,17 @@ class SharedResources {
         } else {  // non-root ranks respond to root's broadcast
             auto endpoint = get_endpoint(Rank(0));
 
-            auto req = endpoint->amRecv();
+            auto req = endpoint->amRecvBuilder().build();
             while (!req->isCompleted()) {
                 progress_worker();
             }
 
-            req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
+            req = endpoint->amSendBuilder(nullptr, 0, UCS_MEMORY_TYPE_HOST).build();
             while (!req->isCompleted()) {
                 progress_worker();
             }
             // And wait for notification that everyone has reported.
-            req = endpoint->amRecv();
+            req = endpoint->amRecvBuilder().build();
             while (!req->isCompleted()) {
                 progress_worker();
             }
@@ -688,7 +694,7 @@ ListenerAddress listener_address_unpack(
         decode_(address.data(), address_size);
         decode_(&rank, sizeof(rank));
 
-        auto ret = ListenerAddress{::ucxx::createAddressFromString(address), rank};
+        auto ret = ListenerAddress{::ucxx::AddressBuilder(address).build(), rank};
         return ret;
     } else if (type == ListenerAddressType::HostPort) {
         std::size_t host_size;
@@ -825,19 +831,23 @@ void control_unpack(
                 shared_resources->get_listener_address(client_rank).address
             );
             auto endpoint =
-                shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                    worker_address, shared_resources->endpoint_error_handling()
-                );
+                shared_resources->get_worker()
+                    ->endpointBuilder(worker_address)
+                    .endpointErrorHandling(shared_resources->endpoint_error_handling())
+                    .build();
             shared_resources->register_endpoint(client_rank, endpoint);
 
             auto packed_client_rank =
                 control_pack(ControlMessage::AssignRank, client_rank);
-            auto req = endpoint->amSend(
-                packed_client_rank->data(),
-                packed_client_rank->size(),
-                UCS_MEMORY_TYPE_HOST,
-                shared_resources->get_control_callback_info()
-            );
+            auto req =
+                endpoint
+                    ->amSendBuilder(
+                        packed_client_rank->data(),
+                        packed_client_rank->size(),
+                        UCS_MEMORY_TYPE_HOST
+                    )
+                    .receiverCallbackInfo(shared_resources->get_control_callback_info())
+                    .build();
             shared_resources->add_future(
                 std::make_unique<HostFuture>(req, std::move(packed_client_rank))
             );
@@ -908,20 +918,25 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
             port_str.data()
         );
 
-    auto endpoint = shared_resources->get_listener()->createEndpointFromConnRequest(
-        conn_request, shared_resources->endpoint_error_handling()
-    );
+    auto endpoint =
+        shared_resources->get_listener()
+            ->endpointBuilder(conn_request)
+            .endpointErrorHandling(shared_resources->endpoint_error_handling())
+            .build();
 
     if (shared_resources->rank() == 0) {
         Rank client_rank = shared_resources->get_next_worker_rank();
         shared_resources->register_endpoint(client_rank, endpoint);
         auto packed_client_rank = control_pack(ControlMessage::AssignRank, client_rank);
-        auto req = endpoint->amSend(
-            packed_client_rank->data(),
-            packed_client_rank->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources->get_control_callback_info()
-        );
+        auto req =
+            endpoint
+                ->amSendBuilder(
+                    packed_client_rank->data(),
+                    packed_client_rank->size(),
+                    UCS_MEMORY_TYPE_HOST
+                )
+                .receiverCallbackInfo(shared_resources->get_control_callback_info())
+                .build();
         shared_resources->add_future(
             std::make_unique<HostFuture>(req, std::move(packed_client_rank))
         );
@@ -969,8 +984,9 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         });
 
     auto create_worker = [progress_mode]() {
-        auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
-        auto worker = context->createWorker(false);
+        auto context =
+            ::ucxx::contextBuilder(::ucxx::Context::defaultFeatureFlags).build();
+        auto worker = context->workerBuilder().build();
 
         RAPIDSMPF_EXPECTS(
             progress_mode != ProgressMode::Blocking,
@@ -989,9 +1005,10 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
     auto register_self_endpoint = [](::ucxx::Worker& worker,
                                      rapidsmpf::ucxx::SharedResources& shared_resources) {
-        auto self_ep = worker.createEndpointFromWorkerAddress(
-            worker.getAddress(), shared_resources.endpoint_error_handling()
-        );
+        auto self_ep =
+            worker.endpointBuilder(worker.addressBuilder().build())
+                .endpointErrorHandling(shared_resources.endpoint_error_handling())
+                .build();
         shared_resources.register_endpoint(shared_resources.rank(), std::move(self_ep));
     };
 
@@ -1005,7 +1022,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
         // Create listener
         shared_resources->register_listener(
-            worker->createListener(0, listener_callback, shared_resources.get())
+            worker->listenerBuilder(0, listener_callback, shared_resources.get()).build()
         );
         auto listener = shared_resources->get_listener();
 
@@ -1035,34 +1052,44 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         auto endpoint = std::visit(
             overloaded{
                 [shared_resources](HostPortPair const& remote_address) {
-                    return shared_resources->get_worker()->createEndpointFromHostname(
-                        remote_address.first,
-                        remote_address.second,
-                        shared_resources->endpoint_error_handling()
-                    );
+                    return shared_resources->get_worker()
+                        ->endpointBuilder(remote_address.first, remote_address.second)
+                        .endpointErrorHandling(
+                            shared_resources->endpoint_error_handling()
+                        )
+                        .build();
                 },
                 [shared_resources](
                     std::shared_ptr<::ucxx::Address> const& remote_address
                 ) {
                     auto root_endpoint =
-                        shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                            remote_address, shared_resources->endpoint_error_handling()
-                        );
+                        shared_resources->get_worker()
+                            ->endpointBuilder(remote_address)
+                            .endpointErrorHandling(
+                                shared_resources->endpoint_error_handling()
+                            )
+                            .build();
 
                     auto packed_listener_address_rank = control_pack(
                         ControlMessage::QueryRank,
                         ListenerAddress{
-                            .address = shared_resources->get_worker()->getAddress(),
+                            .address =
+                                shared_resources->get_worker()->addressBuilder().build(),
                             .rank = shared_resources->rank()
                         }
                     );
 
-                    auto listener_address_req = root_endpoint->amSend(
-                        packed_listener_address_rank->data(),
-                        packed_listener_address_rank->size(),
-                        UCS_MEMORY_TYPE_HOST,
-                        shared_resources->get_control_callback_info()
-                    );
+                    auto listener_address_req =
+                        root_endpoint
+                            ->amSendBuilder(
+                                packed_listener_address_rank->data(),
+                                packed_listener_address_rank->size(),
+                                UCS_MEMORY_TYPE_HOST
+                            )
+                            .receiverCallbackInfo(
+                                shared_resources->get_control_callback_info()
+                            )
+                            .build();
                     while (!listener_address_req->isCompleted())
                         shared_resources->progress_worker();
 
@@ -1096,12 +1123,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             };
             auto packed_listener_address =
                 control_pack(ControlMessage::RegisterListenerAddress, listener_address);
-            auto req = endpoint->amSend(
-                packed_listener_address->data(),
-                packed_listener_address->size(),
-                UCS_MEMORY_TYPE_HOST,
-                shared_resources->get_control_callback_info()
-            );
+            auto req =
+                endpoint
+                    ->amSendBuilder(
+                        packed_listener_address->data(),
+                        packed_listener_address->size(),
+                        UCS_MEMORY_TYPE_HOST
+                    )
+                    .receiverCallbackInfo(shared_resources->get_control_callback_info())
+                    .build();
             while (!req->isCompleted())
                 shared_resources->progress_worker();
         }
@@ -1116,7 +1146,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
         // Create listener
         shared_resources->register_listener(
-            worker->createListener(0, listener_callback, shared_resources.get())
+            worker->listenerBuilder(0, listener_callback, shared_resources.get()).build()
         );
         auto listener = shared_resources->get_listener();
 
@@ -1209,17 +1239,20 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         auto endpoint = std::visit(
             overloaded{
                 [this](HostPortPair const& remote_address) {
-                    return shared_resources_->get_worker()->createEndpointFromHostname(
-                        remote_address.first,
-                        remote_address.second,
-                        shared_resources_->endpoint_error_handling()
-                    );
+                    return shared_resources_->get_worker()
+                        ->endpointBuilder(remote_address.first, remote_address.second)
+                        .endpointErrorHandling(
+                            shared_resources_->endpoint_error_handling()
+                        )
+                        .build();
                 },
                 [this](std::shared_ptr<::ucxx::Address> const& remote_address) {
                     return shared_resources_->get_worker()
-                        ->createEndpointFromWorkerAddress(
-                            remote_address, shared_resources_->endpoint_error_handling()
-                        );
+                        ->endpointBuilder(remote_address)
+                        .endpointErrorHandling(
+                            shared_resources_->endpoint_error_handling()
+                        )
+                        .build();
                 }
             },
             listener_address.address
@@ -1236,11 +1269,13 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
-    auto req = get_endpoint(rank)->tagSend(
-        msg->data(),
-        msg->size(),
-        tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
-    );
+    auto req = get_endpoint(rank)
+                   ->tagSendBuilder(
+                       msg->data(),
+                       msg->size(),
+                       tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
+                   )
+                   .build();
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -1249,9 +1284,12 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
-    auto req = get_endpoint(rank)->tagSend(
-        msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
-    );
+    auto req =
+        get_endpoint(rank)
+            ->tagSendBuilder(
+                msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
+            )
+            .build();
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -1264,12 +1302,14 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     RAPIDSMPF_EXPECTS(
         recv_buffer->is_latest_write_done(), "msg must be ready", std::logic_error
     );
-    auto req = get_endpoint(rank)->tagRecv(
-        recv_buffer->exclusive_data_access(),
-        recv_buffer->size,
-        tag_with_rank(rank, tag),
-        ::ucxx::TagMaskFull
-    );
+    auto req = get_endpoint(rank)
+                   ->tagRecvBuilder(
+                       recv_buffer->exclusive_data_access(),
+                       recv_buffer->size,
+                       tag_with_rank(rank, tag),
+                       ::ucxx::TagMaskFull
+                   )
+                   .build();
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
@@ -1279,12 +1319,14 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
     RAPIDSMPF_EXPECTS(
         synced_buffer != nullptr, "recv host buffer cannot be null", std::invalid_argument
     );
-    auto req = get_endpoint(rank)->tagRecv(
-        synced_buffer->data(),
-        synced_buffer->size(),
-        tag_with_rank(rank, tag),
-        ::ucxx::TagMaskFull
-    );
+    auto req = get_endpoint(rank)
+                   ->tagRecvBuilder(
+                       synced_buffer->data(),
+                       synced_buffer->size(),
+                       tag_with_rank(rank, tag),
+                       ::ucxx::TagMaskFull
+                   )
+                   .build();
     return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
@@ -1303,7 +1345,9 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag t
         info.length
     );  // TODO: choose between host and device
 
-    auto req = shared_resources_->get_worker()->tagRecvWithHandle(msg->data(), probe);
+    auto req = shared_resources_->get_worker()
+                   ->tagRecvWithHandleBuilder(msg->data(), probe)
+                   .build();
 
     while (!req->isCompleted()) {
         progress_worker();
@@ -1327,7 +1371,9 @@ std::unique_ptr<std::vector<std::uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
         info.length
     );  // TODO: choose between host and device
 
-    auto req = shared_resources_->get_worker()->tagRecvWithHandle(msg->data(), probe);
+    auto req = shared_resources_->get_worker()
+                   ->tagRecvWithHandleBuilder(msg->data(), probe)
+                   .build();
 
     while (!req->isCompleted()) {
         progress_worker();
@@ -1498,7 +1544,7 @@ std::shared_ptr<UCXX> UCXX::split() {
     auto context = shared_resources_->get_context();
 
     // Create a new worker using the same context
-    auto worker = context->createWorker(false);
+    auto worker = context->workerBuilder().build();
     worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
     worker->startProgressThread(true);
 
@@ -1509,7 +1555,7 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create listener
     shared_resources->register_listener(
-        worker->createListener(0, listener_callback, shared_resources.get())
+        worker->listenerBuilder(0, listener_callback, shared_resources.get()).build()
     );
 
     // Set up control callback
