@@ -4,10 +4,40 @@
  */
 #pragma once
 
+#include <utility>
+
 #include <gtest/gtest.h>
 #include <mpi.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/statistics.hpp>
+
+class ClearedStatistics {
+  public:
+    explicit ClearedStatistics(std::shared_ptr<rapidsmpf::Statistics> statistics)
+        : statistics_{std::move(statistics)}, was_enabled_{statistics_->enabled()} {
+        statistics_->clear();
+        statistics_->enable();
+    }
+
+    ~ClearedStatistics() {
+        statistics_->clear();
+        if (!was_enabled_) {
+            statistics_->disable();
+        }
+    }
+
+    ClearedStatistics(ClearedStatistics const&) = delete;
+    ClearedStatistics& operator=(ClearedStatistics const&) = delete;
+
+    [[nodiscard]] rapidsmpf::Statistics* operator->() const noexcept {
+        return statistics_.get();
+    }
+
+  private:
+    std::shared_ptr<rapidsmpf::Statistics> statistics_;
+    bool was_enabled_;
+};
 
 enum class TestEnvironmentType : int {
     MPI,
