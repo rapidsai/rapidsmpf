@@ -67,8 +67,7 @@ html_theme_options = {
 # a list of builtin themes.
 #
 
-html_theme = "pydata_sphinx_theme"
-html_logo = "_static/RAPIDS-logo-purple.png"
+html_theme = "nvidia_sphinx_theme"
 
 numpydoc_class_members_toctree = False
 
