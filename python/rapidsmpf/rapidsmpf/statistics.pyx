@@ -164,6 +164,12 @@ cdef class Statistics:
         with nogil:
             self._handle = cpp_create(enable)
 
+    @staticmethod
+    cdef Statistics from_handle(shared_ptr[cpp_Statistics] handle):
+        cdef Statistics obj = Statistics.__new__(Statistics)
+        obj._handle = handle
+        return obj
+
     @classmethod
     def from_options(cls, Options options not None):
         """

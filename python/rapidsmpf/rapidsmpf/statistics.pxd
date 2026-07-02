@@ -60,6 +60,10 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
 
+    @staticmethod
+    cdef Statistics from_handle(shared_ptr[cpp_Statistics] handle)
+
+
 cdef class MemoryRecorder:
     cdef unique_ptr[cpp_MemoryRecorder] _handle
     cdef Statistics _stats
