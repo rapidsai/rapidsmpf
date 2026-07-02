@@ -73,7 +73,7 @@ std::shared_ptr<UCXX> init_using_mpi(
 
     if (rank != 0) {
         auto root_worker_address =
-            ::ucxx::createAddressFromString(root_worker_address_str);
+            ::ucxx::AddressBuilder(root_worker_address_str).build();
         auto ucxx_initialized_rank = init(nullptr, nranks, root_worker_address, options);
         comm = std::make_shared<UCXX>(
             std::move(ucxx_initialized_rank), options, progress_thread
