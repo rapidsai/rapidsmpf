@@ -10,13 +10,15 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 from __future__ import annotations
 
+import datetime
+
 from enum import IntEnum, IntFlag
 from typing import Any
 
 from sphinx.ext.autodoc import ClassDocumenter
 
-project = "rapidsmpf"
-copyright = "2025-2026, NVIDIA Corporation"
+project = "NVIDIA RapidsMPF"
+copyright = f"2025-{datetime.datetime.today().year}, NVIDIA Corporation"
 author = "NVIDIA Corporation"
 
 # -- General configuration ---------------------------------------------------
