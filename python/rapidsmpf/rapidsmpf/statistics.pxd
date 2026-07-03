@@ -29,7 +29,9 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         # it's an internal implementation detail not meant for Python callers.
 
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
-        bool enabled() except +ex_handler
+        bool enabled() noexcept
+        void enable() noexcept
+        void disable() noexcept
         void add_stat(
             string name,
             double value

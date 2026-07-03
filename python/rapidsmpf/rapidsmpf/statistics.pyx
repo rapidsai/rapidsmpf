@@ -223,6 +223,18 @@ cdef class Statistics:
         """
         return deref(self._handle).enabled()
 
+    def enable(self):
+        """
+        Enable statistics tracking on this instance.
+        """
+        return deref(self._handle).enable()
+
+    def disable(self):
+        """
+        Disable statistics tracking on this instance.
+        """
+        return deref(self._handle).disable()
+
     def report(
         self,
         *,
