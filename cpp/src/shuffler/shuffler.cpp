@@ -87,13 +87,10 @@ class Shuffler::Progress {
      */
     ProgressThread::ProgressState operator()() {
         RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("Shuffler.Progress", p_iters++);
-        auto const t0_event_loop = Clock::now();
-
         auto const& stats = shuffler_.comm_->progress_thread()->statistics();
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto const t0_submit_outgoing = Clock::now();
             auto ready_chunks = shuffler_.to_send_.extract_ready();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
@@ -123,14 +120,10 @@ class Shuffler::Progress {
 
                 shuffler_.mpe_->send(std::move(messages));
             }
-            stats->add_duration_stat(
-                "event-loop-submit-outgoing", Clock::now() - t0_submit_outgoing
-            );
         }
 
         // Process all communication operations and get completed chunks
         {
-            auto const t0_process_comm = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("process_communication");
 
             shuffler_.mpe_->progress();
@@ -154,13 +147,7 @@ class Shuffler::Progress {
 
                 shuffler_.insert_into_received(std::move(chunk));
             }
-
-            stats->add_duration_stat(
-                "event-loop-process-communication", Clock::now() - t0_process_comm
-            );
         }
-
-        stats->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
         // Signal the MPE that no more messages will be sent once all application
         // messages have been flushed from to_send_ into the MPE.
