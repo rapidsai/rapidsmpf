@@ -14,8 +14,14 @@ This table gives an overview of the different statistics collected.
 | `event-loop-post-incoming-chunk-recv` | Time spent posting receive buffers for incoming chunk data. |
 | `event-loop-total` | Time spent in one Shuffler event-loop iteration. |
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
-| `shuffle-payload-recv` | Shuffle data received by this rank, including self-transfers. |
-| `shuffle-payload-send` | Shuffle data sent from this rank, including self-transfers. |
+| `shuffle-payload-recv` | Shuffle data received by this rank, excluding self-transfers. |
+| `shuffle-payload-send` | Shuffle data sent from this rank, excluding self-transfers. |
+| `allgather-payload-recv` | AllGather data received by this rank, excluding self-transfers. |
+| `allgather-payload-send` | AllGather data sent from this rank, excluding self-transfers. |
+| `sparsealltoall-payload-recv` | SparseAlltoall data received by this rank, excluding self-transfers. |
+| `sparsealltoall-payload-send` | SparseAlltoall data sent from this rank, excluding self-transfers. |
+| `allreduce-payload-recv` | AllReduce data received by this rank, excluding self-transfers. |
+| `allreduce-payload-send` | AllReduce data sent from this rank, excluding self-transfers. |
 
 Statistics are available in both C++ and [Python](#api-statistics).
 

@@ -12,6 +12,11 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/statistics.hpp>
 
+/// @brief Statistics wrapper that clears statistics counters on construction and
+/// destruction
+///
+/// Use this if you want to track statistics for a single test from the shared
+/// communicator stats object.
 class ClearedStatistics {
   public:
     explicit ClearedStatistics(std::shared_ptr<rapidsmpf::Statistics> statistics)
