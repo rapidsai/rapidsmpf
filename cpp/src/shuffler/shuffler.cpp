@@ -87,13 +87,10 @@ class Shuffler::Progress {
      */
     ProgressThread::ProgressState operator()() {
         RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("Shuffler.Progress", p_iters++);
-        auto const t0_event_loop = Clock::now();
-
-        auto& stats = *shuffler_.statistics_;
+        auto const& stats = shuffler_.comm_->progress_thread()->statistics();
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto const t0_submit_outgoing = Clock::now();
             auto ready_chunks = shuffler_.to_send_.extract_ready();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
@@ -114,7 +111,7 @@ class Shuffler::Progress {
 
                 for (auto const& chunk : ready_chunks) {
                     if (chunk.data_size() > 0) {
-                        stats.add_bytes_stat("shuffle-payload-send", chunk.data_size());
+                        stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
                     }
                 }
 
@@ -123,14 +120,10 @@ class Shuffler::Progress {
 
                 shuffler_.mpe_->send(std::move(messages));
             }
-            stats.add_duration_stat(
-                "event-loop-submit-outgoing", Clock::now() - t0_submit_outgoing
-            );
         }
 
         // Process all communication operations and get completed chunks
         {
-            auto const t0_process_comm = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("process_communication");
 
             shuffler_.mpe_->progress();
@@ -149,18 +142,12 @@ class Shuffler::Progress {
                 );
 
                 if (chunk.data_size() > 0) {
-                    stats.add_bytes_stat("shuffle-payload-recv", chunk.data_size());
+                    stats->add_bytes_stat("shuffle-payload-recv", chunk.data_size());
                 }
 
                 shuffler_.insert_into_received(std::move(chunk));
             }
-
-            stats.add_duration_stat(
-                "event-loop-process-communication", Clock::now() - t0_process_comm
-            );
         }
-
-        stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
         // Signal the MPE that no more messages will be sent once all application
         // messages have been flushed from to_send_ into the MPE.
@@ -249,13 +236,12 @@ Shuffler::Shuffler(
                             br_->reserve_or_fail(size, MEMORY_TYPES)
                         );
                     },
-                    br_->statistics()
+                    comm_->progress_thread()->statistics()
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
-      statistics_{br_->statistics()},
       finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
@@ -328,10 +314,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     }
     if (dst_rank == comm_->rank()) {
         // this is a local chunk, so we can move it straight to received.
-        if (chunk.is_data_buffer_set()) {
-            statistics_->add_bytes_stat("shuffle-payload-send", chunk.data_size());
-            statistics_->add_bytes_stat("shuffle-payload-recv", chunk.data_size());
-        }
         insert_into_received(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to send it

@@ -59,8 +59,12 @@ AllReduce::AllReduce(
     out_buffer_->rebind_stream(in_buffer_->stream());
     // Note: after this copy, we must check out_buffer's write event before receiving into
     // in_buffer. See StartPreRemainder in the event loop.
-    // TODO: make Communicator statistics-aware, and pass its statistics instance here.
-    buffer_copy(Statistics::disabled(), *out_buffer_, *in_buffer_, in_buffer_->size);
+    buffer_copy(
+        comm_->progress_thread()->statistics(),
+        *out_buffer_,
+        *in_buffer_,
+        in_buffer_->size
+    );
 
     auto const rank = comm_->rank();
     if (rank < 2 * non_pow2_remainder_) {
@@ -134,6 +138,7 @@ bool AllReduce::is_ready() const noexcept {
 ProgressThread::ProgressState AllReduce::event_loop() {
     Rank const rank = comm_->rank();
     bool const is_even = rank % 2 == 0;
+    auto const& statistics = comm_->progress_thread()->statistics();
     // We only need a single stage ID because of no-message-overtaking guarantees in the
     // communicator. We could use multiple stage IDs for each round of the exchange, but
     // that would break once we have more than 256 participating ranks: there are only
@@ -173,6 +178,7 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
+                statistics->add_bytes_stat("allreduce-payload-send", out_buffer_->size);
                 send_future_ = comm_->send(std::move(out_buffer_), rank + 1, tag);
             } else {
                 // The constructor copies in_buffer_ to out_buffer_ on in_buffer's
@@ -186,6 +192,7 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 {
                     break;
                 }
+                statistics->add_bytes_stat("allreduce-payload-recv", in_buffer_->size);
                 recv_future_ = comm_->recv(rank - 1, tag, std::move(in_buffer_));
             }
             phase_.store(Phase::CompletePreRemainder, std::memory_order_release);
@@ -237,7 +244,9 @@ ProgressThread::ProgressState AllReduce::event_loop() {
             {
                 break;
             }
+            statistics->add_bytes_stat("allreduce-payload-recv", in_buffer_->size);
             recv_future_ = comm_->recv(stage_partner_, tag, std::move(in_buffer_));
+            statistics->add_bytes_stat("allreduce-payload-send", out_buffer_->size);
             send_future_ = comm_->send(std::move(out_buffer_), stage_partner_, tag);
             phase_.store(Phase::CompleteButterfly, std::memory_order_release);
             break;
@@ -269,11 +278,13 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                 if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
+                statistics->add_bytes_stat("allreduce-payload-recv", out_buffer_->size);
                 recv_future_ = comm_->recv(rank + 1, tag, std::move(out_buffer_));
             } else {
                 if (!out_buffer_->is_latest_write_done()) {
                     break;
                 }
+                statistics->add_bytes_stat("allreduce-payload-send", out_buffer_->size);
                 send_future_ = comm_->send(std::move(out_buffer_), rank - 1, tag);
             }
             phase_.store(Phase::CompletePostRemainder, std::memory_order_release);
