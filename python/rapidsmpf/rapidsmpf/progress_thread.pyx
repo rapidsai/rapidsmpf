@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The ProgressThread interface for RapidsMPF."""
 
+from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_shared
 
 from rapidsmpf.statistics cimport Statistics
@@ -40,3 +41,15 @@ cdef class ProgressThread:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @property
+    def statistics(self):
+        """
+        The statistics object for this progress thread.
+
+        Returns
+        -------
+        Statistics
+           The statistics.
+        """
+        return Statistics.from_handle(deref(self._handle).statistics())

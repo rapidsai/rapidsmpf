@@ -160,6 +160,42 @@ TEST_P(AllGatherTest, basic_allgather) {
     }
 }
 
+TEST_F(BaseAllGatherTest, payload_statistics) {
+    auto const& comm = GlobalEnvironment->comm_;
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    constexpr int n_elements = 7;
+    constexpr int n_inserts = 3;
+
+    AllGather allgather{comm, 0, br.get()};
+    for (int i = 0; i < n_inserts; ++i) {
+        allgather.insert(
+            i, generate_packed_data(n_elements, gen_offset(i, comm->rank()), stream, *br)
+        );
+    }
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30});
+    EXPECT_EQ(results.size(), static_cast<std::size_t>(n_inserts * comm->nranks()));
+
+    auto const expected_count =
+        static_cast<std::size_t>(n_inserts * (comm->nranks() - 1));
+    if (expected_count == 0) {
+        EXPECT_THROW(statistics->get_stat("allgather-payload-send"), std::out_of_range);
+        EXPECT_THROW(statistics->get_stat("allgather-payload-recv"), std::out_of_range);
+    } else {
+        auto const expected_message_size = n_elements * sizeof(int);
+        auto const expected_bytes = expected_count * expected_message_size;
+        auto const send = statistics->get_stat("allgather-payload-send");
+        auto const recv = statistics->get_stat("allgather-payload-recv");
+        EXPECT_EQ(send.count(), expected_count);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), expected_message_size);
+        EXPECT_EQ(recv.count(), expected_count);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), expected_message_size);
+    }
+}
+
 class AllGatherOrderedTest : public BaseAllGatherTest,
                              public ::testing::WithParamInterface<AllGather::Ordered> {};
 
