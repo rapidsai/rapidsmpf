@@ -364,6 +364,53 @@ TEST_P(MemoryLimits_NumPartition, round_trip) {
     );
 }
 
+TEST(Shuffler, payload_statistics) {
+    auto const& comm = GlobalEnvironment->comm_;
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+    constexpr int n_elements = 7;
+
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        auto const offset =
+            static_cast<int>(comm->rank()) * static_cast<int>(total_num_partitions)
+            + static_cast<int>(pid);
+        chunks.emplace(
+            pid, generate_packed_data(n_elements, offset, rmm::cuda_stream_default, *br)
+        );
+    }
+    shuffler.insert(std::move(chunks));
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    auto const local_pid =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->rank());
+    EXPECT_EQ(
+        shuffler.extract(local_pid).size(), static_cast<std::size_t>(comm->nranks())
+    );
+
+    auto const expected_count = static_cast<std::size_t>(comm->nranks() - 1);
+    if (expected_count == 0) {
+        EXPECT_THROW(statistics->get_stat("shuffle-payload-send"), std::out_of_range);
+        EXPECT_THROW(statistics->get_stat("shuffle-payload-recv"), std::out_of_range);
+    } else {
+        auto const expected_message_size = n_elements * sizeof(int);
+        auto const expected_bytes = expected_count * expected_message_size;
+        auto const send = statistics->get_stat("shuffle-payload-send");
+        auto const recv = statistics->get_stat("shuffle-payload-recv");
+        EXPECT_EQ(send.count(), expected_count);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), expected_message_size);
+        EXPECT_EQ(recv.count(), expected_count);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), expected_message_size);
+    }
+}
+
 // Test that the same communicator can be used concurrently by multiple shufflers in
 // separate threads
 class ConcurrentShuffleTest : public ::testing::TestWithParam<
