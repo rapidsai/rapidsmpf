@@ -18,6 +18,8 @@ cdef extern from "<rapidsmpf/progress_thread.hpp>" nogil:
             shared_ptr[cpp_Statistics] statistics,
         ) except +ex_handler
 
+        shared_ptr[cpp_Statistics] statistics()
+
 
 cdef class ProgressThread:
     cdef shared_ptr[cpp_ProgressThread] _handle

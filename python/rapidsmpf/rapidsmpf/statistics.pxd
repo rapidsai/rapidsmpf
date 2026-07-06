@@ -29,7 +29,9 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         # it's an internal implementation detail not meant for Python callers.
 
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
-        bool enabled() except +ex_handler
+        bool enabled() noexcept
+        void enable() noexcept
+        void disable() noexcept
         void add_stat(
             string name,
             double value
@@ -59,6 +61,10 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
+
+    @staticmethod
+    cdef Statistics from_handle(shared_ptr[cpp_Statistics] handle)
+
 
 cdef class MemoryRecorder:
     cdef unique_ptr[cpp_MemoryRecorder] _handle

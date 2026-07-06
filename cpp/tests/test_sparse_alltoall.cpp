@@ -209,6 +209,50 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
     }
 }
 
+TEST_F(SparseAlltoallTest, payload_statistics) {
+    auto const& comm = GlobalEnvironment->comm_;
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    auto [srcs, dsts] = ring_peers(comm);
+    constexpr int n_messages = 3;
+
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
+    if (!dsts.empty()) {
+        for (int i = 0; i < n_messages; ++i) {
+            exchange.insert(
+                dsts.front(),
+                make_payload(
+                    i,
+                    comm->rank() * 100 + i,
+                    rapidsmpf::MemoryType::HOST,
+                    *br,
+                    br->stream_pool()->get_stream()
+                )
+            );
+        }
+    }
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+
+    if (comm->nranks() == 1) {
+        EXPECT_THROW(
+            statistics->get_stat("sparsealltoall-payload-send"), std::out_of_range
+        );
+        EXPECT_THROW(
+            statistics->get_stat("sparsealltoall-payload-recv"), std::out_of_range
+        );
+    } else {
+        auto const expected_bytes = n_messages * sizeof(int);
+        auto const send = statistics->get_stat("sparsealltoall-payload-send");
+        auto const recv = statistics->get_stat("sparsealltoall-payload-recv");
+        EXPECT_EQ(send.count(), n_messages);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), sizeof(int));
+        EXPECT_EQ(recv.count(), n_messages);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), sizeof(int));
+    }
+}
+
 TEST_F(SparseAlltoallTest, zero_message_edge_and_callback) {
     auto const& comm = GlobalEnvironment->comm_;
     auto [srcs, dsts] = ring_peers(comm);
