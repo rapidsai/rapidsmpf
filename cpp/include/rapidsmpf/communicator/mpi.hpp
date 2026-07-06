@@ -120,12 +120,14 @@ class MPI final : public Communicator {
      * @brief Construct an MPI communicator.
      *
      * @param comm The MPI communicator to be used for communication.
-     * @param options Configuration options.
      * @param progress_thread Progress thread for this communicator.
+     * @param logger Externally provided logger. Must be non-null. The
+     * communicator will overwrite the logger's rank to the rank reported by
+     * `MPI_Comm_rank` on @p comm.
      */
     MPI(MPI_Comm comm,
-        config::Options options,
-        std::shared_ptr<ProgressThread> progress_thread);
+        std::shared_ptr<ProgressThread> progress_thread,
+        std::shared_ptr<Logger> logger);
 
     ~MPI() noexcept override = default;
 
@@ -245,7 +247,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::logger
      */
-    [[nodiscard]] std::shared_ptr<Communicator::Logger> const& logger() override {
+    [[nodiscard]] std::shared_ptr<Logger> const& logger() override {
         return logger_;
     }
 

@@ -6,6 +6,7 @@ from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.config cimport cpp_Options
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
@@ -15,11 +16,13 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
     cdef const bint COMM_HAVE_UCXX
     cdef const bint COMM_HAVE_MPI
 
-cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
-    cdef cppclass cpp_Logger "rapidsmpf::Communicator::Logger":
+cdef extern from "<rapidsmpf/communicator/logger.hpp>" nogil:
+    cdef cppclass cpp_Logger "rapidsmpf::Logger":
+        @staticmethod
+        shared_ptr[cpp_Logger] from_options(cpp_Options options) except +ex_handler
         void log[T](LOG_LEVEL, T msg) except +ex_handler
         LOG_LEVEL verbosity_level() except +ex_handler
-    cpdef enum class LOG_LEVEL "rapidsmpf::Communicator::Logger::LOG_LEVEL"(int):
+    cpdef enum class LOG_LEVEL "rapidsmpf::Logger::LOG_LEVEL"(int):
         NONE
         PRINT
         WARN
