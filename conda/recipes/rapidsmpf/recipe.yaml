@@ -100,9 +100,6 @@ requirements:
     - ucxx ${{ ucxx_version }}
   run:
     - cuda-cupti
-    - if: cuda_major == "12"
-      then: cuda-python >=12.9.2,<13.0
-      else: cuda-python >=13.0.1,<14.0
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
     - librapidsmpf =${{ version }}
     - mpi4py

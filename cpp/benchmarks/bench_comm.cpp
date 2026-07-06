@@ -291,6 +291,7 @@ int main(int argc, char** argv) {
     // We'll only measure the last run, so start disabled.
     auto stats = rapidsmpf::Statistics::disabled();
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
+    auto logger = rapidsmpf::Logger::from_options(options);
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
@@ -299,17 +300,18 @@ int main(int argc, char** argv) {
             return 1;
         }
         mpi::init(&argc, &argv);
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, progress_thread, logger);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm =
-                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
+            comm = rapidsmpf::ucxx::init_using_mpi(
+                MPI_COMM_WORLD, options, progress_thread, logger
+            );
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;

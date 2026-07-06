@@ -8,6 +8,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <utility>
 
 #include <ucxx/request.h>
@@ -144,7 +145,12 @@ class SharedResources {
     };  ///< Whether the root has already broadcast all listener addresses
 
   public:
-    UCXX::Logger* logger{nullptr};  ///< UCXX logger
+    std::shared_ptr<Logger> logger;  ///< UCXX logger. Initialized from the
+                                     ///< configuration options so logging is
+                                     ///< available before the owning `UCXX`
+                                     ///< instance is constructed; the `UCXX`
+                                     ///< constructor may later override it.
+    config::Options const options;
 
     /**
      * @brief Construct UCXX shared resources.
@@ -155,9 +161,19 @@ class SharedResources {
      * @param worker The UCXX worker, or nullptr to create one internally.
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
+     * @param options Configuration options.
      */
-    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
-        : worker_{std::move(worker)}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
+    SharedResources(
+        std::shared_ptr<::ucxx::Worker> worker,
+        bool root,
+        Rank nranks,
+        config::Options options
+    )
+        : worker_{std::move(worker)},
+          rank_{Rank(root ? 0 : -1)},
+          nranks_{nranks},
+          logger{Logger::from_options(options)},
+          options{std::move(options)} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
@@ -1000,8 +1016,9 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         if (worker == nullptr) {
             worker = create_worker();
         }
-        auto shared_resources =
-            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, false, nranks);
+        auto shared_resources = std::make_shared<rapidsmpf::ucxx::SharedResources>(
+            worker, false, nranks, std::move(options)
+        );
 
         // Create listener
         shared_resources->register_listener(
@@ -1123,8 +1140,9 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         if (worker == nullptr) {
             worker = create_worker();
         }
-        auto shared_resources =
-            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, true, nranks);
+        auto shared_resources = std::make_shared<rapidsmpf::ucxx::SharedResources>(
+            worker, true, nranks, std::move(options)
+        );
 
         // Create listener
         shared_resources->register_listener(
@@ -1157,14 +1175,18 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
 UCXX::UCXX(
     std::unique_ptr<InitializedRank> ucxx_initialized_rank,
-    config::Options options,
-    std::shared_ptr<ProgressThread> progress_thread
+    std::shared_ptr<ProgressThread> progress_thread,
+    std::shared_ptr<Logger> logger
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
-      options_{std::move(options)},
-      logger_{std::make_shared<Logger>(shared_resources_->rank(), options_)},
       progress_thread_{std::move(progress_thread)} {
-    shared_resources_->logger = logger_.get();
+    RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
+    shared_resources_->logger = std::move(logger);
+    shared_resources_->logger->set_name(std::to_string(shared_resources_->rank()));
+}
+
+std::shared_ptr<Logger> const& UCXX::logger() {
+    return shared_resources_->logger;
 }
 
 [[nodiscard]] Rank UCXX::rank() const {
@@ -1504,7 +1526,6 @@ UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
-    shared_resources_->logger = nullptr;
 }
 
 void UCXX::progress_worker() {
@@ -1527,8 +1548,10 @@ std::shared_ptr<UCXX> UCXX::split() {
     worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
     worker->startProgressThread(true);
 
-    // Create new shared resources with nranks=1
-    auto shared_resources = std::make_shared<SharedResources>(worker, true, 1);
+    // Create new shared resources with nranks=1. We pass the parent's options
+    // along so that the new communicator can also be split later.
+    auto shared_resources =
+        std::make_shared<SharedResources>(worker, true, 1, shared_resources_->options);
 
     // Create listener
     shared_resources->register_listener(
@@ -1546,10 +1569,15 @@ std::shared_ptr<UCXX> UCXX::split() {
         shared_resources->get_control_callback_info(), control_callback
     );
 
-    // Create the new UCXX instance
+    // Create the new UCXX instance with its own logger. We deliberately do not
+    // share the parent's logger because the split rank is logically rank 0 in
+    // the new communicator. The fresh logger is built from the options the
+    // parent's `SharedResources` was constructed with.
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
     return std::make_shared<UCXX>(
-        std::move(initialized_rank), options_, progress_thread_
+        std::move(initialized_rank),
+        progress_thread_,
+        Logger::from_options(shared_resources_->options)
     );
 }
 
