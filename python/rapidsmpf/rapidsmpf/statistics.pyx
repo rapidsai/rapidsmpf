@@ -164,6 +164,12 @@ cdef class Statistics:
         with nogil:
             self._handle = cpp_create(enable)
 
+    @staticmethod
+    cdef Statistics from_handle(shared_ptr[cpp_Statistics] handle):
+        cdef Statistics obj = Statistics.__new__(Statistics)
+        obj._handle = handle
+        return obj
+
     @classmethod
     def from_options(cls, Options options not None):
         """
@@ -216,6 +222,18 @@ cdef class Statistics:
         True if statistics is enabled, otherwise False.
         """
         return deref(self._handle).enabled()
+
+    def enable(self):
+        """
+        Enable statistics tracking on this instance.
+        """
+        return deref(self._handle).enable()
+
+    def disable(self):
+        """
+        Disable statistics tracking on this instance.
+        """
+        return deref(self._handle).disable()
 
     def report(
         self,
@@ -472,7 +490,9 @@ cdef class Statistics:
         Examples
         --------
         >>> import rmm
-        >>> mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+        >>> from rapidsmpf.memory.buffer_resource import BufferResource
+        >>> br = BufferResource(rmm.mr.CudaMemoryResource())
+        >>> mr = br.device_mr_adaptor()
         >>> stats = Statistics(enable=True)
         >>> with stats.memory_profiling(mr, "outer"):
         ...     b1 = rmm.DeviceBuffer(size=1024, mr=mr)

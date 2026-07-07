@@ -11,13 +11,13 @@ from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rapidsmpf.utils.memory import check_reservation_size
+
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
-                                         device_async_resource_ref,
-                                         make_any_device_resource)
+                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -46,24 +46,8 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.statistics cimport Statistics
-
-
-cdef extern from *:
-    """
-    // Helper function to create a non-owning shared_ptr from a raw pointer
-    // The Python object retains ownership via its unique_ptr
-    std::shared_ptr<rmm::cuda_stream_pool> make_non_owning_stream_pool_ref(
-        rmm::cuda_stream_pool* ptr
-    ) {
-        return std::shared_ptr<rmm::cuda_stream_pool>(
-            ptr, [](rmm::cuda_stream_pool*){}
-        );
-    }
-    """
-    shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
-        cuda_stream_pool* ptr
-    ) except +ex_handler
 
 
 cdef extern from * nogil:
@@ -182,7 +166,7 @@ cdef class BufferResource:
         PinnedMemoryResource pinned_mr = None,
         memory_limits = None,
         periodic_spill_check = 1e-3,
-        stream_pool = None,
+        CudaStreamPool stream_pool = None,
         statistics = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
@@ -193,30 +177,13 @@ cdef class BufferResource:
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
 
-        # Handle stream pool parameter
         # If None, create a default pool with 16 streams
         if stream_pool is None:
             stream_pool = CudaStreamPool(
                 pool_size=16,
                 flags=CudaStreamFlags.NON_BLOCKING,
             )
-
-        if not isinstance(stream_pool, CudaStreamPool):
-            raise TypeError(
-                f"stream_pool must be an instance of CudaStreamPool, "
-                f"got {type(stream_pool)}"
-            )
-
-        # Keep the Python stream pool alive
         self._stream_pool = stream_pool
-        # Get raw pointer from the unique_ptr and create a non-owning shared_ptr
-        # The Python object keeps ownership via unique_ptr, so we use a no-op deleter
-        cdef shared_ptr[cuda_stream_pool] cpp_stream_pool = (
-            make_non_owning_stream_pool_ref(
-                (<CudaStreamPool>stream_pool).c_obj.get()
-            )
-        )
-
         if statistics is None:
             statistics = Statistics(enable=False)
 
@@ -227,8 +194,8 @@ cdef class BufferResource:
 
         # Keep the original Python memory resources alive while the C++
         # BufferResource holds resources derived from them. These anchors are
-        # likely redundant: `make_any_device_resource(...)` deep-copies the
-        # device MR into a self-sufficient owning any_resource, and
+        # likely redundant: `any_resource[device_accessible](...)` deep-copies
+        # the device MR into a self-sufficient owning any_resource, and
         # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
         # defensively for now.
         # TODO: drop these once verified against pool/upstream-adaptor MRs.
@@ -240,11 +207,11 @@ cdef class BufferResource:
             cpp_pinned_mr = self._pinned_mr._handle
         with nogil:
             self._handle = cpp_BufferResource.create(
-                make_any_device_resource(device_mr.get_mr()),
+                any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_mr,
                 move(_mem_limits),
                 period,
-                cpp_stream_pool,
+                stream_pool.c_obj,
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
@@ -254,7 +221,7 @@ cdef class BufferResource:
         cls,
         DeviceMemoryResource mr not None,
         Options options not None,
-        statistics=None,
+        Statistics statistics=None,
     ):
         """
         Construct a BufferResource from configuration options.
@@ -310,8 +277,16 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
-    cdef const cuda_stream_pool* stream_pool(self):
-        return &deref(self._handle).stream_pool()
+    @property
+    def stream_pool(self):
+        """
+        The stream pool associated with this buffer resource.
+
+        Returns
+        -------
+        An RMM CudaStreamPool.
+        """
+        return self._stream_pool
 
     @property
     def device_mr(self):
@@ -326,8 +301,28 @@ cdef class BufferResource:
         The tracked device memory resource.
         """
         return OwningDeviceMemoryResource._create(
-            make_any_device_resource(deref(self._handle).device_mr())
+            any_resource[device_accessible](deref(self._handle).device_mr())
         )
+
+    cpdef RmmResourceAdaptor device_mr_adaptor(self):
+        """
+        The internal device memory resource adaptor with a back-reference installed.
+
+        Returns a copyable ``RmmResourceAdaptor`` that holds shared ownership of this
+        ``BufferResource``, keeping it alive for as long as the returned adaptor (or
+        any copies of it) lives.
+
+        This is the only way to obtain an ``RmmResourceAdaptor``; use it when you need
+        to pass one to APIs that copy the adaptor, such as
+        :meth:`~rapidsmpf.statistics.Statistics.memory_profiling` or
+        :meth:`~rapidsmpf.statistics.Statistics.report`.
+
+        Returns
+        -------
+        A back-ref'd ``RmmResourceAdaptor`` whose copies keep this ``BufferResource``
+        alive.
+        """
+        return RmmResourceAdaptor._from_cpp(deref(self._handle).device_mr_adaptor())
 
     @property
     def pinned_mr(self):
@@ -422,6 +417,7 @@ cdef class BufferResource:
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
+        check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
         with nogil:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
@@ -457,6 +453,7 @@ cdef class BufferResource:
             If overbooking is disabled and the buffer resource cannot free enough
             device memory through spilling to satisfy the request.
         """
+        check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
@@ -491,6 +488,7 @@ cdef class BufferResource:
         RuntimeError
             If no memory type in ``mem_types`` could satisfy the reservation.
         """
+        check_reservation_size(size)
         cdef vector[MemoryType] cpp_mem_types
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
@@ -525,17 +523,6 @@ cdef class BufferResource:
         with nogil:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
-
-    def stream_pool_size(self) -> int:
-        """
-        Get the size of the stream pool.
-
-        Returns
-        -------
-        int
-            The size of the stream pool.
-        """
-        return self.stream_pool().get_pool_size()
 
     @property
     def statistics(self):

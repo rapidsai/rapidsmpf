@@ -46,8 +46,11 @@ std::string hex_encode(std::string_view input) {
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
     std::shared_ptr<ProgressThread> progress_thread,
     BackendType type,
-    config::Options options
+    config::Options options,
+    std::shared_ptr<Logger> logger
 ) {
+    RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
+
     auto ctx = init(type);
 
     // Ensure CUDA context is created before UCX is initialized
@@ -62,7 +65,9 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, std::nullopt, options);
         comm = std::make_shared<ucxx::UCXX>(
-            std::move(ucxx_initialized_rank), options, progress_thread
+            std::move(ucxx_initialized_rank),
+            std::move(progress_thread),
+            std::move(logger)
         );
 
         auto listener_address = comm->listener_address();
@@ -106,12 +111,14 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
         auto root_worker_address_str =
             get(ctx, "ucxx_root_address", std::chrono::seconds{30});
         auto root_worker_address =
-            ::ucxx::createAddressFromString(root_worker_address_str);
+            ::ucxx::AddressBuilder(root_worker_address_str).build();
 
         auto ucxx_initialized_rank =
             ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
         comm = std::make_shared<ucxx::UCXX>(
-            std::move(ucxx_initialized_rank), options, progress_thread
+            std::move(ucxx_initialized_rank),
+            std::move(progress_thread),
+            std::move(logger)
         );
     }
 

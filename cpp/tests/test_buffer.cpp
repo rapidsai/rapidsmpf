@@ -12,10 +12,10 @@
 
 #include <cuda/memory>
 
-#include <cudf_test/base_fixture.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -54,7 +54,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
         }
 
         br = BufferResource::create(
-            cudf::get_current_device_resource_ref(),
+            rmm::mr::get_current_device_resource_ref(),
             PinnedMemoryResource::make_if_available(),
             std::unordered_map<MemoryType, std::int64_t>{},
             std::nullopt,

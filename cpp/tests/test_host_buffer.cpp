@@ -296,7 +296,7 @@ std::size_t discover_pinned_pool_actual_size(
 TEST(PinnedResource, max_pool_size_limit) {
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
 
     // Create a PinnedMemoryResource with max pool size of 1 MiB; driver may round up.
     auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available(

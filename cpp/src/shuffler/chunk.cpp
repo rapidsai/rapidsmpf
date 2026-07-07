@@ -96,7 +96,7 @@ Chunk Chunk::deserialize(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
         data = br->make_buffer(
-            br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+            br->stream_pool()->get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
         );
         if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
             br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);

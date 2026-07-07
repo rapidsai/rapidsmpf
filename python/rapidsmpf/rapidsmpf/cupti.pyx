@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -214,14 +214,14 @@ cdef class CuptiMonitor:
         -------
         Dictionary from CUPTI callback ID to call count
         """
-        cdef unordered_map[CUpti_CallbackId, size_t] counters
+        cdef unordered_map[cpp_CuptiCallbackId, size_t] counters
         with nogil:
             counters = self._handle.get().get_callback_counters()
 
         cdef dict ret = {}
-        cdef unordered_map[CUpti_CallbackId, size_t].iterator it = counters.begin()
+        cdef unordered_map[cpp_CuptiCallbackId, size_t].iterator it = counters.begin()
         while it != counters.end():
-            ret[<int>deref(it).first] = <int>deref(it).second
+            ret[<int>deref(it).first.underlying()] = <int>deref(it).second
             postincrement(it)
         return ret
 

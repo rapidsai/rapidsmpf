@@ -6,8 +6,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
@@ -18,8 +18,8 @@ using namespace rapidsmpf::streaming;
 class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = BufferResource::create(cudf::get_current_device_resource_ref());
-        stream = cudf::get_default_stream();
+        br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+        stream = rmm::cuda_stream_view{};
     }
 
     std::shared_ptr<BufferResource> br;

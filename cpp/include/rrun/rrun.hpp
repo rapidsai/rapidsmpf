@@ -147,9 +147,11 @@ binding_validation validate_binding(
  *
  * @throws std::runtime_error if no GPU ID can be determined, topology
  * discovery fails, the resolved GPU is not found in the discovered topology,
- * an enabled binding (CPU affinity, NUMA memory policy, network devices) could
- * not be applied, or post-bind verification detects a mismatch between the
- * requested and actual binding state.
+ * an enabled CPU or network binding could not be applied, a NUMA memory policy
+ * operation fails unexpectedly, or post-bind verification detects a mismatch
+ * between the requested and actual binding state. NUMA memory binding is
+ * skipped when the current OS/container does not allow memory-policy syscalls
+ * or the requested node is outside the task's allowed memory nodes.
  */
 void bind(
     std::optional<unsigned int> gpu_id = std::nullopt, bind_options const& options = {}
@@ -176,9 +178,12 @@ void bind(
  * @param options Controls which resource bindings to apply.
  *
  * @throws std::runtime_error if no GPU ID can be determined, the resolved GPU
- * is not found in @p topology, an enabled binding (CPU affinity, NUMA memory
- * policy, network devices) could not be applied, or post-bind verification
- * detects a mismatch between the requested and actual binding state.
+ * is not found in @p topology, an enabled CPU or network binding could not be
+ * applied, a NUMA memory policy operation fails unexpectedly, or post-bind
+ * verification detects a mismatch between the requested and actual binding
+ * state. NUMA memory binding is skipped when the current OS/container does not
+ * allow memory-policy syscalls or the requested node is outside the task's
+ * allowed memory nodes.
  */
 void bind(
     cucascade::memory::system_topology_info const& topology,

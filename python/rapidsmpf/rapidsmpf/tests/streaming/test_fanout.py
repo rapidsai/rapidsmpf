@@ -9,96 +9,83 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import pylibcudf as plc
-
+from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.core.actor import run_actor_network
 from rapidsmpf.streaming.core.fanout import FanoutPolicy, fanout
 from rapidsmpf.streaming.core.leaf_actor import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
-from rapidsmpf.testing import assert_eq
-
-_INT64 = plc.DataType(plc.TypeId.INT64)
-
-
-def _ab_table(i: int) -> plc.Table:
-    return plc.Table(
-        [
-            plc.Column.from_iterable_of_py(
-                [i, i + 1, i + 2], plc.DataType(plc.TypeId.INT64)
-            ),
-            plc.Column.from_iterable_of_py(
-                [i * 10, i * 10 + 1, i * 10 + 2], plc.DataType(plc.TypeId.INT64)
-            ),
-        ]
-    )
-
+from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
 if TYPE_CHECKING:
-    from rmm.pylibrmm.stream import Stream
-
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
+def _message(
+    context: Context, sequence_number: int, n_elements: int = 3
+) -> Message[PackedDataChunk]:
+    stream = context.br().stream_pool.get_stream()
+    chunk = PackedDataChunk.from_packed_data(
+        generate_packed_data(
+            n_elements,
+            sequence_number * 10,
+            stream,
+            context.br(),
+        ),
+        br=context.br(),
+    )
+    return Message(sequence_number, chunk)
+
+
+def _validate(
+    context: Context,
+    msg: Message[PackedDataChunk],
+    sequence_number: int,
+    n_elements: int = 3,
+) -> None:
+    assert msg.sequence_number == sequence_number
+    packed = PackedDataChunk.from_message(msg, br=context.br()).to_packed_data()
+    validate_packed_data(packed, n_elements, sequence_number * 10)
+
+
 @pytest.mark.parametrize("policy", [FanoutPolicy.BOUNDED, FanoutPolicy.UNBOUNDED])
-def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) -> None:
+def test_fanout_basic(context: Context, policy: FanoutPolicy) -> None:
     """Test basic fanout functionality with multiple output channels."""
-    # Create channels
-    ch_in: Channel[TableChunk] = context.create_channel()
-    ch_out1: Channel[TableChunk] = context.create_channel()
-    ch_out2: Channel[TableChunk] = context.create_channel()
+    ch_in: Channel[PackedDataChunk] = context.create_channel()
+    ch_out1: Channel[PackedDataChunk] = context.create_channel()
+    ch_out2: Channel[PackedDataChunk] = context.create_channel()
 
-    # Create test messages
-    messages = []
-    for i in range(5):
-        chunk = TableChunk.from_pylibcudf_table(
-            _ab_table(i), stream, exclusive_view=False, br=context.br()
-        )
-        messages.append(Message(i, chunk))
+    messages = [_message(context, i) for i in range(5)]
 
-    # Create actors
     push_actor = push_to_channel(context, ch_in, messages)
     fanout_actor = fanout(context, ch_in, [ch_out1, ch_out2], policy)
     pull_actor1, output1 = pull_from_channel(context, ch_out1)
     pull_actor2, output2 = pull_from_channel(context, ch_out2)
 
-    # Run pipeline
     run_actor_network(
         context,
         actors=[push_actor, fanout_actor, pull_actor1, pull_actor2],
     )
 
-    # Verify results
     results1 = output1.release()
     results2 = output2.release()
 
     assert len(results1) == 5, f"Expected 5 messages in output1, got {len(results1)}"
     assert len(results2) == 5, f"Expected 5 messages in output2, got {len(results2)}"
 
-    # Check that both outputs received the same sequence numbers and data
     for i in range(5):
-        assert results1[i].sequence_number == i
-        assert results2[i].sequence_number == i
-
-        chunk1 = TableChunk.from_message(results1[i], br=context.br())
-        chunk2 = TableChunk.from_message(results2[i], br=context.br())
-
-        # Verify data is correct
-        expected_table = _ab_table(i)
-        assert_eq(chunk1.table_view(), expected_table)
-        assert_eq(chunk2.table_view(), expected_table)
+        _validate(context, results1[i], i)
+        _validate(context, results2[i], i)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 3, 5])
 @pytest.mark.parametrize("policy", [FanoutPolicy.BOUNDED, FanoutPolicy.UNBOUNDED])
 def test_fanout_multiple_outputs(
-    context: Context, stream: Stream, num_outputs: int, policy: FanoutPolicy
+    context: Context, num_outputs: int, policy: FanoutPolicy
 ) -> None:
     """Test fanout with varying numbers of output channels."""
-    # Create channels
-    ch_in: Channel[TableChunk] = context.create_channel()
-    chs_out: list[Channel[TableChunk]] = [
+    ch_in: Channel[PackedDataChunk] = context.create_channel()
+    chs_out: list[Channel[PackedDataChunk]] = [
         context.create_channel() for _ in range(num_outputs)
     ]
 
@@ -107,22 +94,8 @@ def test_fanout_multiple_outputs(
             fanout(context, ch_in, chs_out, policy)
         return
 
-    # Create test messages
-    messages = []
-    for i in range(3):
-        table = plc.Table(
-            [
-                plc.Column.from_iterable_of_py(
-                    [i * 10, i * 10 + 1], plc.DataType(plc.TypeId.INT64)
-                ),
-            ]
-        )
-        chunk = TableChunk.from_pylibcudf_table(
-            table, stream, exclusive_view=False, br=context.br()
-        )
-        messages.append(Message(i, chunk))
+    messages = [_message(context, i, n_elements=2) for i in range(3)]
 
-    # Create actors
     push_actor = push_to_channel(context, ch_in, messages)
     fanout_actor = fanout(context, ch_in, chs_out, policy)
     pull_actors = []
@@ -132,25 +105,23 @@ def test_fanout_multiple_outputs(
         pull_actors.append(pull_actor)
         outputs.append(output)
 
-    # Run pipeline
     run_actor_network(
         context,
         actors=[push_actor, fanout_actor, *pull_actors],
     )
 
-    # Verify all outputs received the messages
     for output_idx, output in enumerate(outputs):
         results = output.release()
         assert len(results) == 3, (
             f"Output {output_idx}: Expected 3 messages, got {len(results)}"
         )
         for i in range(3):
-            assert results[i].sequence_number == i
+            _validate(context, results[i], i, n_elements=2)
 
 
-def test_fanout_empty_outputs(context: Context, stream: Stream) -> None:
+def test_fanout_empty_outputs(context: Context) -> None:
     """Test fanout with empty output list raises value error."""
-    ch_in: Channel[TableChunk] = context.create_channel()
+    ch_in: Channel[PackedDataChunk] = context.create_channel()
     with pytest.raises(ValueError):
         fanout(context, ch_in, [], FanoutPolicy.BOUNDED)
 

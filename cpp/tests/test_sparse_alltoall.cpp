@@ -73,6 +73,9 @@ rapidsmpf::PackedData make_payload(
             std::memcpy(ptr, &payload_value, sizeof(payload_value));
         }
     });
+    // Wait for the copy to complete before the local `data` source goes out of
+    // scope.
+    data->latest_write_event().host_wait();
     return {std::move(metadata), std::move(data)};
 }
 
@@ -184,7 +187,7 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
                     comm->rank() * 100 + i,
                     mem_type,
                     *br,
-                    br->stream_pool().get_stream()
+                    br->stream_pool()->get_stream()
                 )
             );
         }
@@ -203,6 +206,50 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
             EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
             EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
         }
+    }
+}
+
+TEST_F(SparseAlltoallTest, payload_statistics) {
+    auto const& comm = GlobalEnvironment->comm_;
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    auto [srcs, dsts] = ring_peers(comm);
+    constexpr int n_messages = 3;
+
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
+    if (!dsts.empty()) {
+        for (int i = 0; i < n_messages; ++i) {
+            exchange.insert(
+                dsts.front(),
+                make_payload(
+                    i,
+                    comm->rank() * 100 + i,
+                    rapidsmpf::MemoryType::HOST,
+                    *br,
+                    br->stream_pool()->get_stream()
+                )
+            );
+        }
+    }
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+
+    if (comm->nranks() == 1) {
+        EXPECT_THROW(
+            statistics->get_stat("sparsealltoall-payload-send"), std::out_of_range
+        );
+        EXPECT_THROW(
+            statistics->get_stat("sparsealltoall-payload-recv"), std::out_of_range
+        );
+    } else {
+        auto const expected_bytes = n_messages * sizeof(int);
+        auto const send = statistics->get_stat("sparsealltoall-payload-send");
+        auto const recv = statistics->get_stat("sparsealltoall-payload-recv");
+        EXPECT_EQ(send.count(), n_messages);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), sizeof(int));
+        EXPECT_EQ(recv.count(), n_messages);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), sizeof(int));
     }
 }
 
@@ -268,7 +315,7 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
                 comm->rank() * 100 + dst,
                 rapidsmpf::MemoryType::DEVICE,
                 *br,
-                br->stream_pool().get_stream()
+                br->stream_pool()->get_stream()
             )
         );
     }
@@ -279,7 +326,11 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
             exchange.insert(
                 dsts.front(),
                 make_payload(
-                    1, 1, rapidsmpf::MemoryType::HOST, *br, br->stream_pool().get_stream()
+                    1,
+                    1,
+                    rapidsmpf::MemoryType::HOST,
+                    *br,
+                    br->stream_pool()->get_stream()
                 )
             ),
             std::logic_error
@@ -305,8 +356,8 @@ TEST_F(SparseAlltoallTest, ordered_by_sender_insertion_with_stream_reordering) {
     auto [srcs, dsts] = ring_peers(comm);
     rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
 
-    auto const delayed_stream = br->stream_pool().get_stream(1);
-    auto const fast_stream = br->stream_pool().get_stream(2);
+    auto const delayed_stream = br->stream_pool()->get_stream(1);
+    auto const fast_stream = br->stream_pool()->get_stream(2);
     RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
         delayed_stream.value(), sleep_on_stream, new std::chrono::milliseconds(100)
     ));
@@ -372,7 +423,7 @@ TEST_F(SparseAlltoallTest, concurrent_insertions) {
                         comm->rank() * total_messages + sequence,
                         rapidsmpf::MemoryType::HOST,
                         *br,
-                        br->stream_pool().get_stream()
+                        br->stream_pool()->get_stream()
                     )
                 );
             }
@@ -407,7 +458,7 @@ TEST_F(SparseAlltoallTest, invalid_usage) {
         exchange.insert(
             comm->rank(),
             make_payload(
-                1, 2, rapidsmpf::MemoryType::DEVICE, *br, br->stream_pool().get_stream()
+                1, 2, rapidsmpf::MemoryType::DEVICE, *br, br->stream_pool()->get_stream()
             )
         ),
         std::logic_error
@@ -439,7 +490,7 @@ TEST_F(SparseAlltoallTest, tag_reuse_after_wait) {
                     comm->rank() * 1000 + iteration,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool().get_stream()
+                    br->stream_pool()->get_stream()
                 )
             );
         }
@@ -474,7 +525,7 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     comm->rank() * 1000 + 100 + i,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool().get_stream()
+                    br->stream_pool()->get_stream()
                 )
             );
             exchange1.insert(
@@ -484,7 +535,7 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     comm->rank() * 1000 + 200 + i,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool().get_stream()
+                    br->stream_pool()->get_stream()
                 )
             );
         }

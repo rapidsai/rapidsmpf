@@ -130,7 +130,6 @@ rapids_find_package(
 
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cudf.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 
@@ -193,9 +192,6 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
-  src/integrations/cudf/bloom_filter.cu
-  src/integrations/cudf/partition.cpp
-  src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
@@ -204,6 +200,7 @@ add_library(
   src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cpp
   src/memory/scoped_memory_record.cpp
+  src/memory/spill.cpp
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
@@ -236,11 +233,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/leaf_actor.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/spillable_messages.cpp
-            src/streaming/cudf/bloom_filter.cpp
-            src/streaming/cudf/partition.cpp
-            src/streaming/cudf/parquet.cpp
-            src/streaming/cudf/table_chunk.cpp
-            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -314,8 +306,8 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro> CUDA::cudart_static
+  PUBLIC rmm::rmm CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+         CUDA::cudart_static
   PRIVATE cuco::cuco
           cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
@@ -342,7 +334,9 @@ target_compile_definitions(
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
-add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+if(NOT TARGET rapidsmpf::rapidsmpf)
+  add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+endif()
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
@@ -385,12 +379,14 @@ if(RAPIDSMPF_CLANG_TIDY)
       "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
   )
 
-  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries. adding
+  # `-Wno-ignored-optimization-argument`, otherwise clang-tidy errors on GCC-only optimization flags
+  # (e.g. `-fno-merge-constants`) injected by the conda compiler activation scripts.
   set_target_properties(
     rapidsmpf
     PROPERTIES
       CXX_CLANG_TIDY
-      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments;--extra-arg=-Wno-ignored-optimization-argument"
   )
 endif()
 

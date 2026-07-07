@@ -28,6 +28,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
 
@@ -151,7 +152,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     rapidsmpf::BufferResource* br, T const* data, std::size_t count, MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
-    auto stream = br->stream_pool().get_stream();
+    auto stream = br->stream_pool()->get_stream();
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->make_buffer(stream, std::move(reservation));
 
@@ -361,6 +362,57 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     EXPECT_THAT(reduced, ::testing::Each(expected_value));
 
     EXPECT_TRUE(allreduce.finished());
+}
+
+TEST_F(BaseAllReduceTest, payload_statistics) {
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    constexpr int n_elements = 11;
+    std::vector<int> data(n_elements, comm->rank());
+    auto in_buffer =
+        make_buffer<int>(br.get(), data.data(), data.size(), MemoryType::HOST);
+    auto const message_size = in_buffer->size;
+    auto reservation = br->reserve_or_fail(message_size, MemoryType::HOST);
+    auto out_buffer = br->make_buffer(message_size, in_buffer->stream(), reservation);
+
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        std::move(in_buffer),
+        std::move(out_buffer),
+        OpID{0},
+        rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{})
+    );
+    std::ignore = allreduce.wait_and_extract();
+
+    // For checking the statistics we need to know the number of rounds each rank
+    // participates in. Note: this has to match the communication pattern in the allreduce
+    // implementation.
+    auto nearest_power_of_two = 1;
+    auto butterfly_stages = 0;
+    while (nearest_power_of_two * 2 <= comm->nranks()) {
+        nearest_power_of_two *= 2;
+        ++butterfly_stages;
+    }
+    auto const remainder = comm->nranks() - nearest_power_of_two;
+    auto const rank = comm->rank();
+    auto const expected_count = static_cast<std::size_t>(
+        rank < 2 * remainder ? (rank % 2 == 0 ? 1 : butterfly_stages + 1)
+                             : butterfly_stages
+    );
+
+    if (expected_count == 0) {
+        EXPECT_THROW(statistics->get_stat("allreduce-payload-send"), std::out_of_range);
+        EXPECT_THROW(statistics->get_stat("allreduce-payload-recv"), std::out_of_range);
+    } else {
+        auto const expected_bytes = expected_count * message_size;
+        auto const send = statistics->get_stat("allreduce-payload-send");
+        auto const recv = statistics->get_stat("allreduce-payload-recv");
+        EXPECT_EQ(send.count(), expected_count);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), message_size);
+        EXPECT_EQ(recv.count(), expected_count);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), message_size);
+    }
 }
 
 template <typename T, typename Op, MemoryType MemType>

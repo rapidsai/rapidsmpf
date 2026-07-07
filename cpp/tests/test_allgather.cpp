@@ -10,8 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/table_utilities.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
@@ -33,7 +32,7 @@ extern Environment* GlobalEnvironment;
 class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        stream = cudf::get_default_stream();
+        stream = rmm::cuda_stream_view{};
         br = rapidsmpf::BufferResource::create(rmm::mr::cuda_memory_resource{});
     }
 
@@ -158,6 +157,42 @@ TEST_P(AllGatherTest, basic_allgather) {
         }
     } else {  // n_inserts == 0. No data is inserted.
         EXPECT_EQ(0, results.size());
+    }
+}
+
+TEST_F(BaseAllGatherTest, payload_statistics) {
+    auto const& comm = GlobalEnvironment->comm_;
+    ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    constexpr int n_elements = 7;
+    constexpr int n_inserts = 3;
+
+    AllGather allgather{comm, 0, br.get()};
+    for (int i = 0; i < n_inserts; ++i) {
+        allgather.insert(
+            i, generate_packed_data(n_elements, gen_offset(i, comm->rank()), stream, *br)
+        );
+    }
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30});
+    EXPECT_EQ(results.size(), static_cast<std::size_t>(n_inserts * comm->nranks()));
+
+    auto const expected_count =
+        static_cast<std::size_t>(n_inserts * (comm->nranks() - 1));
+    if (expected_count == 0) {
+        EXPECT_THROW(statistics->get_stat("allgather-payload-send"), std::out_of_range);
+        EXPECT_THROW(statistics->get_stat("allgather-payload-recv"), std::out_of_range);
+    } else {
+        auto const expected_message_size = n_elements * sizeof(int);
+        auto const expected_bytes = expected_count * expected_message_size;
+        auto const send = statistics->get_stat("allgather-payload-send");
+        auto const recv = statistics->get_stat("allgather-payload-recv");
+        EXPECT_EQ(send.count(), expected_count);
+        EXPECT_EQ(send.value(), expected_bytes);
+        EXPECT_EQ(send.max(), expected_message_size);
+        EXPECT_EQ(recv.count(), expected_count);
+        EXPECT_EQ(recv.value(), expected_bytes);
+        EXPECT_EQ(recv.max(), expected_message_size);
     }
 }
 
@@ -361,7 +396,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 // (the largest chunk, since none covers 100 alone). The second must search for a chunk
 // >= 10 and pick the 20-byte chunk, totalling 110.
 TEST(PostBox, spill_uses_remaining_amount) {
-    auto stream = cudf::get_default_stream();
+    auto stream = rmm::cuda_stream_view{};
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
     auto br = rapidsmpf::BufferResource::create(*mr);
 

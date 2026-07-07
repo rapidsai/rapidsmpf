@@ -7,7 +7,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/default_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
@@ -42,7 +42,7 @@ class BaseStreamingFixture : public ::testing::Test {
         env_vars["num_streaming_threads"] = std::to_string(num_streaming_threads);
         rapidsmpf::config::Options options(std::move(env_vars));
 
-        stream = cudf::get_default_stream();
+        stream = rmm::cuda_stream_view{};
         br = rapidsmpf::BufferResource::create(
             mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, std::move(memory_limits)
         );
