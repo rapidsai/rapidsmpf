@@ -23,4 +23,4 @@ done
 # rrun tests should also work when not running with `rrun` CLI. E.g., resource bindings
 # need to work outside of `rrun`, which is the intended use case for
 # `rapidsmpf::rrun::bind()`.
-./gtests/rrun_tests "${EXTRA_ARGS[@]}"
+./rrun_tests "${EXTRA_ARGS[@]}"
