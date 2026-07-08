@@ -214,6 +214,12 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
+install(
+  TARGETS rrun_tests
+  DESTINATION bin/tests/librapidsmpf
+  COMPONENT testing
+  EXCLUDE_FROM_ALL
+)
 
 add_executable(single_tests main/single.cpp)
 
