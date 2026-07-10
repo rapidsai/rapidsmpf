@@ -89,11 +89,11 @@ TEST(SpillManager, ConcurrentSpill) {
     constexpr int num_threads = 4;
     constexpr auto rendezvous_timeout = std::chrono::seconds(5);
 
-    BufferResource br{
-        cudf::get_current_device_resource_ref(),
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryResource::Disabled,
-        {{MemoryType::DEVICE, []() -> std::int64_t { return 0; }}}
-    };
+        {{MemoryType::DEVICE, 0_KiB}}
+    );
 
     std::mutex m;
     std::condition_variable cv;
@@ -115,13 +115,13 @@ TEST(SpillManager, ConcurrentSpill) {
         return amount;
     };
 
-    br.spill_manager().add_spill_function(func, /* priority = */ 0);
+    br->spill_manager().add_spill_function(func, /* priority = */ 0);
 
     std::vector<std::future<std::size_t>> futures;
     futures.reserve(num_threads);
     for (int i = 0; i < num_threads; ++i) {
         futures.emplace_back(std::async(std::launch::async, [&] {
-            return br.spill_manager().spill(1_KiB);
+            return br->spill_manager().spill(1_KiB);
         }));
     }
     auto const total_spilled = std::accumulate(
