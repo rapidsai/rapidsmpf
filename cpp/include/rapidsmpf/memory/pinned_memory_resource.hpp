@@ -72,9 +72,7 @@ inline bool is_pinned_memory_resources_supported() {
  * @brief Sentinel used to disable pinned host memory.
  *
  * Pass this in place of a `PinnedPoolProperties` (e.g. to `BufferResource::create()`)
- * to disable pinned host memory allocations. It is simply `std::nullopt` typed as
- * `std::nullopt_t`, so it implicitly converts to an empty
- * `std::optional<PinnedPoolProperties>`.
+ * to disable pinned host memory allocations.
  */
 constexpr std::nullopt_t PinnedMemoryDisabled = std::nullopt;
 
@@ -126,12 +124,6 @@ std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
  * This resource allocates and deallocates pinned host memory asynchronously through
  * CUDA streams. It offers higher bandwidth and lower latency for device transfers
  * compared to regular pageable host memory.
- *
- * @note Instances are constructed only by `BufferResource`, which installs a
- * back-reference (via `BackRefMixin<BufferResource>`) so that any copy of the
- * resource keeps its owning `BufferResource` alive. There is no public
- * constructor; obtain the resource through a `BufferResource`. Use the free
- * function `is_pinned_memory_resources_supported()` to query availability.
  */
 class PinnedMemoryResource final
     : public cuda::mr::shared_resource<
@@ -181,10 +173,6 @@ class PinnedMemoryResource final
     /**
      * @brief Equality comparison.
      *
-     * Instances can only be created by `BufferResource` (which installs the
-     * back-reference exactly once), so equality is determined solely by the
-     * underlying shared state.
-     *
      * @param other The other resource to compare.
      * @return True if the two resources share the same underlying shared state.
      */
@@ -230,8 +218,7 @@ class PinnedMemoryResource final
     /**
      * @brief Construct a pinned (page-locked) host memory resource.
      *
-     * Private — only `BufferResource` constructs instances (it installs the
-     * back-reference immediately after construction).
+     * Private: use `BufferResource` to construct instances.
      *
      * @param pool_properties Properties for configuring the pinned memory pool,
      * including the NUMA node from which memory should be allocated.

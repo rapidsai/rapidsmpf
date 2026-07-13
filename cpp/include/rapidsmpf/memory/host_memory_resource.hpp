@@ -31,11 +31,6 @@ class BufferResource;
  * region. THP can improve device-host memory transfer performance for large
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
- *
- * @note Instances are constructed only by `BufferResource`, which installs a
- * back-reference (via `BackRefMixin<BufferResource>`) so that any copy of the
- * resource keeps its owning `BufferResource` alive. There is no public
- * constructor; obtain the resource through a `BufferResource`.
  */
 class HostMemoryResource : public BackRefMixin<BufferResource> {
   public:
@@ -119,9 +114,7 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
      * @brief Compares this resource to another resource.
      *
      * All instances are stateless and interchangeable, so this always returns
-     * true. Instances can only be created by `BufferResource` (which installs
-     * the back-reference exactly once), so the back-reference does not affect
-     * equality.
+     * true.
      *
      * @param other The resource to compare with.
      * @return true

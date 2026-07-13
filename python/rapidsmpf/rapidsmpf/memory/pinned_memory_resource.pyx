@@ -112,7 +112,7 @@ cdef class PinnedMemoryResource:
         raise TypeError(
             "PinnedMemoryResource cannot be constructed directly; configure pinned "
             "memory on a BufferResource (e.g. "
-            "`BufferResource(mr, pinned_pool=PinnedPoolProperties())`) and obtain it "
+            "`BufferResource(mr, pinned_pool_properties=PinnedPoolProperties())`) and obtain it "
             "via BufferResource.pinned_mr"
         )
 

@@ -224,7 +224,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * `BufferResource` alive, but the underlying `HostMemoryResource` carries a
      * back-reference: promoting the ref to an owning `cuda::mr::any_resource` (as
      * RMM/CCCL containers do internally) keeps this `BufferResource` alive for the
-     * lifetime of that owning copy.
+     *
+     * @note Lifetime semantics are identical to `device_mr()`. See its
+     * `@par CCCL lifetime semantics` section for details. In brief, the returned
+     * `resource_ref` is non-owning. Promote it to a
+     * `cuda::mr::any_resource<cuda::mr::host_accessible>` to extend the
+     * `BufferResource` lifetime.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 

@@ -56,10 +56,6 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
-    // Construct the pinned resource in place (`BufferResource` is a friend of
-    // `PinnedMemoryResource`), so no observable, back-reference-less instance is
-    // ever minted. Only create it when pinned memory is both requested and
-    // supported on this system.
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value() && is_pinned_memory_resources_supported()) {
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
