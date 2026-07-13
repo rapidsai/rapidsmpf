@@ -69,14 +69,6 @@ inline bool is_pinned_memory_resources_supported() {
 }
 
 /**
- * @brief Sentinel used to disable pinned host memory.
- *
- * Pass this in place of a `PinnedPoolProperties` (e.g. to `BufferResource::create()`)
- * to disable pinned host memory allocations.
- */
-constexpr std::nullopt_t PinnedMemoryDisabled = std::nullopt;
-
-/**
  * @brief Properties for configuring a pinned memory pool.
  */
 struct PinnedPoolProperties {
@@ -92,6 +84,14 @@ struct PinnedPoolProperties {
     /// the NUMA node of the calling thread.
     int numa_id = get_current_numa_node();
 };
+
+/**
+ * @brief Sentinel used to disable pinned host memory.
+ *
+ * Pass this in place of a `PinnedPoolProperties` (e.g. to `BufferResource::create()`)
+ * to disable pinned host memory allocations.
+ */
+inline constexpr std::optional<PinnedPoolProperties> PinnedMemoryDisabled{};
 
 /**
  * @brief Parse pinned memory pool properties from configuration options.
