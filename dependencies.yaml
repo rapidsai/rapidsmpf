@@ -176,7 +176,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - &cmake_ver cmake>=4.0
+          - &cmake_ver cmake>=4.0,<4.4
           - ninja
   build-cpp:
     common:
@@ -511,7 +511,8 @@ dependencies:
           - myst-parser
           - numpydoc
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-          - pydata-sphinx-theme>=0.15.4
+          - pip:
+              - nvidia-sphinx-theme
           - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton

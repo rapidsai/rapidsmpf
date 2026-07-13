@@ -10,6 +10,9 @@
 # ##################################################################################################
 enable_testing()
 
+include(rapids-test)
+rapids_test_init()
+
 # Create separate test case for each of this n_ranks
 set(nranks_to_run 1 2 3 4 5 8)
 
@@ -30,9 +33,12 @@ function(rapidsmpf_mpirun_test_add)
   message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
   foreach(np IN ITEMS ${nranks_to_run})
     # add the test using the relative path of the target
-    add_test(
-      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}" COMMAND mpirun --map-by node --bind-to none -np
-                                                       ${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
+    rapids_test_add(
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
+      COMMAND mpirun --map-by node --bind-to none -np ${np}
+              "$<TARGET_FILE:${_MPIRUN_TEST_TEST_TARGET}>"
+      GPUS 0
+      INSTALL_COMPONENT_SET testing INSTALL_TARGET ${_MPIRUN_TEST_TEST_TARGET}
     )
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
@@ -208,6 +214,12 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
 )
 disable_sign_conversion_warning(rrun_tests)
+install(
+  TARGETS rrun_tests
+  DESTINATION bin/tests/librapidsmpf
+  COMPONENT testing
+  EXCLUDE_FROM_ALL
+)
 
 add_executable(single_tests main/single.cpp)
 
@@ -233,7 +245,11 @@ target_link_libraries(
 )
 target_sources(single_tests PRIVATE test_nvtx.cpp)
 disable_sign_conversion_warning(single_tests)
-add_test(NAME single_tests COMMAND "gtests/single_tests")
+rapids_test_add(
+  NAME single_tests
+  COMMAND "single_tests"
+  INSTALL_COMPONENT_SET testing
+)
 
 add_executable(cupti_public_api_test test_cupti_public_api.cpp)
 set_target_properties(
@@ -250,7 +266,11 @@ target_compile_options(
   cupti_public_api_test PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
 disable_sign_conversion_warning(cupti_public_api_test)
-add_test(NAME cupti_public_api_test COMMAND "gtests/cupti_public_api_test")
+rapids_test_add(
+  NAME cupti_public_api_test
+  COMMAND "cupti_public_api_test"
+  INSTALL_COMPONENT_SET testing
+)
 
 # bootstrap_tests — standalone; compiles bootstrap sources directly so it does not depend on the
 # full rapidsmpf library (and its CUDA sources).
@@ -283,63 +303,10 @@ target_link_libraries(
   bootstrap_tests PRIVATE GTest::gmock GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
                           $<TARGET_NAME_IF_EXISTS:PMIx::PMIx> ${CMAKE_DL_LIBS}
 )
-add_test(NAME bootstrap_tests COMMAND "gtests/bootstrap_tests")
-
-# Create a list of targets that contains property KEY:VALUE.
-function(rapidsmpf_targets_with_property)
-  set(options)
-  set(one_value KEY VALUE OUTPUT)
-  set(multi_value COMMAND)
-  cmake_parse_arguments(_RAPIDSMPF_TEST "${options}" "${one_value}" "${multi_value}" ${ARGN})
-
-  if(NOT DEFINED _RAPIDSMPF_TEST_KEY)
-    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a KEY")
-  endif()
-
-  if(NOT DEFINED _RAPIDSMPF_TEST_VALUE)
-    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a VALUE")
-  endif()
-
-  if(NOT DEFINED _RAPIDSMPF_TEST_OUTPUT)
-    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a OUTPUT")
-  endif()
-
-  # get all targets
-  get_property(
-    all_targets
-    DIRECTORY
-    PROPERTY BUILDSYSTEM_TARGETS
-  )
-
-  set(targets_with_property "")
-  foreach(target ${all_targets})
-    get_target_property(prop_value ${target} ${_RAPIDSMPF_TEST_KEY})
-    if(prop_value STREQUAL ${_RAPIDSMPF_TEST_VALUE})
-      list(APPEND targets_with_property ${target})
-    endif()
-  endforeach()
-
-  set(${_RAPIDSMPF_TEST_OUTPUT}
-      ${targets_with_property}
-      PARENT_SCOPE
-  )
-endfunction(rapidsmpf_targets_with_property)
-
-# Search for all targets that has COMPONENT:testing property
-rapidsmpf_targets_with_property(KEY COMPONENT VALUE testing OUTPUT testing_targets)
-
-# Install testing targets to bin/tests/librapidsmpf/gtests
-install(
-  TARGETS ${testing_targets}
-  DESTINATION bin/tests/librapidsmpf/gtests
-  COMPONENT testing
-  EXCLUDE_FROM_ALL
+rapids_test_add(
+  NAME bootstrap_tests
+  COMMAND "bootstrap_tests"
+  INSTALL_COMPONENT_SET testing
 )
 
-# Install the CTestTestfile.cmake to bin/tests/librapidsmpf
-install(
-  FILES "${RAPIDSMPF_BINARY_DIR}/tests/CTestTestfile.cmake"
-  DESTINATION bin/tests/librapidsmpf
-  COMPONENT testing
-  EXCLUDE_FROM_ALL
-)
+rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmpf)
