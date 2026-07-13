@@ -20,20 +20,20 @@ cdef extern from *:
     #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
     namespace {
-    // Copy a back-referenced `PinnedMemoryResource` into an optional. The copy
-    // promotes the back-reference, so the result keeps the owning
-    // `BufferResource` alive. Throws `std::bad_weak_ptr` if `src` carries no
-    // back-reference (which never happens for instances obtained from a
-    // `BufferResource`).
+    // Copy an optional back-referenced `PinnedMemoryResource`. When the source
+    // holds a value, the copy promotes its back-reference, so the result keeps
+    // the owning `BufferResource` alive; an empty source yields an empty
+    // result. Throws `std::bad_weak_ptr` if the contained resource carries no
+    // back-reference.
     std::optional<rapidsmpf::PinnedMemoryResource>
-    cpp_copy_pinned_mr(rapidsmpf::PinnedMemoryResource const& src) {
-        return std::optional<rapidsmpf::PinnedMemoryResource>(src);
+    cpp_copy_pinned_mr(std::optional<rapidsmpf::PinnedMemoryResource> const& src) {
+        return src;
     }
     }  // namespace
     """
     optional[cpp_PinnedMemoryResource] cpp_copy_pinned_mr(
-        const cpp_PinnedMemoryResource&
-    ) except +ex_handler
+        const optional[cpp_PinnedMemoryResource]&
+    ) except +ex_handler nogil
 
 
 cpdef bool_t is_pinned_memory_resources_supported():
@@ -112,8 +112,8 @@ cdef class PinnedMemoryResource:
         raise TypeError(
             "PinnedMemoryResource cannot be constructed directly; configure pinned "
             "memory on a BufferResource (e.g. "
-            "`BufferResource(mr, pinned_pool_properties=PinnedPoolProperties())`) and obtain it "
-            "via BufferResource.pinned_mr"
+            "`BufferResource(mr, pinned_pool_properties=PinnedPoolProperties())`) and "
+            "obtain it via BufferResource.pinned_mr"
         )
 
     def __dealloc__(self):
@@ -128,26 +128,34 @@ cdef class PinnedMemoryResource:
         return self._handle.has_value()
 
     @staticmethod
-    cdef PinnedMemoryResource _from_cpp(const cpp_PinnedMemoryResource& src):
+    cdef PinnedMemoryResource from_handle(
+        const optional[cpp_PinnedMemoryResource]& handle
+    ):
         """
-        Create a Python ``PinnedMemoryResource`` by copying a back-ref'd C++ resource.
+        Create a Python ``PinnedMemoryResource`` by copying a back-ref'd C++ handle.
 
-        The copy acquires shared ownership of the owning ``BufferResource``,
-        keeping it alive for the lifetime of the returned Python object.
+        When ``handle`` holds a value, the copy acquires shared ownership of the
+        owning ``BufferResource``, keeping it alive for the lifetime of the
+        returned Python object. An empty ``handle`` produces a disabled resource.
 
         Parameters
         ----------
-        src
-            The C++ ``PinnedMemoryResource`` to copy from. Must have a
-            back-reference installed (i.e. it must have been obtained from a
-            ``BufferResource``); otherwise a ``std::bad_weak_ptr`` is raised.
+        handle
+            The optional C++ ``PinnedMemoryResource`` to copy from. When it holds
+            a value, that value must have a back-reference installed (i.e. it must
+            have been obtained from a ``BufferResource``); otherwise a
+            ``std::bad_weak_ptr`` is raised.
 
         Returns
         -------
-        A new Python ``PinnedMemoryResource`` wrapping the copied C++ resource.
+        A new Python ``PinnedMemoryResource`` wrapping the copied C++ handle.
         """
         cdef PinnedMemoryResource ret = PinnedMemoryResource.__new__(
             PinnedMemoryResource
         )
-        ret._handle = cpp_copy_pinned_mr(src)
+        # The copy promotes the contained resource's back-reference, keeping the
+        # owning BufferResource alive. Done via an extern helper so the
+        # std::bad_weak_ptr is translated into a Python exception.
+        with nogil:
+            ret._handle = cpp_copy_pinned_mr(handle)
         return ret

@@ -220,15 +220,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @return Reference to the RMM resource used for host allocations.
      *
-     * @note The returned non-owning `resource_ref` does not by itself keep this
-     * `BufferResource` alive, but the underlying `HostMemoryResource` carries a
-     * back-reference: promoting the ref to an owning `cuda::mr::any_resource` (as
-     * RMM/CCCL containers do internally) keeps this `BufferResource` alive for the
-     *
      * @note Lifetime semantics are identical to `device_mr()`. See its
      * `@par CCCL lifetime semantics` section for details. In brief, the returned
-     * `resource_ref` is non-owning. Promote it to a
-     * `cuda::mr::any_resource<cuda::mr::host_accessible>` to extend the
+     * `resource_ref` is non-owning. Promote it to a `any_host_resource` to extend the
      * `BufferResource` lifetime.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
@@ -239,21 +233,19 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
      *
-     * @note The returned non-owning `resource_ref` does not by itself keep this
-     * `BufferResource` alive, but the underlying `PinnedMemoryResource` carries a
-     * back-reference: promoting the ref to an owning `cuda::mr::any_resource` (as
-     * RMM/CCCL containers do internally) keeps this `BufferResource` alive for the
-     * lifetime of that owning copy.
+     * @note Lifetime semantics are identical to `device_mr()`. See its
+     * `@par CCCL lifetime semantics` section for details. In brief, the returned
+     * `resource_ref` is non-owning. Promote it to a `any_host_device_resource` to extend
+     * the `BufferResource` lifetime.
      */
     [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
      * @brief Get the pinned host memory resource if available.
      *
-     * @return A back-referenced copy of the pinned host memory resource, or
-     * `std::nullopt` if pinned host memory is not available. The returned handle
-     * keeps this `BufferResource` alive for as long as the handle (or any copy of
-     * it) lives.
+     * @return The `PinnedMemoryResource` is available, or `std::nullopt` if pinned host
+     * memory is not available. The returned handle keeps this `BufferResource` alive as
+     * long as the handle (or any copy) exists.
      */
     [[nodiscard]] std::optional<PinnedMemoryResource> try_pinned_mr() const;
 

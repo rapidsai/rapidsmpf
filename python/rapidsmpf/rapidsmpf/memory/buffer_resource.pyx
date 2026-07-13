@@ -370,7 +370,7 @@ cdef class BufferResource:
             opt = deref(self._handle).try_pinned_mr()
         if not opt.has_value():
             return None
-        return PinnedMemoryResource._from_cpp(opt.value())
+        return PinnedMemoryResource.from_handle(opt)
 
     def memory_reserved(self, MemoryType mem_type):
         """

@@ -99,10 +99,7 @@ class NewDelete {
     friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
 };
 
-// Build a lightweight `BufferResource` that owns a pinned pool with the given
-// properties. Host and pinned memory resources are constructible only by a
-// `BufferResource`. The dedicated spill-check thread is disabled and a
-// single-stream pool is used to keep overhead minimal for micro-benchmarks.
+// Build a buffer resource with a pinned pool with the given properties.
 std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
     rapidsmpf::PinnedPoolProperties props
 ) {

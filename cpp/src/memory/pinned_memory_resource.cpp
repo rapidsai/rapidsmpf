@@ -48,9 +48,10 @@ PinnedMemoryResource::PinnedMemoryResource(PinnedPoolProperties pool_properties)
               "Pinned host memory is not supported on this system. "
               "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
               " is one of the requirements, but additional platform or driver "
-              "constraints may apply. If needed, disable pinned host memory (pass "
-              "`std::nullopt` for the pinned pool to `BufferResource`), noting that "
-              "this may significantly degrade spilling performance.",
+              "constraints may apply. If needed, disable pinned host memory by passing "
+              "`PinnedMemoryDisabled/ std::nullopt` for the `BufferResource` "
+              "`pinned_pool_properties`, noting that this may significantly degrade "
+              "spilling performance.",
               std::invalid_argument
           );
           return cuda::mr::make_shared_resource<

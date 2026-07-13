@@ -16,6 +16,9 @@ using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
 using any_host_device_resource =
     cuda::mr::any_resource<cuda::mr::host_accessible, cuda::mr::device_accessible>;
 
+/// @brief Owning type-erased host memory resource.
+using any_host_resource = cuda::mr::any_resource<cuda::mr::host_accessible>;
+
 /**
  * @brief Check whether a type-erased memory resource is host-accessible.
  *

@@ -20,10 +20,6 @@
 
 namespace {
 
-// `HostMemoryResource` and `PinnedMemoryResource` are constructible only by a
-// `BufferResource`. The `any_resource` copies returned below each carry a
-// back-reference that keeps the (otherwise local) `BufferResource` alive, so no
-// external anchor is needed.
 std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resources() {
     auto br = rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}

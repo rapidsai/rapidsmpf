@@ -31,4 +31,6 @@ cdef class PinnedMemoryResource:
     cdef optional[cpp_PinnedMemoryResource] _handle
 
     @staticmethod
-    cdef PinnedMemoryResource _from_cpp(const cpp_PinnedMemoryResource& src)
+    cdef PinnedMemoryResource from_handle(
+        const optional[cpp_PinnedMemoryResource]& handle
+    )
