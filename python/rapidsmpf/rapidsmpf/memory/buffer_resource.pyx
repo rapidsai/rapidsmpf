@@ -133,9 +133,10 @@ cdef class BufferResource:
         :class:`~rapidsmpf.memory.pinned_memory_resource.PinnedPoolProperties`.
         When ``None`` (the default), pinned host allocations are disabled and any
         attempt to allocate pinned memory will fail regardless of any
-        ``memory_limits`` entry for ``PINNED_HOST``. When provided, the pool is
-        created only if pinned host memory is supported on this system (see
-        :func:`~rapidsmpf.memory.pinned_memory_resource.is_pinned_memory_resources_supported`).
+        ``memory_limits`` entry for ``PINNED_HOST``. When provided, pinned host
+        memory must be supported on this system (see
+        :func:`~rapidsmpf.memory.pinned_memory_resource.is_pinned_memory_resources_supported`);
+        otherwise a ``RuntimeError`` is raised.
     memory_limits
         Optional mapping from :class:`~.MemoryType` to an integer byte limit.
         Memory types not present in the mapping are treated as unlimited.
@@ -209,11 +210,11 @@ cdef class BufferResource:
         self._device_mr = device_mr
 
         # The pinned resource is constructed internally by the C++
-        # `BufferResource` from these properties (and only when pinned host
-        # memory is supported on this system). A missing `pinned_pool_properties`
-        # (None) leaves the optional empty, disabling pinned host memory. A default
-        # constructed `cpp_PinnedPoolProperties` already carries the C++ default
-        # NUMA node, so a `numa_id` of None keeps that default.
+        # `BufferResource` from these properties. A None `pinned_pool_properties`
+        # leaves the optional empty, disabling pinned host memory. Providing
+        # properties on a system without pinned-host-memory support raises a
+        # RuntimeError. A default constructed `cpp_PinnedPoolProperties` already
+        # carries the C++ default NUMA node, so a `numa_id` of None keeps that default.
         cdef cpp_PinnedPoolProperties _props
         cdef optional[cpp_PinnedPoolProperties] cpp_pinned_pool
         if pinned_pool_properties is not None:

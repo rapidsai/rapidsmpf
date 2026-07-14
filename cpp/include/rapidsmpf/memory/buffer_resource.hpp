@@ -94,8 +94,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param pinned_pool_properties Configuration for the pinned host memory pool
      * used for `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryDisabled` to
      * disable pinned allocations. The pinned resource is constructed internally and
-     * owned by the `BufferResource`; it is only created when pinned host memory is
-     * supported on the system (see `is_pinned_memory_resources_supported()`).
+     * owned by the `BufferResource`. When a value is provided, pinned host memory
+     * must be supported on the system (see `is_pinned_memory_resources_supported()`);
+     * otherwise a `std::runtime_error` is thrown.
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
      * entries are treated as unlimited.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
@@ -104,6 +105,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
+     * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
+     * host memory is not supported on this system.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,

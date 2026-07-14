@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -21,8 +22,11 @@
 namespace {
 
 std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resources() {
+    auto pinned_pool_properties = rapidsmpf::is_pinned_memory_resources_supported()
+                                      ? rapidsmpf::PinnedPoolProperties{}
+                                      : rapidsmpf::PinnedMemoryDisabled;
     auto br = rapidsmpf::BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+        rmm::mr::get_current_device_resource_ref(), std::move(pinned_pool_properties)
     );
     std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> resources;
     resources.emplace_back(br->host_mr());
@@ -33,8 +37,11 @@ std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resourc
 }
 
 std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> make_device_resources() {
+    auto pinned_pool_properties = rapidsmpf::is_pinned_memory_resources_supported()
+                                      ? rapidsmpf::PinnedPoolProperties{}
+                                      : rapidsmpf::PinnedMemoryDisabled;
     auto br = rapidsmpf::BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+        rmm::mr::get_current_device_resource_ref(), std::move(pinned_pool_properties)
     );
     std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> resources;
     resources.emplace_back(rmm::mr::cuda_memory_resource{});

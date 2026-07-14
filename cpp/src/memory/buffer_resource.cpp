@@ -57,7 +57,16 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
-    if (pinned_pool_properties.has_value() && is_pinned_memory_resources_supported()) {
+    if (pinned_pool_properties.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            is_pinned_memory_resources_supported(),
+            "pinned host memory was requested (via `PinnedPoolProperties`) but is not "
+            "supported on this system. "
+            "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+            " is one of the requirements, but additional platform or driver constraints "
+            "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
+            std::runtime_error
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 

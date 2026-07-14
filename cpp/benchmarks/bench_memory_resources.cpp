@@ -5,6 +5,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 
 #include <benchmark/benchmark.h>
 
@@ -99,9 +100,9 @@ class NewDelete {
     friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
 };
 
-// Build a buffer resource with a pinned pool with the given properties.
+// Build a buffer resource with the given (optional) pinned pool properties.
 std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
-    rapidsmpf::PinnedPoolProperties props
+    std::optional<rapidsmpf::PinnedPoolProperties> props
 ) {
     return rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
@@ -121,10 +122,8 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
         return NewDelete{};
     case ResourceType::HOST_MEMORY_RESOURCE:
         {
-            // The returned `any_resource` carries a back-reference that keeps the
-            // (local) `BufferResource` alive, so no external anchor is needed.
-            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedPoolProperties{});
-            return br->host_mr();
+            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
+            return br->host_mr();  // br is kept alive by the back-reference
         }
     case ResourceType::PINNED_MEMORY_RESOURCE:
         {
@@ -135,7 +134,7 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
                 "pinned memory is not supported on this system",
                 std::runtime_error
             );
-            return *mr;
+            return *mr;  // br is kept alive by the back-reference
         }
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
