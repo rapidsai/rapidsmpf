@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -53,9 +54,12 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
             GTEST_SKIP() << "Pinned memory resources are not supported on this system";
         }
 
+        auto pinned_pool_properties = is_pinned_memory_resources_supported()
+                                          ? PinnedPoolProperties{}
+                                          : PinnedMemoryDisabled;
         br = BufferResource::create(
             rmm::mr::get_current_device_resource_ref(),
-            PinnedPoolProperties{},
+            std::move(pinned_pool_properties),
             std::unordered_map<MemoryType, std::int64_t>{},
             std::nullopt,
             stream_pool

@@ -180,8 +180,11 @@ TEST_F(StatisticsTest, ReportSorting) {
 }
 
 TEST_F(StatisticsTest, MemoryProfiler) {
+    auto pinned_pool_properties = rapidsmpf::is_pinned_memory_resources_supported()
+                                      ? rapidsmpf::PinnedPoolProperties{}
+                                      : rapidsmpf::PinnedMemoryDisabled;
     auto br = rapidsmpf::BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+        rmm::mr::get_current_device_resource_ref(), pinned_pool_properties
     );
     auto mr = br->device_mr_adaptor();
     auto pinned_mr = br->try_pinned_mr();

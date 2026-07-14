@@ -292,7 +292,7 @@ TEST(BufferResource, AllocStatistics) {
     bool const pinned_available = is_pinned_memory_resources_supported();
     auto br = BufferResource::create(
         mr_cuda,
-        PinnedPoolProperties{},
+        pinned_available ? PinnedPoolProperties{} : PinnedMemoryDisabled,
         {},
         std::nullopt,
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
