@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.optional cimport optional
+from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
@@ -103,6 +104,42 @@ cdef class PinnedMemoryResource:
         if is_pinned_memory_resources_supported():
             return PinnedMemoryResource(numa_id)
         return None
+
+    def allocate(self, size_t nbytes, Stream stream not None) -> int:
+        """
+        Allocate pinned host memory associated with a CUDA stream.
+
+        Parameters
+        ----------
+        nbytes
+            Number of bytes to allocate.
+        stream
+            CUDA stream to associate with the allocation.
+
+        Returns
+        -------
+        Integer address of the allocated memory.
+        """
+        cdef void* ptr
+        with nogil:
+            ptr = self._handle.value().allocate(stream.view(), nbytes)
+        return <size_t>ptr
+
+    def deallocate(self, size_t ptr, size_t nbytes, Stream stream not None) -> None:
+        """
+        Deallocate pinned host memory associated with a CUDA stream.
+
+        Parameters
+        ----------
+        ptr
+            Integer address previously returned by :meth:`allocate`.
+        nbytes
+            Number of bytes originally allocated.
+        stream
+            CUDA stream associated with the allocation.
+        """
+        with nogil:
+            self._handle.value().deallocate(stream.view(), <void*>ptr, nbytes)
 
     @classmethod
     def from_options(cls, Options options not None):
