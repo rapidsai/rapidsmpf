@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -11,7 +11,7 @@ from libcpp.vector cimport vector
 import asyncio
 import inspect
 from collections.abc import Iterable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial, wraps
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -20,6 +20,8 @@ from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
+from rapidsmpf.streaming.core.cancellation import (await_cpp_future,
+                                                   shutdown_channels)
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
@@ -155,8 +157,7 @@ async def py_actor(func, extra_channels, /, *args, **kwargs):
     try:
         return await func(*args, **kwargs)
     finally:
-        for ch in channels_to_shutdown:
-            await ch.shutdown(ctx)
+        await shutdown_channels(ctx, *channels_to_shutdown)
 
 
 cdef decorate_actor(extra_channels, func):
@@ -224,7 +225,7 @@ def define_actor(*, extra_channels=()):
     return partial(decorate_actor, extra_channels)
 
 
-def sync_wait(coro):
+def sync_wait(coro, task_ready):
     """
     Run, and wait for completion of, a coroutine.
 
@@ -237,8 +238,16 @@ def sync_wait(coro):
     This should always be called from a thread we control to ensure no live
     event loop is running.
     """
-    with asyncio.Runner() as runner:
-        runner.run(coro)
+    try:
+        with asyncio.Runner() as runner:
+            loop = runner.get_loop()
+            task = loop.create_task(coro)
+            task_ready.set_result((loop, task))
+            return runner.run(task)
+    except BaseException as error:
+        if not task_ready.done():
+            task_ready.set_exception(error)
+        raise
 
 
 async def when_all(Context ctx not None, list cpp_actors):
@@ -268,21 +277,7 @@ async def when_all(Context ctx not None, list cpp_actors):
             cpp_set_py_future,
             move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
         )
-    try:
-        # This shield makes sure that if a cancellation is raised, the
-        # future is not cancelled.
-        await asyncio.shield(ret)
-    except asyncio.CancelledError as cancel:
-        # The outer awaitable was cancelled, but we must still ensure the
-        # C++ future still runs to completion.
-        try:
-            # This could still fail so we catch and reraise the
-            # cancellation but recording the C++ exception as well.
-            await asyncio.shield(ret)
-        except Exception as cpp_except:
-            raise cancel from cpp_except
-        # Otherwise just reraise the cancellation
-        raise cancel
+    await await_cpp_future(ret)
 
 
 def run_actor_network(Context ctx not None, *, actors):
@@ -344,5 +339,22 @@ def run_actor_network(Context ctx not None, *, actors):
     py_actors = [when_all(ctx, cpp_actors), *py_actors]
     # Need to run in a separate thread in case the cluster runtime already
     # has an async event loop.
+    task_ready = Future()
     with ThreadPoolExecutor(max_workers=1) as executor:
-        executor.submit(sync_wait, run_py_actors(py_actors)).result()
+        worker = executor.submit(sync_wait, run_py_actors(py_actors), task_ready)
+        loop, task = task_ready.result()
+
+        try:
+            worker.result()
+        except BaseException as error:
+            if worker.done():
+                raise
+            # Inner task is not done, let's cancel it and wait for cleanup to complete
+            loop.call_soon_threadsafe(task.cancel)
+            try:
+                worker.result()
+            except asyncio.CancelledError:
+                pass
+            except BaseException as cleanup:
+                raise error from cleanup
+            raise
