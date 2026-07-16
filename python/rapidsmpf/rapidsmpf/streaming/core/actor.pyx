@@ -225,6 +225,27 @@ def define_actor(*, extra_channels=()):
     return partial(decorate_actor, extra_channels)
 
 
+async def run_and_publish_task(coro, task_ready):
+    """
+    Run a coroutine and expose its event loop and task to another thread.
+
+    Parameters
+    ----------
+    coro
+        Coroutine to run.
+    task_ready
+        Rendezvous point shared with calling thread. Receives the running
+        event loop and cancellable task before ``coro`` starts, allowing
+        the caller to cancel the task from outside the event loop.
+
+    Returns
+    -------
+    Result returned by ``coro``.
+    """
+    task_ready.set_result((asyncio.get_running_loop(), asyncio.current_task()))
+    return await coro
+
+
 def sync_wait(coro, task_ready):
     """
     Run, and wait for completion of, a coroutine.
@@ -240,10 +261,7 @@ def sync_wait(coro, task_ready):
     """
     try:
         with asyncio.Runner() as runner:
-            loop = runner.get_loop()
-            task = loop.create_task(coro)
-            task_ready.set_result((loop, task))
-            return runner.run(task)
+            return runner.run(run_and_publish_task(coro, task_ready))
     except BaseException as error:
         if not task_ready.done():
             task_ready.set_exception(error)
