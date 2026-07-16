@@ -3,6 +3,8 @@
 
 from typing import Self
 
+from rmm.pylibrmm.stream import Stream
+
 from rapidsmpf.config import Options
 
 def is_pinned_memory_resources_supported() -> bool: ...
@@ -15,5 +17,7 @@ class PinnedMemoryResource:
     def make_if_available(
         numa_id: int | None = None,
     ) -> PinnedMemoryResource | None: ...
+    def allocate(self, nbytes: int, stream: Stream) -> int: ...
+    def deallocate(self, ptr: int, nbytes: int, stream: Stream) -> None: ...
     @classmethod
     def from_options(cls: type[Self], options: Options) -> Self | None: ...
