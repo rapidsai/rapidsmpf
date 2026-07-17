@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -14,6 +14,8 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 import asyncio
+
+from rapidsmpf.streaming.core.cancellation import await_cpp_future
 
 
 cdef extern from * nogil:
@@ -372,7 +374,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown(ctx))
 
     async def drain_metadata(self, Context ctx not None):
         """
@@ -392,7 +394,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown_metadata(ctx))
 
     async def shutdown(self, Context ctx not None):
         """
@@ -418,7 +420,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret)
 
     async def shutdown_metadata(self, Context ctx not None):
         """
@@ -440,7 +442,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret)
 
     async def send(self, Context ctx, Message msg not None):
         """
@@ -467,7 +469,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown(ctx))
 
     async def send_metadata(self, Context ctx, Message msg not None):
         """
@@ -494,7 +496,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown_metadata(ctx))
 
     async def recv(self, Context ctx not None):
         """
@@ -520,7 +522,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown(ctx))
         if deref(c_msg).empty():
             return None
         return Message.from_handle(move(deref(c_msg)))
@@ -549,7 +551,7 @@ cdef class Channel:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
-        await ret
+        await await_cpp_future(ret, on_cancel=lambda: self.shutdown_metadata(ctx))
         if deref(c_msg).empty():
             return None
         return Message.from_handle(move(deref(c_msg)))
