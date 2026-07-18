@@ -160,6 +160,3 @@ rapids = ["rmm"]
 
 [tool.ruff.format]
 docstring-code-format = true
-
-[tool.cython-lint]
-max-line-length = 120

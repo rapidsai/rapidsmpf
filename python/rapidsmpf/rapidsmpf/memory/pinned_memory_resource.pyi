@@ -3,11 +3,7 @@
 
 from dataclasses import dataclass
 
-from typing import Self
-
 from rmm.pylibrmm.stream import Stream
-
-from rapidsmpf.config import Options
 
 def is_pinned_memory_resources_supported() -> bool: ...
 @dataclass
