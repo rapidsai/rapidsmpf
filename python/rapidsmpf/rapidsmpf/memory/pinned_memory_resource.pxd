@@ -4,6 +4,7 @@
 from libc.stddef cimport size_t
 from libcpp cimport bool as bool_t
 from libcpp.optional cimport optional
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport cpp_Options
@@ -11,7 +12,8 @@ from rapidsmpf.config cimport cpp_Options
 
 cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
     cdef cppclass cpp_PinnedMemoryResource"rapidsmpf::PinnedMemoryResource":
-        pass
+        void* allocate(cuda_stream_view, size_t) except +ex_handler
+        void deallocate(cuda_stream_view, void*, size_t)
 
     cdef cppclass cpp_PinnedPoolProperties"rapidsmpf::PinnedPoolProperties":
         size_t initial_pool_size

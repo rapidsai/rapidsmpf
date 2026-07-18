@@ -3,6 +3,12 @@
 
 from dataclasses import dataclass
 
+from typing import Self
+
+from rmm.pylibrmm.stream import Stream
+
+from rapidsmpf.config import Options
+
 def is_pinned_memory_resources_supported() -> bool: ...
 @dataclass
 class PinnedPoolProperties:
@@ -13,3 +19,5 @@ class PinnedPoolProperties:
 class PinnedMemoryResource:
     @property
     def enabled(self) -> bool: ...
+    def allocate(self, nbytes: int, stream: Stream) -> int: ...
+    def deallocate(self, ptr: int, nbytes: int, stream: Stream) -> None: ...
