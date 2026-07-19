@@ -67,6 +67,9 @@ libraries.
 .. automodule:: rapidsmpf.memory.buffer_resource
    :members:
 
+.. automodule:: rapidsmpf.memory.pinned_memory_resource
+   :members:
+
 .. automodule:: rapidsmpf.memory.packed_data
    :members:
 

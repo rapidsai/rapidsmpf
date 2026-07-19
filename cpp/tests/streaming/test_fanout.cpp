@@ -546,7 +546,7 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
             {MemoryType::DEVICE, 0},
         };
         br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_limits
+            mr_cuda, rapidsmpf::PinnedMemoryDisabled, memory_limits
         );
         auto options = ctx->options();
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
