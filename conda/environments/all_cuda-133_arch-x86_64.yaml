@@ -11,7 +11,6 @@ dependencies:
 - clang==20.1.8
 - click >=8.1
 - cmake>=4.0
-- cuda-core>=0.7.0
 - cuda-cudart-dev
 - cuda-cupti-dev
 - cuda-nvcc
@@ -29,8 +28,8 @@ dependencies:
 - ipython
 - libnuma
 - libpmix-devel >=5.0,<6.0
-- librmm==26.8.*,>=0.0.0a0
-- libucxx==0.51.*,>=0.0.0a0
+- librmm==26.10.*,>=0.0.0a0
+- libucxx==0.52.*,>=0.0.0a0
 - make
 - mpi4py
 - myst-nb
@@ -41,17 +40,18 @@ dependencies:
 - openmpi >=5.0
 - pre-commit
 - psutil
-- pydata-sphinx-theme>=0.15.4
 - pytest
 - python>=3.11
 - rapids-build-backend>=0.4.0,<0.5.0
 - ray-default>=2.55.1
-- rmm==26.8.*,>=0.0.0a0
+- rmm==26.10.*,>=0.0.0a0
 - scikit-build-core>=0.11.0
 - sphinx-autobuild
 - sphinx-copybutton
 - sphinx>=8.1.0
 - sysroot_linux-64=2.28
-- ucxx==0.51.*,>=0.0.0a0
+- ucxx==0.52.*,>=0.0.0a0
 - valgrind
+- pip:
+  - nvidia-sphinx-theme
 name: all_cuda-133_arch-x86_64

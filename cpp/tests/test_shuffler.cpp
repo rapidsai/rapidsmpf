@@ -314,7 +314,7 @@ class MemoryLimits_NumPartition
         std::tie(memory_limits, total_num_partitions, total_num_rows) = GetParam();
         br = rapidsmpf::BufferResource::create(
             rmm::mr::get_current_device_resource_ref(),
-            rapidsmpf::PinnedMemoryResource::Disabled,
+            rapidsmpf::PinnedMemoryDisabled,
             memory_limits
         );
 
@@ -507,7 +507,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // allocation counts via `get_main_record().num_current_allocs()`.
     auto br = rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
-        rapidsmpf::PinnedMemoryResource::Disabled,
+        rapidsmpf::PinnedMemoryDisabled,
         {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
         std::nullopt  // disable periodic spill check
     );

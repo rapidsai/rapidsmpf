@@ -104,7 +104,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: be37aaed37d910d88ff39aff4c0de2d4c1e1568c  # frozen: v1.4.3
+    rev: 49d5f7ac8225db3ebd7d0ab3701d6336d3c208ec  # frozen: v1.6.0
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]

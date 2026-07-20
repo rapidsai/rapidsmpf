@@ -476,39 +476,30 @@ TEST(OptionsTest, StatisticsFromOptionsDisabledByDefault) {
     EXPECT_FALSE(stats->enabled());
 }
 
-TEST(OptionsTest, PinnedMemoryResourceFromOptionsEnabledWhenSetToTrue) {
+TEST(OptionsTest, PinnedPoolPropertiesFromOptionsEnabledWhenSetToTrue) {
     std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
     Options opts(strings);
 
-    auto pmr = PinnedMemoryResource::from_options(opts);
-
-    // Should be enabled if system supports it, or Disabled (nullopt) if not
-    if (is_pinned_memory_resources_supported()) {
-        EXPECT_NE(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_TRUE(pmr.has_value());
-    } else {
-        EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-        EXPECT_FALSE(pmr.has_value());
-    }
+    // The parsed properties carry the pinned-memory request regardless of whether
+    // the system supports pinned memory; `BufferResource` decides whether to
+    // actually construct the resource.
+    auto props = pinned_pool_properties_from_options(opts);
+    EXPECT_TRUE(props.has_value());
 }
 
-TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledWhenSetToFalse) {
+TEST(OptionsTest, PinnedPoolPropertiesFromOptionsDisabledWhenSetToFalse) {
     std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "False"}};
     Options opts(strings);
 
-    auto pmr = PinnedMemoryResource::from_options(opts);
-
-    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-    EXPECT_FALSE(pmr.has_value());
+    auto props = pinned_pool_properties_from_options(opts);
+    EXPECT_FALSE(props.has_value());
 }
 
-TEST(OptionsTest, PinnedMemoryResourceFromOptionsDisabledByDefault) {
+TEST(OptionsTest, PinnedPoolPropertiesFromOptionsDisabledByDefault) {
     Options opts;  // Empty options
 
-    auto pmr = PinnedMemoryResource::from_options(opts);
-
-    EXPECT_EQ(pmr, PinnedMemoryResource::Disabled);
-    EXPECT_FALSE(pmr.has_value());
+    auto props = pinned_pool_properties_from_options(opts);
+    EXPECT_FALSE(props.has_value());
 }
 
 TEST(OptionsTest, DeviceLimitFromOptionsReturnsConfiguredLimit) {
@@ -688,8 +679,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
     config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(
         cuda_mr, comm->logger(), opts, Statistics::from_options(opts)
     );
@@ -703,8 +696,10 @@ TEST(OptionsTest, ContextFromOptionsUsesDefaultWhenOptionsEmpty) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -717,8 +712,10 @@ TEST(OptionsTest, ContextFromOptionsEnablesStatisticsWhenRequested) {
     config::Options opts(strings);
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(
         cuda_mr, comm->logger(), opts, Statistics::from_options(opts)
     );
@@ -731,8 +728,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesProgressThread) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);
@@ -742,8 +741,10 @@ TEST(OptionsTest, ContextFromOptionsCreatesExecutor) {
     config::Options opts;
 
     rmm::mr::cuda_memory_resource cuda_mr;
-    auto comm =
-        std::make_shared<Single>(opts, std::make_shared<rapidsmpf::ProgressThread>());
+    auto comm = std::make_shared<Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(opts)
+    );
     auto ctx = streaming::Context::from_options(cuda_mr, comm->logger(), opts);
 
     ASSERT_NE(ctx, nullptr);

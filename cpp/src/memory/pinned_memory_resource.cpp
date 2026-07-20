@@ -41,57 +41,48 @@ cuda::memory_pool_properties get_memory_pool_properties(
 
 }  // namespace
 
-PinnedMemoryResource::PinnedMemoryResource(
-    int numa_id, PinnedPoolProperties pool_properties
-)
+PinnedMemoryResource::PinnedMemoryResource(PinnedPoolProperties pool_properties)
     : shared_base([&] {
           RAPIDSMPF_EXPECTS(
               is_pinned_memory_resources_supported(),
               "Pinned host memory is not supported on this system. "
               "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
               " is one of the requirements, but additional platform or driver "
-              "constraints may apply. If needed, use `PinnedMemoryResource::Disabled` "
-              "to disable pinned host memory, noting that this may significantly "
-              "degrade spilling performance.",
+              "constraints may apply. If needed, disable pinned host memory by passing "
+              "`PinnedMemoryDisabled/ std::nullopt` for the `BufferResource` "
+              "`pinned_pool_properties`, noting that this may significantly degrade "
+              "spilling performance.",
               std::invalid_argument
           );
           return cuda::mr::make_shared_resource<
               detail::RmmResourceAdaptorImpl<cuda::pinned_memory_pool>>(
-              std::in_place, numa_id, get_memory_pool_properties(pool_properties)
+              std::in_place,
+              pool_properties.numa_id,
+              get_memory_pool_properties(pool_properties)
           );
       }()),
       pool_properties_{std::move(pool_properties)} {}
 
-std::optional<PinnedMemoryResource> PinnedMemoryResource::make_if_available(
-    int numa_id, PinnedPoolProperties pool_properties
-) {
-    if (is_pinned_memory_resources_supported()) {
-        return PinnedMemoryResource{numa_id, std::move(pool_properties)};
-    }
-    return PinnedMemoryResource::Disabled;
-}
-
-std::optional<PinnedMemoryResource> PinnedMemoryResource::from_options(
+std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
     config::Options options
 ) {
     bool const pinned_memory = options.get<bool>("pinned_memory", parse_string<bool>);
-
-    if (pinned_memory && is_pinned_memory_resources_supported()) {
-        auto const host_memory_per_gpu = get_host_memory_per_gpu();
-        auto const total = safe_cast<double>(host_memory_per_gpu);
-        PinnedPoolProperties pool_properties{
-            .initial_pool_size = options.get<size_t>(
-                "pinned_initial_pool_size",
-                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
-            ),
-            .max_pool_size = options.get<std::optional<size_t>>(
-                "pinned_max_pool_size",
-                [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
-            )
-        };
-        return PinnedMemoryResource{get_current_numa_node(), std::move(pool_properties)};
+    if (!pinned_memory) {
+        return PinnedMemoryDisabled;
     }
-    return PinnedMemoryResource::Disabled;
+
+    auto const host_memory_per_gpu = get_host_memory_per_gpu();
+    auto const total = safe_cast<double>(host_memory_per_gpu);
+    return PinnedPoolProperties{
+        .initial_pool_size = options.get<size_t>(
+            "pinned_initial_pool_size",
+            [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
+        ),
+        .max_pool_size = options.get<std::optional<size_t>>(
+            "pinned_max_pool_size",
+            [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
+        )
+    };
 }
 
 }  // namespace rapidsmpf

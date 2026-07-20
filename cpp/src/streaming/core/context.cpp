@@ -62,7 +62,7 @@ std::size_t get_new_uid() noexcept {
 
 Context::Context(
     config::Options options,
-    std::shared_ptr<Communicator::Logger> logger,
+    std::shared_ptr<Logger> logger,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
@@ -93,7 +93,7 @@ Context::Context(
 
 Context::Context(
     config::Options options,
-    std::shared_ptr<Communicator::Logger> logger,
+    std::shared_ptr<Logger> logger,
     std::shared_ptr<BufferResource> br
 )
     : Context(
@@ -105,7 +105,7 @@ Context::Context(
 
 std::shared_ptr<Context> Context::from_options(
     any_device_resource mr,
-    std::shared_ptr<Communicator::Logger> logger,
+    std::shared_ptr<Logger> logger,
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
@@ -139,7 +139,7 @@ config::Options Context::options() const noexcept {
     return options_;
 }
 
-std::shared_ptr<Communicator::Logger> const& Context::logger() const noexcept {
+std::shared_ptr<Logger> const& Context::logger() const noexcept {
     return logger_;
 }
 

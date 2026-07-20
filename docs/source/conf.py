@@ -10,13 +10,15 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 from __future__ import annotations
 
+import datetime
+
 from enum import IntEnum, IntFlag
 from typing import Any
 
 from sphinx.ext.autodoc import ClassDocumenter
 
-project = "rapidsmpf"
-copyright = "2025-2026, NVIDIA Corporation"
+project = "NVIDIA RapidsMPF"
+copyright = f"2025-{datetime.datetime.today().year}, NVIDIA Corporation"
 author = "NVIDIA Corporation"
 
 # -- General configuration ---------------------------------------------------
@@ -53,10 +55,14 @@ html_css_files = ["custom.css"]
 
 html_theme_options = {
     "external_links": [],
-    # https://github.com/pydata/pydata-sphinx-theme/issues/1220
-    "icon_links": [],
-    "github_url": "https://github.com/rapidsai/rapidsmpf",
-    "twitter_url": "https://twitter.com/rapidsai",
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/rapidsai/rapidsmpf",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        },
+    ],
     "show_toc_level": 2,
     "navbar_align": "right",
     "navigation_with_keys": True,
@@ -67,8 +73,7 @@ html_theme_options = {
 # a list of builtin themes.
 #
 
-html_theme = "pydata_sphinx_theme"
-html_logo = "_static/RAPIDS-logo-purple.png"
+html_theme = "nvidia_sphinx_theme"
 
 numpydoc_class_members_toctree = False
 
