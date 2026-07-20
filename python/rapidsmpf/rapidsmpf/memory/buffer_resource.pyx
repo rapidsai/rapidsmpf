@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython cimport no_gc_clear
@@ -44,8 +44,10 @@ cdef extern from *:
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
-from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
-                                                      cpp_PinnedMemoryResource)
+from rapidsmpf.memory.pinned_memory_resource cimport (
+    PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
+    create_pinned_pool_properties_from_cpp,
+    pinned_pool_properties_from_options)
 from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
 from rapidsmpf.statistics cimport Statistics
 
@@ -125,11 +127,16 @@ cdef class BufferResource:
         allocations are tracked for memory-limit accounting and statistics, use
         ``BufferResource.device_mr`` instead of the original ``device_mr`` after
         construction.
-    pinned_mr
-        The pinned host memory resource used for :attr:`~.MemoryType.PINNED_HOST`
-        allocations. If None, pinned host allocations are disabled. In that case,
-        any attempt to allocate pinned memory will fail regardless of any
-        ``memory_limits`` entry for ``PINNED_HOST``.
+    pinned_pool_properties
+        Configuration for the pinned host memory pool used for
+        :attr:`~.MemoryType.PINNED_HOST` allocations, as a
+        :class:`~rapidsmpf.memory.pinned_memory_resource.PinnedPoolProperties`.
+        When ``None`` (the default), pinned host allocations are disabled and any
+        attempt to allocate pinned memory will fail regardless of any
+        ``memory_limits`` entry for ``PINNED_HOST``. When provided, pinned host
+        memory must be supported on this system (see
+        :func:`~rapidsmpf.memory.pinned_memory_resource.is_pinned_memory_resources_supported`);
+        otherwise a ``RuntimeError`` is raised.
     memory_limits
         Optional mapping from :class:`~.MemoryType` to an integer byte limit.
         Memory types not present in the mapping are treated as unlimited.
@@ -163,7 +170,7 @@ cdef class BufferResource:
         self,
         DeviceMemoryResource device_mr not None,
         *,
-        PinnedMemoryResource pinned_mr = None,
+        pinned_pool_properties = None,
         memory_limits = None,
         periodic_spill_check = 1e-3,
         CudaStreamPool stream_pool = None,
@@ -201,14 +208,26 @@ cdef class BufferResource:
         # TODO: drop these once verified against pool/upstream-adaptor MRs.
         #       https://github.com/rapidsai/rapidsmpf/issues/1074
         self._device_mr = device_mr
-        self._pinned_mr = pinned_mr
-        cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
-        if self._pinned_mr is not None:
-            cpp_pinned_mr = self._pinned_mr._handle
+
+        # The pinned resource is constructed internally by the C++
+        # `BufferResource` from these properties. A None `pinned_pool_properties`
+        # leaves the optional empty, disabling pinned host memory. Providing
+        # properties on a system without pinned-host-memory support raises a
+        # RuntimeError. A default constructed `cpp_PinnedPoolProperties` already
+        # carries the C++ default NUMA node, so a `numa_id` of None keeps that default.
+        cdef cpp_PinnedPoolProperties _props
+        cdef optional[cpp_PinnedPoolProperties] cpp_pinned_pool
+        if pinned_pool_properties is not None:
+            _props.initial_pool_size = <size_t>pinned_pool_properties.initial_pool_size
+            if pinned_pool_properties.max_pool_size is not None:
+                _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
+            if pinned_pool_properties.numa_id is not None:
+                _props.numa_id = <int>pinned_pool_properties.numa_id
+            cpp_pinned_pool = _props
         with nogil:
             self._handle = cpp_BufferResource.create(
                 any_resource[device_accessible](device_mr.get_mr()),
-                cpp_pinned_mr,
+                cpp_pinned_pool,
                 move(_mem_limits),
                 period,
                 stream_pool.c_obj,
@@ -246,10 +265,20 @@ cdef class BufferResource:
         """
         if statistics is None:
             statistics = Statistics.disabled()
-        cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
+
+        # Derive the pinned pool configuration from the options; an empty optional
+        # means pinned host memory is disabled.
+        cdef optional[cpp_PinnedPoolProperties] props = \
+            pinned_pool_properties_from_options(options._handle)
+        pinned_pool_properties = None
+        if props.has_value():
+            pinned_pool_properties = create_pinned_pool_properties_from_cpp(
+                props.value()
+            )
+
         return cls(
             device_mr=mr,
-            pinned_mr=pinned_mr,
+            pinned_pool_properties=pinned_pool_properties,
             memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
@@ -329,12 +358,20 @@ cdef class BufferResource:
         """
         The memory resource used for pinned host memory allocations.
 
+        The returned handle holds shared ownership of this ``BufferResource``,
+        keeping it alive for as long as the handle (or any copy of it) lives.
+
         Returns
         -------
         The pinned host memory resource, or None if pinned host allocations
         are disabled.
         """
-        return self._pinned_mr
+        cdef optional[cpp_PinnedMemoryResource] opt
+        with nogil:
+            opt = deref(self._handle).try_pinned_mr()
+        if not opt.has_value():
+            return None
+        return PinnedMemoryResource.from_handle(opt)
 
     def memory_reserved(self, MemoryType mem_type):
         """
