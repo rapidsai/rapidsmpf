@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -18,7 +18,8 @@ from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
-                                                      cpp_PinnedMemoryResource)
+                                                      cpp_PinnedMemoryResource,
+                                                      cpp_PinnedPoolProperties)
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -36,7 +37,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         @staticmethod
         shared_ptr[cpp_BufferResource] create(
             any_resource[device_accessible],
-            optional[cpp_PinnedMemoryResource],
+            optional[cpp_PinnedPoolProperties],
             unordered_map[MemoryType, int64_t],
             optional[cpp_Duration],
             shared_ptr[cuda_stream_pool],
@@ -51,6 +52,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
         device_async_resource_ref device_mr() noexcept
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
+        optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
 
 cdef class BufferResource:
     cdef object __weakref__
@@ -58,7 +60,6 @@ cdef class BufferResource:
     cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
     cdef DeviceMemoryResource _device_mr
-    cdef PinnedMemoryResource _pinned_mr
     cdef CudaStreamPool _stream_pool
     cdef Statistics _statistics
     cpdef RmmResourceAdaptor device_mr_adaptor(self)

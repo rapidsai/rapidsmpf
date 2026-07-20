@@ -9,5 +9,7 @@ from rapidsmpf.streaming.core.context import Context
 
 async def shutdown_channels(ctx: Context, *chs: Channel) -> None: ...
 async def await_cpp_future(
-    future: asyncio.Future[None], *, on_cancel: Callable[[], Awaitable[None]] | None
+    future: asyncio.Future[None],
+    *,
+    on_cancel: Callable[[], Awaitable[None]] | None = None,
 ) -> None: ...
