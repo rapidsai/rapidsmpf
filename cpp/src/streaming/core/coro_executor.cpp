@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
 #include <cstdio>
 #include <utility>
 
-#if defined(__linux__) || defined(__APPLE__)
 #include <pthread.h>
-#endif
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -20,25 +19,20 @@ namespace rapidsmpf::streaming {
 CoroThreadPoolExecutor::CoroThreadPoolExecutor(
     std::uint32_t num_streaming_threads, std::shared_ptr<Statistics> statistics
 )
-    : executor_{coro::thread_pool::make_unique(coro::thread_pool::options{
-          .thread_count            = num_streaming_threads,
-          .on_thread_start_functor = [](std::size_t idx) {
-#if defined(__linux__) || defined(__APPLE__)
-              // Linux comm limit is 15 chars + NUL. 'rmpf-coro-<idx>' fits
-              // for idx up to 4 digits, which comfortably exceeds any
-              // realistic thread count.
-              char name[16] = {};
-              std::snprintf(name, sizeof(name), "rmpf-coro-%zu", idx);
-#if defined(__linux__)
-              pthread_setname_np(pthread_self(), name);
-#else  // __APPLE__: names only the calling thread, no pthread_t argument.
-              pthread_setname_np(name);
-#endif
-#else
-              (void)idx;
-#endif
-          },
-      })},
+    : executor_{coro::thread_pool::make_unique(
+          coro::thread_pool::options{
+              .thread_count = num_streaming_threads,
+              .on_thread_start_functor =
+                  [](std::size_t idx) {
+                      // Linux comm limit is 15 chars + NUL. 'rmpf-coro-<idx>' fits
+                      // for idx up to 4 digits, which comfortably exceeds any
+                      // realistic thread count.
+                      std::array<char, 16> name{};
+                      std::snprintf(name.data(), name.size(), "rmpf-coro-%zu", idx);
+                      pthread_setname_np(pthread_self(), name.data());
+                  },
+          }
+      )},
       statistics_{std::move(statistics)},
       creator_thread_id_{std::this_thread::get_id()} {
     RAPIDSMPF_EXPECTS(
