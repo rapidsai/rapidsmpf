@@ -358,7 +358,7 @@ def run_actor_network(Context ctx not None, *, actors):
     # Need to run in a separate thread in case the cluster runtime already
     # has an async event loop.
     task_ready = Future()
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="rapidsmpf-actor") as executor:
         worker = executor.submit(sync_wait, run_py_actors(py_actors), task_ready)
         loop, task = task_ready.result()
 
