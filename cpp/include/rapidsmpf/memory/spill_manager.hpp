@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -73,6 +74,13 @@ class SpillManager {
      *
      * The spill function is prioritized according to the specified priority value.
      *
+     * A `SpillFunction` must be safe to invoke concurrently with itself,
+     * since multiple `spill()` callers may execute spill functions in parallel.
+     * Furthermore, it must not call back into spill-related functions such as
+     * `SpillManager::spill()` or `spill_to_make_headroom()`, directly or
+     * transitively, as this can deadlock. This includes allocations that may
+     * implicitly trigger spilling, such as `reserve_device_memory_and_spill()`.
+     *
      * @param spill_function The spill function to be added.
      * @param priority The priority level of the spill function (higher values indicate
      * higher priority).
@@ -123,7 +131,11 @@ class SpillManager {
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
   private:
-    mutable std::mutex mutex_;
+    // `spill()` takes a shared lock so spill work runs in parallel; add/remove take
+    // exclusive, which drains in-flight spillers before returning -- callers rely on this
+    // for safe teardown. SpillFunctions must be safe to invoke concurrently
+    // with themselves. See `SpillManager::add_spill_function()` for more details.
+    std::shared_mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
