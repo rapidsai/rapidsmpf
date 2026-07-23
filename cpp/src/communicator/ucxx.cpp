@@ -380,6 +380,13 @@ class SharedResources {
         futures_.push_back(std::move(future));
     }
 
+    [[nodiscard]] bool all_barrier_maps_registered() {
+        std::scoped_lock lock(endpoints_mutex_, listener_mutex_);
+        auto const expected_size = safe_cast<std::size_t>(nranks());
+        return rank_to_endpoint_.size() == expected_size
+               && rank_to_listener_address_.size() == expected_size;
+    }
+
     /**
      * @brief Distribute all listener addresses from root to every non-root rank.
      *
@@ -389,20 +396,34 @@ class SharedResources {
      * worker may no longer be progressed when a peer attempts lazy endpoint
      * creation.
      *
-     * Must only be called on the root rank, after all ranks have connected.
+     * Must only be called on the root rank, after all ranks have connected and
+     * registered listener addresses.
      */
     void distribute_listener_addresses() {
-        if (listener_addresses_distributed_) {
-            return;
+        {
+            std::scoped_lock lock(endpoints_mutex_, listener_mutex_);
+            if (listener_addresses_distributed_) {
+                return;
+            }
+            auto const expected_size = safe_cast<std::size_t>(nranks());
+            RAPIDSMPF_EXPECTS(
+                rank_to_endpoint_.size() == expected_size,
+                "cannot distribute listener addresses before all endpoints are registered"
+            );
+            RAPIDSMPF_EXPECTS(
+                rank_to_listener_address_.size() == expected_size,
+                "cannot distribute listener addresses before all listener addresses are "
+                "registered"
+            );
+            listener_addresses_distributed_ = true;
         }
-        listener_addresses_distributed_ = true;
 
         // Pack all listener addresses (except the destination's own) into a
         // single DistributeListenerAddresses message per non-root rank.
         // Format: [ControlMessage][count][addr1_size][addr1]...[addrN_size][addrN]
         std::vector<std::shared_ptr<::ucxx::Request>> reqs;
         std::vector<std::unique_ptr<std::vector<std::uint8_t>>> bufs;
-        for (auto& [dst, ep] : rank_to_endpoint_) {
+        for (auto const& [dst, ep] : rank_to_endpoint_) {
             if (dst == 0) {
                 continue;
             }
@@ -410,7 +431,7 @@ class SharedResources {
             auto const control = ControlMessage::DistributeListenerAddresses;
             std::size_t count{0};
             std::size_t total = sizeof(control) + sizeof(count);
-            for (auto& [src, addr] : rank_to_listener_address_) {
+            for (auto const& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
@@ -422,7 +443,7 @@ class SharedResources {
             std::size_t off{0};
             encode(packed->data(), &control, sizeof(control), off);
             encode(packed->data(), &count, sizeof(count), off);
-            for (auto& [src, addr] : rank_to_listener_address_) {
+            for (auto const& [src, addr] : rank_to_listener_address_) {
                 if (src == dst) {
                     continue;
                 }
@@ -445,9 +466,8 @@ class SharedResources {
     }
 
     void barrier() {
-        // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0 && rank_to_endpoint_.size() != safe_cast<std::size_t>(nranks()))
-        {
+        // The root needs endpoints and listener addresses for all ranks to continue.
+        while (rank_ == 0 && !all_barrier_maps_registered()) {
             progress_worker();
         }
 
@@ -455,7 +475,7 @@ class SharedResources {
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
             requests.reserve(safe_cast<std::size_t>(nranks() - 1));
             // send to all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
@@ -472,7 +492,7 @@ class SharedResources {
             requests.clear();
 
             // receive from all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
@@ -489,7 +509,7 @@ class SharedResources {
             distribute_listener_addresses();
 
             // Everyone has reported, release other ranks.
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
