@@ -954,8 +954,8 @@ TEST(Shuffler, concurrent_wait) {
     std::ranges::for_each(futures, [](auto& f) { f.get(); });
 }
 
-// Test that reusing an OpID after a completed shuffle doesn't cause cross-matching of
-// messages between the old and new shuffle.
+// Test that reusing an OpID after a fully drained shuffle doesn't cause cross-matching
+// of messages between the old and new shuffle.
 //
 // On rank 0 we inject a stream-ordered delay into device allocations so that received
 // chunks stay "not ready" in the event loop. With small messages, other ranks can finish
@@ -1012,7 +1012,7 @@ TEST(Shuffler, opid_reuse) {
     );
     insert_data(shuffle1, 42);
     shuffle1.insert_finished();
-    EXPECT_NO_THROW(shuffle1.wait(wait_timeout));
+    EXPECT_NO_THROW(shuffle1.wait_reusable(wait_timeout));
 
     rapidsmpf::shuffler::Shuffler shuffle2(
         comm, op_id, total_num_partitions, shuffler_br
@@ -1080,7 +1080,7 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     );
     insert_data(shuffle1, 42);
     shuffle1.insert_finished();
-    EXPECT_NO_THROW(shuffle1.wait(wait_timeout));
+    EXPECT_NO_THROW(shuffle1.wait_reusable(wait_timeout));
 
     rapidsmpf::shuffler::Shuffler shuffle2(
         comm, op_id, total_num_partitions, shuffler_br
