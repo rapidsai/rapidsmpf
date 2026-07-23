@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
+#include <cstdio>
 #include <utility>
+
+#include <pthread.h>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -16,7 +20,18 @@ CoroThreadPoolExecutor::CoroThreadPoolExecutor(
     std::uint32_t num_streaming_threads, std::shared_ptr<Statistics> statistics
 )
     : executor_{coro::thread_pool::make_unique(
-          coro::thread_pool::options{.thread_count = num_streaming_threads}
+          coro::thread_pool::options{
+              .thread_count = num_streaming_threads,
+              .on_thread_start_functor =
+                  [](std::size_t idx) {
+                      // Linux comm limit is 15 chars + NUL. 'rmpf-coro-<idx>' fits
+                      // for idx up to 4 digits, which comfortably exceeds any
+                      // realistic thread count.
+                      std::array<char, 16> name{};
+                      std::snprintf(name.data(), name.size(), "rmpf-coro-%zu", idx);
+                      pthread_setname_np(pthread_self(), name.data());
+                  },
+          }
       )},
       statistics_{std::move(statistics)},
       creator_thread_id_{std::this_thread::get_id()} {
