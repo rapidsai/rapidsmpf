@@ -14,6 +14,17 @@ PYTHON_WHEELHOUSE=$(rapids-download-from-github "$(rapids-artifact-name wheel_py
 # generate constraints (possibly pinning to oldest support versions of dependencies)
 rapids-generate-pip-constraints test_python "${PIP_CONSTRAINT}"
 
+python -m venv librapidsmpf-env
+. librapidsmpf-env/bin/activate
+
+rapids-pip-retry install \
+    -v \
+    --prefer-binary \
+    --constraint "${PIP_CONSTRAINT}" \
+    "${CPP_WHEELHOUSE}"/*.whl
+python -c "import librapidsmpf; librapidsmpf.load_library()"
+deactivate
+
 TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
 
 # notes:
