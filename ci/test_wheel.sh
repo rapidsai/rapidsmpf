@@ -33,6 +33,7 @@ rapids-pip-retry install \
 rapids-logger "Checking host environment as seen by applications"
 
 rapids-pip-retry install polars
+
 python -c 'import os, polars as pl; print(os.cpu_count(), len(os.sched_getaffinity(0)), pl.thread_pool_size())'
 cat /sys/fs/cgroup/cpu.max
 cat /sys/fs/cgroup/cpuset.cpus.effective
