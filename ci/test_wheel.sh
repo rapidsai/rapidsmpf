@@ -22,7 +22,7 @@ rapids-pip-retry install \
     --prefer-binary \
     --constraint "${PIP_CONSTRAINT}" \
     "${CPP_WHEELHOUSE}"/*.whl
-python -c "import librapidsmpf; librapidsmpf.load_library()"
+python -c "import librapidsmpf; assert (libraries := librapidsmpf.load_library()) and all(libraries)"
 deactivate
 
 TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
