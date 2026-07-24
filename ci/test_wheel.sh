@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -eou pipefail
@@ -28,5 +28,14 @@ rapids-pip-retry install \
     --constraint "${PIP_CONSTRAINT}" \
     "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
+
+
+rapids-logger "Checking host environment as seen by applications"
+
+rapids-pip-retry install polars
+python -c 'import os, polars as pl; print(os.cpu_count(), len(os.sched_getaffinity(0)), pl.thread_pool_size())'
+cat /sys/fs/cgroup/cpu.max
+cat /sys/fs/cgroup/cpuset.cpus.effective
+ps -eLo pid,ppid,nlwp,rss,comm --sort=-nlwp | head -50
 
 python "${TIMEOUT_TOOL_PATH}" --enable-python 600 python -m pytest -v ./python/rapidsmpf/rapidsmpf/tests
