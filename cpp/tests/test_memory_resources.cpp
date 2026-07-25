@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstddef>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -18,6 +20,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
+#include <rapidsmpf/reservation_aware_resource_adaptor.hpp>
 
 namespace {
 
@@ -76,4 +79,107 @@ TEST(MemoryResourceAccessibility, IsDeviceAccessible) {
             EXPECT_FALSE(rapidsmpf::is_host_accessible(ref));
         }
     }
+}
+
+namespace {
+
+constexpr std::int64_t limit = 1 << 20;
+
+rapidsmpf::ReservationAwareResourceAdaptor make_adaptor() {
+    return rapidsmpf::ReservationAwareResourceAdaptor{
+        cuda::mr::any_resource<cuda::mr::device_accessible>{
+            rmm::mr::cuda_memory_resource{}
+        },
+        limit
+    };
+}
+
+}  // namespace
+
+TEST(ReservationAwareResourceAdaptor, ReserveMovesBytesFromAvailableToReserved) {
+    auto adaptor = make_adaptor();
+    EXPECT_EQ(adaptor.available(), limit);
+
+    auto [res, overbooking] = adaptor.reserve(1024, false);
+    EXPECT_EQ(overbooking, 0);
+    EXPECT_EQ(res.size(), 1024);
+    EXPECT_EQ(adaptor.total_reserved(), 1024);
+    EXPECT_EQ(adaptor.available(), limit - 1024);
+}
+
+TEST(ReservationAwareResourceAdaptor, AllocatingKeepsAvailableUnchanged) {
+    auto adaptor = make_adaptor();
+    auto [res, _] = adaptor.reserve(1024, false);
+
+    void* ptr = res.mr().allocate_sync(1024);
+    EXPECT_NE(ptr, nullptr);
+    // The bytes moved from `total_reserved` to `current_allocated`.
+    EXPECT_EQ(res.size(), 0);
+    EXPECT_EQ(adaptor.total_reserved(), 0);
+    EXPECT_EQ(adaptor.current_allocated(), 1024);
+    EXPECT_EQ(adaptor.available(), limit - 1024);
+
+    res.mr().deallocate_sync(ptr, 1024);
+    EXPECT_EQ(res.size(), 1024);
+    EXPECT_EQ(adaptor.current_allocated(), 0);
+    EXPECT_EQ(adaptor.available(), limit - 1024);
+}
+
+TEST(ReservationAwareResourceAdaptor, ExceedingTheGrantThrows) {
+    auto adaptor = make_adaptor();
+    auto [res, _] = adaptor.reserve(1024, false);
+    EXPECT_THROW(std::ignore = res.mr().allocate_sync(2048), rmm::out_of_memory);
+    // The failed allocation left the reservation untouched.
+    EXPECT_EQ(res.size(), 1024);
+    EXPECT_EQ(adaptor.current_allocated(), 0);
+}
+
+TEST(ReservationAwareResourceAdaptor, ZeroSizedReservationThrowsOnFirstByte) {
+    auto adaptor = make_adaptor();
+    auto [res, overbooking] = adaptor.reserve(2 * limit, false);
+    EXPECT_EQ(res.size(), 0);
+    EXPECT_EQ(overbooking, limit);
+    EXPECT_THROW(std::ignore = res.mr().allocate_sync(1), rmm::out_of_memory);
+}
+
+TEST(ReservationAwareResourceAdaptor, OverbookingIsGrantedWhenAllowed) {
+    auto adaptor = make_adaptor();
+    auto [res, overbooking] = adaptor.reserve(2 * limit, true);
+    EXPECT_EQ(res.size(), 2 * limit);
+    EXPECT_EQ(overbooking, limit);
+    EXPECT_EQ(adaptor.available(), -limit);
+}
+
+TEST(ReservationAwareResourceAdaptor, ReleaseRefundsTheUnusedBalance) {
+    auto adaptor = make_adaptor();
+    {
+        auto [res, _] = adaptor.reserve(1024, false);
+        EXPECT_EQ(adaptor.total_reserved(), 1024);
+    }
+    EXPECT_EQ(adaptor.total_reserved(), 0);
+    EXPECT_EQ(adaptor.available(), limit);
+}
+
+TEST(ReservationAwareResourceAdaptor, EscapedAllocationOutlivesItsOwner) {
+    auto adaptor = make_adaptor();
+    void* ptr = nullptr;
+    auto handle = [&] {
+        auto [res, _] = adaptor.reserve(1024, false);
+        ptr = res.mr().allocate_sync(512);
+        return res.mr();  // a copy, keeping the reservation state alive
+    }();
+
+    // The owner is gone: the unused 512 bytes went back, the allocated 512 did not.
+    EXPECT_EQ(adaptor.total_reserved(), 0);
+    EXPECT_EQ(adaptor.current_allocated(), 512);
+
+    // Further allocations fall through to the adaptor: tracked, but unreserved.
+    void* extra = handle.allocate_sync(256);
+    EXPECT_EQ(adaptor.current_allocated(), 768);
+    EXPECT_EQ(adaptor.total_reserved(), 0);
+
+    handle.deallocate_sync(extra, 256);
+    handle.deallocate_sync(ptr, 512);
+    EXPECT_EQ(adaptor.current_allocated(), 0);
+    EXPECT_EQ(adaptor.total_reserved(), 0);
 }
