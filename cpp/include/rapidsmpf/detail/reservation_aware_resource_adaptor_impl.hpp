@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -21,10 +22,21 @@
 #include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+namespace rapidsmpf::experimental {
+
+class ReservationAwareResourceAdaptor;
+
+}  // namespace rapidsmpf::experimental
+
 namespace rapidsmpf::detail {
 
-template <cuda::mr::resource_with<cuda::mr::device_accessible> PrimaryMR>
-class ReservationImpl;
+// The adaptor is a template parameter only so that the reservation can hold one by
+// value: `ReservationAwareResourceAdaptor` is defined in terms of the adaptor impl
+// below, so it is still incomplete here, and only a dependent member type defers the
+// completeness requirement to instantiation time.
+template <typename Adaptor>
+    requires std::same_as<Adaptor, experimental::ReservationAwareResourceAdaptor>
+class MemoryReservationImpl;
 
 /**
  * @brief Implementation class for ReservationAwareResourceAdaptor.
@@ -94,7 +106,7 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
      * @return A pair of the number of bytes granted (either @p size or zero) and the
      * number of bytes by which the request overbooks the limit.
      */
-    [[nodiscard]] std::pair<std::int64_t, std::size_t> try_reserve(
+    [[nodiscard]] std::pair<std::size_t, std::size_t> try_reserve(
         std::size_t size, bool allow_overbooking
     ) {
         auto const want = safe_cast<std::int64_t>(size);
@@ -116,13 +128,13 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
                     std::memory_order_relaxed
                 ))
             {
-                return {want, overbooking};
+                return {size, overbooking};
             }
         }
     }
 
   private:
-    friend class ReservationImpl<PrimaryMR>;
+    friend class MemoryReservationImpl<experimental::ReservationAwareResourceAdaptor>;
 
     std::atomic<std::int64_t> limit_;
     // Reservations move bytes in and out of this counter as they allocate, free, and die.
@@ -144,24 +156,25 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
  * allocated therefore keeps the surplus out of circulation for the whole lifetime of
  * the buffers allocated from it; over-reservation is a caller bug.
  *
- * @tparam PrimaryMR The type of the primary memory resource.
+ * @tparam Adaptor Always `ReservationAwareResourceAdaptor`; see the forward
+ * declaration above for why it is a template parameter at all.
  */
-template <cuda::mr::resource_with<cuda::mr::device_accessible> PrimaryMR>
-class ReservationImpl {
+template <typename Adaptor>
+    requires std::same_as<Adaptor, experimental::ReservationAwareResourceAdaptor>
+class MemoryReservationImpl {
   public:
-    using Adaptor = ReservationAwareResourceAdaptorImpl<PrimaryMR>;  ///< Adaptor type.
-
     /**
      * @brief Construct a reservation over an already-granted number of bytes.
      *
-     * @param adaptor The adaptor that granted the reservation.
+     * @param adaptor The adaptor that granted the reservation. Held by value, so the
+     * adaptor outlives every buffer allocated from the reservation.
      * @param grant The number of bytes granted.
      */
-    ReservationImpl(cuda::mr::shared_resource<Adaptor> adaptor, std::int64_t grant)
+    MemoryReservationImpl(Adaptor adaptor, std::int64_t grant)
         : adaptor_{std::move(adaptor)}, grant_{grant}, balance_{grant} {}
 
     /// @brief Refund the unspent balance to the adaptor.
-    ~ReservationImpl() {
+    ~MemoryReservationImpl() {
         adaptor_->total_reserved_.fetch_sub(balance(), std::memory_order_acq_rel);
     }
 
@@ -287,23 +300,26 @@ class ReservationImpl {
      * @param other The other reservation to compare.
      * @return True if the two instances are the same.
      */
-    [[nodiscard]] bool operator==(ReservationImpl const& other) const noexcept {
+    [[nodiscard]] bool operator==(MemoryReservationImpl const& other) const noexcept {
         return this == std::addressof(other);
     }
 
     /// @brief Tag this resource as device-accessible for the CCCL concept.
     friend void get_property(
-        ReservationImpl const&, cuda::mr::device_accessible
+        MemoryReservationImpl const&, cuda::mr::device_accessible
     ) noexcept {}
 
-  private:
     /**
-     * @brief Draw @p bytes down from the balance.
+     * @brief The adaptor that granted the reservation.
      *
-     * @param bytes The number of bytes to draw down.
-     *
-     * @throws rmm::out_of_memory if the balance is insufficient.
+     * @return Reference to the adaptor.
      */
+    [[nodiscard]] Adaptor const& adaptor() const noexcept {
+        return adaptor_;
+    }
+
+  private:
+    /// @brief Draw @p bytes down from the balance.
     void draw_down_res(std::int64_t bytes) {
         auto balance = balance_.load(std::memory_order_relaxed);
         do {
@@ -319,7 +335,7 @@ class ReservationImpl {
         ));
     }
 
-    cuda::mr::shared_resource<Adaptor> adaptor_;
+    Adaptor adaptor_;
     std::int64_t const grant_;
     std::atomic<std::int64_t> balance_;
 };

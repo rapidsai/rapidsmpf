@@ -14,20 +14,6 @@ ReservationAwareResourceAdaptor::ReservationAwareResourceAdaptor(
 )
     : shared_base(cuda::mr::make_shared_resource<Impl>(std::move(primary_mr), limit)) {}
 
-std::pair<MemoryReservation, std::size_t> ReservationAwareResourceAdaptor::reserve(
-    std::size_t size, bool allow_overbooking
-) {
-    auto const [granted, overbooking] = get().try_reserve(size, allow_overbooking);
-    // The reservation shares ownership of the adaptor's state, so it stays alive for
-    // as long as any buffer allocated from the reservation needs it.
-    return {
-        MemoryReservation{cuda::mr::make_shared_resource<MemoryReservation::Impl>(
-            static_cast<shared_base const&>(*this), granted
-        )},
-        overbooking
-    };
-}
-
 std::int64_t ReservationAwareResourceAdaptor::limit() const noexcept {
     return get().limit();
 }
@@ -57,6 +43,24 @@ ReservationAwareResourceAdaptor::get_upstream_resource() const noexcept {
     return rmm::device_async_resource_ref{
         const_cast<any_device_resource&>(get().get_upstream_resource())
     };
+}
+
+MemoryReservation::MemoryReservation(
+    ReservationAwareResourceAdaptor const& adaptor,
+    std::size_t granted,
+    std::size_t overbooking
+)
+    : shared_base{cuda::mr::make_shared_resource<Impl>(
+          adaptor, safe_cast<std::int64_t>(granted)
+      )},
+      overbooking_{overbooking} {}
+
+MemoryReservation ReservationAwareResourceAdaptor::reserve(
+    std::size_t size, AllowOverbooking allow_overbooking
+) {
+    auto const [granted, overbooking] =
+        get().try_reserve(size, allow_overbooking == AllowOverbooking::YES);
+    return MemoryReservation{*this, granted, overbooking};
 }
 
 }  // namespace rapidsmpf::experimental

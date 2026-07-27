@@ -12,6 +12,9 @@
 
 #include <cuda/memory_resource>
 
+#include <rmm/cuda_stream_pool.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -83,102 +86,157 @@ TEST(MemoryResourceAccessibility, IsDeviceAccessible) {
 
 namespace {
 
-constexpr std::int64_t limit = 1 << 20;
+using rapidsmpf::experimental::AllowOverbooking;
+using rapidsmpf::experimental::MemoryReservation;
 
-rapidsmpf::experimental::ReservationAwareResourceAdaptor make_adaptor() {
-    return rapidsmpf::experimental::ReservationAwareResourceAdaptor{
+class ReservationAwareResourceAdaptorTest : public ::testing::Test {
+  protected:
+    /// @brief Let the deallocations enqueued by the test complete.
+    void TearDown() override {
+        stream.synchronize();
+    }
+
+    static constexpr std::int64_t limit = 1 << 20;
+
+    rmm::cuda_stream_view stream{rmm::cuda_stream_default};
+    rapidsmpf::experimental::ReservationAwareResourceAdaptor adaptor{
         cuda::mr::any_resource<cuda::mr::device_accessible>{
             rmm::mr::cuda_memory_resource{}
         },
         limit
     };
+};
+
+void synchronize_pool(rmm::cuda_stream_pool& pool) {
+    for (size_t i = 0; i < pool.get_pool_size(); ++i) {
+        pool.get_stream(i).synchronize();
+    }
 }
 
 }  // namespace
 
-TEST(ReservationAwareResourceAdaptor, ReserveMovesBytesFromAvailableToReserved) {
-    auto adaptor = make_adaptor();
+TEST_F(ReservationAwareResourceAdaptorTest, ReserveMovesBytesFromAvailableToReserved) {
     EXPECT_EQ(adaptor.available(), limit);
 
-    auto [res, overbooking] = adaptor.reserve(1024, false);
-    EXPECT_EQ(overbooking, 0);
-    EXPECT_EQ(res.size(), 1024);
+    // Zero-sized reservations are allowed.
+    EXPECT_NO_THROW(std::ignore = adaptor.reserve(0, AllowOverbooking::NO));
+
+    auto res = adaptor.reserve(1024, AllowOverbooking::NO);
+    EXPECT_EQ(adaptor, res.adaptor());  // points to the same adaptor
+    EXPECT_EQ(res.overbooking(), 0);
+    EXPECT_EQ(res.balance(), 1024);
     EXPECT_EQ(adaptor.total_reserved(), 1024);
     EXPECT_EQ(adaptor.available(), limit - 1024);
 }
 
-TEST(ReservationAwareResourceAdaptor, AllocatingKeepsAvailableUnchanged) {
-    auto adaptor = make_adaptor();
-    auto [res, _] = adaptor.reserve(1024, false);
+TEST_F(ReservationAwareResourceAdaptorTest, AllocatingKeepsAvailableUnchanged) {
+    auto res = adaptor.reserve(1024, AllowOverbooking::NO);
 
-    void* ptr = res.allocate_sync(1024);
-    EXPECT_NE(ptr, nullptr);
-    // The bytes moved from `total_reserved` to `current_allocated`.
-    EXPECT_EQ(res.size(), 0);
-    EXPECT_EQ(adaptor.total_reserved(), 0);
-    EXPECT_EQ(adaptor.current_allocated(), 1024);
-    EXPECT_EQ(adaptor.available(), limit - 1024);
+    {
+        rmm::device_buffer buf1{256, stream, res};
+        // The bytes moved from `total_reserved` to `current_allocated`.
+        EXPECT_EQ(res.balance(), 768);
+        EXPECT_EQ(adaptor.total_reserved(), 768);
+        EXPECT_EQ(adaptor.current_allocated(), 256);
+        EXPECT_EQ(adaptor.available(), limit - 1024);
 
-    res.deallocate_sync(ptr, 1024);
-    EXPECT_EQ(res.size(), 1024);
+        rmm::device_buffer buf2{512, stream, res};
+        // The bytes moved from `total_reserved` to `current_allocated`.
+        EXPECT_EQ(res.balance(), 256);
+        EXPECT_EQ(adaptor.total_reserved(), 256);
+        EXPECT_EQ(adaptor.current_allocated(), 768);
+        EXPECT_EQ(adaptor.available(), limit - 1024);
+    }
+
+    EXPECT_EQ(res.balance(), 1024);
     EXPECT_EQ(adaptor.current_allocated(), 0);
     EXPECT_EQ(adaptor.available(), limit - 1024);
 }
 
-TEST(ReservationAwareResourceAdaptor, ExceedingTheGrantThrows) {
-    auto adaptor = make_adaptor();
-    auto [res, _] = adaptor.reserve(1024, false);
-    EXPECT_THROW(std::ignore = res.allocate_sync(2048), rmm::out_of_memory);
+TEST_F(ReservationAwareResourceAdaptorTest, AllocatingOnDifferentStreams) {
+    rmm::cuda_stream_pool pool{2, rmm::cuda_stream::flags::non_blocking};
+    auto res = adaptor.reserve(1024, AllowOverbooking::NO);
+
+    {
+        rmm::device_buffer buf1{256, pool.get_stream(), res};
+        // The bytes moved from `total_reserved` to `current_allocated`.
+        EXPECT_EQ(res.balance(), 768);
+        EXPECT_EQ(adaptor.total_reserved(), 768);
+        EXPECT_EQ(adaptor.current_allocated(), 256);
+        EXPECT_EQ(adaptor.available(), limit - 1024);
+
+        rmm::device_buffer buf2{512, pool.get_stream(), res};
+        // The bytes moved from `total_reserved` to `current_allocated`.
+        EXPECT_EQ(res.balance(), 256);
+        EXPECT_EQ(adaptor.total_reserved(), 256);
+        EXPECT_EQ(adaptor.current_allocated(), 768);
+        EXPECT_EQ(adaptor.available(), limit - 1024);
+    }
+
+    EXPECT_EQ(res.balance(), 1024);
+    EXPECT_EQ(adaptor.current_allocated(), 0);
+    EXPECT_EQ(adaptor.available(), limit - 1024);
+
+    synchronize_pool(pool);
+}
+
+TEST_F(ReservationAwareResourceAdaptorTest, ExceedingTheGrantThrows) {
+    auto res = adaptor.reserve(1024, AllowOverbooking::NO);
+    EXPECT_THROW((rmm::device_buffer{2048, stream, res}), rmm::out_of_memory);
     // The failed allocation left the reservation untouched.
-    EXPECT_EQ(res.size(), 1024);
+    EXPECT_EQ(res.balance(), 1024);
     EXPECT_EQ(adaptor.current_allocated(), 0);
 }
 
-TEST(ReservationAwareResourceAdaptor, ZeroSizedReservationThrowsOnFirstByte) {
-    auto adaptor = make_adaptor();
-    auto [res, overbooking] = adaptor.reserve(2 * limit, false);
-    EXPECT_EQ(res.size(), 0);
-    EXPECT_EQ(overbooking, limit);
-    EXPECT_THROW(std::ignore = res.allocate_sync(1), rmm::out_of_memory);
+TEST_F(ReservationAwareResourceAdaptorTest, ZeroSizedReservationThrowsOnFirstByte) {
+    auto res = adaptor.reserve(2 * limit, AllowOverbooking::NO);
+    EXPECT_EQ(res.balance(), 0);
+    EXPECT_EQ(res.overbooking(), limit);
+    EXPECT_THROW((rmm::device_buffer{1, stream, res}), rmm::out_of_memory);
 }
 
-TEST(ReservationAwareResourceAdaptor, OverbookingIsGrantedWhenAllowed) {
-    auto adaptor = make_adaptor();
-    auto [res, overbooking] = adaptor.reserve(2 * limit, true);
-    EXPECT_EQ(res.size(), 2 * limit);
-    EXPECT_EQ(overbooking, limit);
+TEST_F(ReservationAwareResourceAdaptorTest, OverbookingIsGrantedWhenAllowed) {
+    auto res = adaptor.reserve(2 * limit, AllowOverbooking::YES);
+    EXPECT_EQ(res.balance(), 2 * limit);
+    EXPECT_EQ(res.overbooking(), limit);
     EXPECT_EQ(adaptor.available(), -limit);
 }
 
-TEST(ReservationAwareResourceAdaptor, DestructionRefundsTheUnusedBalance) {
-    auto adaptor = make_adaptor();
+TEST_F(ReservationAwareResourceAdaptorTest, DestructionRefundsTheUnusedBalance) {
     {
-        auto [res, _] = adaptor.reserve(1024, false);
+        auto res = adaptor.reserve(1024, AllowOverbooking::NO);
         EXPECT_EQ(adaptor.total_reserved(), 1024);
     }
     EXPECT_EQ(adaptor.total_reserved(), 0);
     EXPECT_EQ(adaptor.available(), limit);
 }
 
-TEST(ReservationAwareResourceAdaptor, CopiesShareTheReservation) {
-    auto adaptor = make_adaptor();
-    void* ptr = nullptr;
-    auto res = [&] {
-        auto [reservation, _] = adaptor.reserve(1024, false);
-        ptr = reservation.allocate_sync(512);
-        return reservation;  // a copy, keeping the reservation alive
-    }();
+TEST_F(ReservationAwareResourceAdaptorTest, BufferOutlivesTheReservingScope) {
+    {
+        auto buf = [&] {
+            auto res = adaptor.reserve(1024, AllowOverbooking::NO);
+            return rmm::device_buffer{512, stream, res};
+        }();
 
-    // The copy holds the whole reservation, so the unspent 512 bytes stay reserved.
-    EXPECT_EQ(res.size(), 512);
-    EXPECT_EQ(adaptor.total_reserved(), 512);
-    EXPECT_EQ(adaptor.current_allocated(), 512);
-    EXPECT_EQ(adaptor.available(), limit - 1024);
+        // The buffer carries the reservation itself rather than the bare adaptor, so
+        // the remaining balance is still reachable through it.
+        auto mr = buf.memory_resource();
+        auto* reservation = cuda::mr::resource_cast<MemoryReservation>(&mr);
+        ASSERT_NE(reservation, nullptr);
+        EXPECT_EQ(reservation->balance(), 512);
 
-    // And it is still capped by what is left of that reservation.
-    EXPECT_THROW(std::ignore = res.allocate_sync(1024), rmm::out_of_memory);
+        // The buffer holds a copy of the reservation, so the unspent 512 bytes stay
+        // reserved even though the reserving scope is gone.
+        EXPECT_EQ(adaptor.current_allocated(), 512);
+        EXPECT_EQ(adaptor.total_reserved(), 512);
+        EXPECT_EQ(adaptor.available(), limit - 1024);
 
-    res.deallocate_sync(ptr, 512);
+        // The buffer grows through the reservation, so it is still capped by it.
+        EXPECT_THROW(buf.resize(2048, stream), rmm::out_of_memory);
+    }
+
+    // Destroying the buffer drops the last reference to the reservation.
     EXPECT_EQ(adaptor.current_allocated(), 0);
-    EXPECT_EQ(adaptor.total_reserved(), 1024);
+    EXPECT_EQ(adaptor.total_reserved(), 0);
+    EXPECT_EQ(adaptor.available(), limit);
 }
