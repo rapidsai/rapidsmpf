@@ -51,9 +51,8 @@ MemoryReservation::MemoryReservation(
     std::size_t overbooking
 )
     : shared_base{cuda::mr::make_shared_resource<Impl>(
-          adaptor, safe_cast<std::int64_t>(granted)
-      )},
-      overbooking_{overbooking} {}
+          adaptor, safe_cast<std::int64_t>(granted), overbooking
+      )} {}
 
 MemoryReservation ReservationAwareResourceAdaptor::reserve(
     std::size_t size, AllowOverbooking allow_overbooking

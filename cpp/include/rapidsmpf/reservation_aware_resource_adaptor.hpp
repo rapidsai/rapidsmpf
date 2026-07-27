@@ -257,7 +257,7 @@ class MemoryReservation
      * @return The overbooked size in bytes.
      */
     [[nodiscard]] std::size_t overbooking() const noexcept {
-        return overbooking_;
+        return get().overbooking();
     }
 
     /**
@@ -288,8 +288,6 @@ class MemoryReservation
         std::size_t granted,
         std::size_t overbooking
     );
-
-    std::size_t overbooking_;
 };
 
 // Being a memory resource is the whole point of the type.

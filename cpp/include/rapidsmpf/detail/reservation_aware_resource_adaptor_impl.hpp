@@ -39,12 +39,7 @@ template <typename Adaptor>
 class MemoryReservationImpl;
 
 /**
- * @brief Implementation class for ReservationAwareResourceAdaptor.
- *
- * Extends `RmmResourceAdaptorImpl` with a memory limit and a running total of the
- * memory currently held by live reservations. Availability is
- * `limit - allocated - total_reserved`, where `allocated` is the tracking counter
- * inherited from the base.
+ * @brief Shared state of a ReservationAwareResourceAdaptor.
  *
  * @tparam PrimaryMR The type of the primary memory resource.
  */
@@ -144,10 +139,8 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
 /**
  * @brief Shared state of a memory reservation.
  *
- * Satisfies the `cuda::mr::resource` concept, so this is what ends up stored inside
- * `rmm::device_buffer`'s `cuda::mr::any_resource` member for every buffer allocated
- * from the reservation. It is held by `cuda::mr::shared_resource`, meaning copies
- * share this state and keep it alive for as long as any derived buffer exists.
+ * Satisfies the `cuda::mr::resource` concept, so that it can be made a
+ * `cuda::mr::shared_resource`.
  *
  * The reservation is a hard cap: an allocation exceeding the remaining balance throws.
  * Allocating moves bytes from the adaptor's reserved counter to its allocated counter
@@ -169,9 +162,13 @@ class MemoryReservationImpl {
      * @param adaptor The adaptor that granted the reservation. Held by value, so the
      * adaptor outlives every buffer allocated from the reservation.
      * @param grant The number of bytes granted.
+     * @param overbooking The number of bytes by which @p grant overbooks the limit.
      */
-    MemoryReservationImpl(Adaptor adaptor, std::int64_t grant)
-        : adaptor_{std::move(adaptor)}, grant_{grant}, balance_{grant} {}
+    MemoryReservationImpl(Adaptor adaptor, std::int64_t grant, std::size_t overbooking)
+        : adaptor_{std::move(adaptor)},
+          grant_{grant},
+          overbooking_{overbooking},
+          balance_{grant} {}
 
     /// @brief Refund the unspent balance to the adaptor.
     ~MemoryReservationImpl() {
@@ -185,6 +182,15 @@ class MemoryReservationImpl {
      */
     [[nodiscard]] std::int64_t grant() const noexcept {
         return grant_;
+    }
+
+    /**
+     * @brief The number of bytes by which the grant overbooks the adaptor's limit.
+     *
+     * @return The overbooked size in bytes.
+     */
+    [[nodiscard]] std::size_t overbooking() const noexcept {
+        return overbooking_;
     }
 
     /**
@@ -337,6 +343,7 @@ class MemoryReservationImpl {
 
     Adaptor adaptor_;
     std::int64_t const grant_;
+    std::size_t const overbooking_;
     std::atomic<std::int64_t> balance_;
 };
 
