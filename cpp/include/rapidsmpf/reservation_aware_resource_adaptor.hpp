@@ -7,8 +7,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <optional>
 #include <utility>
 
 #include <cuda/memory_resource>
@@ -20,14 +18,14 @@
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-namespace rapidsmpf {
+namespace rapidsmpf::experimental {
 
 class ReservationAwareResourceAdaptor;
 
 /**
- * @brief An owning handle to a memory reservation that is itself a memory resource.
+ * @brief A memory reservation that is itself a memory resource.
  *
- * Unlike `MemoryReservation`, which is passive bookkeeping consumed by
+ * Unlike `rapidsmpf::MemoryReservation`, which is passive bookkeeping consumed by
  * `BufferResource::make_buffer()`, this reservation *is* an RMM memory resource. It
  * can be handed to cudf (or anything else taking a
  * `rmm::device_async_resource_ref`), and every allocation made through it is charged
@@ -37,92 +35,42 @@ class ReservationAwareResourceAdaptor;
  *
  * @par Ownership
  *
- * This type is move-only and is the sole owner of the reservation. The handle
- * returned by `mr()` is copyable and shares the underlying state; RMM copies it into
- * every buffer allocated from the reservation, which keeps the state alive for as
- * long as those buffers need it to service deallocations.
+ * Like `ReservationAwareResourceAdaptor`, this is a `cuda::mr::shared_resource`, so
+ * copies share the same reservation and are interchangeable. RMM stores such a copy
+ * inside every buffer allocated from the reservation, which is what keeps the
+ * reservation alive for as long as those buffers need it to service deallocations.
  *
- * Destroying (or explicitly `release()`ing) this owner refunds the unused balance
- * immediately, at the end of the reserving scope, rather than waiting for the last
- * derived buffer to die. Buffers that outlive the owner keep working: further
- * allocations through them fall through to the adaptor, tracked but unreserved.
+ * The unspent balance is refunded to the adaptor when the last copy dies. Reserving
+ * more than is allocated therefore keeps the surplus out of circulation for as long as
+ * any derived buffer lives, so reserve what you actually use.
  *
  * @code{.cpp}
  * auto [res, overbooking] = adaptor.reserve(1 << 30, false);
- * auto table = cudf::groupby(..., stream, res.mr());
- * // `res` goes out of scope here: the unused balance is refunded immediately, while
- * // `table` keeps the reservation state alive to service its own deallocations.
+ * auto table = cudf::groupby(..., stream, res);
  * @endcode
  */
-class MemoryReservation2 {
+class MemoryReservation
+    : public cuda::mr::shared_resource<detail::ReservationImpl<any_device_resource>> {
+    using shared_base =
+        cuda::mr::shared_resource<detail::ReservationImpl<any_device_resource>>;
+
   public:
     /// @brief The shared state of the reservation.
     using Impl = detail::ReservationImpl<any_device_resource>;
 
-    ~MemoryReservation2() noexcept {
-        release();
-    }
+    /// @brief Tag this resource as device-accessible for the CCCL concept.
+    friend void get_property(
+        MemoryReservation const&, cuda::mr::device_accessible
+    ) noexcept {}
 
     /**
-     * @brief Move constructor.
+     * @brief Equality comparison.
      *
-     * @param o The reservation to move from.
+     * @param other The other reservation to compare.
+     * @return True if both refer to the same reservation.
      */
-    MemoryReservation2(MemoryReservation2&& o) noexcept
-        : handle_{std::exchange(o.handle_, std::nullopt)} {}
-
-    /**
-     * @brief Move assignment operator.
-     *
-     * @param o The reservation to move from.
-     * @return Reference to this.
-     */
-    MemoryReservation2& operator=(MemoryReservation2&& o) noexcept {
-        if (this != std::addressof(o)) {
-            release();
-            handle_ = std::exchange(o.handle_, std::nullopt);
-        }
-        return *this;
-    }
-
-    /// @brief A memory reservation is not copyable.
-    MemoryReservation2(MemoryReservation2 const&) = delete;
-    /// @brief A memory reservation is not copyable.
-    MemoryReservation2& operator=(MemoryReservation2 const&) = delete;
-
-    /**
-     * @brief Refund the unused balance to the adaptor.
-     *
-     * Idempotent. Allocations already made through this reservation stay valid, and
-     * buffers holding a copy of `mr()` continue to work, but they no longer draw on a
-     * reservation.
-     */
-    void release() noexcept {
-        if (handle_.has_value()) {
-            (*handle_)->release_owner();
-        }
-    }
-
-    /**
-     * @brief The memory resource to allocate from.
-     *
-     * Pass this to cudf, RMM containers, or anything else accepting a
-     * `cuda::mr::any_resource` or an `rmm::device_async_resource_ref`.
-     *
-     * Allocations through this handle, or through any copy of it, draw on the
-     * reservation's balance and are capped by it. A copy does not extend the budget's
-     * lifetime, though: destroying this `MemoryReservation2` refunds the unspent balance
-     * to the adaptor immediately. Copies remain usable afterwards, keeping the
-     * reservation's bookkeeping alive so buffers can still deallocate, but allocations
-     * through them are then tracked and unreserved.
-     *
-     * Returning by value is what keeps that safe, so this is deliberately not an
-     * `rmm::device_async_resource_ref`.
-     *
-     * @return An owning handle to the reservation, usable as a memory resource.
-     */
-    [[nodiscard]] cuda::mr::shared_resource<Impl> mr() const noexcept {
-        return *handle_;
+    [[nodiscard]] bool operator==(MemoryReservation const& other) const noexcept {
+        return get() == other.get();
     }
 
     /**
@@ -131,16 +79,16 @@ class MemoryReservation2 {
      * @return The granted size in bytes.
      */
     [[nodiscard]] std::size_t grant() const noexcept {
-        return handle_.has_value() ? safe_cast<std::size_t>((*handle_)->grant()) : 0;
+        return safe_cast<std::size_t>(get().grant());
     }
 
     /**
      * @brief The remaining unallocated size of the reservation.
      *
-     * @return The remaining size in bytes, or zero once released.
+     * @return The remaining size in bytes.
      */
     [[nodiscard]] std::size_t size() const noexcept {
-        return handle_.has_value() ? safe_cast<std::size_t>((*handle_)->balance()) : 0;
+        return safe_cast<std::size_t>(get().balance());
     }
 
   private:
@@ -153,24 +101,18 @@ class MemoryReservation2 {
      *
      * @param handle The shared reservation state.
      */
-    explicit MemoryReservation2(cuda::mr::shared_resource<Impl> handle)
-        : handle_{std::move(handle)} {}
-
-    /// @brief The shared reservation state, `std::nullopt` once moved from.
-    std::optional<cuda::mr::shared_resource<Impl>> handle_;
+    explicit MemoryReservation(shared_base handle) : shared_base{std::move(handle)} {}
 };
 
-// What `mr()` hands out is a memory resource, which is the whole point of the type.
-static_assert(cuda::mr::resource_with<
-              cuda::mr::shared_resource<MemoryReservation2::Impl>,
-              cuda::mr::device_accessible>);
+// Being a memory resource is the whole point of the type.
+static_assert(cuda::mr::resource_with<MemoryReservation, cuda::mr::device_accessible>);
 
 /**
  * @brief A memory resource adaptor that only allocates through reservations.
  *
  * This adaptor wraps a primary device memory resource and adds a memory limit on top
  * of the allocation tracking provided by `RmmResourceAdaptor`. Memory is obtained by
- * calling `reserve()` and allocating through the returned `MemoryReservation2`.
+ * calling `reserve()` and allocating through the returned `MemoryReservation`.
  *
  * Like `RmmResourceAdaptor`, this class is copyable and shares ownership of its
  * internal state via `cuda::mr::shared_resource`.
@@ -180,7 +122,7 @@ static_assert(cuda::mr::resource_with<
  * The adaptor is itself a memory resource, so it can be handed to cudf or an RMM
  * container directly. Those allocations are tracked, and therefore still consume
  * `available()`, but they draw on no reservation and are not capped. Allocate through
- * a `MemoryReservation2` when the budget has to be enforced.
+ * a `MemoryReservation` when the budget has to be enforced.
  *
  * @par Accounting
  *
@@ -248,7 +190,7 @@ class ReservationAwareResourceAdaptor
      * success the size of the reservation always equals @p size and on failure it
      * always equals zero (a zero-sized reservation never fails).
      */
-    [[nodiscard]] std::pair<MemoryReservation2, std::size_t> reserve(
+    [[nodiscard]] std::pair<MemoryReservation, std::size_t> reserve(
         std::size_t size, bool allow_overbooking
     );
 
@@ -312,4 +254,4 @@ static_assert(
     cuda::mr::resource_with<ReservationAwareResourceAdaptor, cuda::mr::device_accessible>
 );
 
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::experimental

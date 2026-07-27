@@ -85,8 +85,8 @@ namespace {
 
 constexpr std::int64_t limit = 1 << 20;
 
-rapidsmpf::ReservationAwareResourceAdaptor make_adaptor() {
-    return rapidsmpf::ReservationAwareResourceAdaptor{
+rapidsmpf::experimental::ReservationAwareResourceAdaptor make_adaptor() {
+    return rapidsmpf::experimental::ReservationAwareResourceAdaptor{
         cuda::mr::any_resource<cuda::mr::device_accessible>{
             rmm::mr::cuda_memory_resource{}
         },
@@ -111,7 +111,7 @@ TEST(ReservationAwareResourceAdaptor, AllocatingKeepsAvailableUnchanged) {
     auto adaptor = make_adaptor();
     auto [res, _] = adaptor.reserve(1024, false);
 
-    void* ptr = res.mr().allocate_sync(1024);
+    void* ptr = res.allocate_sync(1024);
     EXPECT_NE(ptr, nullptr);
     // The bytes moved from `total_reserved` to `current_allocated`.
     EXPECT_EQ(res.size(), 0);
@@ -119,7 +119,7 @@ TEST(ReservationAwareResourceAdaptor, AllocatingKeepsAvailableUnchanged) {
     EXPECT_EQ(adaptor.current_allocated(), 1024);
     EXPECT_EQ(adaptor.available(), limit - 1024);
 
-    res.mr().deallocate_sync(ptr, 1024);
+    res.deallocate_sync(ptr, 1024);
     EXPECT_EQ(res.size(), 1024);
     EXPECT_EQ(adaptor.current_allocated(), 0);
     EXPECT_EQ(adaptor.available(), limit - 1024);
@@ -128,7 +128,7 @@ TEST(ReservationAwareResourceAdaptor, AllocatingKeepsAvailableUnchanged) {
 TEST(ReservationAwareResourceAdaptor, ExceedingTheGrantThrows) {
     auto adaptor = make_adaptor();
     auto [res, _] = adaptor.reserve(1024, false);
-    EXPECT_THROW(std::ignore = res.mr().allocate_sync(2048), rmm::out_of_memory);
+    EXPECT_THROW(std::ignore = res.allocate_sync(2048), rmm::out_of_memory);
     // The failed allocation left the reservation untouched.
     EXPECT_EQ(res.size(), 1024);
     EXPECT_EQ(adaptor.current_allocated(), 0);
@@ -139,7 +139,7 @@ TEST(ReservationAwareResourceAdaptor, ZeroSizedReservationThrowsOnFirstByte) {
     auto [res, overbooking] = adaptor.reserve(2 * limit, false);
     EXPECT_EQ(res.size(), 0);
     EXPECT_EQ(overbooking, limit);
-    EXPECT_THROW(std::ignore = res.mr().allocate_sync(1), rmm::out_of_memory);
+    EXPECT_THROW(std::ignore = res.allocate_sync(1), rmm::out_of_memory);
 }
 
 TEST(ReservationAwareResourceAdaptor, OverbookingIsGrantedWhenAllowed) {
@@ -150,7 +150,7 @@ TEST(ReservationAwareResourceAdaptor, OverbookingIsGrantedWhenAllowed) {
     EXPECT_EQ(adaptor.available(), -limit);
 }
 
-TEST(ReservationAwareResourceAdaptor, ReleaseRefundsTheUnusedBalance) {
+TEST(ReservationAwareResourceAdaptor, DestructionRefundsTheUnusedBalance) {
     auto adaptor = make_adaptor();
     {
         auto [res, _] = adaptor.reserve(1024, false);
@@ -160,26 +160,25 @@ TEST(ReservationAwareResourceAdaptor, ReleaseRefundsTheUnusedBalance) {
     EXPECT_EQ(adaptor.available(), limit);
 }
 
-TEST(ReservationAwareResourceAdaptor, EscapedAllocationOutlivesItsOwner) {
+TEST(ReservationAwareResourceAdaptor, CopiesShareTheReservation) {
     auto adaptor = make_adaptor();
     void* ptr = nullptr;
-    auto handle = [&] {
-        auto [res, _] = adaptor.reserve(1024, false);
-        ptr = res.mr().allocate_sync(512);
-        return res.mr();  // a copy, keeping the reservation state alive
+    auto res = [&] {
+        auto [reservation, _] = adaptor.reserve(1024, false);
+        ptr = reservation.allocate_sync(512);
+        return reservation;  // a copy, keeping the reservation alive
     }();
 
-    // The owner is gone: the unused 512 bytes went back, the allocated 512 did not.
-    EXPECT_EQ(adaptor.total_reserved(), 0);
+    // The copy holds the whole reservation, so the unspent 512 bytes stay reserved.
+    EXPECT_EQ(res.size(), 512);
+    EXPECT_EQ(adaptor.total_reserved(), 512);
     EXPECT_EQ(adaptor.current_allocated(), 512);
+    EXPECT_EQ(adaptor.available(), limit - 1024);
 
-    // Further allocations fall through to the adaptor: tracked, but unreserved.
-    void* extra = handle.allocate_sync(256);
-    EXPECT_EQ(adaptor.current_allocated(), 768);
-    EXPECT_EQ(adaptor.total_reserved(), 0);
+    // And it is still capped by what is left of that reservation.
+    EXPECT_THROW(std::ignore = res.allocate_sync(1024), rmm::out_of_memory);
 
-    handle.deallocate_sync(extra, 256);
-    handle.deallocate_sync(ptr, 512);
+    res.deallocate_sync(ptr, 512);
     EXPECT_EQ(adaptor.current_allocated(), 0);
-    EXPECT_EQ(adaptor.total_reserved(), 0);
+    EXPECT_EQ(adaptor.total_reserved(), 1024);
 }

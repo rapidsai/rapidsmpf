@@ -5,12 +5,10 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <utility>
 
 #include <cuda/memory_resource>
@@ -67,32 +65,22 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
 
     ~ReservationAwareResourceAdaptorImpl() = default;
 
-    ReservationAwareResourceAdaptorImpl(ReservationAwareResourceAdaptorImpl const&) =
-        delete;
-    ReservationAwareResourceAdaptorImpl(ReservationAwareResourceAdaptorImpl&&) = delete;
-    ReservationAwareResourceAdaptorImpl& operator=(
-        ReservationAwareResourceAdaptorImpl const&
-    ) = delete;
-    ReservationAwareResourceAdaptorImpl& operator=(
-        ReservationAwareResourceAdaptorImpl&&
-    ) = delete;
-
-    /// @copydoc ReservationAwareResourceAdaptor::limit
+    /// @copydoc rapidsmpf::experimental::ReservationAwareResourceAdaptor::limit
     [[nodiscard]] std::int64_t limit() const noexcept {
         return limit_.load(std::memory_order_acquire);
     }
 
-    /// @copydoc ReservationAwareResourceAdaptor::set_limit
+    /// @copydoc rapidsmpf::experimental::ReservationAwareResourceAdaptor::set_limit
     void set_limit(std::int64_t limit) noexcept {
         limit_.store(limit, std::memory_order_release);
     }
 
-    /// @copydoc ReservationAwareResourceAdaptor::total_reserved
+    /// @copydoc rapidsmpf::experimental::ReservationAwareResourceAdaptor::total_reserved
     [[nodiscard]] std::int64_t total_reserved() const noexcept {
         return total_reserved_.load(std::memory_order_acquire);
     }
 
-    /// @copydoc ReservationAwareResourceAdaptor::available
+    /// @copydoc rapidsmpf::experimental::ReservationAwareResourceAdaptor::available
     [[nodiscard]] std::int64_t available() const noexcept {
         return limit() - this->current_allocated() - total_reserved();
     }
@@ -136,18 +124,8 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
   private:
     friend class ReservationImpl<PrimaryMR>;
 
-    /// @brief Bytes stop being reserved, either by being allocated or by being
-    /// refunded when their owner releases.
-    void decrement_reserved(std::int64_t nbytes) noexcept {
-        total_reserved_.fetch_sub(nbytes, std::memory_order_acq_rel);
-    }
-
-    /// @brief Freed bytes go back to the reservation that allocated them.
-    void increment_reserved(std::int64_t nbytes) noexcept {
-        total_reserved_.fetch_add(nbytes, std::memory_order_acq_rel);
-    }
-
     std::atomic<std::int64_t> limit_;
+    // Reservations move bytes in and out of this counter as they allocate, free, and die.
     std::atomic<std::int64_t> total_reserved_{0};
 };
 
@@ -159,19 +137,12 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
  * from the reservation. It is held by `cuda::mr::shared_resource`, meaning copies
  * share this state and keep it alive for as long as any derived buffer exists.
  *
- * @par Owner lifetime
- *
- * Exactly one holder is the *owner* (`MemoryReservation2`); every other reference is a
- * copy made by RMM when a buffer stored the resource. The owner calls
- * `release_owner()` when its scope ends, which refunds the unused balance
- * immediately rather than waiting for the last derived buffer to die. Buffer-held
- * copies never call it, so the refund is tied to the reserving scope rather than to
- * allocation lifetime.
- *
- * Before release, the reservation is a hard cap: an allocation exceeding the
- * remaining balance throws. After release, allocations fall through to the adaptor
- * and are tracked but unreserved, which keeps `rmm::device_buffer::resize()` and
- * `memory_resource()` propagation working on buffers that outlive their reservation.
+ * The reservation is a hard cap: an allocation exceeding the remaining balance throws.
+ * Allocating moves bytes from the adaptor's reserved counter to its allocated counter
+ * and deallocating moves them back, so the unspent balance goes back to the adaptor
+ * only when the last reference to this state dies. Reserving more than is actually
+ * allocated therefore keeps the surplus out of circulation for the whole lifetime of
+ * the buffers allocated from it; over-reservation is a caller bug.
  *
  * @tparam PrimaryMR The type of the primary memory resource.
  */
@@ -189,33 +160,9 @@ class ReservationImpl {
     ReservationImpl(cuda::mr::shared_resource<Adaptor> adaptor, std::int64_t grant)
         : adaptor_{std::move(adaptor)}, grant_{grant}, balance_{grant} {}
 
-    ~ReservationImpl() = default;
-
-    ReservationImpl(ReservationImpl const&) = delete;
-    ReservationImpl(ReservationImpl&&) = delete;
-    ReservationImpl& operator=(ReservationImpl const&) = delete;
-    ReservationImpl& operator=(ReservationImpl&&) = delete;
-
-    /**
-     * @brief Relinquish the unused balance back to the adaptor.
-     *
-     * Called by the owning `MemoryReservation2`; idempotent. Allocations already made
-     * stay valid and this object stays alive as long as any buffer references it, but
-     * it no longer draws on a reservation.
-     */
-    void release_owner() noexcept {
-        std::int64_t remaining = 0;
-        {
-            std::lock_guard const lock(mutex_);
-            if (released_) {
-                return;
-            }
-            remaining = std::exchange(balance_, 0);
-            released_ = true;
-        }
-        // Outside the lock, so the reservation lock and the adaptor's counters are
-        // never held at the same time.
-        adaptor_->decrement_reserved(remaining);
+    /// @brief Refund the unspent balance to the adaptor.
+    ~ReservationImpl() {
+        adaptor_->total_reserved_.fetch_sub(balance(), std::memory_order_acq_rel);
     }
 
     /**
@@ -230,21 +177,10 @@ class ReservationImpl {
     /**
      * @brief The remaining balance.
      *
-     * @return The number of unallocated bytes, or zero once the owner has released.
+     * @return The number of granted but not yet allocated bytes.
      */
     [[nodiscard]] std::int64_t balance() const noexcept {
-        std::lock_guard const lock(mutex_);
-        return balance_;
-    }
-
-    /**
-     * @brief Whether the owning `MemoryReservation2` has released this reservation.
-     *
-     * @return True if the owner has released.
-     */
-    [[nodiscard]] bool released() const noexcept {
-        std::lock_guard const lock(mutex_);
-        return released_;
+        return balance_.load(std::memory_order_acquire);
     }
 
     /**
@@ -259,8 +195,7 @@ class ReservationImpl {
      * @param alignment Alignment requirement.
      * @return Pointer to the allocated memory.
      *
-     * @throws rmm::out_of_memory if the reservation is live and @p bytes exceeds the
-     * remaining balance.
+     * @throws rmm::out_of_memory if @p bytes exceeds the remaining balance.
      */
     void* allocate(
         cuda::stream_ref stream,
@@ -269,29 +204,34 @@ class ReservationImpl {
     ) {
         auto const padded_bytes =
             safe_cast<std::int64_t>(rmm::align_up(bytes, alignment));
-        // Zero once the owner has released, which makes the calls below no-ops.
-        std::int64_t const drawn = draw_down_res(padded_bytes);
+        draw_down_res(padded_bytes);
         void* ptr = nullptr;
         try {
             ptr = adaptor_->allocate(stream, bytes, alignment);
         } catch (...) {
-            add_back_res(drawn);  // The allocation never happened.
+            // The allocation never happened.
+            balance_.fetch_add(padded_bytes, std::memory_order_acq_rel);
             throw;
         }
-        adaptor_->decrement_reserved(drawn);
+        adaptor_->total_reserved_.fetch_sub(padded_bytes, std::memory_order_acq_rel);
         return ptr;
     }
 
     /**
      * @brief Deallocate memory asynchronously on the given stream.
      *
-     * Mirrors `allocate()`: the adaptor's reserved counter is restored before the base
-     * drops the allocation, so a concurrent `available()` never over-reports.
+     * Mirrors `allocate()`: the bytes go back to the balance and the adaptor's reserved
+     * counter is restored before the base drops the allocation, so a concurrent
+     * `available()` never over-reports.
      *
      * @param stream The CUDA stream for the deallocation.
      * @param ptr Pointer to the memory to deallocate.
      * @param bytes Number of bytes to deallocate.
      * @param alignment Alignment of the original allocation.
+     *
+     * @warning As with any memory resource, @p ptr must have been allocated by this
+     * same reservation. Freeing memory allocated elsewhere inflates the balance beyond
+     * the grant, letting the reservation allocate more than it was granted.
      */
     void deallocate(
         cuda::stream_ref stream,
@@ -301,7 +241,8 @@ class ReservationImpl {
     ) noexcept {
         auto const padded_bytes =
             safe_cast<std::int64_t>(rmm::align_up(bytes, alignment));
-        adaptor_->increment_reserved(add_back_res(padded_bytes));
+        balance_.fetch_add(padded_bytes, std::memory_order_acq_rel);
+        adaptor_->total_reserved_.fetch_add(padded_bytes, std::memory_order_acq_rel);
         adaptor_->deallocate(stream, ptr, bytes, alignment);
     }
 
@@ -315,8 +256,7 @@ class ReservationImpl {
      * @param alignment Alignment requirement.
      * @return Pointer to the allocated memory.
      *
-     * @throws rmm::out_of_memory if the reservation is live and @p bytes exceeds the
-     * remaining balance.
+     * @throws rmm::out_of_memory if @p bytes exceeds the remaining balance.
      */
     void* allocate_sync(
         std::size_t bytes, std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
@@ -358,59 +298,30 @@ class ReservationImpl {
 
   private:
     /**
-     * @brief Draw @p padded_bytes down from the balance.
+     * @brief Draw @p bytes down from the balance.
      *
-     * @param padded_bytes The number of bytes to draw down.
-     * @return The number of bytes drawn: @p padded_bytes, or zero once the owner has
-     * released and the allocation is unreserved (but still tracked).
+     * @param bytes The number of bytes to draw down.
      *
-     * @throws rmm::out_of_memory if the owner is alive and the balance is insufficient.
+     * @throws rmm::out_of_memory if the balance is insufficient.
      */
-    std::int64_t draw_down_res(std::int64_t padded_bytes) {
-        std::lock_guard const lock(mutex_);
-        if (released_) {
-            return 0;
-        }
-        RAPIDSMPF_EXPECTS(
-            padded_bytes <= balance_,
-            "allocation of " + format_nbytes(padded_bytes)
-                + " exceeds reservation (grant: " + format_nbytes(grant_)
-                + ", remaining: " + format_nbytes(balance_) + ")",
-            rmm::out_of_memory
-        );
-        balance_ -= padded_bytes;
-        return padded_bytes;
+    void draw_down_res(std::int64_t bytes) {
+        auto balance = balance_.load(std::memory_order_relaxed);
+        do {
+            RAPIDSMPF_EXPECTS(
+                bytes <= balance,
+                "allocation of " + format_nbytes(bytes)
+                    + " exceeds reservation (grant: " + format_nbytes(grant_)
+                    + ", remaining: " + format_nbytes(balance) + ")",
+                rmm::out_of_memory
+            );
+        } while (!balance_.compare_exchange_weak(
+            balance, balance - bytes, std::memory_order_acq_rel, std::memory_order_relaxed
+        ));
     }
 
-    /**
-     * @brief Add @p padded_bytes back to the balance, capped at the original grant.
-     *
-     * The cap bounds the inflation caused by freeing, through this reservation, memory
-     * that was allocated elsewhere; a reservation that only frees what it allocated
-     * never reaches it. Exceeding the grant cannot be reported as an error instead,
-     * because this runs on the deallocation path: `cuda::mr::shared_resource` forwards
-     * it through a `noexcept` function and `rmm::device_buffer` calls it from its
-     * destructor.
-     *
-     * @param padded_bytes The number of bytes to add back.
-     * @return The number of bytes actually added back: less than @p padded_bytes when
-     * the cap bites, and zero once the owner has released.
-     */
-    std::int64_t add_back_res(std::int64_t padded_bytes) noexcept {
-        std::lock_guard const lock(mutex_);
-        if (released_) {
-            return 0;
-        }
-        auto const added_back = std::min(grant_ - balance_, padded_bytes);
-        balance_ += added_back;
-        return added_back;
-    }
-
-    mutable std::mutex mutex_;
     cuda::mr::shared_resource<Adaptor> adaptor_;
     std::int64_t const grant_;
-    std::int64_t balance_;
-    bool released_{false};
+    std::atomic<std::int64_t> balance_;
 };
 
 }  // namespace rapidsmpf::detail
