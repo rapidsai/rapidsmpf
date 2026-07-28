@@ -16,7 +16,6 @@
 
 #include <cuda/memory_resource>
 
-#include <rmm/aligned.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -250,17 +249,15 @@ TEST_F(ReservationAwareResourceAdaptorTest, ConcurrentAllocationsShareOneReserva
     constexpr std::size_t num_buffers = 100;
     constexpr std::size_t max_buffer_size = 1024;
     constexpr std::size_t num_threads = 2;
-    // Sizes are padded to the allocation alignment up front, so the reservation is
-    // charged exactly what the adaptor records, and this grant covers all 100 buffers
-    // whatever the sizes come out to be.
+    // Covers all 100 buffers whatever the sizes come out to be.
     constexpr std::size_t grant = num_buffers * max_buffer_size;
 
+    // Deliberately unaligned sizes: the reservation must be charged what the caller
+    // asked for, not the alignment-padded size the upstream ends up handing out.
     std::mt19937 rng{42};  // Fixed seed: the same sizes on every run.
     std::uniform_int_distribution<std::size_t> dist{0, max_buffer_size};
     std::vector<std::size_t> sizes(num_buffers);
-    std::generate(sizes.begin(), sizes.end(), [&] {
-        return rmm::align_up(dist(rng), rmm::CUDA_ALLOCATION_ALIGNMENT);
-    });
+    std::generate(sizes.begin(), sizes.end(), [&] { return dist(rng); });
     auto const total = std::accumulate(sizes.begin(), sizes.end(), std::size_t{0});
 
     auto res = adaptor.reserve(grant, AllowOverbooking::NO);

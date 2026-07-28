@@ -209,6 +209,11 @@ class MemoryReservationImpl {
      * the adaptor's reserved counter is only decremented once the base has recorded the
      * allocation, so a concurrent `available()` never over-reports.
      *
+     * The reservation is charged @p bytes rather than the alignment-padded size, which
+     * is what the adaptor's allocation counter records. Charging the padded size instead
+     * would silently consume more of the grant than the caller asked for and leave
+     * `available()` reading high by the difference.
+     *
      * @param stream The CUDA stream for the allocation.
      * @param bytes Number of bytes to allocate.
      * @param alignment Alignment requirement.
@@ -221,18 +226,17 @@ class MemoryReservationImpl {
         std::size_t bytes,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) {
-        auto const padded_bytes =
-            safe_cast<std::int64_t>(rmm::align_up(bytes, alignment));
-        draw_down_res(padded_bytes);
+        auto const amount = safe_cast<std::int64_t>(bytes);
+        draw_down_res(amount);
         void* ptr = nullptr;
         try {
             ptr = adaptor_->allocate(stream, bytes, alignment);
         } catch (...) {
             // The allocation never happened.
-            balance_.fetch_add(padded_bytes, std::memory_order_acq_rel);
+            balance_.fetch_add(amount, std::memory_order_acq_rel);
             throw;
         }
-        adaptor_->total_reserved_.fetch_sub(padded_bytes, std::memory_order_acq_rel);
+        adaptor_->total_reserved_.fetch_sub(amount, std::memory_order_acq_rel);
         return ptr;
     }
 
@@ -258,10 +262,9 @@ class MemoryReservationImpl {
         std::size_t bytes,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) noexcept {
-        auto const padded_bytes =
-            safe_cast<std::int64_t>(rmm::align_up(bytes, alignment));
-        balance_.fetch_add(padded_bytes, std::memory_order_acq_rel);
-        adaptor_->total_reserved_.fetch_add(padded_bytes, std::memory_order_acq_rel);
+        auto const amount = safe_cast<std::int64_t>(bytes);
+        balance_.fetch_add(amount, std::memory_order_acq_rel);
+        adaptor_->total_reserved_.fetch_add(amount, std::memory_order_acq_rel);
         adaptor_->deallocate(stream, ptr, bytes, alignment);
     }
 
