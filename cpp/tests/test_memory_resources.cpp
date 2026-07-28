@@ -3,8 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <future>
+#include <numeric>
+#include <random>
 #include <utility>
 #include <vector>
 
@@ -12,6 +16,7 @@
 
 #include <cuda/memory_resource>
 
+#include <rmm/aligned.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -239,4 +244,52 @@ TEST_F(ReservationAwareResourceAdaptorTest, BufferOutlivesTheReservingScope) {
     EXPECT_EQ(adaptor.current_allocated(), 0);
     EXPECT_EQ(adaptor.total_reserved(), 0);
     EXPECT_EQ(adaptor.available(), limit);
+}
+
+TEST_F(ReservationAwareResourceAdaptorTest, ConcurrentAllocationsShareOneReservation) {
+    constexpr std::size_t num_buffers = 100;
+    constexpr std::size_t max_buffer_size = 1024;
+    constexpr std::size_t num_threads = 2;
+    // Sizes are padded to the allocation alignment up front, so the reservation is
+    // charged exactly what the adaptor records, and this grant covers all 100 buffers
+    // whatever the sizes come out to be.
+    constexpr std::size_t grant = num_buffers * max_buffer_size;
+
+    std::mt19937 rng{42};  // Fixed seed: the same sizes on every run.
+    std::uniform_int_distribution<std::size_t> dist{0, max_buffer_size};
+    std::vector<std::size_t> sizes(num_buffers);
+    std::generate(sizes.begin(), sizes.end(), [&] {
+        return rmm::align_up(dist(rng), rmm::CUDA_ALLOCATION_ALIGNMENT);
+    });
+    auto const total = std::accumulate(sizes.begin(), sizes.end(), std::size_t{0});
+
+    auto res = adaptor.reserve(grant, AllowOverbooking::NO);
+    ASSERT_EQ(res.balance(), grant);
+
+    rmm::cuda_stream_pool pool{4, rmm::cuda_stream::flags::non_blocking};
+    std::vector<rmm::device_buffer> buffers(num_buffers);
+    std::vector<std::future<void>> workers;
+    workers.reserve(num_threads);
+    for (std::size_t tid = 0; tid < num_threads; ++tid) {
+        workers.push_back(std::async(std::launch::async, [&, tid] {
+            for (std::size_t i = tid; i < num_buffers; i += num_threads) {
+                auto alloc_stream = pool.get_stream(i % pool.get_pool_size());
+                buffers[i] = rmm::device_buffer{sizes[i], alloc_stream, res};
+            }
+        }));
+    }
+    for (auto& worker : workers) {
+        EXPECT_NO_THROW(worker.get());
+    }
+
+    EXPECT_EQ(res.balance(), grant - total);
+    EXPECT_EQ(adaptor.total_reserved(), static_cast<std::int64_t>(grant - total));
+    EXPECT_EQ(adaptor.current_allocated(), static_cast<std::int64_t>(total));
+    EXPECT_EQ(adaptor.available(), limit - static_cast<std::int64_t>(grant));
+
+    buffers.clear();
+    EXPECT_EQ(res.balance(), grant);
+    EXPECT_EQ(adaptor.current_allocated(), 0);
+
+    synchronize_pool(pool);
 }
