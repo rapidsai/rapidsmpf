@@ -58,7 +58,7 @@ MemoryReservation ReservationAwareResourceAdaptor::reserve(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {
     auto const [granted, overbooking] =
-        get().try_reserve(size, allow_overbooking == AllowOverbooking::YES);
+        get().reserve(size, allow_overbooking == AllowOverbooking::YES);
     return MemoryReservation{*this, granted, overbooking};
 }
 

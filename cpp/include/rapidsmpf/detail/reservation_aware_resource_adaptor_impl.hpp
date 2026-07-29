@@ -99,33 +99,33 @@ class ReservationAwareResourceAdaptorImpl : public RmmResourceAdaptorImpl<Primar
      * @param allow_overbooking Whether to grant the reservation even when the memory
      * isn't available.
      * @return A pair of the number of bytes granted (either @p size or zero) and the
-     * number of bytes by which the request overbooks the limit.
+     * number of bytes by which the request overbooks the limit. The overbooking figure
+     * is a snapshot of `limit()`, `current_allocated()` and `total_reserved()`, any of
+     * which another thread may move before the caller reads it.
+     *
+     * @note Rejections are best-effort under contention: concurrent requests each claim
+     * before checking, so requests that would fit individually, may be rejected.
      */
-    [[nodiscard]] std::pair<std::size_t, std::size_t> try_reserve(
+    [[nodiscard]] std::pair<std::size_t, std::size_t> reserve(
         std::size_t size, bool allow_overbooking
     ) {
         auto const want = safe_cast<std::int64_t>(size);
-        auto reserved = total_reserved_.load(std::memory_order_relaxed);
-        while (true) {
-            // Availability *after* the reservation would be made. Negative means the
-            // request overbooks the limit.
-            std::int64_t const headroom =
-                limit() - this->current_allocated() - (reserved + want);
-            std::size_t const overbooking =
-                headroom < 0 ? safe_cast<std::size_t>(-headroom) : 0;
-            if (overbooking > 0 && !allow_overbooking) {
-                return {0, overbooking};
-            }
-            if (total_reserved_.compare_exchange_weak(
-                    reserved,
-                    reserved + want,
-                    std::memory_order_acq_rel,
-                    std::memory_order_relaxed
-                ))
-            {
-                return {size, overbooking};
-            }
+        std::int64_t const capacity = limit() - this->current_allocated();
+
+        // Claim the bytes up front and roll back if they didn't fit. While a claim is
+        // being rolled back the reserved total reads high, which makes a concurrent
+        // `available()` pessimistic, never optimistic.
+        auto const reserved = total_reserved_.fetch_add(want, std::memory_order_acq_rel);
+        std::int64_t const headroom = capacity - (reserved + want);
+        if (headroom >= 0) {
+            return {size, 0};
         }
+        auto const overbooking = safe_cast<std::size_t>(-headroom);
+        if (!allow_overbooking) {
+            total_reserved_.fetch_sub(want, std::memory_order_acq_rel);
+            return {0, overbooking};
+        }
+        return {size, overbooking};
     }
 
   private:
