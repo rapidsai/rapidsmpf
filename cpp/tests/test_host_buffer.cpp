@@ -15,10 +15,12 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/config_defaults.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -83,10 +85,13 @@ class HostMemoryResource : public ::testing::TestWithParam<std::size_t> {
             GTEST_SKIP() << "HostBuffer is not supported for CUDA versions "
                             "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
         }
+        // `HostMemoryResource` is constructible only via a `BufferResource`.
+        br =
+            rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
     }
 
     rmm::cuda_stream_view stream{};
-    rapidsmpf::HostMemoryResource mr;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
 // Test with various buffer sizes
@@ -125,7 +130,8 @@ TEST_P(HostMemoryResource, from_uint8_vector) {
     auto source_data = random_vector<std::uint8_t>(0, buffer_size);
 
     // Create a host buffer by copying the vector
-    auto buffer = rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, mr);
+    auto buffer =
+        rapidsmpf::HostBuffer::from_uint8_vector(source_data, stream, br->host_mr());
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
@@ -133,14 +139,17 @@ TEST_P(HostMemoryResource, from_uint8_vector) {
 class PinnedResource : public ::testing::TestWithParam<std::size_t> {
   protected:
     void SetUp() override {
-        mr = rapidsmpf::PinnedMemoryResource::make_if_available();
-        if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+        if (!rapidsmpf::is_pinned_memory_resources_supported()) {
             GTEST_SKIP() << "PinnedMemoryResource is not supported";
         }
-    }
-
-    void TearDown() override {
-        mr.reset();
+        // `PinnedMemoryResource` is constructible only via a `BufferResource`. The
+        // handle carries a back-reference that keeps the (local) `BufferResource`
+        // alive, so there is no need to store the `BufferResource` separately.
+        mr = rapidsmpf::BufferResource::create(
+                 rmm::mr::get_current_device_resource_ref(),
+                 rapidsmpf::PinnedPoolProperties{}
+        )
+                 ->try_pinned_mr();
     }
 
     rmm::cuda_stream_view stream{};
@@ -208,21 +217,35 @@ TEST_P(PinnedResource, from_rmm_device_buffer) {
 }
 
 TEST(PinnedResource, equality) {
-    auto mr1 = rapidsmpf::PinnedMemoryResource::make_if_available();
-    if (mr1 == rapidsmpf::PinnedMemoryResource::Disabled) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
+    // Two handles obtained from the same BufferResource share the same pool and
+    // owner, so they compare equal.
+    auto br1 = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+    auto mr1 = br1->try_pinned_mr();
     rapidsmpf::PinnedMemoryResource mr2 = *mr1;
     EXPECT_EQ(*mr1, mr2);
-    auto mr3 = rapidsmpf::PinnedMemoryResource::make_if_available();
-    EXPECT_NE(mr1, mr3);
+
+    // A handle from a different BufferResource references a different pool and
+    // owner, so it compares unequal.
+    auto br2 = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+    auto mr3 = br2->try_pinned_mr();
+    EXPECT_NE(*mr1, *mr3);
 }
 
 TEST(PinnedResource, transient_mr) {
-    auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
-    if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+    auto mr = br->try_pinned_mr();
     rmm::cuda_stream_view stream{};
 
     auto source_data = random_vector<std::uint8_t>(0, 1024);
@@ -232,8 +255,11 @@ TEST(PinnedResource, transient_mr) {
         source_data.data(), source_data.size(), stream, *mr
     );
 
-    // now reset mr, but pinned_host_buffer should keep the shared mr alive
+    // Now drop both the handle and the owning BufferResource; the device buffer
+    // holds an owning copy of the pinned resource (which keeps the pool and, via
+    // the back-reference, the BufferResource alive).
     mr.reset();
+    br.reset();
 
     auto buffer = rapidsmpf::HostBuffer::from_rmm_device_buffer(
         std::move(pinned_host_buffer), stream
@@ -250,10 +276,11 @@ namespace {
 std::size_t discover_pinned_pool_actual_size(
     rmm::cuda_stream_view stream, std::size_t requested_max_pool_size = 1_MiB
 ) {
-    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available(
-        rapidsmpf::get_current_numa_node(),
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
         rapidsmpf::PinnedPoolProperties{.max_pool_size = requested_max_pool_size}
     );
+    auto pinned_mr = br->try_pinned_mr();
 
     auto can_allocate = [&](size_t size) -> bool {
         try {
@@ -299,13 +326,14 @@ TEST(PinnedResource, max_pool_size_limit) {
     auto stream = rmm::cuda_stream_view{};
 
     // Create a PinnedMemoryResource with max pool size of 1 MiB; driver may round up.
-    auto pinned_mr = rapidsmpf::PinnedMemoryResource::make_if_available(
-        rapidsmpf::get_current_numa_node(),
-        rapidsmpf::PinnedPoolProperties{.initial_pool_size = 0, .max_pool_size = 1_MiB}
-    );
-    if (pinned_mr == rapidsmpf::PinnedMemoryResource::Disabled) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "PinnedMemoryResource is not supported";
     }
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedPoolProperties{.initial_pool_size = 0, .max_pool_size = 1_MiB}
+    );
+    auto pinned_mr = br->try_pinned_mr();
 
     auto alloc_and_dealloc = [&](std::size_t size) {
         void* ptr = pinned_mr->allocate(stream, size);
@@ -324,28 +352,26 @@ TEST(PinnedResource, max_pool_size_limit) {
 TEST(PinnedResource, from_default_options) {
     {
         // disabled by default
-        auto mr =
-            rapidsmpf::PinnedMemoryResource::from_options(rapidsmpf::config::Options{});
-        EXPECT_EQ(mr, rapidsmpf::PinnedMemoryResource::Disabled);
+        auto props =
+            rapidsmpf::pinned_pool_properties_from_options(rapidsmpf::config::Options{});
+        EXPECT_FALSE(props.has_value());
     }
 
-    // check default pool values, if enabled
+    // check default pool values, when enabled
     std::unordered_map<std::string, std::string> strings = {{"pinned_memory", "True"}};
-    auto mr = rapidsmpf::PinnedMemoryResource::from_options(
+    auto props = rapidsmpf::pinned_pool_properties_from_options(
         rapidsmpf::config::Options(strings)
     );
-    if (mr == rapidsmpf::PinnedMemoryResource::Disabled) {
-        GTEST_SKIP() << "PinnedMemoryResource is not supported";
-    }
+    ASSERT_TRUE(props.has_value());
     EXPECT_EQ(
-        mr->properties().initial_pool_size,
+        props->initial_pool_size,
         rapidsmpf::parse_nbytes_or_percent(
             rapidsmpf::config::DEFAULTS.at("pinned_initial_pool_size"),
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())
         )
     );
     EXPECT_EQ(
-        mr->properties().max_pool_size.value(),
+        props->max_pool_size.value(),
         rapidsmpf::parse_nbytes_or_percent(
             rapidsmpf::config::DEFAULTS.at("pinned_max_pool_size"),
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())

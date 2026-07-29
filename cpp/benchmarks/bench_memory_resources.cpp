@@ -5,14 +5,18 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 
 #include <benchmark/benchmark.h>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
@@ -96,6 +100,19 @@ class NewDelete {
     friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
 };
 
+// Build a buffer resource with the given (optional) pinned pool properties.
+std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
+    std::optional<rapidsmpf::PinnedPoolProperties> props
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        std::move(props),
+        {},
+        std::nullopt,  // disable the periodic spill-check thread
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking)
+    );
+}
+
 // Helper function to create a type-erased host memory resource.
 cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     ResourceType const& resource_type
@@ -104,16 +121,20 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     case ResourceType::NEW_DELETE:
         return NewDelete{};
     case ResourceType::HOST_MEMORY_RESOURCE:
-        return rapidsmpf::HostMemoryResource{};
+        {
+            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
+            return br->host_mr();  // br is kept alive by the back-reference
+        }
     case ResourceType::PINNED_MEMORY_RESOURCE:
         {
-            auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedPoolProperties{});
+            auto mr = br->try_pinned_mr();
             RAPIDSMPF_EXPECTS(
                 mr.has_value(),
                 "pinned memory is not supported on this system",
                 std::runtime_error
             );
-            return *mr;
+            return *mr;  // br is kept alive by the back-reference
         }
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
@@ -442,9 +463,8 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 
     for (auto _ : state) {
         state.PauseTiming();
-        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
-            rapidsmpf::get_current_numa_node(), props
-        );
+        auto br = make_pinned_buffer_resource(props);
+        auto mr = br->try_pinned_mr();
         state.ResumeTiming();
         void* ptr = mr->allocate(stream, allocation_size);
         stream.synchronize();
@@ -499,13 +519,11 @@ void BM_PinnedPoolInit_InitialPoolSize(benchmark::State& state) {
     };
 
     for (auto _ : state) {
-        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
-            rapidsmpf::get_current_numa_node(), props
-        );
-        benchmark::DoNotOptimize(mr);
-        // Destroy mr at end of iteration (pool teardown excluded from timing).
+        auto br = make_pinned_buffer_resource(props);
+        benchmark::DoNotOptimize(br);
+        // Destroy br at end of iteration (pool teardown excluded from timing).
         state.PauseTiming();
-        mr.reset();
+        br.reset();
         state.ResumeTiming();
     }
 

@@ -49,7 +49,7 @@ set +e
 cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
 
 rapids-logger "Run librapidsmpf gtests with compute-sanitizer (Single Node)"
-compute-sanitizer --tool memcheck --track-stream-ordered-races=all gtests/single_tests --gtest_filter=-CuptiMonitorTest.*
+compute-sanitizer --tool memcheck --track-stream-ordered-races=all ./single_tests --gtest_filter=-CuptiMonitorTest.*
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

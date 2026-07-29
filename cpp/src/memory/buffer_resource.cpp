@@ -50,12 +50,26 @@ BufferResource::BufferResource(
 
 std::shared_ptr<BufferResource> BufferResource::create(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-    std::optional<PinnedMemoryResource> pinned_mr,
+    std::optional<PinnedPoolProperties> pinned_pool_properties,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
+    std::optional<PinnedMemoryResource> pinned_mr;
+    if (pinned_pool_properties.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            is_pinned_memory_resources_supported(),
+            "pinned host memory was requested (via `PinnedPoolProperties`) but is not "
+            "supported on this system. "
+            "CUDA " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+            " is one of the requirements, but additional platform or driver constraints "
+            "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
+            std::runtime_error
+        );
+        pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
+    }
+
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
@@ -65,12 +79,18 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics)
     }};
 
-    // Install the back-reference on the device adaptor *after* construction so
-    // that `weak_from_this()` is valid. The adaptor holds only a `weak_ptr`,
+    // Install the back-reference on the owned resources *after* construction so
+    // that `weak_from_this()` is valid. Each resource holds only a `weak_ptr`,
     // avoiding a reference cycle. When downstream code promotes a non-owning
-    // `resource_ref` returned by `device_mr()` to an owning
-    // `cuda::mr::any_resource`.
-    br->owning_mr_.set_backref(br->weak_from_this());
+    // `resource_ref` returned by `device_mr()`/`host_mr()`/`pinned_mr()` to an
+    // owning `cuda::mr::any_resource`, the copy promotes the weak reference to a
+    // strong one and keeps this `BufferResource` alive.
+    auto const weak = br->weak_from_this();
+    br->owning_mr_.set_backref(weak);
+    br->host_mr_.set_backref(weak);
+    if (br->pinned_mr_.has_value()) {
+        br->pinned_mr_->set_backref(weak);
+    }
     return br;
 }
 
@@ -79,13 +99,12 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto pinned_mr = PinnedMemoryResource::from_options(options);
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
     return create(
         std::move(mr),
-        std::move(pinned_mr),
+        pinned_pool_properties_from_options(options),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
@@ -101,7 +120,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     case MemoryType::DEVICE:
         return limit - owning_mr_.current_allocated();
     case MemoryType::PINNED_HOST:
-        if (pinned_mr_ == PinnedMemoryResource::Disabled) {
+        if (!pinned_mr_.has_value()) {
             return 0;
         } else {
             return limit - pinned_mr_->current_allocated();
@@ -127,7 +146,6 @@ RmmResourceAdaptor& BufferResource::device_mr_adaptor() noexcept {
 }
 
 rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
-    // TODO: returned ref will not keep the BufferResource alive
     return host_mr_;
 }
 
@@ -135,14 +153,12 @@ rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );
-    // TODO: returned ref will not keep the BufferResource alive
     return *pinned_mr_;
 }
 
-std::optional<any_host_device_resource> BufferResource::try_pinned_mr() const noexcept {
-    // since any_host_device_resource is constructible from
-    // host_device_async_resource_ref, optional can be returned as-is.
-    // TODO: returned ref will not keep the BufferResource alive
+std::optional<PinnedMemoryResource> BufferResource::try_pinned_mr() const {
+    // Returning by value copies the back-referenced `PinnedMemoryResource`, so the
+    // returned handle (and any copy of it) keeps this `BufferResource` alive.
     return pinned_mr_;
 }
 
@@ -150,8 +166,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
     RAPIDSMPF_EXPECTS(
-        mem_type != MemoryType::PINNED_HOST
-            || pinned_mr_ != PinnedMemoryResource::Disabled,
+        mem_type != MemoryType::PINNED_HOST || pinned_mr_.has_value(),
         "pinned memory resource is not available",
         std::invalid_argument
     );

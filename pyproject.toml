@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # See file LICENSE for terms.
 
@@ -11,6 +11,9 @@ ignore-regex = "\\b(.{1,4}|[A-Z]\\w*T)\\b"
 ignore-words-list = "inout,unparseable,falsy,couldn,Couldn,thirdparty"
 builtin = "clear"
 quiet-level = 3
+
+[tool.cython-lint]
+max-line-length = 120
 
 [tool.isort]
 # Define known first party modules explicitly to avoid directory name dependency.
