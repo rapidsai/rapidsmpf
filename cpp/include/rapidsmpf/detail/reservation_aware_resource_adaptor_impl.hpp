@@ -301,7 +301,7 @@ class MemoryReservationImpl {
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) noexcept {
         deallocate(adaptor_->sync_stream_, ptr, bytes, alignment);
-        adaptor_->sync_stream_.synchronize();
+        adaptor_->sync_stream_.synchronize_no_throw();
     }
 
     /**
