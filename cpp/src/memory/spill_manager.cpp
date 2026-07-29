@@ -39,7 +39,7 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
         spill_functions_.insert({id, std::move(spill_function)}).second,
         "corrupted id counter"
     );
-    spill_function_priorities_.insert({priority, id});
+    spill_function_priorities_.emplace(priority, id);
 
     // Make sure the spill thread is running.
     if (periodic_spill_thread_.has_value()) {
@@ -52,7 +52,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     std::unique_lock lock(mutex_);
     auto& prio = spill_function_priorities_;
     for (auto it = prio.begin(); it != prio.end(); ++it) {
-        if (it->second == fid) {
+        if (it->second.fid == fid) {
             prio.erase(it);  // Erase the first occurrence
             break;  // Exit after erasing to ensure only the first one is removed
         }
@@ -69,11 +69,19 @@ std::size_t SpillManager::spill(std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spilled{0};
     std::shared_lock lock(mutex_);
-    for (auto const [_, fid] : spill_function_priorities_) {
+    for (auto& [_, state] : spill_function_priorities_) {
         if (spilled >= amount) {
             break;
         }
-        spilled += spill_functions_.at(fid)(amount - spilled);
+        bool expected = false;
+        if (!state.in_use.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel
+            ))
+        {
+            continue;
+        }
+        spilled += spill_functions_.at(state.fid)(amount - spilled);
+        state.in_use.store(false, std::memory_order_release);
     }
     return spilled;
 }

@@ -81,41 +81,47 @@ TEST(SpillManager, SpillFunction) {
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 }
 
-// Verify that multiple concurrent `spill()` calls execute the spill function in
-// parallel. The spill function blocks at a rendezvous point until all worker
-// threads have entered it; with an exclusive lock this would deadlock and the
-// test would time out.
+// Verify that multiple concurrent `spill()` calls skip spill functions already in use
+// and execute different spill functions in parallel. Each spill function blocks at a
+// rendezvous point until all worker threads have entered one; serial execution or
+// invoking the same function concurrently would make the test time out.
 TEST(SpillManager, ConcurrentSpill) {
     constexpr int num_threads = 4;
     constexpr auto rendezvous_timeout = std::chrono::seconds(5);
 
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
-        rapidsmpf::PinnedMemoryResource::Disabled,
+        PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 0_KiB}}
     );
 
     std::mutex m;
     std::condition_variable cv;
     int entered = 0;
+    std::vector<bool> in_use(num_threads, false);
 
-    SpillManager::SpillFunction func = [&](std::size_t amount) -> std::size_t {
-        std::unique_lock<std::mutex> lock(m);
-        ++entered;
-        if (entered == num_threads) {
-            cv.notify_all();
-        }
-        // If spill() calls run in parallel, all threads quickly reach
-        // `entered == num_threads` and proceed. If they're serialized, every
-        // thread but the last times out here, so a successful (non-timeout)
-        // wait_for is proof that the calls actually overlapped.
-        EXPECT_TRUE(cv.wait_for(lock, rendezvous_timeout, [&] {
-            return entered == num_threads;
-        })) << "spill() calls did not run concurrently";
-        return amount;
-    };
-
-    br->spill_manager().add_spill_function(func, /* priority = */ 0);
+    // add a spill function for each thread so that each can run concurrently. Spill
+    // functi
+    for (int i = 0; i < num_threads; ++i) {
+        br->spill_manager().add_spill_function(
+            [&, i](std::size_t amount) -> std::size_t {
+                std::unique_lock<std::mutex> lock(m);
+                EXPECT_FALSE(in_use[i]);
+                in_use[i] = true;
+                ++entered;
+                if (entered == num_threads) {
+                    cv.notify_all();
+                } else {
+                    EXPECT_TRUE(cv.wait_for(lock, rendezvous_timeout, [&] {
+                        return entered == num_threads;
+                    })) << "spill() calls did not use different functions concurrently";
+                }
+                in_use[i] = false;
+                return amount;
+            },
+            /* priority = */ 0
+        );
+    }
 
     std::vector<std::future<std::size_t>> futures;
     futures.reserve(num_threads);
