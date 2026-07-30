@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.bytes cimport PyBytes_FromStringAndSize
@@ -255,7 +255,8 @@ cdef class Statistics:
             "Disabled".
         pinned_mr
             When provided, a pinned memory section is included in the
-            report.
+            report. Obtain the handle from
+            :attr:`rapidsmpf.memory.buffer_resource.BufferResource.pinned_mr`.
         header
             Header line prepended to the report. When ``None``, the C++
             default is used.

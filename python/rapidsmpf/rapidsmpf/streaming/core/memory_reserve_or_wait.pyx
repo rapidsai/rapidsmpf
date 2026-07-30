@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -22,6 +22,7 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 import asyncio
 
 import rapidsmpf.utils.string
+from rapidsmpf.streaming.core.cancellation import await_cpp_future
 from rapidsmpf.utils.memory import check_reservation_size
 
 # Sentinel indicating that net_memory_delta estimation has not yet been implemented.
@@ -337,7 +338,7 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret)
 
     async def reserve_or_wait(self, size_t size, *, int64_t net_memory_delta):
         """
@@ -407,7 +408,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return MemoryReservation.from_handle(move(deref(c_ret)), self._br)
@@ -458,7 +460,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter)),
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return (
@@ -512,7 +515,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return MemoryReservation.from_handle(move(deref(c_ret)), self._br)

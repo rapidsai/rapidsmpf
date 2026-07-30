@@ -1,11 +1,11 @@
 # =================================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules actor.pyx channel.pyx context.pyx fanout.pyx leaf_actor.pyx
+set(cython_modules actor.pyx cancellation.pyx channel.pyx context.pyx fanout.pyx leaf_actor.pyx
                    memory_reserve_or_wait.pyx message.pyx spillable_messages.pyx
 )
 
