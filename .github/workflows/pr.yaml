@@ -148,6 +148,8 @@ jobs:
           - '!cpp/.clang-format'
           - '!cpp/doxygen/**'
           - '!docs/**''
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   checks:
     permissions:
       actions: read
