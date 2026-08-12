@@ -43,7 +43,7 @@ cdef class Buffer:
                 "buffer protocol is only supported for PINNED_HOST buffers"
             )
         cdef size_t nbytes = deref(self._handle).size
-        cdef const char* ptr = deref(self._handle).data()
+        cdef const char* ptr = <const char*>deref(self._handle).data()
         view.buf = <void*>ptr
         view.len = nbytes
         view.readonly = 0
