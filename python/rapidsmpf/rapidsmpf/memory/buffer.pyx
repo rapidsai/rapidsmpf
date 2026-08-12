@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.buffer cimport PyBuffer_FillInfo
 from cython.operator cimport dereference as deref
-from libc.stddef cimport size_t
 from libcpp.utility cimport move
 
 
@@ -42,19 +42,8 @@ cdef class Buffer:
             raise TypeError(
                 "buffer protocol is only supported for PINNED_HOST buffers"
             )
-        cdef size_t nbytes = deref(self._handle).size
-        cdef const char* ptr = <const char*>deref(self._handle).data()
-        view.buf = <void*>ptr
-        view.len = nbytes
-        view.readonly = 0
-        view.format = 'B'
-        view.ndim = 1
-        view.shape = &view.len
-        view.strides = NULL
-        view.suboffsets = NULL
-        view.itemsize = 1
-        view.internal = NULL
-        view.obj = self
+        cdef void* ptr = <void*><const void*>deref(self._handle).data()
+        PyBuffer_FillInfo(view, self, ptr, deref(self._handle).size, False, flags)
 
     def __releasebuffer__(self, Py_buffer* view):
         pass

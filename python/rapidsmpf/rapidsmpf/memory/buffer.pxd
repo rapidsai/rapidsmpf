@@ -13,7 +13,9 @@ cdef extern from "<rapidsmpf/memory/buffer.hpp>" namespace "rapidsmpf" nogil:
 
     cdef cppclass cpp_Buffer "rapidsmpf::Buffer":
         size_t size
-        const char* data() except +
+        # data() actually returns const std::byte*, declared as const void* here
+        # because const std::byte* -> const void* is an implicit C++ conversion.
+        const void* data() except +
         MemoryType mem_type() noexcept
 
 
