@@ -38,9 +38,12 @@ cdef class Buffer:
         return deref(self._handle).mem_type()
 
     def __getbuffer__(self, Py_buffer* view, int flags):
-        if deref(self._handle).mem_type() != MemoryType.PINNED_HOST:
+        if deref(self._handle).mem_type() not in {
+            MemoryType.HOST, MemoryType.PINNED_HOST
+        }:
             raise TypeError(
-                "buffer protocol is only supported for PINNED_HOST buffers"
+                "buffer protocol is only supported for host buffers "
+                "(MemoryType.HOST or MemoryType.PINNED_HOST)"
             )
         cdef void* ptr = <void*><const void*>deref(self._handle).data()
         PyBuffer_FillInfo(view, self, ptr, deref(self._handle).size, False, flags)
