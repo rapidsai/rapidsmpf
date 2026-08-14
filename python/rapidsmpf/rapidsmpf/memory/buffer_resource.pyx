@@ -595,7 +595,7 @@ cdef class BufferResource:
                     size, stream.view(), deref(reservation._handle)
                 )
             )
-        return Buffer.from_handle(move(handle))
+        return Buffer.from_handle(move(handle), self, stream)
 
     @property
     def statistics(self):

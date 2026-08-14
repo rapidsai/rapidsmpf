@@ -63,7 +63,7 @@ def test_make_buffer(mem_type: MemoryType) -> None:
 
 
 @skip_if_no_pinned
-def test_buffer_protocol_pinned_host(pinned_br: BufferResource) -> None:
+def test_host_view_pinned_host(pinned_br: BufferResource) -> None:
     size = 256
     stream = Stream()
     reservation, _ = pinned_br.reserve(
@@ -71,16 +71,16 @@ def test_buffer_protocol_pinned_host(pinned_br: BufferResource) -> None:
     )
     buf = pinned_br.make_buffer(size, stream, reservation)
 
-    mv = memoryview(buf)
-    assert len(mv) == size
-    assert mv.format == "B"
-
     data = np.arange(size, dtype=np.uint8)
-    np.frombuffer(mv, dtype=np.uint8)[:] = data
-    assert np.array_equal(np.frombuffer(memoryview(buf), dtype=np.uint8), data)
+    with buf.host_view() as mv:
+        assert len(mv) == size
+        np.frombuffer(mv, dtype=np.uint8)[:] = data
+
+    with buf.host_view() as mv:
+        assert np.array_equal(np.frombuffer(mv, dtype=np.uint8), data)
 
 
-def test_buffer_protocol_host() -> None:
+def test_host_view_host() -> None:
     size = 256
     mr = rmm.mr.CudaMemoryResource()
     br = BufferResource(mr, memory_limits={MemoryType.HOST: size * 4})
@@ -88,12 +88,16 @@ def test_buffer_protocol_host() -> None:
     reservation, _ = br.reserve(MemoryType.HOST, size, allow_overbooking=False)
     buf = br.make_buffer(size, stream, reservation)
 
-    mv = memoryview(buf)
-    assert len(mv) == size
-    assert mv.format == "B"
+    data = np.arange(size, dtype=np.uint8)
+    with buf.host_view() as mv:
+        assert len(mv) == size
+        np.frombuffer(mv, dtype=np.uint8)[:] = data
+
+    with buf.host_view() as mv:
+        assert np.array_equal(np.frombuffer(mv, dtype=np.uint8), data)
 
 
-def test_buffer_protocol_rejects_device() -> None:
+def test_host_view_rejects_device() -> None:
     size = 1024
     mr = rmm.mr.CudaMemoryResource()
     br = BufferResource(mr, memory_limits={MemoryType.DEVICE: size * 4})
@@ -102,4 +106,19 @@ def test_buffer_protocol_rejects_device() -> None:
     buf = br.make_buffer(size, stream, reservation)
 
     with pytest.raises(TypeError, match="host buffers"):
-        memoryview(buf)
+        buf.host_view()
+
+
+def test_host_view_lock_released_on_error() -> None:
+    size = 256
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={MemoryType.HOST: size * 4})
+    stream = Stream()
+    reservation, _ = br.reserve(MemoryType.HOST, size, allow_overbooking=False)
+    buf = br.make_buffer(size, stream, reservation)
+
+    with pytest.raises(RuntimeError), buf.host_view():
+        raise RuntimeError("intentional")
+
+    with buf.host_view():
+        pass
