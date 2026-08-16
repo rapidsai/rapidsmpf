@@ -4,7 +4,9 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
+#include <ranges>
 #include <vector>
 
 #include <cuda_runtime.h>
@@ -19,7 +21,9 @@ namespace rapidsmpf {
  * On CUDA 13.0+ with a non-default stream, uses `cudaMemcpyBatchAsync` with
  * `cudaMemcpySrcAccessOrderStream`, which defers reading the source buffers until
  * the stream reaches each copy. This enables true asynchronous copies from pageable
- * host memory on modern systems with HMM/ATS support.
+ * host memory on modern systems with HMM/ATS support. A batch uses
+ * `cudaMemcpyFlagPreferOverlapWithCompute` when every copy is 128 KiB or less. If any
+ * copy is larger, the batch uses `cudaMemcpyFlagDefault`.
  *
  * Falls back to per-copy `cudaMemcpyAsync` on older CUDA versions or when the default
  * stream is used.
@@ -78,13 +82,19 @@ namespace rapidsmpf {
             count = valid_dsts.size();
         }
 
+        constexpr std::size_t prefer_overlap_threshold = 128 * 1024;
+        auto const flags = std::ranges::any_of(
+                               std::ranges::views::iota(std::size_t{0}, count),
+                               [&](auto i) { return sizes[i] > prefer_overlap_threshold; }
+                           )
+                               ? cudaMemcpyFlagDefault
+                               : cudaMemcpyFlagPreferOverlapWithCompute;
         cudaMemcpyAttributes attrs = {
-            .srcAccessOrder = cudaMemcpySrcAccessOrderStream,
-            .flags = cudaMemcpyFlagPreferOverlapWithCompute
+            .srcAccessOrder = cudaMemcpySrcAccessOrderStream, .flags = flags
         };
-        std::size_t attrs_idxs = 0;
+        std::size_t attrs_idx = 0;
         return cudaMemcpyBatchAsync(
-            dsts, srcs, sizes, count, &attrs, &attrs_idxs, 1, stream.value()
+            dsts, srcs, sizes, count, &attrs, &attrs_idx, 1, stream.value()
         );
     }
 #endif  // CUDART_VERSION >= 13000
