@@ -434,7 +434,7 @@ cdef class BufferResource:
         Creates a new reservation of the specified size and memory type to inform the
         system about upcoming buffer allocations.
 
-        If overbooking is allowed, a reservation of the requested `size` is returned
+        If overbooking is allowed, a reservation of the requested ``size`` is returned
         even if the memory is not currently available. In that case, the caller must
         guarantee that at least the overbooked amount of memory will be freed before
         the reservation is used.
@@ -454,7 +454,7 @@ cdef class BufferResource:
         Returns
         -------
         A tuple (reservation, overbooked_bytes):
-            - On success, the reservation's size equals `size`.
+            - On success, the reservation's size equals ``size``.
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
