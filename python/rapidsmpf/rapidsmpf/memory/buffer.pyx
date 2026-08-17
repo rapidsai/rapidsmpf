@@ -11,6 +11,11 @@ from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 
 cdef class BufferHostView:
+    """Context manager providing exclusive writable host access to a :class:`Buffer`.
+
+    Not constructed directly; use :meth:`Buffer.host_view` to obtain one.
+    """
+
     def __cinit__(self, Buffer buf):
         self._buf = buf
 
@@ -72,14 +77,13 @@ cdef class Buffer:
 
         Returns
         -------
-        BufferHostView
-            A context manager that yields a writable ``memoryview`` of the buffer.
+        A context manager that yields a writable ``memoryview`` of the buffer.
 
         Raises
         ------
         TypeError
             If the buffer is not a host buffer (``HOST`` or ``PINNED_HOST``).
-        std::logic_error
+        RuntimeError
             If the buffer is already locked or a stream-ordered write is still
             in flight (``is_latest_write_done() == False``).
 
