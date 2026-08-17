@@ -18,9 +18,25 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
+#include "ucxx_internal.hpp"
+
 namespace rapidsmpf {
 
 namespace ucxx {
+
+namespace detail {
+
+std::shared_ptr<::ucxx::Context> create_context(ProgressMode progress_mode) {
+    auto feature_flags = ::ucxx::Context::defaultFeatureFlags;
+    if (progress_mode == ProgressMode::Polling
+        || progress_mode == ProgressMode::ThreadPolling)
+    {
+        feature_flags &= ~static_cast<std::uint64_t>(UCP_FEATURE_WAKEUP);
+    }
+    return ::ucxx::contextBuilder(feature_flags).build();
+}
+
+}  // namespace detail
 
 namespace {
 
@@ -984,8 +1000,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         });
 
     auto create_worker = [progress_mode]() {
-        auto context =
-            ::ucxx::contextBuilder(::ucxx::Context::defaultFeatureFlags).build();
+        auto context = detail::create_context(progress_mode);
         auto worker = context->workerBuilder().build();
 
         RAPIDSMPF_EXPECTS(

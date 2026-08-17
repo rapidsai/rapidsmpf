@@ -157,6 +157,8 @@ if(RAPIDSMPF_HAVE_MPI)
 
   if(RAPIDSMPF_HAVE_UCXX)
     add_executable(ucxx_tests main/ucxx.cpp)
+    target_sources(ucxx_tests PRIVATE test_ucxx.cpp)
+    target_include_directories(ucxx_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
     set_target_properties(
       ucxx_tests
       PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"
