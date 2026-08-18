@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -14,7 +14,7 @@ function(find_and_configure_cucascade)
     GLOBAL_TARGETS cuCascade::cucascade_topology_discovery
     CPM_ARGS
     GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
-    GIT_TAG main
+    GIT_TAG d515bb0536b8766bae61ec60a530df394467af64
     OPTIONS "CUCASCADE_BUILD_TESTS OFF"
             "CUCASCADE_BUILD_BENCHMARKS OFF"
             "CUCASCADE_BUILD_SHARED_LIBS OFF"

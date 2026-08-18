@@ -14,12 +14,16 @@ from libcpp.vector cimport vector
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rmm.pylibrmm.stream cimport Stream
+
 from rapidsmpf.utils.memory import check_reservation_size
 
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
                                          device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
+from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 
 
 cdef extern from *:
@@ -430,7 +434,7 @@ cdef class BufferResource:
         Creates a new reservation of the specified size and memory type to inform the
         system about upcoming buffer allocations.
 
-        If overbooking is allowed, a reservation of the requested `size` is returned
+        If overbooking is allowed, a reservation of the requested ``size`` is returned
         even if the memory is not currently available. In that case, the caller must
         guarantee that at least the overbooked amount of memory will be freed before
         the reservation is used.
@@ -450,7 +454,7 @@ cdef class BufferResource:
         Returns
         -------
         A tuple (reservation, overbooked_bytes):
-            - On success, the reservation's size equals `size`.
+            - On success, the reservation's size equals ``size``.
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
@@ -560,6 +564,38 @@ cdef class BufferResource:
         with nogil:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
+
+    def make_buffer(self, size_t size, Stream stream not None, MemoryReservation reservation not None):
+        """
+        Allocate a buffer backed by the given memory reservation.
+
+        Parameters
+        ----------
+        size
+            Size of the buffer in bytes. Must not exceed the reservation size.
+        stream
+            CUDA stream to associate with the buffer.
+        reservation
+            Memory reservation that covers this allocation. The reservation's
+            memory type determines whether the buffer is device or host backed.
+
+        Returns
+        -------
+        A :class:`~rapidsmpf.memory.buffer.Buffer` of the requested size.
+
+        Raises
+        ------
+        ValueError
+            If ``size`` exceeds the reservation size.
+        """
+        cdef unique_ptr[cpp_Buffer] handle
+        with nogil:
+            handle = move(
+                deref(self._handle).make_buffer(
+                    size, stream.view(), deref(reservation._handle)
+                )
+            )
+        return Buffer.from_handle(move(handle), self, stream)
 
     @property
     def statistics(self):

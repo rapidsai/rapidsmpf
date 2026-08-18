@@ -6,9 +6,10 @@ from typing import Self
 
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.config import Options
-from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer import Buffer, MemoryType
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource import (
     PinnedMemoryResource,
@@ -58,6 +59,9 @@ class BufferResource:
         self, size: int, mem_types: list[MemoryType]
     ) -> MemoryReservation: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
+    def make_buffer(
+        self, size: int, stream: Stream, reservation: MemoryReservation
+    ) -> Buffer: ...
     @property
     def stream_pool(self) -> CudaStreamPool: ...
 

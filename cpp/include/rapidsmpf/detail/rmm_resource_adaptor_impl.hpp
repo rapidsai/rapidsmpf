@@ -220,6 +220,7 @@ class RmmResourceAdaptorImpl {
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) noexcept {
         deallocate(sync_stream_, ptr, bytes, alignment);
+        sync_stream_.synchronize_no_throw();
     }
 
     /// @brief Tag this resource as device-accessible for the CCCL concept.

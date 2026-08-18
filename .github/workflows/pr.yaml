@@ -20,6 +20,7 @@ jobs:
       packages: read
       pull-requests: read
     needs:
+      - build-details
       - changed-files
       - checks
       - conda-cpp-build
@@ -59,8 +60,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/zizmor.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!SECURITY.md'
           - '!ci/build_wheel*.sh'
           - '!ci/check_style.sh'
@@ -79,8 +84,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/zizmor.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CONTRIBUTING.md'
           - '!README.md'
           - '!SECURITY.md'
@@ -102,8 +111,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/zizmor.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CONTRIBUTING.md'
           - '!README.md'
           - '!SECURITY.md'
@@ -126,8 +139,12 @@ jobs:
           - '!.github/labeler.yml'
           - '!.github/ops-bot.yaml'
           - '!.github/release.yml'
+          - '!.github/zizmor.yml'
+          - '!.github/workflows/build.yaml'
+          - '!.github/workflows/test.yaml'
           - '!.pre-commit-config.yaml'
           - '!.shellcheckrc'
+          - '!.yamllint.yaml'
           - '!CONTRIBUTING.md'
           - '!README.md'
           - '!SECURITY.md'
@@ -144,6 +161,8 @@ jobs:
           - '!cpp/.clang-format'
           - '!cpp/doxygen/**'
           - '!docs/**''
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   checks:
     permissions:
       actions: read
@@ -154,7 +173,7 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
   wheel-build-librapidsmpf:
-    needs: checks
+    needs: [build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -165,6 +184,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_wheel_librapidsmpf.sh
       package-name: librapidsmpf
@@ -172,7 +192,7 @@ jobs:
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
   wheel-build-rapidsmpf:
-    needs: [checks, wheel-build-librapidsmpf]
+    needs: [build-details, checks, wheel-build-librapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -183,6 +203,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
@@ -190,7 +211,7 @@ jobs:
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-build-rapidsmpf-singlecomm:
-    needs: [checks, wheel-build-librapidsmpf]
+    needs: [build-details, checks, wheel-build-librapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -201,6 +222,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
@@ -223,7 +245,7 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_wheel.sh
   conda-cpp-build:
-    needs: checks
+    needs: [build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -234,6 +256,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_cpp.sh
   conda-cpp-linters:
@@ -280,7 +303,7 @@ jobs:
       script: "ci/test_cpp_memcheck.sh"
       node_type: "gpu-l4-latest-1"
   conda-python-build:
-    needs: conda-cpp-build
+    needs: [build-details, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -291,6 +314,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: pull-request
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       script: ci/build_python.sh
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
