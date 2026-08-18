@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <ranges>
 #include <vector>
 
 #include <cuda_runtime.h>
@@ -84,9 +83,10 @@ namespace rapidsmpf {
 
         constexpr std::size_t prefer_overlap_threshold = 128 * 1024;
         unsigned int const flags =
-            std::ranges::any_of(
-                std::ranges::views::iota(std::size_t{0}, count),
-                [&](auto i) { return sizes[i] > prefer_overlap_threshold; }
+            std::any_of(
+                sizes,
+                sizes + count,
+                [&](auto size) { return size > prefer_overlap_threshold; }
             )
                 ? cudaMemcpyFlagDefault
                 : cudaMemcpyFlagPreferOverlapWithCompute;
