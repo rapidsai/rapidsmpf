@@ -83,12 +83,13 @@ namespace rapidsmpf {
         }
 
         constexpr std::size_t prefer_overlap_threshold = 128 * 1024;
-        auto const flags = std::ranges::any_of(
-                               std::ranges::views::iota(std::size_t{0}, count),
-                               [&](auto i) { return sizes[i] > prefer_overlap_threshold; }
-                           )
-                               ? cudaMemcpyFlagDefault
-                               : cudaMemcpyFlagPreferOverlapWithCompute;
+        unsigned int const flags =
+            std::ranges::any_of(
+                std::ranges::views::iota(std::size_t{0}, count),
+                [&](auto i) { return sizes[i] > prefer_overlap_threshold; }
+            )
+                ? cudaMemcpyFlagDefault
+                : cudaMemcpyFlagPreferOverlapWithCompute;
         cudaMemcpyAttributes attrs = {
             .srcAccessOrder = cudaMemcpySrcAccessOrderStream, .flags = flags
         };
