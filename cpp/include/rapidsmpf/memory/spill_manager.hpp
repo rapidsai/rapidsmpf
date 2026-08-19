@@ -5,9 +5,11 @@
 
 #pragma once
 
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -73,6 +75,14 @@ class SpillManager {
      *
      * The spill function is prioritized according to the specified priority value.
      *
+     * A `SpillFunction` isn't invoked concurrently with itself. If it is already
+     * running, another `spill()` caller skips it and tries the next function.
+     * If it throws, the exception propagates and the function isn't invoked again.
+     * Furthermore, it must not call back into spill-related functions such as
+     * `SpillManager::spill()` or `spill_to_make_headroom()`, directly or transitively,
+     * as this can deadlock. This includes allocations that may implicitly trigger
+     * spilling, such as `reserve_device_memory_and_spill()`.
+     *
      * @param spill_function The spill function to be added.
      * @param priority The priority level of the spill function (higher values indicate
      * higher priority).
@@ -123,11 +133,22 @@ class SpillManager {
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
   private:
-    mutable std::mutex mutex_;
+    struct SpillFunctionState {
+        explicit SpillFunctionState(SpillFunctionID fid) : fid{fid} {}
+
+        SpillFunctionID fid;
+        std::atomic<bool> in_use{false};
+    };
+
+    // `spill()` takes a shared lock so spill work runs in parallel; add/remove take
+    // exclusive, which drains in-flight spillers before returning -- callers rely on this
+    // for safe teardown. Each SpillFunctionState prevents concurrent invocation of its
+    // spill function.
+    std::shared_mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
-    std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
+    std::multimap<int, SpillFunctionState, std::greater<>> spill_function_priorities_;
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
 };
 
