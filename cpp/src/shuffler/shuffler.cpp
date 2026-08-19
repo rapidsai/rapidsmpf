@@ -169,19 +169,30 @@ class Shuffler::Progress {
         // Finished and shuffler is no longer active.
         bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
                              && is_finished && containers_empty;
-        // Signal can_extract_ when all chunks have been received and all internal
-        // containers are drained. If we own no partitions we "can-extract" immediately,
-        // but we only wake a waiter once we've drained internal containers so that we can
-        // reuse the op_id for a subsequent shuffle.
-        if (!shuffler_.can_extract_ && is_finished && containers_empty) {
-            {
-                std::lock_guard lock(shuffler_.mutex_);
+        // Signal can_extract_ as soon as local outputs are complete so extraction can
+        // overlap with remaining send/protocol cleanup. Signal can_reuse_ only after all
+        // internal state is drained.
+        bool const ready_to_extract = is_finished;
+        bool const ready_to_reuse = is_finished && containers_empty;
+        bool notify = false;
+        FinishedCallback callback;
+        {
+            std::lock_guard lock(shuffler_.mutex_);
+            if (!shuffler_.can_extract_ && ready_to_extract) {
                 shuffler_.can_extract_ = true;
+                callback = std::move(shuffler_.finished_callback_);
+                notify = true;
             }
+            if (!shuffler_.can_reuse_ && ready_to_reuse) {
+                shuffler_.can_reuse_ = true;
+                notify = true;
+            }
+        }
+        if (notify) {
             shuffler_.cv_.notify_all();
-            if (auto callback = std::move(shuffler_.finished_callback_)) {
-                callback();
-            }
+        }
+        if (callback) {
+            callback();
         }
         return is_done ? ProgressThread::ProgressState::Done
                        : ProgressThread::ProgressState::InProgress;
@@ -414,6 +425,20 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
         );
     } else {
         cv_.wait(lock, [&] { return can_extract_; });
+    }
+}
+
+void Shuffler::wait_reusable(std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    std::unique_lock lock(mutex_);
+    if (timeout.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            cv_.wait_for(lock, *timeout, [&] { return can_reuse_; }),
+            "wait timeout reached",
+            std::runtime_error
+        );
+    } else {
+        cv_.wait(lock, [&] { return can_reuse_; });
     }
 }
 
