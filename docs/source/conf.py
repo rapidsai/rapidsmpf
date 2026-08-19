@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # numpydoc ignore=GL08
 # Configuration file for the Sphinx documentation builder.
@@ -63,9 +63,14 @@ html_theme_options = {
             "type": "fontawesome",
         },
     ],
-    "show_toc_level": 2,
     "navbar_align": "right",
+    "navbar_center": "navbar-nav, version-switcher, navbar-external-links",
     "navigation_with_keys": True,
+    "show_toc_level": 2,
+    "switcher": {
+        "json_url": "https://docs.nvidia.com/cucim/rapidsmpf.json",
+        "version_match": version,
+    },
 }
 
 
