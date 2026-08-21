@@ -15,7 +15,7 @@ cdef extern from * nogil:
      * Takes an opaque pointer to the Python Future and an optional
      * null-terminated error message. NULL means success.
      */
-    using PyFutureCallback = void (*)(void*, const char *);
+    using CythonLibcoroTaskWrapperCallback = void (*)(void*, const char *);
 
     /**
      * @brief Await a C++ coro::task and notify a Python asyncio.Future on completion.
@@ -42,7 +42,7 @@ cdef extern from * nogil:
      * and the Python Future has been notified.
      */
     coro::task<void> cython_libcoro_task_wrapper(
-        PyFutureCallback cpp_set_py_future,
+        CythonLibcoroTaskWrapperCallback cpp_set_py_future,
         rapidsmpf::OwningWrapper py_future,
         coro::task<void> task
     ) {
