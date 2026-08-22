@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
@@ -8,6 +8,14 @@ cdef extern from * nogil:
     """
     #include <iostream>
     #include <coro/task.hpp>
+
+    /**
+     * @brief Callback used to resolve a Python asyncio.Future from C++.
+     *
+     * Takes an opaque pointer to the Python Future and an optional
+     * null-terminated error message. NULL means success.
+     */
+    using CythonLibcoroTaskWrapperCallback = void (*)(void*, const char *);
 
     /**
      * @brief Await a C++ coro::task and notify a Python asyncio.Future on completion.
@@ -34,7 +42,7 @@ cdef extern from * nogil:
      * and the Python Future has been notified.
      */
     coro::task<void> cython_libcoro_task_wrapper(
-        void (*cpp_set_py_future)(void*, const char *),
+        CythonLibcoroTaskWrapperCallback cpp_set_py_future,
         rapidsmpf::OwningWrapper py_future,
         coro::task<void> task
     ) {
