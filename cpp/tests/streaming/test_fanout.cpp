@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <iostream>
+#include <unordered_set>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <cudf_test/table_utilities.hpp>
 
 #include <coro/coro.hpp>
 
@@ -57,9 +56,9 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     inputs.reserve(n);
 
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
-        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
         auto const cd = msg.content_description();
-        auto buf_cpy = br.allocate(cd.content_size(), stream, res);
+        auto buf_cpy = br.make_buffer(cd.content_size(), stream, res);
         // cd needs to be updated to reflect the new buffer
         ContentDescription new_cd{
             {{buf_cpy->mem_type(), buf_cpy->size}}, ContentDescription::Spillable::YES
@@ -74,7 +73,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     for (int i = 0; i < n; ++i) {
         std::vector<int> values(1024, 0);
         std::iota(values.begin(), values.end(), i);
-        rmm::cuda_stream_view stream = br.stream_pool().get_stream();
+        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
         // allocate outside of buffer resource
         auto buffer = br.move(
             std::make_unique<rmm::device_buffer>(
@@ -543,12 +542,11 @@ class SpillingStreamingFanout : public BaseStreamingFixture {
         SetUpWithThreads(4);
 
         // override br and context with no device memory
-        std::unordered_map<MemoryType, BufferResource::MemoryAvailable> memory_available =
-            {
-                {MemoryType::DEVICE, []() -> std::int64_t { return 0; }},
-            };
-        br = std::make_shared<rapidsmpf::BufferResource>(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+        std::unordered_map<MemoryType, std::int64_t> memory_limits = {
+            {MemoryType::DEVICE, 0},
+        };
+        br = rapidsmpf::BufferResource::create(
+            mr_cuda, rapidsmpf::PinnedMemoryDisabled, memory_limits
         );
         auto options = ctx->options();
         ctx = std::make_shared<rapidsmpf::streaming::Context>(

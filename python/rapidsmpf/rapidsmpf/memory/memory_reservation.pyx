@@ -105,8 +105,8 @@ def opaque_memory_usage(MemoryReservation reservation not None):
 
     This context manager is intended for code paths that use memory outside of
     RapidsMPF's memory reservation system, for example internal allocations in
-    libcudf or other third-party libraries. The memory may be of any type covered
-    by a :class:`MemoryReservation`, most commonly device memory.
+    third-party libraries. The memory may be of any type covered by a
+    :class:`MemoryReservation`, most commonly device memory.
 
     While the context is active, the provided memory reservation is considered
     consumed by the enclosed code block. On exit, the reservation is cleared,

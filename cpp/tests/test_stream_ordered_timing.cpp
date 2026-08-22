@@ -32,7 +32,7 @@ TEST(StreamOrderedTiming, Disabled) {
 TEST(StreamOrderedTiming, RecordsDuration) {
     // A positive duration is recorded under the given name after stream sync.
     rmm::cuda_stream stream;
-    auto stats = std::make_shared<Statistics>();
+    auto stats = Statistics::create();
     {
         StreamOrderedTiming timing{stream.view(), stats};
         // Do a small GPU operation so there is measurable work between start and stop.
@@ -49,7 +49,7 @@ TEST(StreamOrderedTiming, RecordsDuration) {
 TEST(StreamOrderedTiming, MultipleTimings) {
     // Repeated timings for the same name accumulate: count equals the number of timings.
     rmm::cuda_stream stream;
-    auto stats = std::make_shared<Statistics>();
+    auto stats = Statistics::create();
     constexpr int n = 3;
     for (int i = 0; i < n; ++i) {
         StreamOrderedTiming timing{stream.view(), stats};
@@ -67,8 +67,8 @@ TEST(StreamOrderedTiming, Cancel) {
     // cancelled timings are not recorded, while timings for other Statistics objects
     // are still recorded. Calling cancel when no timings are pending is a no-op.
     rmm::cuda_stream stream;
-    auto stats_a = std::make_shared<Statistics>();
-    auto stats_b = std::make_shared<Statistics>();
+    auto stats_a = Statistics::create();
+    auto stats_b = Statistics::create();
 
     // Block stream: no callbacks will execute until gate.open() is called.
     struct Gate {
@@ -109,7 +109,7 @@ TEST(StreamOrderedTiming, Cancel) {
 
 TEST(StreamOrderedTiming, StreamDelay) {
     rmm::cuda_stream stream;
-    auto stats = std::make_shared<Statistics>();
+    auto stats = Statistics::create();
 
     // With a stream_delay_name, the delay stat is recorded and is >= 0.
     {
@@ -122,7 +122,7 @@ TEST(StreamOrderedTiming, StreamDelay) {
     EXPECT_GE(delay.value(), 0.0);
 
     // With std::nullopt (the default), no stream-delay stat is written.
-    auto stats2 = std::make_shared<Statistics>();
+    auto stats2 = Statistics::create();
     {
         StreamOrderedTiming timing{stream.view(), stats2};
         timing.stop_and_record("my-timing");
@@ -136,7 +136,7 @@ TEST(StreamOrderedTiming, StatisticsDestroyedBeforeStreamSync) {
     // the callbacks detect the expired weak_ptr and return without crashing.
     rmm::cuda_stream stream;
     {
-        auto stats = std::make_shared<Statistics>();
+        auto stats = Statistics::create();
         StreamOrderedTiming timing{stream.view(), stats};
         timing.stop_and_record("my-timing");
         // Both `timing` and `stats` go out of scope here. The shared_ptr count

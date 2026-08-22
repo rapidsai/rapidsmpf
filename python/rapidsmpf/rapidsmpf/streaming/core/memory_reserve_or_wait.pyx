@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -21,6 +21,10 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 
 import asyncio
 
+import rapidsmpf.utils.string
+from rapidsmpf.streaming.core.cancellation import await_cpp_future
+from rapidsmpf.utils.memory import check_reservation_size
+
 # Sentinel indicating that net_memory_delta estimation has not yet been implemented.
 #
 # This value is used when a reasonable estimate of the net memory delta is
@@ -28,7 +32,6 @@ import asyncio
 # since providing a concrete estimate enables better spilling and scheduling
 # decisions.
 missing_net_memory_delta = cpp_missing_net_memory_delta
-
 
 cdef extern from * nogil:
     """
@@ -335,7 +338,7 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter)),
             )
-        await ret
+        await await_cpp_future(ret)
 
     async def reserve_or_wait(self, size_t size, *, int64_t net_memory_delta):
         """
@@ -393,6 +396,7 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
+        check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -404,7 +408,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return MemoryReservation.from_handle(move(deref(c_ret)), self._br)
@@ -443,6 +448,7 @@ cdef class MemoryReserveOrWait:
         RuntimeError
             If shutdown occurs before the request can be processed.
         """
+        check_reservation_size(size)
         cdef shared_ptr[pair[unique_ptr[cpp_MemoryReservation], size_t]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -454,7 +460,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter)),
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return (
@@ -496,6 +503,7 @@ cdef class MemoryReserveOrWait:
         --------
         reserve_or_wait
         """
+        check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
@@ -507,7 +515,8 @@ cdef class MemoryReserveOrWait:
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
-        await future
+        await await_cpp_future(future, on_cancel=self.shutdown)
+
         if not c_ret:
             assert False, "something went wrong, task returned a null pointer!"
         return MemoryReservation.from_handle(move(deref(c_ret)), self._br)
@@ -601,9 +610,13 @@ async def reserve_memory(
     ...     allow_overbooking=False,
     ... )
     """
+    check_reservation_size(size)
+
     if allow_overbooking is None:
-        allow_overbooking = ctx.options().get_or_default(
-            "allow_overbooking_by_default", default_value=True
+        allow_overbooking = ctx.options().get(
+            "allow_overbooking_by_default",
+            return_type=bool,
+            factory=rapidsmpf.utils.string.parse_boolean,
         )
 
     memory = ctx.memory(mem_type)

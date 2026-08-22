@@ -8,8 +8,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf_test/base_fixture.hpp>
-
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -17,8 +15,8 @@
 
 using rapidsmpf::ProgressThread;
 
-class ProgressThreadEvents
-    : public cudf::test::BaseFixtureWithParam<std::tuple<int, int, bool>> {};
+class ProgressThreadEvents : public ::testing::TestWithParam<std::tuple<int, int, bool>> {
+};
 
 // test different `num_threads` and `num_functions`.
 INSTANTIATE_TEST_SUITE_P(
@@ -41,7 +39,10 @@ TEST_P(ProgressThreadEvents, events) {
     std::size_t const num_functions = std::get<1>(GetParam());
     bool const enable_statistics = std::get<2>(GetParam());
 
-    auto statistics = std::make_shared<rapidsmpf::Statistics>(enable_statistics);
+    auto statistics = rapidsmpf::Statistics::create(
+        enable_statistics ? rapidsmpf::Statistics::Mode::Enabled
+                          : rapidsmpf::Statistics::Mode::Disabled
+    );
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <utility>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -17,6 +19,22 @@
 
 
 using namespace rapidsmpf;
+
+TEST(CudaEvent, MoveAssignmentTransfersEventHandle) {
+    CudaEvent destination;
+    CudaEvent moved_from_destination{std::move(destination)};
+    CudaEvent source;
+    auto source_event = source.value();
+
+    EXPECT_NE(moved_from_destination.value(), nullptr);
+    EXPECT_EQ(destination.value(), nullptr);
+    ASSERT_NE(source_event, nullptr);
+
+    destination = std::move(source);
+
+    EXPECT_EQ(destination.value(), source_event);
+    EXPECT_EQ(source.value(), nullptr);
+}
 
 TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     // 3 upstreams write disjoint slices repeatedly (slow), then 3 downstreams

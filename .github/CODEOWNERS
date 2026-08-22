@@ -10,9 +10,10 @@ CMakeLists.txt           @rapidsai/rapidsmpf-cmake-codeowners
 *.cmake                  @rapidsai/rapidsmpf-cmake-codeowners
 
 #CI code owners
-/.github/                @rapidsai/ci-codeowners
 /ci/                     @rapidsai/ci-codeowners
+/.github/                @rapidsai/ci-codeowners
 /.shellcheckrc           @rapidsai/ci-codeowners
+/.yamllint.yaml          @rapidsai/ci-codeowners
 
 #packaging code owners
 /.pre-commit-config.yaml @rapidsai/packaging-codeowners
@@ -21,3 +22,6 @@ CMakeLists.txt           @rapidsai/rapidsmpf-cmake-codeowners
 dependencies.yaml        @rapidsai/packaging-codeowners
 /build.sh                @rapidsai/packaging-codeowners
 pyproject.toml           @rapidsai/packaging-codeowners
+
+# Ops code owners
+/SECURITY.md             @rapidsai/ops-codeowners

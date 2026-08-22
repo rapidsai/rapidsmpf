@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,18 +15,14 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.actor import define_actor, run_actor_network
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.memory_reserve_or_wait import (
     MemoryReserveOrWait,
     reserve_memory,
 )
-
-if TYPE_CHECKING:
-    from concurrent.futures import ThreadPoolExecutor
 
 
 def make_context(
@@ -38,15 +33,14 @@ def make_context(
         env.update(overwrite_options)
     options = Options(env)
     comm = single_process_comm(options, ProgressThread())
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     br = BufferResource(
-        mr,
-        memory_available={MemoryType.DEVICE: LimitAvailableMemory(mr, limit=dev_limit)},
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.DEVICE: dev_limit},
     )
     return Context(comm.logger, br, options)
 
 
-def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
+def test_memory_is_available() -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(context.options(), MemoryType.DEVICE, context)
 
@@ -56,13 +50,10 @@ def test_memory_is_available(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 1024
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> None:
+def test_reserve_zero_is_always_available() -> None:
     with make_context(dev_limit=0) as context:
         mrow = MemoryReserveOrWait(
             Options({"memory_reserve_timeout": "10m"}), MemoryType.DEVICE, context
@@ -76,13 +67,10 @@ def test_reserve_zero_is_always_available(py_executor: ThreadPoolExecutor) -> No
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_timeout(py_executor: ThreadPoolExecutor) -> None:
+def test_timeout() -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
@@ -94,13 +82,10 @@ def test_timeout(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 0
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
+def test_shutdown() -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
             Options({"memory_reserve_timeouts": "10m"}), MemoryType.DEVICE, context
@@ -118,13 +103,10 @@ def test_shutdown(py_executor: ThreadPoolExecutor) -> None:
                 await asyncio.sleep(0)
             await mrow.shutdown()
 
-        run_actor_network(
-            actors=[actor1(context), actor2(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor1(context), actor2(context)])
 
 
-def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
+def test_context_memory_returns_handle() -> None:
     with make_context(dev_limit=1024) as context:
         mrow = context.memory(MemoryType.DEVICE)
         assert isinstance(mrow, MemoryReserveOrWait)
@@ -136,13 +118,10 @@ def test_context_memory_returns_handle(py_executor: ThreadPoolExecutor) -> None:
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 512
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
+def test_reserve_or_wait_or_overbook() -> None:
     with make_context(dev_limit=2048) as context:
         mrow = MemoryReserveOrWait(
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
@@ -166,13 +145,10 @@ def test_reserve_or_wait_or_overbook(py_executor: ThreadPoolExecutor) -> None:
             assert res.size == 2048
             assert overbooked == 1024
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
+def test_reserve_or_wait_or_fail() -> None:
     with make_context(dev_limit=1024) as context:
         mrow = MemoryReserveOrWait(
             Options({"memory_reserve_timeout": "1ms"}), MemoryType.DEVICE, context
@@ -184,13 +160,10 @@ def test_reserve_or_wait_or_fail(py_executor: ThreadPoolExecutor) -> None:
             with pytest.raises(RuntimeError):
                 await mrow.reserve_or_wait_or_fail(size=2048, net_memory_delta=0)
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
+def test_reserve_memory_helper() -> None:
     with make_context(
         dev_limit=1024, overwrite_options={"memory_reserve_timeout": "1ms"}
     ) as context:
@@ -229,15 +202,10 @@ def test_reserve_memory_helper(py_executor: ThreadPoolExecutor) -> None:
                     allow_overbooking=False,
                 )
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
 
-def test_reserve_memory_helper_allow_overbooking_by_default(
-    py_executor: ThreadPoolExecutor,
-) -> None:
+def test_reserve_memory_helper_allow_overbooking_by_default() -> None:
     # Option enabled, should overbook and succeed.
     with make_context(
         dev_limit=1024,
@@ -259,10 +227,7 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
             assert res.mem_type == MemoryType.DEVICE
             assert res.size == 2048
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])
 
     # Option disabled, should fail when no progress is possible.
     with make_context(
@@ -284,7 +249,4 @@ def test_reserve_memory_helper_allow_overbooking_by_default(
                     allow_overbooking=None,
                 )
 
-        run_actor_network(
-            actors=[actor(context)],
-            py_executor=py_executor,
-        )
+        run_actor_network(context, actors=[actor(context)])

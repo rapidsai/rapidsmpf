@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <rapidsmpf/config.hpp>
-
 #ifdef RAPIDSMPF_HAVE_SLURM
 
 #include <array>
@@ -39,7 +37,7 @@ namespace rapidsmpf::bootstrap::detail {
  *     --cpus-per-task=36 \
  *     --gpus-per-task=1 \
  *     --gres=gpu:4 \
- *     rrun ./benchmarks/bench_shuffle -C ucxx
+ *     rrun ./benchmarks/bench_comm -C ucxx
  *
  * # Hybrid mode: one task per node, 4 GPUs per task, two nodes.
  * srun \
@@ -49,7 +47,7 @@ namespace rapidsmpf::bootstrap::detail {
  *     --cpus-per-task=144 \
  *     --gpus-per-task=4 \
  *     --gres=gpu:4 \
- *     rrun -n 4 ./benchmarks/bench_shuffle -C ucxx
+ *     rrun -n 4 ./benchmarks/bench_comm -C ucxx
  * ```
  */
 class SlurmBackend : public Backend {

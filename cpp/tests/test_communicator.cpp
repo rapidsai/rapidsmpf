@@ -24,7 +24,7 @@ class BaseCommunicatorTest : public ::testing::Test {
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
-        br = std::make_unique<rapidsmpf::BufferResource>(*mr);
+        br = rapidsmpf::BufferResource::create(*mr);
         stream = rmm::cuda_stream_default;
     }
 
@@ -33,7 +33,7 @@ class BaseCommunicatorTest : public ::testing::Test {
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     rmm::cuda_stream_view stream;
-    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
 TEST_F(BaseCommunicatorTest, TagConstruction) {
@@ -79,7 +79,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     }
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
-    auto send_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
+    auto send_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
     send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(
@@ -91,7 +91,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     rapidsmpf::Tag tag{0, 0};
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
 
-    auto recv_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
+    auto recv_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
     recv_buf->stream().synchronize();
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     std::ignore = comm->wait(std::move(send_fut));

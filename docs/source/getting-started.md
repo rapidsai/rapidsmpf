@@ -1,7 +1,7 @@
 # Getting Started
 
 Building rapidsmpf from source is recommended when running nightly/upstream versions,
-since dependencies on non-ABI-stable libraries (e.g., pylibcudf) could cause temporary
+since dependencies on non-ABI-stable libraries could cause temporary
 breakage leading to issues such as segmentation faults. Stable versions can be installed
 from conda or pip packages.
 
@@ -14,7 +14,7 @@ git clone https://github.com/rapidsai/rapidsmpf.git
 cd rapidsmpf
 
 # Choose an environment file that matches your system.
-mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-131_arch-$(uname -m).yaml
+mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-133_arch-$(uname -m).yaml
 
 # Build
 ./build.sh
@@ -55,6 +55,24 @@ LD_PRELOAD=$CONDA_PREFIX/lib/libasan.so python ...
 
 Python applications using CUDA will require setting both environment variables described above.
 
+##### LeakSanitizer suppressions
+
+`cpp/asan_suppressions.txt` suppresses known process-lifetime leaks. Point LeakSanitizer at the
+suppression file when running the test suite:
+```bash
+LSAN_OPTIONS=suppressions=$PWD/cpp/asan_suppressions.txt \
+    ASAN_OPTIONS=protect_shadow_gap=0 \
+    cpp/build/gtests/single_tests
+```
+
+To continue execution and report all findings instead of aborting on the first error,
+add the following ASan triage options:
+```bash
+ASAN_OPTIONS=protect_shadow_gap=0:halt_on_error=0:abort_on_error=0:exitcode=0 \
+    cpp/build/gtests/single_tests
+```
+
+
 ## MPI
 
 Run the test suite using MPI:
@@ -70,14 +88,14 @@ mpirun -np 2 cpp/build/gtests/mpi_tests
 cd cpp/build && ctest -R mpi_tests_2
 ```
 
-We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we use a
+We can also run the communication benchmark. To assign each MPI rank its own GPU, we use a
 [binder script](https://github.com/LStuber/binding/blob/master/binder.sh):
 
 ```bash
 # The binder script requires numactl: mamba install numactl
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
-mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
+mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_comm -C mpi
 ```
 
 ## UCX

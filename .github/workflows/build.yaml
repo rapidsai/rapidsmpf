@@ -29,13 +29,16 @@ on:
         default: nightly
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
   cancel-in-progress: true
 
 permissions: {}
 
 jobs:
+  build-details:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   conda-cpp-build:
+    needs: [build-details]
     permissions:
       actions: read
       contents: read
@@ -46,13 +49,14 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       node_type: cpu8
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
   conda-python-build:
-    needs: [conda-cpp-build]
+    needs: [build-details, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -63,6 +67,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/build_python.sh
@@ -99,14 +104,13 @@ jobs:
       arch: "amd64"
       branch: ${{ inputs.branch }}
       build_type: ${{ inputs.build_type || 'branch' }}
-      # TODO: switch to {rapids-version}-latest when there are 'ray' packages for Python 3.14
-      #  ref: https://github.com/rapidsai/rapidsmpf/issues/897
-      container_image: "rapidsai/ci-conda:26.06-cuda13.0.2-ubuntu22.04-py3.13"
+      container_image: "rapidsai/ci-conda:26.10-latest"
       date: ${{ inputs.date }}
       node_type: "cpu8"
       script: "ci/build_docs.sh"
       sha: ${{ inputs.sha }}
   wheel-build-librapidsmpf:
+    needs: [build-details]
     permissions:
       actions: read
       contents: read
@@ -117,6 +121,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       node_type: cpu8
@@ -143,8 +148,9 @@ jobs:
       date: ${{ inputs.date }}
       package-name: librapidsmpf
       package-type: cpp
+      publish-wheel-search-key: rapidsmpf_wheel_cpp_librapidsmpf
   wheel-build-rapidsmpf:
-    needs: wheel-build-librapidsmpf
+    needs: [build-details, wheel-build-librapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -155,6 +161,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       node_type: cpu8
@@ -181,9 +188,9 @@ jobs:
       date: ${{ inputs.date }}
       package-name: rapidsmpf
       package-type: python
-      publish-wheel-search-key: rapidsmpf_wheel_python_abi3
+      publish-wheel-search-key: rapidsmpf_wheel_python_rapidsmpf
   wheel-build-rapidsmpf-singlecomm:
-    needs: wheel-build-rapidsmpf
+    needs: [build-details, wheel-build-rapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -194,6 +201,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
+      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       node_type: cpu8
@@ -203,3 +211,12 @@ jobs:
       package-type: python
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+  devcontainers:
+    name: Build devcontainers
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/build-devcontainers.yaml@main
+    permissions:
+      packages: write
+    with:
+      push: true
+      cuda: '["12.9", "13.3"]'

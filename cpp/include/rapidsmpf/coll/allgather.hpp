@@ -23,7 +23,6 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
-#include <rapidsmpf/statistics.hpp>
 
 /**
  * @namespace rapidsmpf::coll
@@ -101,8 +100,6 @@ class AllGather {
      * @param comm The communicator for communication.
      * @param op_id Unique operation identifier for this allgather.
      * @param br Buffer resource for memory allocation.
-     * @param statistics Statistics collection instance (disabled by
-     * default).
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
@@ -118,7 +115,6 @@ class AllGather {
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::function<void(void)>&& finished_callback = nullptr
     );
 
@@ -195,7 +191,6 @@ class AllGather {
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     BufferResource* br_;  ///< Buffer resource for memory allocation
-    std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::function<void(void)> finished_callback_{
         nullptr
     };  ///< Optional callback to run when allgather is finished and ready for extraction.

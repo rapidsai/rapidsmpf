@@ -88,7 +88,7 @@ struct PackedData {
      * the data buffer and metadata.
      */
     PackedData copy(MemoryReservation& reservation) const {
-        auto dst = reservation.br()->allocate(data->size, data->stream(), reservation);
+        auto dst = reservation.br()->make_buffer(data->size, data->stream(), reservation);
         buffer_copy(reservation.br()->statistics(), *dst, *data, data->size);
         return PackedData{
             std::make_unique<std::vector<std::uint8_t>>(*metadata), std::move(dst)

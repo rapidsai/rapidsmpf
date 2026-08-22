@@ -23,6 +23,10 @@ repos:
         entry: ./cpp/scripts/run-cmake-format.sh cmake-format
         language: python
         types: [cmake]
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
         # Note that pre-commit autoupdate does not update the versions
         # of dependencies, so we'll have to update this manually.
         additional_dependencies:
@@ -34,6 +38,10 @@ repos:
         entry: ./cpp/scripts/run-cmake-format.sh cmake-lint
         language: python
         types: [cmake]
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
         # Note that pre-commit autoupdate does not update the versions
         # of dependencies, so we'll have to update this manually.
         additional_dependencies:
@@ -96,7 +104,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: be37aaed37d910d88ff39aff4c0de2d4c1e1568c  # frozen: v1.4.3
+    rev: 49d5f7ac8225db3ebd7d0ab3701d6336d3c208ec  # frozen: v1.6.0
     hooks:
       - id: verify-copyright
         args: [--fix, --spdx]
@@ -112,6 +120,10 @@ repos:
             dependencies[.]yaml$|
             Makefile$|
             make[.]bat$
+        # TODO: Remove vendored FindCUDAToolkit once we require CMake 4.0
+        exclude: |
+          (?x)
+            ^cmake/Modules/FindCUDAToolkit[.]cmake$
       - id: verify-alpha-spec
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
@@ -134,10 +146,22 @@ repos:
     rev: 745eface02aef23e168a8afb6b5737818efbea95  # frozen: v0.11.0.1
     hooks:
       - id: shellcheck
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        additional_dependencies: [pyyaml]
+        exclude: |
+          (?x)^(
+            [.]clang-tidy$|
+            [.]github/labeler[.]yml$|
+            conda/environments/.*|
+            cpp/[.]clang-format$
+          )
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: a4727cbbcd26d7098e96b9cb738169b59711ae51 # v1.24.1
     hooks:
       - id: zizmor
 
 default_language_version:
-      python: python3
+  python: python3

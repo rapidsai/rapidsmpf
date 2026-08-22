@@ -1,66 +1,59 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 
 from rmm.pylibrmm import CudaStreamFlags
 
-from rmm.librmm.memory_resource cimport make_any_device_resource
+from rmm.pylibrmm.stream cimport Stream
+
+from rapidsmpf.utils.memory import check_reservation_size
+
+from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
+                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
-from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.memory.memory_reservation cimport MemoryReservation
-from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
-                                                      cpp_PinnedMemoryResource)
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 
 
 cdef extern from *:
     """
-    std::function<std::int64_t()> to_MemoryAvailable(
-        std::shared_ptr<rapidsmpf::LimitAvailableMemory> functor
+    // Construct a device_async_resource_ref from an owning any_resource.
+    // The free template in RMM only declares overloads for concrete RMM
+    // types, this overload covers `cuda::mr::any_resource<device_accessible>`.
+    std::optional<cython_device_async_resource_ref>
+    cpp_make_device_async_resource_ref_from_any(
+        cuda::mr::any_resource<cuda::mr::device_accessible>& mr
     ) {
-        return *functor;
-    }
-
-    std::int64_t _call_memory_available(
-        rapidsmpf::BufferResource* resource,
-        rapidsmpf::MemoryType mem_type
-    ) {
-        return resource->memory_available(mem_type)();
-    }
-
-    // Helper function to create a non-owning shared_ptr from a raw pointer
-    // The Python object retains ownership via its unique_ptr
-    std::shared_ptr<rmm::cuda_stream_pool> make_non_owning_stream_pool_ref(
-        rmm::cuda_stream_pool* ptr
-    ) {
-        return std::shared_ptr<rmm::cuda_stream_pool>(
-            ptr, [](rmm::cuda_stream_pool*){}
+        // `cython_device_async_resource_ref` is declared inline in RMM's
+        // `librmm/memory_resource.pxd`.
+        return std::optional<cython_device_async_resource_ref>(
+            rmm::device_async_resource_ref(mr)
         );
     }
     """
-    cpp_MemoryAvailable to_MemoryAvailable(
-        shared_ptr[cpp_LimitAvailableMemory]
+    optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
+        any_resource[device_accessible]&
     ) except +ex_handler
-    int64_t _call_memory_available(
-        cpp_BufferResource* resource,
-        MemoryType mem_type
-    ) except +ex_handler nogil
-    shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
-        cuda_stream_pool* ptr
-    ) except +ex_handler
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.memory_reservation cimport MemoryReservation
+from rapidsmpf.memory.pinned_memory_resource cimport (
+    PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
+    create_pinned_pool_properties_from_cpp,
+    pinned_pool_properties_from_options)
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef extern from * nogil:
@@ -134,23 +127,26 @@ cdef class BufferResource:
     Parameters
     ----------
     device_mr
-        Reference to the RMM device memory resource used for device allocations.
-    pinned_mr
-        The pinned host memory resource used for :attr:`~.MemoryType.PINNED_HOST`
-        allocations. If None, pinned host allocations are disabled. In that case,
-        any attempt to allocate pinned memory will fail regardless of what
-        `memory_available` reports.
-    memory_available
-        Optional memory availability functions. Memory types without availability
-        functions are unlimited. A function must return the current available
-        memory of a specific type. It must be thread-safe if used by multiple
-        `BufferResource` instances concurrently.
-        Warning: calling any `BufferResource` instance methods within the function
-        might result in a deadlock. This is because the buffer resource is locked
-        when the function is called.
+        The RMM device memory resource used for device allocations. To ensure
+        allocations are tracked for memory-limit accounting and statistics, use
+        ``BufferResource.device_mr`` instead of the original ``device_mr`` after
+        construction.
+    pinned_pool_properties
+        Configuration for the pinned host memory pool used for
+        :attr:`~.MemoryType.PINNED_HOST` allocations, as a
+        :class:`~rapidsmpf.memory.pinned_memory_resource.PinnedPoolProperties`.
+        When ``None`` (the default), pinned host allocations are disabled and any
+        attempt to allocate pinned memory will fail regardless of any
+        ``memory_limits`` entry for ``PINNED_HOST``. When provided, pinned host
+        memory must be supported on this system (see
+        :func:`~rapidsmpf.memory.pinned_memory_resource.is_pinned_memory_resources_supported`);
+        otherwise a ``RuntimeError`` is raised.
+    memory_limits
+        Optional mapping from :class:`~.MemoryType` to an integer byte limit.
+        Memory types not present in the mapping are treated as unlimited.
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks and
-        perform spilling based on the memory availability functions. The value of
+        performs spilling based on memory availability. The value of
         ``periodic_spill_check`` is used as the pause between checks (in seconds).
         If None, no periodic spill check is performed.
     stream_pool
@@ -160,58 +156,45 @@ cdef class BufferResource:
     statistics
         The statistics instance to use. If None, a disabled statistics instance
         will be created.
+
+    Notes
+    -----
+    Allocation tracking only applies to allocations routed through this
+    ``BufferResource``.
+
+    To ensure allocations are included in memory-limit accounting and
+    statistics, use ``BufferResource.device_mr`` for all CUDA allocations
+    associated with this resource.
+
+    Allocations performed through other memory resources, including the
+    original resource passed to the constructor or allocations made outside
+    ``BufferResource``, are not tracked by this class.
     """
     def __cinit__(
         self,
         DeviceMemoryResource device_mr not None,
         *,
-        PinnedMemoryResource pinned_mr = None,
-        memory_available = None,
+        pinned_pool_properties = None,
+        memory_limits = None,
         periodic_spill_check = 1e-3,
-        stream_pool = None,
+        CudaStreamPool stream_pool = None,
         statistics = None,
     ):
-        cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
-        if isinstance(memory_available, AvailableMemoryMap):
-            _mem_available = move((<AvailableMemoryMap>memory_available)._handle)
-        elif memory_available is not None:
-            for mem_type, func in memory_available.items():
-                if not isinstance(func, LimitAvailableMemory):
-                    raise NotImplementedError(
-                        "Currently, BufferResource only accept `LimitAvailableMemory` "
-                        "as memory available functions."
-                    )
-                _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
-                    (<LimitAvailableMemory?>func)._handle
-                )
+        cdef unordered_map[MemoryType, int64_t] _mem_limits
+        if memory_limits is not None:
+            for mem_type, limit in memory_limits.items():
+                _mem_limits[<MemoryType?>mem_type] = <int64_t>limit
         cdef optional[cpp_Duration] period
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
 
-        # Handle stream pool parameter
         # If None, create a default pool with 16 streams
         if stream_pool is None:
             stream_pool = CudaStreamPool(
                 pool_size=16,
                 flags=CudaStreamFlags.NON_BLOCKING,
             )
-
-        if not isinstance(stream_pool, CudaStreamPool):
-            raise TypeError(
-                f"stream_pool must be an instance of CudaStreamPool, "
-                f"got {type(stream_pool)}"
-            )
-
-        # Keep the Python stream pool alive
         self._stream_pool = stream_pool
-        # Get raw pointer from the unique_ptr and create a non-owning shared_ptr
-        # The Python object keeps ownership via unique_ptr, so we use a no-op deleter
-        cdef shared_ptr[cuda_stream_pool] cpp_stream_pool = (
-            make_non_owning_stream_pool_ref(
-                (<CudaStreamPool>stream_pool).c_obj.get()
-            )
-        )
-
         if statistics is None:
             statistics = Statistics(enable=False)
 
@@ -220,51 +203,90 @@ cdef class BufferResource:
         # checked cast requires the GIL
         stats_handle = (<Statistics?>statistics)._handle
 
-        # Stored for the Python device_mr/pinned_mr property accessors.
-        # The C++ BufferResource owns the resource via any_resource.
+        # Keep the original Python memory resources alive while the C++
+        # BufferResource holds resources derived from them. These anchors are
+        # likely redundant: `any_resource[device_accessible](...)` deep-copies
+        # the device MR into a self-sufficient owning any_resource, and
+        # `cpp_PinnedMemoryResource` is copied by value into the C++ BR. Kept
+        # defensively for now.
+        # TODO: drop these once verified against pool/upstream-adaptor MRs.
+        #       https://github.com/rapidsai/rapidsmpf/issues/1074
         self._device_mr = device_mr
-        self._pinned_mr = pinned_mr
-        cdef optional[cpp_PinnedMemoryResource] cpp_pinned_mr
-        if self._pinned_mr is not None:
-            cpp_pinned_mr = self._pinned_mr._handle
+
+        # The pinned resource is constructed internally by the C++
+        # `BufferResource` from these properties. A None `pinned_pool_properties`
+        # leaves the optional empty, disabling pinned host memory. Providing
+        # properties on a system without pinned-host-memory support raises a
+        # RuntimeError. A default constructed `cpp_PinnedPoolProperties` already
+        # carries the C++ default NUMA node, so a `numa_id` of None keeps that default.
+        cdef cpp_PinnedPoolProperties _props
+        cdef optional[cpp_PinnedPoolProperties] cpp_pinned_pool
+        if pinned_pool_properties is not None:
+            _props.initial_pool_size = <size_t>pinned_pool_properties.initial_pool_size
+            if pinned_pool_properties.max_pool_size is not None:
+                _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
+            if pinned_pool_properties.numa_id is not None:
+                _props.numa_id = <int>pinned_pool_properties.numa_id
+            cpp_pinned_pool = _props
         with nogil:
-            self._handle = make_shared[cpp_BufferResource](
-                make_any_device_resource(device_mr.get_mr()),
-                cpp_pinned_mr,
-                move(_mem_available),
+            self._handle = cpp_BufferResource.create(
+                any_resource[device_accessible](device_mr.get_mr()),
+                cpp_pinned_pool,
+                move(_mem_limits),
                 period,
-                cpp_stream_pool,
+                stream_pool.c_obj,
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
 
     @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
+    def from_options(
+        cls,
+        DeviceMemoryResource mr not None,
+        Options options not None,
+        Statistics statistics=None,
+    ):
         """
         Construct a BufferResource from configuration options.
 
         This factory method creates a BufferResource using configuration options to
-        initialize all components.
+        initialize all components. The supplied device memory resource is wrapped
+        internally for allocation tracking — callers don't need to pre-wrap it.
 
         Parameters
         ----------
         mr
-            RMM resource adaptor. The adaptor must outlive the returned BufferResource.
+            A device-accessible RMM memory resource.
         options
             Configuration options.
+        statistics
+            The statistics instance to use. The caller is responsible for creating and
+            owning this object. Defaults to ``Statistics.disabled()``.
 
         Returns
         -------
         A BufferResource instance configured according to the options.
         """
-        cdef PinnedMemoryResource pinned_mr = PinnedMemoryResource.from_options(options)
+        if statistics is None:
+            statistics = Statistics.disabled()
+
+        # Derive the pinned pool configuration from the options; an empty optional
+        # means pinned host memory is disabled.
+        cdef optional[cpp_PinnedPoolProperties] props = \
+            pinned_pool_properties_from_options(options._handle)
+        pinned_pool_properties = None
+        if props.has_value():
+            pinned_pool_properties = create_pinned_pool_properties_from_cpp(
+                props.value()
+            )
+
         return cls(
             device_mr=mr,
-            pinned_mr=pinned_mr,
-            memory_available=AvailableMemoryMap.from_options(mr, options),
+            pinned_pool_properties=pinned_pool_properties,
+            memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
-            statistics=Statistics.from_options(mr, options, pinned_mr=pinned_mr),
+            statistics=statistics,
         )
 
     def __dealloc__(self):
@@ -288,31 +310,72 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
-    cdef const cuda_stream_pool* stream_pool(self):
-        return &deref(self._handle).stream_pool()
+    @property
+    def stream_pool(self):
+        """
+        The stream pool associated with this buffer resource.
+
+        Returns
+        -------
+        An RMM CudaStreamPool.
+        """
+        return self._stream_pool
 
     @property
     def device_mr(self):
         """
-        The memory resource used for device memory allocations.
+        The tracked device memory resource.
+
+        Allocations made through this resource count against the ``BufferResource``
+        memory limits and appear in its statistics.
 
         Returns
         -------
-        The device memory resource.
+        The tracked device memory resource.
         """
-        return self._device_mr
+        return OwningDeviceMemoryResource._create(
+            any_resource[device_accessible](deref(self._handle).device_mr())
+        )
+
+    cpdef RmmResourceAdaptor device_mr_adaptor(self):
+        """
+        The internal device memory resource adaptor with a back-reference installed.
+
+        Returns a copyable ``RmmResourceAdaptor`` that holds shared ownership of this
+        ``BufferResource``, keeping it alive for as long as the returned adaptor (or
+        any copies of it) lives.
+
+        This is the only way to obtain an ``RmmResourceAdaptor``; use it when you need
+        to pass one to APIs that copy the adaptor, such as
+        :meth:`~rapidsmpf.statistics.Statistics.memory_profiling` or
+        :meth:`~rapidsmpf.statistics.Statistics.report`.
+
+        Returns
+        -------
+        A back-ref'd ``RmmResourceAdaptor`` whose copies keep this ``BufferResource``
+        alive.
+        """
+        return RmmResourceAdaptor._from_cpp(deref(self._handle).device_mr_adaptor())
 
     @property
     def pinned_mr(self):
         """
         The memory resource used for pinned host memory allocations.
 
+        The returned handle holds shared ownership of this ``BufferResource``,
+        keeping it alive for as long as the handle (or any copy of it) lives.
+
         Returns
         -------
         The pinned host memory resource, or None if pinned host allocations
         are disabled.
         """
-        return self._pinned_mr
+        cdef optional[cpp_PinnedMemoryResource] opt
+        with nogil:
+            opt = deref(self._handle).try_pinned_mr()
+        if not opt.has_value():
+            return None
+        return PinnedMemoryResource.from_handle(opt)
 
     def memory_reserved(self, MemoryType mem_type):
         """
@@ -337,11 +400,32 @@ cdef class BufferResource:
         Get the current available memory of the specified memory type.
         """
         cdef int64_t ret
-        cdef cpp_BufferResource* resource_ptr = self.ptr()
-        # Use inline C++ to handle the function object call
         with nogil:
-            ret = _call_memory_available(resource_ptr, mem_type)
+            ret = deref(self._handle).memory_available(mem_type)
         return ret
+
+    def set_memory_limit(self, MemoryType mem_type, int64_t limit):
+        """
+        Set the byte limit for the specified memory type.
+
+        The store is atomic, but readers (e.g. ``memory_available()`` and
+        ``reserve()``) observe the limit and the allocation count independently.
+        A concurrent ``set_memory_limit()`` call can change the limit between a
+        caller's read of ``memory_available()`` and a subsequent allocation
+        decision; callers that need a coherent view must serialize updates with
+        higher-level synchronization.
+
+        Parameters
+        ----------
+        mem_type
+            The memory type whose limit is being updated.
+        limit
+            The new byte limit. Negative values are allowed; they make
+            ``memory_available(mem_type)`` always negative and so trigger
+            continuous spilling.
+        """
+        with nogil:
+            deref(self._handle).set_memory_limit(mem_type, limit)
 
     def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
         """
@@ -350,7 +434,7 @@ cdef class BufferResource:
         Creates a new reservation of the specified size and memory type to inform the
         system about upcoming buffer allocations.
 
-        If overbooking is allowed, a reservation of the requested `size` is returned
+        If overbooking is allowed, a reservation of the requested ``size`` is returned
         even if the memory is not currently available. In that case, the caller must
         guarantee that at least the overbooked amount of memory will be freed before
         the reservation is used.
@@ -370,10 +454,11 @@ cdef class BufferResource:
         Returns
         -------
         A tuple (reservation, overbooked_bytes):
-            - On success, the reservation's size equals `size`.
+            - On success, the reservation's size equals ``size``.
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
+        check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
         with nogil:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
@@ -409,6 +494,7 @@ cdef class BufferResource:
             If overbooking is disabled and the buffer resource cannot free enough
             device memory through spilling to satisfy the request.
         """
+        check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
@@ -443,6 +529,7 @@ cdef class BufferResource:
         RuntimeError
             If no memory type in ``mem_types`` could satisfy the reservation.
         """
+        check_reservation_size(size)
         cdef vector[MemoryType] cpp_mem_types
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
@@ -478,16 +565,37 @@ cdef class BufferResource:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
 
-    def stream_pool_size(self) -> int:
+    def make_buffer(self, size_t size, Stream stream not None, MemoryReservation reservation not None):
         """
-        Get the size of the stream pool.
+        Allocate a buffer backed by the given memory reservation.
+
+        Parameters
+        ----------
+        size
+            Size of the buffer in bytes. Must not exceed the reservation size.
+        stream
+            CUDA stream to associate with the buffer.
+        reservation
+            Memory reservation that covers this allocation. The reservation's
+            memory type determines whether the buffer is device or host backed.
 
         Returns
         -------
-        int
-            The size of the stream pool.
+        A :class:`~rapidsmpf.memory.buffer.Buffer` of the requested size.
+
+        Raises
+        ------
+        ValueError
+            If ``size`` exceeds the reservation size.
         """
-        return self.stream_pool().get_pool_size()
+        cdef unique_ptr[cpp_Buffer] handle
+        with nogil:
+            handle = move(
+                deref(self._handle).make_buffer(
+                    size, stream.view(), deref(reservation._handle)
+                )
+            )
+        return Buffer.from_handle(move(handle), self, stream)
 
     @property
     def statistics(self):
@@ -501,118 +609,39 @@ cdef class BufferResource:
         return self._statistics
 
 
-cdef class LimitAvailableMemory:
-    """
-    A callback class for querying the remaining available memory within a defined
-    limit from an RMM resource adaptor.
-
-    This class is primarily designed to simulate constrained memory environments
-    or prevent memory allocation beyond a specific threshold. It provides
-    information about the available memory by subtracting the memory currently
-    used (as reported by the RMM resource adaptor) from a user-defined limit.
-
-    It is typically used in the context of memory management operations such as
-    with `BufferResource`.
-
-    Parameters
-    ----------
-    mr
-        A statistics resource adaptor that tracks memory usage and provides
-        statistics about the memory consumption. The `LimitAvailableMemory`
-        instance keeps a reference to ``mr`` to keep it alive.
-    limit
-        The maximum memory limit (in bytes). Used to calculate the remaining
-        available memory.
-
-    Notes
-    -----
-    The ``mr`` resource must not be destroyed while this object is
-    still in use.
-
-    Examples
-    --------
-    >>> mr = RmmResourceAdaptor(...)
-    >>> memory_limiter = LimitAvailableMemory(mr, limit=1_000_000)
-    """
-    def __init__(self, RmmResourceAdaptor mr not None, int64_t limit):
-        self._mr = mr  # Keep a copy of mr alive.
-        cdef cpp_RmmResourceAdaptor* handle = mr.get_handle()
-        with nogil:
-            self._handle = make_shared[cpp_LimitAvailableMemory](deref(handle), limit)
-
-    def __call__(self):
-        """
-        Returns the remaining available memory within the defined limit.
-
-        This method queries the ``rmm_statistics_resource`` to determine the memory
-        currently in use and calculates the remaining memory as:
-        ``limit - used_memory``.
-
-        Returns
-        -------
-        int
-            The remaining memory in bytes.
-        """
-        cdef int64_t ret
-        with nogil:
-            ret = deref(self._handle)()
-        return ret
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
-
-
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
-    cdef unordered_map[MemoryType, cpp_MemoryAvailable] \
-        cpp_memory_available_from_options \
-        "rapidsmpf::memory_available_from_options"(
-            cpp_RmmResourceAdaptor mr, cpp_Options options
+    cdef int64_t cpp_device_limit_from_options \
+        "rapidsmpf::device_limit_from_options"(
+            cpp_Options options
         ) except +ex_handler
 
-
-cdef class AvailableMemoryMap:
-    """
-    Map of functions reporting available memory for different memory types.
-
-    This class acts as an opaque handle to C++ memory-availability functions
-    that cannot be directly represented or exposed in Python. It enables
-    RapidsMPF to configure and use such functions from Python while keeping
-    the implementation in C++.
-
-    Instances of this class should be constructed from configuration options
-    using the :meth:`from_options` factory method.
-    """
-
-    @classmethod
-    def from_options(cls, RmmResourceAdaptor mr not None, Options options not None):
-        """
-        Construct an AvailableMemoryMap from configuration options.
-
-        Parameters
-        ----------
-        mr
-            Pointer to a memory resource adaptor.
-        options
-            Configuration options.
-
-        Returns
-        -------
-        The constructed map of memory-available functions.
-        """
-        cdef AvailableMemoryMap ret = cls.__new__(cls)
-        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        with nogil:
-            ret._handle = cpp_memory_available_from_options(deref(mr_handle),
-                                                            options._handle)
-        return ret
-
-
-cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
         "rapidsmpf::periodic_spill_check_from_options"(
             cpp_Options options
         ) except +ex_handler
+
+
+def device_limit_from_options(Options options not None):
+    """
+    Get the ``spill_device_limit`` parameter from configuration options.
+
+    Reads the ``spill_device_limit`` option, falling back to 80% of total device
+    memory when unset.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    int
+        The device memory limit in bytes.
+    """
+    cdef int64_t ret
+    with nogil:
+        ret = cpp_device_limit_from_options(options._handle)
+    return ret
 
 
 def periodic_spill_check_from_options(Options options not None):
@@ -651,10 +680,43 @@ def stream_pool_from_options(Options options not None):
     Pool of CUDA streams used throughout RapidsMPF for operations that do not take
     an explicit CUDA stream.
     """
-    cdef int pool_size = options.get_or_default("num_streams", default_value=16)
+    cdef int pool_size = options.get(
+        "num_streams",
+        return_type=int,
+        factory=int,
+    )
     if pool_size < 1:
-        raise ValueError("the `num_streams` options must be greater than 0")
+        raise ValueError(
+            "the `num_streams` options must be greater than 0"
+        )
     return CudaStreamPool(
         pool_size=pool_size,
         flags=CudaStreamFlags.NON_BLOCKING,
     )
+
+
+cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
+    """
+    Owning ``DeviceMemoryResource``.
+
+    Useful for exposing device memory resources to Python in a form that is
+    compatible with cuDF/RMM APIs while preserving ownership semantics.
+
+    Notes
+    -----
+    RMM does not currently provide an equivalent owning wrapper. If one is
+    added in the future, this class can likely be replaced by the
+    RMM-provided implementation.
+    """
+    @staticmethod
+    cdef OwningDeviceMemoryResource _create(
+        any_resource[device_accessible] resource,
+    ):
+        cdef OwningDeviceMemoryResource self = (
+            OwningDeviceMemoryResource.__new__(OwningDeviceMemoryResource)
+        )
+        # Owning storage for the underlying CCCL resource. The base class's
+        # `c_ref` is a non-owning view into `c_obj`.
+        self.c_obj = resource
+        self.c_ref = cpp_make_device_async_resource_ref_from_any(self.c_obj)
+        return self

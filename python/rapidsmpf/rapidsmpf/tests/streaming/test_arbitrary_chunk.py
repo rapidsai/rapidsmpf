@@ -13,7 +13,6 @@ from rapidsmpf.streaming.core.message import Message
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from concurrent.futures import ThreadPoolExecutor
     from typing import Any
 
     from rapidsmpf.streaming.core.actor import CppActor
@@ -107,7 +106,7 @@ def test_gc_after_chunk_release() -> None:
     assert not finalizer.alive
 
 
-def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None:
+def test_with_channel(context: Context) -> None:
     ch_in: Channel[ArbitraryChunk[int]] = context.create_channel()
     ch_out: Channel[ArbitraryChunk[int]] = context.create_channel()
 
@@ -135,7 +134,7 @@ def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None
     actor, deferred_messages = pull_from_channel(context, ch_out)
     actors.append(actor)
 
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
 
     results = deferred_messages.release()
     for seq, msg in enumerate(results):

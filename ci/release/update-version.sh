@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 # rapidsmpf version updater
@@ -105,14 +105,9 @@ echo "${NEXT_UCXX_SHORT_TAG}.00" > UCXX_VERSION
 sed_runner "s/ucxx==.*/ucxx==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" dependencies.yaml
 
 DEPENDENCIES=(
-  cudf
-  dask-cuda
-  dask-cudf
-  libcudf
   librapidsmpf
   librapidsmpf-tests
   librmm
-  pylibcudf
   rapidsmpf
   rmm
 )
@@ -146,6 +141,7 @@ done
 # .devcontainer files
 find .devcontainer/ -type f -name devcontainer.json -print0 | while IFS= read -r -d '' filename; do
   sed_runner "s/rapidsai\/devcontainers:[0-9]*\\.[0-9]*-/rapidsai\/devcontainers:${NEXT_SHORT_TAG}-/g" "${filename}"
+  sed_runner "s@ghcr.io/rapidsai/rapidsmpf/devcontainer:[0-9.]*@ghcr.io/rapidsai/rapidsmpf/devcontainer:${NEXT_SHORT_TAG}@g" "${filename}"
   sed_runner "s/rapids-\${localWorkspaceFolderBasename}-[0-9]*\\.[0-9]*-/rapids-\${localWorkspaceFolderBasename}-${NEXT_SHORT_TAG}-/g" "${filename}"
   sed_runner "s/rapids-build-utils:[0-9]*\\.[0-9]*\"/rapids-build-utils:${NEXT_SHORT_TAG_PEP440}\"/g" "${filename}"
 done

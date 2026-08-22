@@ -44,9 +44,11 @@ void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_addr
 std::shared_ptr<UCXX> init_using_mpi(
     MPI_Comm mpi_comm,
     rapidsmpf::config::Options options,
-    std::shared_ptr<ProgressThread> progress_thread
+    std::shared_ptr<ProgressThread> progress_thread,
+    std::shared_ptr<Logger> logger
 ) {
     RAPIDSMPF_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
+    RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
 
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
@@ -61,7 +63,9 @@ std::shared_ptr<UCXX> init_using_mpi(
     if (rank == 0) {
         auto ucxx_initialized_rank = init(nullptr, nranks, std::nullopt, options);
         comm = std::make_shared<UCXX>(
-            std::move(ucxx_initialized_rank), options, progress_thread
+            std::move(ucxx_initialized_rank),
+            std::move(progress_thread),
+            std::move(logger)
         );
 
         root_listener_address = comm->listener_address();
@@ -73,10 +77,12 @@ std::shared_ptr<UCXX> init_using_mpi(
 
     if (rank != 0) {
         auto root_worker_address =
-            ::ucxx::createAddressFromString(root_worker_address_str);
+            ::ucxx::AddressBuilder(root_worker_address_str).build();
         auto ucxx_initialized_rank = init(nullptr, nranks, root_worker_address, options);
         comm = std::make_shared<UCXX>(
-            std::move(ucxx_initialized_rank), options, progress_thread
+            std::move(ucxx_initialized_rank),
+            std::move(progress_thread),
+            std::move(logger)
         );
     }
 

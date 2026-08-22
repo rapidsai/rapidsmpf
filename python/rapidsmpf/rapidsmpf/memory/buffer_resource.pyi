@@ -1,16 +1,20 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Self
 
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.config import Options
-from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer import Buffer, MemoryType
 from rapidsmpf.memory.memory_reservation import MemoryReservation
-from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
+from rapidsmpf.memory.pinned_memory_resource import (
+    PinnedMemoryResource,
+    PinnedPoolProperties,
+)
 from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
@@ -20,24 +24,27 @@ class BufferResource:
         self,
         device_mr: DeviceMemoryResource,
         *,
-        pinned_mr: PinnedMemoryResource | None = None,
-        memory_available: Mapping[MemoryType, Callable[[], int]]
-        | AvailableMemoryMap
-        | None = None,
+        pinned_pool_properties: PinnedPoolProperties | None = None,
+        memory_limits: Mapping[MemoryType, int] | None = None,
         periodic_spill_check: float | None = 1e-3,
         stream_pool: CudaStreamPool | None = None,
         statistics: Statistics | None = None,
     ) -> None: ...
     @classmethod
     def from_options(
-        cls: type[Self], mr: RmmResourceAdaptor, options: Options
+        cls: type[Self],
+        mr: DeviceMemoryResource,
+        options: Options,
+        statistics: Statistics | None = None,
     ) -> Self: ...
     @property
-    def device_mr(self) -> DeviceMemoryResource: ...
+    def device_mr(self) -> OwningDeviceMemoryResource: ...
+    def device_mr_adaptor(self) -> RmmResourceAdaptor: ...
     @property
     def pinned_mr(self) -> PinnedMemoryResource | None: ...
     def memory_available(self, mem_type: MemoryType) -> int: ...
     def memory_reserved(self, mem_type: MemoryType) -> int: ...
+    def set_memory_limit(self, mem_type: MemoryType, limit: int) -> None: ...
     @property
     def spill_manager(self) -> SpillManager: ...
     @property
@@ -52,21 +59,14 @@ class BufferResource:
         self, size: int, mem_types: list[MemoryType]
     ) -> MemoryReservation: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
-    def stream_pool_size(self) -> int: ...
+    def make_buffer(
+        self, size: int, stream: Stream, reservation: MemoryReservation
+    ) -> Buffer: ...
+    @property
+    def stream_pool(self) -> CudaStreamPool: ...
 
-class LimitAvailableMemory:
-    def __init__(
-        self,
-        mr: RmmResourceAdaptor,
-        limit: int,
-    ) -> None: ...
-    def __call__(self) -> int: ...
+class OwningDeviceMemoryResource(DeviceMemoryResource): ...
 
-class AvailableMemoryMap:
-    @classmethod
-    def from_options(
-        cls: type[Self], mr: RmmResourceAdaptor, options: Options
-    ) -> Self: ...
-
+def device_limit_from_options(options: Options) -> int: ...
 def periodic_spill_check_from_options(options: Options) -> float | None: ...
 def stream_pool_from_options(options: Options) -> CudaStreamPool: ...

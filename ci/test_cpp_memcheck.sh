@@ -9,7 +9,7 @@ set -xeuo pipefail
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
-CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
+CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp librapidsmpf rapidsmpf --cuda "$RAPIDS_CUDA_VERSION")")
 
 rapids-logger "Generate C++ testing dependencies"
 rapids-dependency-file-generator \
@@ -49,7 +49,7 @@ set +e
 cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
 
 rapids-logger "Run librapidsmpf gtests with compute-sanitizer (Single Node)"
-compute-sanitizer --tool memcheck --track-stream-ordered-races=all gtests/single_tests --gtest_filter=-CuptiMonitorTest.*
+compute-sanitizer --tool memcheck --track-stream-ordered-races=all ./single_tests --gtest_filter=-CuptiMonitorTest.*
 
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

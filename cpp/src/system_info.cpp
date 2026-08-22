@@ -4,8 +4,12 @@
  */
 
 
+#include <algorithm>
+
 #include <sched.h>
 #include <unistd.h>
+
+#include <cucascade/memory/topology_discovery.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -13,9 +17,28 @@
 
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
+#include <numaif.h>
 #endif
 
 namespace rapidsmpf {
+
+#if RAPIDSMPF_HAVE_NUMA
+namespace {
+std::vector<int> bitmask_to_nodes(struct bitmask const* mask) {
+    std::vector<int> ret;
+    if (mask == nullptr) {
+        return ret;
+    }
+
+    for (unsigned int node = 0; node < mask->size; ++node) {
+        if (numa_bitmask_isbitset(mask, node) != 0) {
+            ret.push_back(static_cast<int>(node));
+        }
+    }
+    return ret;
+}
+}  // namespace
+#endif
 
 std::uint64_t get_total_host_memory() noexcept {
     static const std::uint64_t ret = [] {
@@ -48,11 +71,14 @@ int get_current_numa_node() noexcept {
 std::vector<int> get_current_numa_nodes() noexcept {
     std::vector<int> ret;
 #if RAPIDSMPF_HAVE_NUMA
-    int const cpu = ::sched_getcpu();
-    if (numa_available() != -1 && cpu >= 0) {
-        int numa_node = numa_node_of_cpu(cpu);
-        if (numa_node >= 0) {
-            ret.push_back(numa_node);
+    if (numa_available() != -1) {
+        struct bitmask* membind = numa_allocate_nodemask();
+        if (membind != nullptr) {
+            int mode = MPOL_DEFAULT;
+            if (get_mempolicy(&mode, membind->maskp, membind->size, nullptr, 0) == 0) {
+                ret = bitmask_to_nodes(membind);
+            }
+            numa_free_nodemask(membind);
         }
     }
 #endif
@@ -77,6 +103,37 @@ std::uint64_t get_numa_node_host_memory([[maybe_unused]] int numa_id) noexcept {
         return get_total_host_memory();
     }
     return safe_cast<std::uint64_t>(ret);
+}
+
+namespace {
+const auto& get_topology() {
+    static const auto topo = [] {
+        cucascade::memory::topology_discovery discovery;
+        RAPIDSMPF_EXPECTS(
+            discovery.discover(), "Failed to discover system topology", std::runtime_error
+        );
+        return discovery;
+    }();
+    return topo.get_topology();
+}
+}  // namespace
+
+std::uint64_t get_host_memory_per_gpu() {
+    auto const current_numa_node = get_current_numa_node();
+    auto const& gpus = get_topology().gpus;
+    // gpu.numa_node == -1 means the kernel has no NUMA affinity info for the
+    // device (common in VMs and single-socket machines without ACPI SRAT/SLIT
+    // entries for PCIe).  Treat those GPUs as local to every NUMA node.
+    auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
+        return gpu.numa_node == current_numa_node || gpu.numa_node == -1;
+    });
+    RAPIDSMPF_EXPECTS(
+        num_local_gpus > 0,
+        "No GPUs found on current NUMA node " + std::to_string(current_numa_node),
+        std::runtime_error
+    );
+    return get_numa_node_host_memory(current_numa_node)
+           / safe_cast<std::uint64_t>(num_local_gpus);
 }
 
 }  // namespace rapidsmpf

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -80,8 +80,14 @@ class CudaEvent {
     /**
      * @brief Move assignment operator.
      *
+     * The destination must be empty, for example because it has previously been
+     * moved from. Move-assigning into a `CudaEvent` that already owns an event is
+     * not allowed.
+     *
      * @param other Source CudaEvent to move from.
      * @return Reference to this object.
+     *
+     * @throws std::invalid_argument if this object already owns an event.
      */
     CudaEvent& operator=(CudaEvent&& other);
 

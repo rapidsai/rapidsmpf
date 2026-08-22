@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <atomic>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -27,25 +26,20 @@ class StreamingMemoryReserveOrWait
       public ::testing::WithParamInterface<ReserveOrWaitParam> {
   public:
     void SetUp() override {
-        auto dev_mem_available = [this]() -> std::int64_t {
-            return mem_avail_.load(std::memory_order_acquire);
-        };
-        SetUpWithThreads(
-            GetParam().num_threads, {{rapidsmpf::MemoryType::DEVICE, dev_mem_available}}
-        );
+        // Drive device memory availability by mutating the DEVICE limit. No real
+        // device allocations occur in these tests, so `memory_available(DEVICE)`
+        // equals whatever limit we set.
+        SetUpWithThreads(GetParam().num_threads, {{rapidsmpf::MemoryType::DEVICE, 0}});
     }
 
   protected:
     void set_mem_avail(std::int64_t size) {
-        mem_avail_.store(size, std::memory_order_release);
+        br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, size);
     }
 
     std::int64_t get_mem_avail() {
-        return mem_avail_.load(std::memory_order_acquire);
+        return br->memory_available(rapidsmpf::MemoryType::DEVICE);
     }
-
-  private:
-    std::atomic<std::int64_t> mem_avail_{0};
 };
 
 INSTANTIATE_TEST_SUITE_P(

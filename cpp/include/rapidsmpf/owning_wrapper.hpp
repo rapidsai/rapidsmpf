@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,14 +16,12 @@ namespace rapidsmpf {
  * When sending messages through `Channel`s from Python, we typically need to keep various
  * Python objects alive since the matching C++ objects only hold views.
  *
- * For example, when constructing a `TableChunk` from a pylibcudf `Table`, the
- * `TableChunk` has a non-owning `cudf::table_view` of the `Table` and someone must be
- * responsible for keeping the `Table` alive for the lifetime of the `TableChunk`. If we
- * want to allow creation of such objects in Python with the ability to sink them on the
- * C++ side we cannot rely on the Python side of things keeping the `Table` alive (the
- * reference disappears!). Similarly when we send a message through a `Channel` the sender
- * will, once pushed into the channel, drop the reference to the message payload and so,
- * again, we need some way of keeping the payload alive.
+ * For example, a C++ message payload may hold non-owning views into a Python-owned
+ * object. If we want to allow creation of such objects in Python with the ability to
+ * sink them on the C++ side we cannot rely on the Python side keeping that owner alive
+ * (the reference disappears!). Similarly when we send a message through a `Channel` the
+ * sender will, once pushed into the channel, drop the reference to the message payload
+ * and so, again, we need some way of keeping the payload alive.
  *
  * To square this circle, such C++ objects have an `OwningWrapper` slot that stores a
  * type-erased pointer with, as far as we are concerned, unique ownership semantics. When

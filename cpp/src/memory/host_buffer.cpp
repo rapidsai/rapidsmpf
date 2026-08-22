@@ -5,56 +5,50 @@
 
 #include <utility>
 
-#include <cuda/memory>
-
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 
 namespace rapidsmpf {
 
 HostBuffer::HostBuffer(
-    std::size_t size, rmm::cuda_stream_view stream, rmm::host_async_resource_ref mr
+    std::size_t size,
+    rmm::cuda_stream_view stream,
+    cuda::mr::any_resource<cuda::mr::host_accessible> mr
 )
-    : stream_{stream}, mr_{std::move(mr)} {
+    : stream_{stream} {
     if (size > 0) {
         auto* ptr = static_cast<std::byte*>(
-            mr_.allocate(stream_, size, alignof(::cuda::std::max_align_t))
+            mr.allocate(stream_, size, alignof(::cuda::std::max_align_t))
         );
         span_ = std::span<std::byte>{ptr, size};
+        deallocate_fn_ =
+            [mr = std::move(mr), ptr, size](rmm::cuda_stream_view s) mutable {
+                mr.deallocate(s, ptr, size, alignof(::cuda::std::max_align_t));
+            };
     }
 }
 
 HostBuffer::HostBuffer(
     std::span<std::byte> span,
     rmm::cuda_stream_view stream,
-    rmm::host_async_resource_ref mr,
-    std::unique_ptr<void, OwnedStorageDeleter> owned_storage
+    std::function<void(rmm::cuda_stream_view)> deallocate_fn
 )
-    : stream_{stream},
-      mr_{std::move(mr)},
-      span_{span},
-      owned_storage_{std::move(owned_storage)} {}
+    : stream_{stream}, span_{span}, deallocate_fn_{std::move(deallocate_fn)} {}
 
 void HostBuffer::deallocate_async() noexcept {
-    if (!span_.empty()) {
-        // If we have owned storage, release it; otherwise deallocate via mr_.
-        if (owned_storage_) {
-            owned_storage_.reset();
-        } else {
-            mr_.deallocate(
-                stream_, span_.data(), span_.size(), alignof(::cuda::std::max_align_t)
-            );
-        }
+    if (!span_.empty() && deallocate_fn_) {
+        deallocate_fn_(stream_);
+        deallocate_fn_ = nullptr;
     }
     span_ = {};
 }
 
 HostBuffer::HostBuffer(HostBuffer&& other) noexcept
     : stream_{other.stream_},
-      mr_{other.mr_},
       span_{std::exchange(other.span_, {})},
-      owned_storage_{std::move(other.owned_storage_)} {}
+      deallocate_fn_{std::exchange(other.deallocate_fn_, {})} {}
 
 HostBuffer& HostBuffer::operator=(HostBuffer&& other) {
     if (this != &other) {
@@ -64,9 +58,8 @@ HostBuffer& HostBuffer::operator=(HostBuffer&& other) {
             std::invalid_argument
         );
         stream_ = other.stream_;
-        mr_ = other.mr_;
         span_ = std::exchange(other.span_, {});
-        owned_storage_ = std::move(other.owned_storage_);
+        deallocate_fn_ = std::exchange(other.deallocate_fn_, {});
     }
     return *this;
 }
@@ -125,27 +118,24 @@ HostBuffer HostBuffer::from_uint8_vector(
 }
 
 HostBuffer HostBuffer::from_owned_vector(
-    std::vector<std::uint8_t>&& data,
-    rmm::cuda_stream_view stream,
-    rmm::host_async_resource_ref mr
+    std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
 ) {
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
     auto shared_vec = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
     auto* ptr = reinterpret_cast<std::byte*>(shared_vec->data());
-    auto size = shared_vec->size();
-    std::span<std::byte> span{ptr, size};
+    std::span<std::byte> span{ptr, shared_vec->size()};
 
-    std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
-        ptr, [shared_vec_ = std::move(shared_vec)](void*) mutable { shared_vec_.reset(); }
+    return HostBuffer{
+        span,
+        stream,
+        [shared_vec_ = std::move(shared_vec)](rmm::cuda_stream_view) mutable {
+            shared_vec_.reset();
+        }
     };
-
-    return HostBuffer{span, stream, std::move(mr), std::move(owned_storage)};
 }
 
 HostBuffer HostBuffer::from_rmm_device_buffer(
-    std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
-    rmm::cuda_stream_view stream,
-    PinnedMemoryResource& mr
+    std::unique_ptr<rmm::device_buffer> pinned_host_buffer, rmm::cuda_stream_view stream
 ) {
     RAPIDSMPF_EXPECTS(
         pinned_host_buffer != nullptr,
@@ -154,21 +144,24 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     );
 
     RAPIDSMPF_EXPECTS(
-        cuda::is_host_accessible(pinned_host_buffer->data()),
-        "pinned_host_buffer must be host accessible",
+        is_host_accessible(pinned_host_buffer->memory_resource()),
+        "pinned_host_buffer's memory resource must be host accessible",
         std::logic_error
     );
 
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
     auto shared_db = std::make_shared<rmm::device_buffer>(std::move(*pinned_host_buffer));
-    auto* ptr = static_cast<std::byte*>(shared_db->data());
-    std::span<std::byte> span{ptr, shared_db->size()};
-
-    std::unique_ptr<void, OwnedStorageDeleter> owned_storage{
-        ptr, [shared_db_ = std::move(shared_db)](void*) mutable { shared_db_.reset(); }
+    std::span<std::byte> span{
+        static_cast<std::byte*>(shared_db->data()), shared_db->size()
     };
 
-    return HostBuffer{std::move(span), stream, mr, std::move(owned_storage)};
+    return HostBuffer{
+        std::move(span),
+        stream,
+        [shared_db_ = std::move(shared_db)](rmm::cuda_stream_view) mutable {
+            shared_db_.reset();
+        }
+    };
 }
 
 }  // namespace rapidsmpf

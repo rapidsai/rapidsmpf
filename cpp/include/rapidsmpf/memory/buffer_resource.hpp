@@ -6,6 +6,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -22,6 +24,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -48,48 +51,67 @@ enum class AllowOverbooking : bool {
  * (e.g., host and device). All memory operations in rapidsmpf, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
  *
- * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers and memory reservations.
+ * @note `BufferResource` instances must be constructed through `create()` or
+ * `from_options()`, both of which return a `std::shared_ptr<BufferResource>`. Direct
+ * construction is disabled.
+ *
+ * @note Allocation tracking only applies to allocations routed through this
+ * `BufferResource`. The constructor wraps the supplied device memory resource
+ * in an internal adaptor that records all allocations and deallocations; that
+ * adaptor is exposed via `device_mr()`.
+ *
+ * Allocations made through the original, unwrapped memory resource bypass
+ * this tracking and are therefore invisible to memory-limit accounting and
+ * statistics.
+ *
+ * To ensure all CUDA allocations count against the `BufferResource` budget,
+ * use `br->device_mr()` everywhere instead of the underlying memory resource
+ * passed to the constructor.
+ *
+ * Tracking allocations made outside `BufferResource`, for example allocations
+ * performed before construction or through code paths that use a raw memory
+ * resource directly, is a separate design concern and is not handled by this
+ * class.
  */
-class BufferResource {
+class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
     /**
-     * @brief Callback function to determine available memory.
+     * @brief Construct a `BufferResource` managed by `std::shared_ptr`.
      *
-     * The function should return the current available memory of a specific type and
-     * must be thread-safe iff used by multiple `BufferResource` instances concurrently.
+     * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * @warning Calling any `BufferResource` instance methods in the function might result
-     * in a deadlock. This is because the buffer resource is locked when the function is
-     * called.
+     * Device and pinned-host allocations routed through this `BufferResource` are tracked
+     * automatically. Host memory allocations are not tracked and therefore always report
+     * the configured limit as available memory.
+     *
+     * If pinned-host memory is disabled, available pinned-host memory is always reported
+     * as zero regardless of the configured limit.
+     *
+     * @param device_mr Device memory resource used for device allocations. To ensure
+     * allocations are tracked for memory-limit accounting and statistics, use
+     * `BufferResource::device_mr()` instead of the original memory resource after
+     * construction.
+     * @param pinned_pool_properties Configuration for the pinned host memory pool
+     * used for `MemoryType::PINNED_HOST` allocations, or `PinnedMemoryDisabled` to
+     * disable pinned allocations. The pinned resource is constructed internally and
+     * owned by the `BufferResource`. When a value is provided, pinned host memory
+     * must be supported on the system (see `is_pinned_memory_resources_supported()`);
+     * otherwise a `std::runtime_error` is thrown.
+     * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
+     * entries are treated as unlimited.
+     * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
+     * disables the dedicated spill-check thread.
+     * @param stream_pool CUDA stream pool used for operations that do not take an
+     * explicit CUDA stream.
+     * @param statistics Statistics instance used for runtime metrics.
+     * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
+     * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
+     * host memory is not supported on this system.
      */
-    using MemoryAvailable = std::function<std::int64_t()>;
-
-    /**
-     * @brief Constructs a buffer resource.
-     *
-     * @param device_mr The RMM device memory resource used for device allocations.
-     * Ownership is transferred to the BufferResource.
-     * @param pinned_mr The pinned host memory resource used for `MemoryType::PINNED_HOST`
-     * allocations. If null, pinned host allocations are disabled. In that case, any
-     * attempt to allocate pinned memory will fail regardless of what @p memory_available
-     * reports.
-     * @param memory_available Optional functions that report available memory for each
-     * memory type. If a memory type is not present in this map, it is treated as having
-     * unlimited available memory. The only exception is `MemoryType::PINNED_HOST`, which
-     * is always assigned a zero-capacity function when `pinned_mr` is disabled.
-     * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
-     * continuously checks and perform spilling based on the memory availability
-     * functions. The value of `periodic_spill_check` is used as the pause between checks.
-     * If `std::nullopt`, no periodic spill check is performed.
-     * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
-     * that do not take an explicit CUDA stream.
-     * @param statistics The statistics instance to use (disabled by default).
-     */
-    BufferResource(
+    [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
-        std::optional<PinnedMemoryResource> pinned_mr = PinnedMemoryResource::Disabled,
-        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
+        std::optional<PinnedPoolProperties> pinned_pool_properties = PinnedMemoryDisabled,
+        std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
@@ -100,53 +122,164 @@ class BufferResource {
      * @brief Construct a BufferResource from configuration options.
      *
      * This factory method creates a BufferResource using configuration options to
-     * initialize all components.
+     * initialize all components. The supplied device memory resource is wrapped in
+     * an internal `RmmResourceAdaptor` for allocation tracking.
      *
-     * @param mr The RMM resource adaptor.
+     * @param mr A device-accessible RMM memory resource.
      * @param options Configuration options.
-     *
+     * @param statistics The statistics instance to use (disabled by default).
      * @return A shared pointer to a BufferResource instance configured according to the
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        RmmResourceAdaptor mr, config::Options options
+        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+        config::Options options,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     ~BufferResource() noexcept = default;
 
     /**
-     * @brief Get the RMM device memory resource.
-     *
-     * @return Reference to the RMM resource used for device allocations.
+     * @brief `BufferResource` is non-copyable, it is owned by `std::shared_ptr`.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept;
+    BufferResource(BufferResource const&) = delete;
+    /**
+     * @brief `BufferResource` is non-movable, it is owned by `std::shared_ptr`.
+     */
+    BufferResource(BufferResource&&) = delete;
+    /**
+     * @brief `BufferResource` is non-copyable.
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource const&) = delete;
+    /**
+     * @brief `BufferResource` is non-movable.
+     * @return Reference to this.
+     */
+    BufferResource& operator=(BufferResource&&) = delete;
+
+    /**
+     * @brief Get the device memory resource.
+     *
+     * @return `rmm::device_async_resource_ref` to the device memory resource.
+     *
+     * @par CCCL's lifetime semantic
+     *
+     * The returned `rmm::device_async_resource_ref` is a non-owning
+     * `cuda::mr::resource_ref`, so callers must take care to avoid use-after-free issues.
+     *
+     * When working directly with the returned reference, the caller must ensure that this
+     * `BufferResource` remains alive for the full duration of that use:
+     * @code
+     * auto br = BufferResource::create(...);
+     * auto mr = br->device_mr();
+     * mr.allocate_async(...);  // direct use through a non-owning ref
+     * br.reset();              // do not destroy `br` while `mr` is in use
+     * @endcode
+     *
+     * To store the resource beyond the immediate call, promote the ref to an
+     * owning `cuda::mr::any_resource`:
+     * @code
+     * auto br = BufferResource::create(...);
+     * cuda::mr::any_resource<cuda::mr::device_accessible> mr = br->device_mr();
+     * br.reset();       // safe: `mr` keeps the BufferResource alive
+     * mr.allocate(...); // safe
+     * @endcode
+     *
+     * In the common case, no explicit promotion is needed because RMM containers that
+     * store a memory resource do this internally:
+     * @code
+     * auto br = BufferResource::create(...);
+     * rmm::device_buffer buf{1024, stream, br->device_mr()};
+     * br.reset();  // safe: `buf` keeps the BufferResource alive internally
+     * @endcode
+     *
+     * @note Device memory resource provided to the constructor is wrapped in an
+     * `RmmResourceAdaptor` for allocation tracking, and concretely the returned
+     * resource_ref points to that adaptor. See `device_mr_adaptor()` for a more
+     * convenient way to access the adaptor.
+     */
+    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
+
+    /**
+     * @brief Access the concrete device memory resource adaptor.
+     *
+     * `BufferResource` wraps the device memory resource in an internal
+     * `RmmResourceAdaptor` for allocation tracking. This exposes that adaptor
+     * directly, e.g. to query allocation statistics via `get_main_record()` or
+     * `current_allocated()`.
+     *
+     * @return Reference to the internal device `RmmResourceAdaptor`. The
+     * reference is valid for as long as this `BufferResource` is alive.
+     *
+     * @note To ensure that the allocations are properly tracked, use `device_mr()` or
+     * `device_mr_adaptor()` instead of the original memory resource passed to the
+     * constructor.
+     */
+    [[nodiscard]] RmmResourceAdaptor& device_mr_adaptor() noexcept;
 
     /**
      * @brief Get the RMM host memory resource.
      *
      * @return Reference to the RMM resource used for host allocations.
+     *
+     * @note Lifetime semantics are identical to `device_mr()`. See its
+     * `@par CCCL lifetime semantics` section for details. In brief, the returned
+     * `resource_ref` is non-owning. Promote it to a `any_host_resource` to extend the
+     * `BufferResource` lifetime.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
      *
+     * @throws std::invalid_argument if no pinned memory resource is available.
      * @return Reference to the RMM resource used for pinned host allocations.
+     *
+     * @note Lifetime semantics are identical to `device_mr()`. See its
+     * `@par CCCL lifetime semantics` section for details. In brief, the returned
+     * `resource_ref` is non-owning. Promote it to a `any_host_device_resource` to extend
+     * the `BufferResource` lifetime.
      */
-    [[nodiscard]] rmm::host_async_resource_ref pinned_mr();
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
 
     /**
-     * @brief Retrieves the memory availability function for a given memory type.
+     * @brief Get the pinned host memory resource if available.
      *
-     * This function returns the callback function used to determine the available memory
-     * for the specified memory type.
-     *
-     * @param mem_type The type of memory whose availability function is requested.
-     * @return Reference to the memory availability function associated with `mem_type`.
+     * @return The `PinnedMemoryResource` is available, or `std::nullopt` if pinned host
+     * memory is not available. The returned handle keeps this `BufferResource` alive as
+     * long as the handle (or any copy) exists.
      */
-    [[nodiscard]] MemoryAvailable const& memory_available(MemoryType mem_type) const {
-        return memory_available_.at(mem_type);
-    }
+    [[nodiscard]] std::optional<PinnedMemoryResource> try_pinned_mr() const;
+
+    /**
+     * @brief Returns the currently available memory for a given memory type, in bytes.
+     *
+     * Computed as `limit - allocated`, where `allocated` is reported by the
+     * memory type's allocation counter (see the constructor documentation for
+     * how each memory type is tracked). The value may be negative when
+     * allocations exceed the configured limit.
+     *
+     * @param mem_type The memory type to query.
+     * @return The available memory in bytes.
+     */
+    [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept;
+
+    /**
+     * @brief Updates the memory limit for a given memory type at runtime.
+     *
+     * The store is atomic, but readers (e.g. `memory_available()` and `reserve()`)
+     * observe the limit and the allocation count independently. A concurrent
+     * `set_memory_limit()` call can change the limit between a caller's read of
+     * `memory_available()` and a subsequent allocation decision; callers that need
+     * a coherent view must serialize updates with higher-level synchronization.
+     *
+     * @param mem_type The memory type whose limit is being updated.
+     * @param limit The new byte limit. Negative values are permitted; they make
+     * `memory_available(mem_type)` always negative and so trigger continuous
+     * spilling.
+     */
+    void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
      * @brief Get the current reserved memory of the specified memory type.
@@ -223,9 +356,7 @@ class BufferResource {
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST
-                && pinned_mr_ == PinnedMemoryResource::Disabled)
-            {
+            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
                 // Pinned host memory is only available if the memory resource is
                 // available.
                 continue;
@@ -278,7 +409,7 @@ class BufferResource {
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
     );
 
@@ -292,21 +423,25 @@ class BufferResource {
      * @param reservation The memory reservation to consume for the allocation.
      * @return A unique pointer to the allocated Buffer.
      */
-    std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> make_buffer(
         rmm::cuda_stream_view stream, MemoryReservation&& reservation
     );
 
     /**
-     * @brief Move device buffer data into a Buffer.
+     * @brief Move device or pinned host buffer data into a Buffer.
      *
-     * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * device memory.
+     * This operation is cheap; no copy is performed.
+     *
+     * The resulting Buffer's memory type is inferred from @p data's memory
+     * resource: if the resource is host-accessible (e.g. pinned host memory),
+     * the Buffer is created with `MemoryType::PINNED_HOST`; otherwise it is
+     * created with `MemoryType::DEVICE`.
      *
      * If @p stream differs from the device buffer's current stream:
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
      *
-     * @param data Unique pointer to the device buffer.
+     * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
      * @return Unique pointer to the resulting Buffer.
@@ -373,9 +508,9 @@ class BufferResource {
      *
      * Use this pool for operations that do not take an explicit CUDA stream.
      *
-     * @return Reference to the underlying CUDA stream pool.
+     * @return Shared pointer to the underlying CUDA stream pool.
      */
-    rmm::cuda_stream_pool const& stream_pool() const;
+    std::shared_ptr<rmm::cuda_stream_pool> const& stream_pool() const;
 
     /**
      * @brief Gets a reference to the spill manager used.
@@ -390,14 +525,24 @@ class BufferResource {
      *
      * @return Shared pointer the Statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    std::shared_ptr<Statistics> statistics() const noexcept;
 
   private:
+    /** @brief Private constructor, use `create()` or `from_options()`. */
+    BufferResource(
+        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+        std::optional<PinnedMemoryResource> pinned_mr,
+        std::unordered_map<MemoryType, std::int64_t> memory_limits,
+        std::optional<Duration> periodic_spill_check,
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+        std::shared_ptr<Statistics> statistics
+    );
+
     std::mutex mutex_;
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr_;
+    RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
-    std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
+    std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
@@ -405,63 +550,20 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics_;
 };
 
-/**
- * @brief A functor for querying the remaining available memory within a defined limit
- * from an RMM statistics resource.
- *
- * This class is designed to be used as a callback to provide available memory
- * information in the context of memory management, such as when working with
- * `BufferResource`. The available memory is determined as the difference
- * between a user-defined limit and the memory currently used, as reported
- * by an RMM statistics resource adaptor.
- *
- * By enforcing a limit, this functor can be used to simulate constrained memory
- * environments or to prevent memory allocation beyond a specific threshold.
- *
- * @see rapidsmpf::BufferResource::MemoryAvailable
- */
-class LimitAvailableMemory {
-  public:
-    /**
-     * @brief Constructs a `LimitAvailableMemory` instance.
-     *
-     * @param mr The RMM resource adaptor.
-     * @param limit The maximum memory available (in bytes). Used to calculate the
-     * remaining memory.
-     */
-    LimitAvailableMemory(RmmResourceAdaptor mr, std::int64_t limit)
-        : limit{limit}, mr_{std::move(mr)} {}
-
-    /**
-     * @brief Returns the remaining available memory within the defined limit.
-     *
-     * This operator queries the `RmmResourceAdaptor` to determine the memory
-     * currently used and calculates the remaining memory as:
-     * `limit - used_memory`.
-     *
-     * @return The remaining memory in bytes.
-     */
-    std::int64_t operator()() const {
-        return limit - mr_.current_allocated();
-    }
-
-  public:
-    std::int64_t const limit;  ///< The memory limit.
-
-  private:
-    RmmResourceAdaptor const mr_;
-};
+static_assert(StatisticsProvider<BufferResource>);
 
 /**
- * @brief Construct a map of memory-available functions from configuration options.
+ * @brief Parse the `spill_device_limit` parameter from configuration options.
  *
- * @param mr The RMM resource adaptor.
+ * Reads the `spill_device_limit` option, falling back to 80% of total device
+ * memory when unset. The result is aligned down to
+ * `rmm::CUDA_ALLOCATION_ALIGNMENT`.
+ *
  * @param options Configuration options.
  *
- * @return The map of memory-available functions.
+ * @return The device memory limit in bytes.
  */
-std::unordered_map<MemoryType, BufferResource::MemoryAvailable>
-memory_available_from_options(RmmResourceAdaptor mr, config::Options options);
+std::int64_t device_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

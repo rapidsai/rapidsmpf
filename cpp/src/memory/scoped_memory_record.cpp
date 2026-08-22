@@ -4,113 +4,66 @@
  */
 
 #include <algorithm>
-#include <numeric>
 
-#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
 
-namespace {
-/**
- * @brief Retrieves a value from a statistics array or accumulates the total.
- *
- * @param arr        The array containing statistics for each allocator type.
- * @param alloc_type The type of allocator to retrieve data for. If `AllocType::ALL`,
- *                   the function returns the sum across all entries in the array.
- * @return The requested statistic value or the accumulated total.
- */
-std::int64_t get_or_accumulate(
-    ScopedMemoryRecord::AllocTypeArray const& arr,
-    ScopedMemoryRecord::AllocType alloc_type
-) noexcept {
-    if (alloc_type == ScopedMemoryRecord::AllocType::ALL) {
-        return std::accumulate(arr.begin(), arr.end(), std::int64_t{0});
-    }
-    return arr[static_cast<std::size_t>(alloc_type)];
-}
-}  // namespace
-
-std::int64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
-    return get_or_accumulate(num_total_allocs_, alloc_type);
+std::int64_t ScopedMemoryRecord::num_total_allocs() const noexcept {
+    return num_total_allocs_;
 }
 
-std::int64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type) const noexcept {
-    return get_or_accumulate(num_current_allocs_, alloc_type);
+std::int64_t ScopedMemoryRecord::num_current_allocs() const noexcept {
+    return num_current_allocs_;
 }
 
-std::int64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
-    return get_or_accumulate(current_, alloc_type);
+std::int64_t ScopedMemoryRecord::current() const noexcept {
+    return current_;
 }
 
-std::int64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
-    return get_or_accumulate(total_, alloc_type);
+std::int64_t ScopedMemoryRecord::total() const noexcept {
+    return total_;
 }
 
-std::int64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return highest_peak_;
-    }
-    return peak_[static_cast<std::size_t>(alloc_type)];
+std::int64_t ScopedMemoryRecord::peak() const noexcept {
+    return peak_;
 }
 
-std::int64_t ScopedMemoryRecord::max(AllocType alloc_type) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return std::ranges::max(max_);
-    }
-    return max_[static_cast<std::size_t>(alloc_type)];
+std::int64_t ScopedMemoryRecord::max() const noexcept {
+    return max_;
 }
 
-void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nbytes) {
-    RAPIDSMPF_EXPECTS(
-        alloc_type != AllocType::ALL,
-        "AllocType::ALL may not be used to record allocation"
-    );
-    auto at = static_cast<std::size_t>(alloc_type);
-    ++num_total_allocs_[at];
-    ++num_current_allocs_[at];
-    current_[at] += nbytes;
-    total_[at] += nbytes;
-    peak_[at] = std::max(peak_[at], current_[at]);
-    max_[at] = std::max(max_[at], nbytes);
-    highest_peak_ = std::max(highest_peak_, current());
+void ScopedMemoryRecord::record_allocation(std::int64_t nbytes) {
+    ++num_total_allocs_;
+    ++num_current_allocs_;
+    current_ += nbytes;
+    total_ += nbytes;
+    peak_ = std::max(peak_, current_);
+    max_ = std::max(max_, nbytes);
 }
 
-void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t nbytes) {
-    RAPIDSMPF_EXPECTS(
-        alloc_type != AllocType::ALL,
-        "AllocType::ALL may not be used to record deallocation"
-    );
-    auto at = static_cast<std::size_t>(alloc_type);
-    current_[at] -= nbytes;
-    --num_current_allocs_[at];
+void ScopedMemoryRecord::record_deallocation(std::int64_t nbytes) {
+    current_ -= nbytes;
+    --num_current_allocs_;
 }
 
 ScopedMemoryRecord& ScopedMemoryRecord::add_subscope(ScopedMemoryRecord const& subscope) {
-    highest_peak_ = std::max(highest_peak_, current() + subscope.highest_peak_);
-    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
-        auto i = static_cast<std::size_t>(type);
-        peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
-        max_[i] = std::max(max_[i], subscope.max_[i]);
-        num_total_allocs_[i] += subscope.num_total_allocs_[i];
-        num_current_allocs_[i] += subscope.num_current_allocs_[i];
-        current_[i] += subscope.current_[i];
-        total_[i] += subscope.total_[i];
-    }
+    peak_ = std::max(peak_, current_ + subscope.peak_);
+    max_ = std::max(max_, subscope.max_);
+    num_total_allocs_ += subscope.num_total_allocs_;
+    num_current_allocs_ += subscope.num_current_allocs_;
+    current_ += subscope.current_;
+    total_ += subscope.total_;
     return *this;
 }
 
 ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scope) {
-    highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
-    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
-        auto i = static_cast<std::size_t>(type);
-        peak_[i] = std::max(peak_[i], scope.peak_[i]);
-        max_[i] = std::max(max_[i], scope.max_[i]);
-        current_[i] += scope.current_[i];
-        total_[i] += scope.total_[i];
-        num_total_allocs_[i] += scope.num_total_allocs_[i];
-        num_current_allocs_[i] += scope.num_current_allocs_[i];
-    }
+    peak_ = std::max(peak_, scope.peak_);
+    max_ = std::max(max_, scope.max_);
+    current_ += scope.current_;
+    total_ += scope.total_;
+    num_total_allocs_ += scope.num_total_allocs_;
+    num_current_allocs_ += scope.num_current_allocs_;
     return *this;
 }
 

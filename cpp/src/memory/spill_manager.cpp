@@ -80,7 +80,7 @@ std::size_t SpillManager::spill(std::size_t amount) {
 
 std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     // TODO: check other memory types.
-    std::int64_t available = br_->memory_available(MemoryType::DEVICE)();
+    std::int64_t available = br_->memory_available(MemoryType::DEVICE);
     if (headroom <= available) {
         return 0;
     }

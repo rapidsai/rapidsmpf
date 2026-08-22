@@ -33,8 +33,8 @@ target_compile_definitions(
 target_link_libraries(
   rrun
   PRIVATE Threads::Threads
-          cuCascade::cucascade
-          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+          CUDA::cudart_static
+          cuCascade::cucascade_topology_discovery
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
@@ -62,8 +62,8 @@ target_compile_options(
 )
 target_link_libraries(
   topology_discovery
-  PRIVATE cuCascade::cucascade
-          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+  PRIVATE CUDA::cudart_static
+          cuCascade::cucascade_topology_discovery
           $<TARGET_NAME_IF_EXISTS:conda_env>
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           maybe_asan
@@ -96,8 +96,8 @@ target_compile_definitions(
 )
 target_link_libraries(
   check_resource_binding
-  PRIVATE cuCascade::cucascade
-          $<$<TARGET_EXISTS:kvikio::kvikio>:kvikio::kvikio>
+  PRIVATE CUDA::cudart_static
+          cuCascade::cucascade_topology_discovery
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>

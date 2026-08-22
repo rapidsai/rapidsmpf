@@ -46,11 +46,11 @@ PackedData make_payload(
     MemoryType mem_type,
     std::shared_ptr<BufferResource> const& br
 ) {
-    auto stream = br->stream_pool().get_stream();
+    auto stream = br->stream_pool()->get_stream();
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
-    auto data = br->allocate(stream, br->reserve_or_fail(sizeof(int), mem_type));
+    auto data = br->make_buffer(stream, br->reserve_or_fail(sizeof(int), mem_type));
     data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(
@@ -58,6 +58,9 @@ PackedData make_payload(
             )
         );
     });
+    // Wait for the copy to complete before the local `data` source goes out of
+    // scope.
+    data->latest_write_event().host_wait();
     return {std::move(metadata), std::move(data)};
 }
 

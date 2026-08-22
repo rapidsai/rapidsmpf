@@ -1,5 +1,5 @@
 # noqa: D100
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 from __future__ import annotations
@@ -43,14 +43,12 @@ def load_library() -> list:
     try:
         # these libraries must be loaded before librapidsmpf because
         # librapidsmpf references their symbols
-        import libcudf
         import librmm
         import libucxx
         import rapids_logger
 
         librmm.load_library()
         rapids_logger.load_library()
-        libcudf.load_library()
         libucxx.load_library()
     except ModuleNotFoundError:
         # 'librapidsmpf' has a runtime dependency on 'librmm' et al.. However,

@@ -157,10 +157,12 @@ std::vector<PackedData> SparseAlltoall::extract(Rank src) {
 void SparseAlltoall::send_ready_messages() {
     Tag const metadata_tag{op_id_, 0};
     Tag const payload_tag{op_id_, 1};
+    auto const& statistics = comm_->progress_thread()->statistics();
     for (auto& chunk : outgoing_.extract_ready()) {
         auto const dst = chunk->destination();
         fire_and_forget_.push_back(comm_->send(chunk->serialize(), dst, metadata_tag));
         if (chunk->data_size() > 0) {
+            statistics->add_bytes_stat("sparsealltoall-payload-send", chunk->data_size());
             fire_and_forget_.push_back(
                 comm_->send(chunk->release_data_buffer(), dst, payload_tag)
             );
@@ -197,6 +199,7 @@ void SparseAlltoall::receive_metadata_messages() {
 
 void SparseAlltoall::receive_data_messages() {
     Tag const payload_tag{op_id_, 1};
+    auto const& statistics = comm_->progress_thread()->statistics();
     for (auto& [src, state] : source_states_) {
         std::ptrdiff_t processed = 0;
         auto& queue = state.incoming;
@@ -208,6 +211,9 @@ void SparseAlltoall::receive_data_messages() {
             if (chunk->data_size() == 0) {
                 state.chunks.push_back(std::move(chunk));
             } else {
+                statistics->add_bytes_stat(
+                    "sparsealltoall-payload-recv", chunk->data_size()
+                );
                 auto buffer = chunk->release_data_buffer();
                 receive_posted_.push_back(std::move(chunk));
                 receive_futures_.push_back(

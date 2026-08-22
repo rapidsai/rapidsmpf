@@ -10,6 +10,8 @@
 
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
@@ -29,7 +31,6 @@
 #endif
 
 #include "utils/misc.hpp"
-#include "utils/random_data.hpp"
 #include "utils/rmm_utils.hpp"
 
 
@@ -219,10 +220,14 @@ Duration run(
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] =
                 br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
-            auto buf = br->allocate(args.msg_size, stream, res);
-            random_fill(*buf, br->device_mr());
+            auto buf = br->make_buffer(args.msg_size, stream, res);
+            buf->write_access(
+                [size = args.msg_size](std::byte* ptr, rmm::cuda_stream_view s) {
+                    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x42, size, s.value()));
+                }
+            );
             send_bufs.push_back(std::move(buf));
-            recv_bufs.push_back(br->allocate(args.msg_size, stream, res));
+            recv_bufs.push_back(br->make_buffer(args.msg_size, stream, res));
         }
     }
 
@@ -286,6 +291,7 @@ int main(int argc, char** argv) {
     // We'll only measure the last run, so start disabled.
     auto stats = rapidsmpf::Statistics::disabled();
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(stats);
+    auto logger = rapidsmpf::Logger::from_options(options);
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         if (use_bootstrap) {
@@ -294,17 +300,18 @@ int main(int argc, char** argv) {
             return 1;
         }
         mpi::init(&argc, &argv);
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options, progress_thread);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, progress_thread, logger);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
             // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
-                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options
+                progress_thread, rapidsmpf::bootstrap::BackendType::AUTO, options, logger
             );
         } else {
             // Launched with mpirun - use MPI bootstrap
-            comm =
-                rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options, progress_thread);
+            comm = rapidsmpf::ucxx::init_using_mpi(
+                MPI_COMM_WORLD, options, progress_thread, logger
+            );
         }
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
@@ -312,21 +319,21 @@ int main(int argc, char** argv) {
     }
 
     auto& log = comm->logger();
-    rmm::cuda_stream_view stream = cudf::get_default_stream();
+    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref();
+    auto br = BufferResource::create(
         mr,
-        PinnedMemoryResource::Disabled,
+        PinnedMemoryDisabled,
         {},
         std::chrono::milliseconds{1},
         std::make_shared<rmm::cuda_stream_pool>(
             16, rmm::cuda_stream::flags::non_blocking
         ),
         stats
-    };
+    );
 
     // Print benchmark/hardware info.
     {
@@ -367,7 +374,7 @@ int main(int argc, char** argv) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats->enable();
         }
-        auto const elapsed = run(comm, args, stream, &br, stats).count();
+        auto const elapsed = run(comm, args, stream, br.get(), stats).count();
         std::stringstream ss;
         ss << "elapsed: " << format_duration(elapsed)
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
@@ -400,7 +407,7 @@ int main(int argc, char** argv) {
            << "/s | num_ops: " << args.num_ops << " | nranks: " << comm->nranks();
         log->print(ss.str());
     }
-    log->print(stats->report("Statistics (of the last run):"));
+    log->print(stats->report({.header = "Statistics (of the last run):"}));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file

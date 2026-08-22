@@ -19,9 +19,6 @@ options = Options()
 options.insert_if_absent(get_environment_variables())
 ```
 
-However, Dask automatically reads environment variables for any options not set
-explicitly when calling {func}`rapidsmpf.integrations.dask.bootstrap_dask_cluster`.
-
 It is always explicit in C++, use something like:
 
 ```c++
@@ -105,17 +102,19 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
 
 - **`pinned_initial_pool_size`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_INITIAL_POOL_SIZE`
-  - **Default**: `0`
-  - **Description**: Initial size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. A value of `0` means the pool starts empty and grows
-    on demand. Accepts byte counts (e.g. `"1GiB"`, `"512MiB"`).
+  - **Default**: 10% of per-GPU host memory
+  - **Description**: Initial size of the pinned host memory pool when `pinned_memory` is
+    enabled. When unset or empty, the pool is pre-allocated to 10% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
+    Accepts byte counts or percentage (e.g. `"1GiB"`, `"512MiB"`).
 
 - **`pinned_max_pool_size`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MAX_POOL_SIZE`
-  - **Default**: `"disabled"`
-  - **Description**: Maximum size (in bytes) of the pinned host memory pool when
-    `pinned_memory` is enabled. When unset or empty, the pool is allowed to grow
-    without an upper bound. Accepts byte counts (e.g. `"4GiB"`, `"2048MiB"`).
+  - **Default**: 80% of per-GPU host memory
+  - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
+    enabled. When unset or empty, the pool is capped at 80% of total host memory
+    available in the current NUMA node divided by the number of GPUs in that NUMA node.
+    Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
@@ -159,52 +158,3 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     **Warning:** This feature assumes that each file slice is always read with
     identical read parameters, such as filters and schemas. No validation is
     performed. If these parameters differ, incorrect data may be returned.
-
-### Dask Integration
-
-- **`dask_spill_device`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_DEVICE`
-  - **Default**: `0.50`
-  - **Description**: GPU memory limit for shuffling as a fraction of total device memory.
-
-- **`dask_spill_to_pinned_memory`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_SPILL_TO_PINNED_MEMORY`
-  - **Default**: `False`
-  - **Description**: Control whether RapidsMPF spills to pinned host memory when
-    available, or falls back to regular pageable host memory. Pinned host memory
-    provides higher bandwidth and lower latency for device-to-host transfers
-    compared to pageable host memory.
-
-- **`dask_oom_protection`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_OOM_PROTECTION`
-  - **Default**: `False`
-  - **Description**: Enable out-of-memory protection by using managed memory when
-    the device memory pool raises OOM errors.
-
-- **`dask_periodic_spill_check`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_PERIODIC_SPILL_CHECK`
-  - **Default**: `1e-3`
-  - **Description**: Enable periodic spill checks. A dedicated thread continuously
-    checks and performs spilling based on the current available memory as reported
-    by the buffer resource. The value of `dask_periodic_spill_check` is used as the
-    pause between checks (in seconds). Use `"disabled"` to disable periodic spill
-    checks.
-
-- **`dask_statistics`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
-  - **Default**: `False`
-  - **Description**: Enable RapidsMPF statistics collection.
-
-- **`dask_print_statistics`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
-  - **Default**: `True`
-  - **Description**: Print RapidsMPF statistics to stdout on Dask Worker shutdown
-    when `dask_statistics` is enabled.
-
-- **`dask_staging_spill_buffer`**
-  - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`
-  - **Default**: `128 MiB`
-  - **Description**: Size of the intermediate staging buffer (in bytes) used for
-    device-to-host spilling. This temporary buffer is allocated on the device to
-    reduce memory pressure when transferring Python-managed GPU objects during
-    Dask spilling. Use `disabled` to skip allocation of the staging buffer.

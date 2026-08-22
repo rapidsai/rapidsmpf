@@ -13,7 +13,6 @@ from rapidsmpf.streaming.core.message import Message
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from concurrent.futures import ThreadPoolExecutor
 
     from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
@@ -90,9 +89,7 @@ async def consume_metadata_then_data(
         data_out.append(ArbitraryChunk.from_message(msg).release())
 
 
-def test_data_roundtrip_without_metadata(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_data_roundtrip_without_metadata(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     outputs: list[int] = []
     actors: list[Awaitable[None]] = [
@@ -107,14 +104,12 @@ def test_data_roundtrip_without_metadata(
             outputs.append(ArbitraryChunk.from_message(msg).release())
 
     actors.append(consume_only_data(context, ch))
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
 
     assert outputs == [0, 1, 2]
 
 
-def test_metadata_then_data_roundtrip(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_metadata_then_data_roundtrip(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
@@ -123,15 +118,13 @@ def test_metadata_then_data_roundtrip(
         send_metadata_then_data(context, ch, [10, 20], 0, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
 
     assert metadata_out == [10, 20]
     assert data_out == [0, 1]
 
 
-def test_data_only_with_metadata_shutdown(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_data_only_with_metadata_shutdown(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
@@ -139,15 +132,13 @@ def test_data_only_with_metadata_shutdown(
         send_data_only_with_metadata_shutdown(context, ch, 5, 2),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
 
     assert metadata_out == []
     assert data_out == [5, 6]
 
 
-def test_metadata_only_with_data_shutdown(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_metadata_only_with_data_shutdown(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
@@ -155,15 +146,13 @@ def test_metadata_only_with_data_shutdown(
         send_metadata_only(context, ch, [30, 31]),
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
-    run_actor_network(actors=actors, py_executor=py_executor)
+    run_actor_network(context, actors=actors)
 
     assert metadata_out == [30, 31]
     assert data_out == []
 
 
-def test_producer_raises_after_metadata(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_producer_raises_after_metadata(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
     metadata_out: list[int] = []
     data_out: list[int] = []
@@ -180,12 +169,10 @@ def test_producer_raises_after_metadata(
         consume_metadata_then_data(context, ch, metadata_out, data_out),
     ]
     with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="producer failed")):
-        run_actor_network(actors=actors, py_executor=py_executor)
+        run_actor_network(context, actors=actors)
 
 
-def test_consumer_raises_with_metadata(
-    context: Context, py_executor: ThreadPoolExecutor
-) -> None:
+def test_consumer_raises_with_metadata(context: Context) -> None:
     ch: Channel[ArbitraryChunk[int]] = context.create_channel()
 
     @define_actor()
@@ -199,4 +186,4 @@ def test_consumer_raises_with_metadata(
         throwing_consumer(context, ch),
     ]
     with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="consumer failed")):
-        run_actor_network(actors=actors, py_executor=py_executor)
+        run_actor_network(context, actors=actors)

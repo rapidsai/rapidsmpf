@@ -12,22 +12,15 @@ The C++ API reference is available at
 The C++ API provides access to all core RapidsMPF subsystems:
 
 - **Communicator** — MPI and UCXX backends for inter-process communication.
-- **Shuffler** — Out-of-core, distributed table shuffle service.
+- **Shuffler** — Out-of-core, distributed payload shuffle service.
 - **Streaming Engine** — Asynchronous multi-GPU pipeline with Channels, Actors, and Messages.
 - **Memory** — BufferResource, spilling, pinned memory, and packed data utilities.
 - **Config** — Configuration options and environment-variable parsing.
 
-## Table Shuffle Service
+## Shuffle Service
 
 See {doc}`../background/shuffle-architecture` for an in-depth explanation of the
 shuffle design.
-
-The following is a complete MPI program that uses the RapidsMPF shuffler:
-
-```{literalinclude} ../../../cpp/examples/example_shuffle.cpp
-:language: cpp
-:lines: 7-
-```
 
 ## rrun — Distributed Launcher
 

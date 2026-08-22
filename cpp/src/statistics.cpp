@@ -12,6 +12,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
@@ -87,6 +88,14 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
         },
     }};
 
+template <typename T, typename... Properties>
+T* get_optional_resource_as(std::optional<cuda::mr::any_resource<Properties...>>& mr) {
+    if (mr.has_value()) {
+        return cuda::mr::resource_cast<T>(&(*mr));
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 // -- Stat --------------------------------------------------------------------
@@ -154,29 +163,15 @@ Statistics::~Statistics() noexcept {
     StreamOrderedTiming::cancel_inflight_timings(this);
 }
 
-// Leaving `mr_` as std::nullopt disables memory profiling.
 Statistics::Statistics(bool enabled) : enabled_{enabled} {}
 
-Statistics::Statistics(
-    RmmResourceAdaptor mr, std::optional<PinnedMemoryResource> pinned_mr
-)
-    : enabled_{true}, mr_{std::move(mr)}, pinned_mr_{std::move(pinned_mr)} {}
-
-std::shared_ptr<Statistics> Statistics::from_options(
-    RmmResourceAdaptor mr,
-    config::Options options,
-    std::optional<PinnedMemoryResource> pinned_mr
-) {
-    bool const statistics = options.get<bool>("statistics", [](auto const& s) {
-        return parse_string<bool>(s.empty() ? "False" : s);
-    });
-    return statistics ? std::make_shared<Statistics>(std::move(mr), std::move(pinned_mr))
-                      : Statistics::disabled();
+std::shared_ptr<Statistics> Statistics::create(Mode mode) {
+    return std::shared_ptr<Statistics>(new Statistics(mode == Mode::Enabled));
 }
 
-std::shared_ptr<Statistics> Statistics::disabled() {
-    static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
-    return ret;
+std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
+    bool const enabled = options.get<bool>("statistics", parse_string<bool>);
+    return create(enabled ? Mode::Enabled : Mode::Disabled);
 }
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
@@ -251,24 +246,24 @@ void Statistics::clear() {
     stats_.clear();
 }
 
-bool Statistics::is_memory_profiling_enabled() const {
-    return mr_.has_value();
-}
-
 Statistics::MemoryRecorder::MemoryRecorder(
-    Statistics* stats, RmmResourceAdaptor mr, std::string name
+    std::shared_ptr<Statistics> stats, RmmResourceAdaptor mr, std::string name
 )
-    : stats_{stats}, mr_{std::move(mr)}, name_{std::move(name)} {
+    : mr_{std::move(mr)}, stats_{std::move(stats)}, name_{std::move(name)} {
     RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
     mr_->begin_scoped_memory_record();
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
-    if (stats_ == nullptr) {
+    if (!mr_.has_value()) {
+        return;  // no-op recorder; nothing was pushed.
+    }
+    // Always pop to keep the RMM adaptor's per-thread stack balanced, even if
+    // statistics were disabled after construction (in which case skip publish).
+    auto const scope = mr_->end_scoped_memory_record();
+    if (!stats_->enabled()) {
         return;
     }
-    auto const scope = mr_->end_scoped_memory_record();
-
     std::lock_guard<std::mutex> lock(stats_->mutex_);
     auto& record = stats_->memory_records_[name_];
     ++record.num_calls;
@@ -276,11 +271,14 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
     record.global_peak = std::max(record.global_peak, scope.peak());
 }
 
-Statistics::MemoryRecorder Statistics::create_memory_recorder(std::string name) {
-    if (!mr_.has_value()) {
+Statistics::MemoryRecorder Statistics::create_memory_recorder(
+    any_device_resource mr, std::string name
+) {
+    auto* rma = cuda::mr::resource_cast<RmmResourceAdaptor>(&mr);
+    if (!enabled() || !rma) {
         return MemoryRecorder{};
     }
-    return MemoryRecorder{this, *mr_, std::move(name)};
+    return MemoryRecorder{shared_from_this(), *rma, std::move(name)};
 }
 
 std::unordered_map<std::string, Statistics::MemoryRecord> const&
@@ -288,9 +286,9 @@ Statistics::get_memory_records() const {
     return memory_records_;
 }
 
-std::string Statistics::report(std::string const& header) const {
+std::string Statistics::report(ReportArgs report_args) const {
     std::stringstream ss;
-    ss << header;
+    ss << report_args.header;
 
     if (!enabled()) {
         ss << " disabled.";
@@ -360,7 +358,10 @@ std::string Statistics::report(std::string const& header) const {
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    if (!mr_.has_value()) {
+    auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
+    auto* pinned_adaptor =
+        get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
+    if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();
     }
@@ -370,8 +371,8 @@ std::string Statistics::report(std::string const& header) const {
         memory_records_.begin(), memory_records_.end()
     };
 
-    // Insert the "main" record, which is the overall statistics from `mr_`.
-    auto const main_record = mr_->get_main_record();
+    // Insert the "main" record, which is the overall statistics from `mr`.
+    auto const main_record = dev_adaptor->get_main_record();
     sorted_records.emplace_back(
         "main (all allocations using RmmResourceAdaptor)",
         MemoryRecord{
@@ -379,8 +380,8 @@ std::string Statistics::report(std::string const& header) const {
         }
     );
 
-    if (pinned_mr_ != PinnedMemoryResource::Disabled) {
-        auto const pinned_record = pinned_mr_->get_main_memory_record();
+    if (pinned_adaptor) {
+        auto const pinned_record = pinned_adaptor->get_main_memory_record();
         sorted_records.emplace_back(
             "main (all allocations using PinnedMemoryResource)",
             MemoryRecord{
@@ -484,7 +485,7 @@ void Statistics::write_json(std::filesystem::path const& filepath) const {
 
 std::shared_ptr<Statistics> Statistics::copy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto ret = std::make_shared<Statistics>(enabled_.load(std::memory_order_acquire));
+    auto ret = Statistics::create(enabled() ? Mode::Enabled : Mode::Disabled);
     ret->stats_ = stats_;
     ret->report_entries_ = report_entries_;
     return ret;
@@ -578,7 +579,7 @@ std::shared_ptr<Statistics> Statistics::deserialize(std::span<std::uint8_t const
 
     std::uint8_t enabled{};
     data = read_pod(data, enabled);
-    auto ret = std::make_shared<Statistics>(enabled != 0);
+    auto ret = Statistics::create(enabled != 0 ? Mode::Enabled : Mode::Disabled);
 
     std::uint64_t num_stats{};
     data = read_pod(data, num_stats);
@@ -655,7 +656,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 
     bool const any_enabled =
         std::ranges::any_of(snapshots, [](auto const& s) { return s.enabled; });
-    auto ret = std::make_shared<Statistics>(any_enabled);
+    auto ret = Statistics::create(any_enabled ? Mode::Enabled : Mode::Disabled);
 
     for (auto const& snap : snapshots) {
         for (auto const& [name, stat] : snap.stats) {

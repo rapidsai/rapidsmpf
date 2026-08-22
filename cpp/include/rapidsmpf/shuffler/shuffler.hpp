@@ -344,8 +344,6 @@ class Shuffler {
     std::vector<detail::ChunkID> outbound_chunk_counter_;  ///< indexed by Rank
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
-    std::shared_ptr<Statistics> statistics_;
-
     // For notifications.
     mutable std::mutex mutex_;
     std::condition_variable cv_;

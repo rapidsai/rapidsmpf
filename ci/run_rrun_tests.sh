@@ -17,10 +17,10 @@ timeout_secs=15
 # rrun_tests case, these need to run with rrun and not ctest/mpirun.
 for nrank in 1 2 3 4 5 8; do
   python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
-      rrun -n "${nrank}" --bind-to all ./gtests/rrun_tests "${EXTRA_ARGS[@]}"
+      rrun -n "${nrank}" --bind-to all ./rrun_tests "${EXTRA_ARGS[@]}"
 done
 
 # rrun tests should also work when not running with `rrun` CLI. E.g., resource bindings
 # need to work outside of `rrun`, which is the intended use case for
 # `rapidsmpf::rrun::bind()`.
-./gtests/rrun_tests "${EXTRA_ARGS[@]}"
+./rrun_tests "${EXTRA_ARGS[@]}"

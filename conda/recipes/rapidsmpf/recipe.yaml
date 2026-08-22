@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -7,9 +7,9 @@ context:
   minor_version: ${{ (version | split("."))[:2] | join(".") }}
   cuda_version: ${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[:2] | join(".") }}
   cuda_major: '${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[0] }}'
-  date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
+  datetime_string: '${{ env.get("RAPIDS_DATETIME_STRING") }}'
   py_abi_min: ${{ env.get("RAPIDS_PY_VERSION") }}
-  py_buildstring : ${{ py_abi_min | version_to_buildstring }}
+  py_buildstring: ${{ py_abi_min | version_to_buildstring }}
   py_runtime_latest: "3.14"
   head_rev: ${{ git.head_rev(".")[:8] }}
   ucxx_version: ${{ env.get("UCXX_PACKAGE_DEPENDENCY") }}
@@ -24,7 +24,7 @@ source:
 build:
   python:
     version_independent: true
-  string: cuda${{ cuda_major }}_cp${{ py_buildstring }}_abi3_${{ date_string }}_${{ head_rev }}
+  string: cuda${{ cuda_major }}_cp${{ py_buildstring }}_abi3_${{ datetime_string }}_${{ head_rev }}
   files:
     exclude:
       # libarrow feedstock incorrectly ships this file so we exclude it manually
@@ -36,7 +36,7 @@ build:
   prefix_detection:
     # See https://github.com/rapidsai/build-planning/issues/160
     # Blanket ignore here as there are quite a few shared objects shipped in rapidsmpf
-    ignore_binary_files: True
+    ignore_binary_files: true
   script:
     content: |
       ./build.sh -v rapidsmpf
@@ -84,7 +84,6 @@ requirements:
     - libnuma
     - ${{ stdlib("c") }}
   host:
-    - cuda-cudart-dev
     - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
     - cython >=3.2.2
@@ -93,7 +92,6 @@ requirements:
     - mpi4py
     - openmpi >=5.0
     - pip
-    - pylibcudf =${{ minor_version }}
     - python =${{ py_abi_min }}
     - python-abi3 ${{ py_abi_min }}.*
     - rapids-build-backend >=0.4.0,<0.5.0
@@ -102,23 +100,13 @@ requirements:
     - ucxx ${{ ucxx_version }}
   run:
     - cuda-cupti
-    - if: cuda_major == "12"
-      then: cuda-python >=12.9.2,<13.0
-      else: cuda-python >=13.0.1,<14.0
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
-    - cudf =${{ minor_version }}
-    - cupy >=13.6.0
     - librapidsmpf =${{ version }}
     - mpi4py
-    - numpy >=1.23,<3.0
     - openmpi >=5.0
-    - pylibcudf =${{ minor_version }}
     - python
     - rmm =${{ minor_version }}
     - ucxx ${{ ucxx_version }}
-  run_constraints:
-    - dask-cuda =${{ minor_version }}
-    - dask-cudf =${{ minor_version }}
   ignore_run_exports:
     from_package:
       - ${{ compiler("c") }}
@@ -126,7 +114,6 @@ requirements:
       - ${{ compiler("cuda") }}
       - ${{ stdlib("c") }}
     by_name:
-      - cuda-cudart
       - cuda-cupti
       - cuda-version
       - openmpi

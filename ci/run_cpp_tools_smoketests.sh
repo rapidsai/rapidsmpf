@@ -29,8 +29,6 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
 python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun --tag-output -n 3 -g 0,0,0 ./bench_shuffle -m cuda -C ucxx
-python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun --tag-output -n 1 -g 0 ./bench_streaming_shuffle -m cuda -C ucxx
+    rrun --tag-output -n 1 -g 0 -x RAPIDSMPF_SMOKE_TEST_MODE=ON ./bench_memory_resources
 
 topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -

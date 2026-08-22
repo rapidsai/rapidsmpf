@@ -4,108 +4,22 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
-import cudf
-from pylibcudf.contiguous_split import pack
-
 from rapidsmpf.coll import AllGather
-from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 from rapidsmpf.memory.buffer_resource import BufferResource
-from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.statistics import Statistics
-from rapidsmpf.utils.cudf import (
-    cudf_to_pylibcudf_table,
-    pylibcudf_to_cudf_dataframe,
-)
+from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
 if TYPE_CHECKING:
     import rmm.mr
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
-
-
-def generate_packed_data(
-    n_elements: int, offset: int, stream: Stream, br: BufferResource
-) -> PackedData:
-    """
-    Generate a packed data object with the given number of elements and offset.
-
-    Both metadata and gpu_data contain the same sequential integer data starting
-    from the specified offset.
-
-    Parameters
-    ----------
-    n_elements
-        Number of integer elements to generate
-    offset
-        Starting value for the sequence (offset, offset+1, offset+2, ...)
-    stream
-        CUDA stream for operations
-    br
-        Buffer resource for memory allocation
-
-    Returns
-    -------
-    Packed data containing the generated sequence
-    """
-    # Generate sequential integers starting from offset
-    values = np.arange(offset, offset + n_elements, dtype=np.int32)
-    df = cudf.DataFrame({"data": values})
-    packed_columns = pack(cudf_to_pylibcudf_table(df))
-    return PackedData.from_cudf_packed_columns(packed_columns, stream, br)
-
-
-def validate_packed_data(
-    packed_data: PackedData,
-    n_elements: int,
-    offset: int,
-    stream: Stream,
-    br: BufferResource,
-) -> None:
-    """
-    Validate a packed data object by checking its contents.
-
-    For now, this is a simplified validation that just checks we can
-    convert the packed data back to a cuDF table and that it has the
-    expected number of rows.
-
-    Parameters
-    ----------
-    packed_data
-        The packed data to validate
-    n_elements
-        Expected number of elements
-    offset
-        Expected starting offset value (currently not fully validated)
-    stream
-        CUDA stream for operations
-
-    Raises
-    ------
-    AssertionError
-        If the data doesn't match expectations
-    """
-    # unpack_and_concat expects a list of PackedData
-    plc_table = unpack_and_concat([packed_data], stream, br)
-    result_df = pylibcudf_to_cudf_dataframe(plc_table)
-
-    # Verify the row count matches expected
-    assert len(result_df) == n_elements
-
-    if n_elements > 0:
-        # Basic validation - check that we have the expected structure
-        assert len(result_df.columns) == 1
-
-        # Convert to numpy for validation
-        result_values = result_df[result_df.columns[0]].to_numpy()
-        expected_values = np.arange(offset, offset + n_elements, dtype=np.int32)
-
-        np.testing.assert_array_equal(result_values, expected_values)
+    from rapidsmpf.memory.packed_data import PackedData
 
 
 def gen_offset(i: int, r: int) -> int:
@@ -116,6 +30,9 @@ def gen_offset(i: int, r: int) -> int:
 @pytest.mark.parametrize("n_elements", [0, 1, 10, 100])
 @pytest.mark.parametrize("n_inserts", [0, 1, 10])
 @pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize(
+    "use_context_manager", [True, False], ids=["context", "non-context"]
+)
 def test_basic_allgather(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
@@ -123,6 +40,7 @@ def test_basic_allgather(
     n_elements: int,
     n_inserts: int,
     ordered: bool,  # noqa: FBT001
+    use_context_manager: bool,  # noqa: FBT001
 ) -> None:
     """
     Test basic AllGather functionality.
@@ -132,28 +50,26 @@ def test_basic_allgather(
     should receive all data from all ranks.
     """
     br = BufferResource(device_mr)
-    statistics = Statistics(enable=False)
 
     # Create AllGather instance
     allgather = AllGather(
         comm=comm,
-        op_id=0,  # Use operation ID 0
+        op_id=0,
         br=br,
-        statistics=statistics,
     )
 
-    this_rank = comm.rank
     n_ranks = comm.nranks
+    this_rank = comm.rank
 
-    # Insert data from this rank
-    for i in range(n_inserts):
-        packed_data = generate_packed_data(
-            n_elements, gen_offset(i, this_rank), stream, br
-        )
-        allgather.insert(i, packed_data)
-
-    # Mark this rank as finished
-    allgather.insert_finished()
+    cm = allgather if use_context_manager else nullcontext(allgather)
+    with cm as ag:
+        for i in range(n_inserts):
+            packed_data = generate_packed_data(
+                n_elements, gen_offset(i, this_rank), stream, br
+            )
+            ag.insert(i, packed_data)
+    if not use_context_manager:
+        allgather.insert_finished()
 
     # Wait for completion and extract results
     results = allgather.wait_and_extract(ordered=ordered)
@@ -176,18 +92,39 @@ def test_basic_allgather(
                     result_idx = r * n_inserts + i
                     expected_offset = gen_offset(i, r)
                     validate_packed_data(
-                        results[result_idx], n_elements, expected_offset, stream, br
+                        results[result_idx], n_elements, expected_offset
                     )
         else:
-            # For unordered results, just verify all expected offsets are present
+            if n_elements == 0:
+                for result in results:
+                    validate_packed_data(result, 0, 0)
+            else:
+                expected_offsets = {
+                    gen_offset(i, r) for r in range(n_ranks) for i in range(n_inserts)
+                }
+                actual_by_offset: dict[int, PackedData] = {
+                    int(
+                        np.frombuffer(result.to_host_bytes(), dtype=np.int64)[0]
+                    ): result
+                    for result in results
+                }
+                assert set(actual_by_offset) == expected_offsets
+                for offset, result in actual_by_offset.items():
+                    validate_packed_data(result, n_elements, offset)
 
-            # For unordered results, we can't easily determine the exact order,
-            # so we just validate that each result is valid and has the right size
-            for result in results:
-                # Use our validation function with dummy offset (we can't easily extract the real offset)
-                # This will at least verify the structure and size
-                from rapidsmpf.integrations.cudf.partition import unpack_and_concat
 
-                plc_table = unpack_and_concat([result], stream, br)
-                result_df = pylibcudf_to_cudf_dataframe(plc_table)
-                assert len(result_df) == n_elements
+def test_insert_finished_raises_in_context(
+    comm: Communicator,
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    """Test that insert_finished raises when called inside a context manager."""
+    br = BufferResource(device_mr)
+    ag = AllGather(comm=comm, op_id=0, br=br)
+    with (
+        ag,
+        pytest.raises(
+            ValueError, match=r"Cannot call insert_finished.*within a context"
+        ),
+    ):
+        ag.insert_finished()
+    ag.wait_and_extract(ordered=True)

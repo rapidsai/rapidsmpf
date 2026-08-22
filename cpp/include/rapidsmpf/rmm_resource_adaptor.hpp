@@ -7,30 +7,35 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 
 #include <cuda/memory_resource>
 
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
+class BufferResource;
 
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
- * This adaptor implements:
- * - Memory usage tracking.
- * - Fallback memory resource support upon out-of-memory in the primary resource.
+ * This adaptor wraps a primary device memory resource and adds memory usage
+ * tracking (lifetime stats plus per-thread scoped records).
  *
  * This class is copyable and shares ownership of its internal state via
  * `cuda::mr::shared_resource`.
+ *
+ * It is not possible to construct an `RmmResourceAdaptor` directly. Instead,
+ * obtain one by creating a `BufferResource` with the memory resource you wish to
+ * use for allocations and then obtain the adaptor with `device_mr_adaptor()`.
  */
 class RmmResourceAdaptor
     : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
-          cuda::mr::any_resource<cuda::mr::device_accessible>>> {
+          cuda::mr::any_resource<cuda::mr::device_accessible>>>,
+      public BackRefMixin<BufferResource> {
     using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
     using shared_base =
         cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
@@ -41,24 +46,15 @@ class RmmResourceAdaptor
         RmmResourceAdaptor const&, cuda::mr::device_accessible
     ) noexcept {}
 
-    /**
-     * @brief Construct with specified primary and optional fallback memory resource.
-     *
-     * @param primary_mr The primary memory resource.
-     * @param fallback_mr Optional fallback memory resource.
-     */
-    RmmResourceAdaptor(
-        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr,
-        std::optional<cuda::mr::any_resource<cuda::mr::device_accessible>> fallback_mr =
-            std::nullopt
-    );
-
     ~RmmResourceAdaptor() = default;
 
     /**
      * @brief Equality comparison.
      *
-     * Two adaptors are equal if and only if they share the same underlying shared state.
+     * Two adaptors are equal iff they share the same underlying shared state.
+     * Because adaptors are privately constructed by `BufferResource` and a
+     * back-reference cannot be overwritten, sharing the same shared state
+     * implies referencing the same owning `BufferResource`.
      *
      * @param other The other adaptor to compare.
      * @return True if both adaptors refer to the same shared resource instance.
@@ -75,16 +71,6 @@ class RmmResourceAdaptor
     [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept;
 
     /**
-     * @brief Get a reference to the fallback upstream resource.
-     *
-     * This resource is used if the primary resource throws `rmm::out_of_memory`.
-     *
-     * @return Optional reference to the fallback RMM memory resource.
-     */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_resource() const noexcept;
-
-    /**
      * @brief Returns a copy of the main memory record.
      *
      * The main record tracks memory statistics for the lifetime of the resource.
@@ -94,7 +80,7 @@ class RmmResourceAdaptor
     [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
     /**
-     * @brief Get the total current allocated memory from both primary and fallback.
+     * @brief Get the total current allocated memory through this resource.
      *
      * @return Total number of currently allocated bytes.
      */
@@ -135,6 +121,21 @@ class RmmResourceAdaptor
      * @see begin_scoped_memory_record()
      */
     ScopedMemoryRecord end_scoped_memory_record();
+
+  private:
+    // Only `BufferResource` may create the primary adaptor; all other instances
+    // are copies obtained via `BufferResource::device_mr_adaptor()`. This keeps
+    // the back-reference lifetime contract enforceable (see class docs).
+    friend class BufferResource;
+
+    /**
+     * @brief Construct with the specified primary memory resource.
+     *
+     * @param primary_mr The primary memory resource.
+     */
+    explicit RmmResourceAdaptor(
+        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
+    );
 };
 
 static_assert(cuda::mr::resource_with<RmmResourceAdaptor, cuda::mr::device_accessible>);

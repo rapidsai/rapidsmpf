@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
 
 include(../cmake/rapids_config.cmake)
 include(rapids-cmake)
@@ -21,11 +21,11 @@ rapids_cuda_init_architectures(RAPIDSMPF)
 project(
   RAPIDSMPF
   VERSION "${RAPIDS_VERSION}"
-  LANGUAGES C CXX CUDA
+  LANGUAGES CXX CUDA
 )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Modules")
 
 # For now, disable CMake's automatic module scanning for C++ files. There is an sccache bug in the
 # version RAPIDS uses in CI that causes it to handle the resulting -M* flags incorrectly with
@@ -51,8 +51,6 @@ option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
-# cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
-option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
@@ -68,7 +66,6 @@ message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
 message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
-message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
@@ -122,6 +119,7 @@ include(../cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
+
 rapids_cpm_init()
 
 rapids_find_package(
@@ -132,7 +130,6 @@ rapids_find_package(
 
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
-include(../cmake/thirdparty/get_cudf.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
 
@@ -177,6 +174,7 @@ target_compile_options(
   maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
+target_compile_definitions(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:RAPIDSMPF_ASAN=1>")
 
 add_library(
   rapidsmpf
@@ -194,9 +192,6 @@ add_library(
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
-  src/integrations/cudf/bloom_filter.cu
-  src/integrations/cudf/partition.cpp
-  src/integrations/cudf/utils.cpp
   src/memory/buffer.cpp
   src/memory/buffer_resource.cpp
   src/memory/host_buffer.cpp
@@ -205,6 +200,7 @@ add_library(
   src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cpp
   src/memory/scoped_memory_record.cpp
+  src/memory/spill.cpp
   src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
@@ -237,11 +233,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/leaf_actor.cpp
             src/streaming/core/memory_reserve_or_wait.cpp
             src/streaming/core/spillable_messages.cpp
-            src/streaming/cudf/bloom_filter.cpp
-            src/streaming/cudf/partition.cpp
-            src/streaming/cudf/parquet.cpp
-            src/streaming/cudf/table_chunk.cpp
-            src/streaming/cudf/channel_metadata.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
@@ -315,13 +306,12 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro>
+  PUBLIC rmm::rmm CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+         CUDA::cudart_static
   PRIVATE cuco::cuco
-          $<TARGET_NAME_IF_EXISTS:rapidsmpf_cucascade_internal>
-          $<$<NOT:$<TARGET_EXISTS:rapidsmpf_cucascade_internal>>:cuCascade::cucascade>
+          cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_CXX>
           $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:PMIx::PMIx>
           $<TARGET_NAME_IF_EXISTS:conda_env>
@@ -342,9 +332,11 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
-rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
+rapids_cuda_set_runtime(rapidsmpf USE_STATIC ON)
 
-add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+if(NOT TARGET rapidsmpf::rapidsmpf)
+  add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
+endif()
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
@@ -387,12 +379,14 @@ if(RAPIDSMPF_CLANG_TIDY)
       "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
   )
 
-  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries. adding
+  # `-Wno-ignored-optimization-argument`, otherwise clang-tidy errors on GCC-only optimization flags
+  # (e.g. `-fno-merge-constants`) injected by the conda compiler activation scripts.
   set_target_properties(
     rapidsmpf
     PROPERTIES
       CXX_CLANG_TIDY
-      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments;--extra-arg=-Wno-ignored-optimization-argument"
   )
 endif()
 

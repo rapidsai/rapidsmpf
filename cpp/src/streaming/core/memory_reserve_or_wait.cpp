@@ -13,6 +13,7 @@
 
 #include <coro/sync_wait.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
@@ -29,9 +30,7 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{options.get<Duration>("memory_reserve_timeout", [](std::string const& s) {
-          return s.empty() ? parse_duration("100 ms") : parse_duration(s);
-      })} {
+      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }
@@ -166,8 +165,8 @@ Duration MemoryReserveOrWait::timeout() const noexcept {
 
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // Helper that returns available memory, clamped so negative values become zero.
-    auto memory_available = [f = br_->memory_available(mem_type_)]() -> std::size_t {
-        std::int64_t const ret = f();
+    auto memory_available = [this]() -> std::size_t {
+        std::int64_t const ret = br_->memory_available(mem_type_);
         return safe_cast<std::size_t>(std::max(ret, std::int64_t{0}));
     };
 
@@ -288,10 +287,8 @@ coro::task<MemoryReservation> reserve_memory(
 ) {
     // If allow_overbooking is not specified, get it from the configuration options.
     if (!allow_overbooking.has_value()) {
-        bool const allow_overbook_default = ctx->options().get<bool>(
-            "allow_overbooking_by_default",
-            [](std::string const& s) { return s.empty() ? true : parse_string<bool>(s); }
-        );
+        bool const allow_overbook_default =
+            ctx->options().get<bool>("allow_overbooking_by_default", parse_string<bool>);
         allow_overbooking =
             allow_overbook_default ? AllowOverbooking::YES : AllowOverbooking::NO;
     }

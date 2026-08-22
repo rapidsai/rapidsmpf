@@ -6,13 +6,17 @@
 #pragma once
 
 #include <any>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
+#include <rapidsmpf/config_defaults.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
@@ -247,7 +251,14 @@ class Options {
         std::lock_guard<std::mutex> lock(shared.mutex);
         auto& option = shared.options[key];
         if (!option.get_value().has_value()) {
-            option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
+            // If the user did not supply a value and `DEFAULTS` contains one
+            // for `key`, pass that default to the factory. Otherwise, pass
+            // the empty string to the factory parser.
+            std::string const& stored = option.get_value_as_string();
+            auto it = DEFAULTS.find(key);
+            std::string const& effective =
+                (stored.empty() && it != DEFAULTS.end()) ? it->second : stored;
+            option.set_value(std::make_any<T>(factory(effective)));
         }
         try {
             return std::any_cast<T const&>(option.get_value());

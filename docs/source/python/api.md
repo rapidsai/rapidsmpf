@@ -14,39 +14,10 @@ libraries.
    :members:
 ```
 
-(api-integration-dask)=
-### Dask
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.dask
-   :members:
-```
-
-### Single-process
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.single
-   :members:
-```
-
 ### Ray
 
 ```{eval-rst}
 .. automodule:: rapidsmpf.integrations.ray
-   :members:
-```
-
-### cuDF
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.cudf
-   :members:
-```
-
-#### Partition
-
-```{eval-rst}
-.. automodule:: rapidsmpf.integrations.cudf.partition
    :members:
 ```
 
@@ -94,6 +65,9 @@ libraries.
    :members:
 
 .. automodule:: rapidsmpf.memory.buffer_resource
+   :members:
+
+.. automodule:: rapidsmpf.memory.pinned_memory_resource
    :members:
 
 .. automodule:: rapidsmpf.memory.packed_data

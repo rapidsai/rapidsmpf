@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules config.pyx cuda_stream.pyx error.pyx progress_thread.pyx
+set(cython_modules config.pyx config_defaults.pyx cuda_stream.pyx error.pyx progress_thread.pyx
                    rmm_resource_adaptor.pyx shuffler.pyx statistics.pyx
 )
 
@@ -25,7 +25,6 @@ add_subdirectory(bootstrap)
 add_subdirectory(coll)
 add_subdirectory(memory)
 add_subdirectory(communicator)
-add_subdirectory(integrations/cudf)
 add_subdirectory(rrun)
 add_subdirectory(utils)
 

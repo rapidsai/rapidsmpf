@@ -14,7 +14,7 @@
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
+ * A shuffle service for partitioned payloads. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmpf::shuffler {
 

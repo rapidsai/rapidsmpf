@@ -4,16 +4,17 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
-#include <mutex>
-#include <sstream>
+#include <ostream>
 #include <stdexcept>
-#include <thread>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include <rapidsmpf/config.hpp>
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -206,200 +207,6 @@ class Communicator {
         Future& operator=(Future&&) = default;
         Future(Future const&) = delete;  ///< Not copyable.
         Future& operator=(Future const&) = delete;  ///< Not copy-assignable
-    };
-
-    /**
-     * @brief A logger base class for handling different levels of log messages.
-     *
-     * The logger class provides various logging methods with different verbosity levels.
-     * It ensures thread-safety using a mutex and allows filtering of log messages
-     * based on the configured verbosity level.
-     *
-     * TODO: support writing to a file.
-     */
-    class Logger {
-      public:
-        /**
-         * @brief Log verbosity levels.
-         *
-         * Defines different logging levels for filtering messages.
-         */
-        enum class LOG_LEVEL : std::uint32_t {
-            NONE = 0,  ///< No logging.
-            PRINT,  ///< General print messages.
-            WARN,  ///< Warning messages.
-            INFO,  ///< Informational messages.
-            DEBUG,  ///< Debug messages.
-            TRACE  ///< Trace messages.
-        };
-
-        /**
-         * @brief Log level names corresponding to the LOG_LEVEL enum.
-         */
-        static constexpr std::array<char const*, 6> LOG_LEVEL_NAMES{
-            "NONE", "PRINT", "WARN", "INFO", "DEBUG", "TRACE"
-        };
-
-        /**
-         * @brief Get the string name of a log level.
-         *
-         * @param level The log level.
-         * @return The corresponding log level name or "UNKNOWN" if out of range.
-         */
-        static constexpr char const* level_name(LOG_LEVEL level) {
-            auto index = static_cast<std::size_t>(level);
-            return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
-        }
-
-        /**
-         * @brief Construct a new logger.
-         *
-         * To control the verbosity level, set the configuration option "log" to
-         * one of following:
-         *  - NONE:  No logging.
-         *  - PRINT: General print messages.
-         *  - WARN:  Warning messages (default)
-         *  - INFO:  Informational messages.
-         *  - DEBUG: Debug messages.
-         *  - TRACE: Trace messages.
-         *
-         * @param rank The rank of the calling process.
-         * @param options Configuration options.
-         */
-        Logger(Rank rank, config::Options options);
-        virtual ~Logger() noexcept = default;
-
-        /**
-         * @brief Get the verbosity level of the logger.
-         *
-         * @return The verbosity level.
-         */
-        LOG_LEVEL verbosity_level() const {
-            return level_;
-        }
-
-        /**
-         * @brief Logs a message using the specified verbosity level.
-         *
-         * Formats and outputs a message if the verbosity level is high enough.
-         *
-         * @tparam Args Types of the message components, must support the `<<` operator.
-         * @param level The verbosity level of the message.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void log(LOG_LEVEL level, Args const&... args) {
-            if (static_cast<std::uint32_t>(level_) < static_cast<std::uint32_t>(level)) {
-                return;
-            }
-            std::ostringstream ss;
-            (ss << ... << args);
-            do_log(level, std::move(ss));
-        }
-
-        /**
-         * @brief Logs a print message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void print(Args const&... args) {
-            log(LOG_LEVEL::PRINT, std::forward<Args const&>(args)...);
-        }
-
-        /**
-         * @brief Logs a warning message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void warn(Args const&... args) {
-            log(LOG_LEVEL::WARN, std::forward<Args const&>(args)...);
-        }
-
-        /**
-         * @brief Logs an informational message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void info(Args const&... args) {
-            log(LOG_LEVEL::INFO, std::forward<Args const&>(args)...);
-        }
-
-        /**
-         * @brief Logs a debug message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void debug(Args const&... args) {
-            log(LOG_LEVEL::DEBUG, std::forward<Args const&>(args)...);
-        }
-
-        /**
-         * @brief Logs a trace message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void trace(Args const&... args) {
-            log(LOG_LEVEL::TRACE, std::forward<Args const&>(args)...);
-        }
-
-      protected:
-        /**
-         * @brief Returns a unique thread ID for the current thread.
-         *
-         * @return A unique ID for the current thread.
-         */
-        virtual std::uint32_t get_thread_id() {
-            auto const tid = std::this_thread::get_id();
-
-            // To avoid large IDs, we map the thread ID to an unique counter.
-            auto const [name, inserted] =
-                thread_id_names.insert({tid, thread_id_names_counter});
-            if (inserted) {
-                ++thread_id_names_counter;
-            }
-            return name->second;
-        }
-
-        /**
-         * @brief Handles the logging of a messages.
-         *
-         * This base implementation prepend the rank and thread id to the message
-         * and print it to `std::cout`.
-         *
-         * Override this method in a derived classes to customize logging behavior.
-         *
-         * @param level The verbosity level of the message.
-         * @param ss The formatted message as a string stream.
-         */
-        virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
-            std::ostringstream full_log_msg;
-            full_log_msg << "[" << level_name(level) << ":" << rank_ << ":"
-                         << get_thread_id() << ":" << Clock::now() << "] " << ss.str();
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::cout << full_log_msg.str() << std::endl;
-        }
-
-      private:
-        std::mutex mutex_;
-        Rank rank_;
-        LOG_LEVEL const level_;
-
-        /// Counter used by `std::this_thread::get_id()` to abbreviate the large
-        /// number returned by `std::this_thread::get_id()`.
-        std::uint32_t thread_id_names_counter{0};
-
-        /// Thread record mapping thread IDs to their shorten names.
-        std::unordered_map<std::thread::id, std::uint32_t> thread_id_names;
     };
 
   protected:
@@ -610,7 +417,7 @@ class Communicator {
      * @brief Retrieves the logger associated with this communicator.
      * @return Shared pointer to the logger.
      */
-    [[nodiscard]] virtual std::shared_ptr<Communicator::Logger> const& logger() = 0;
+    [[nodiscard]] virtual std::shared_ptr<Logger> const& logger() = 0;
 
     /**
      * @brief Retrieves the progress thread associated with this communicator.

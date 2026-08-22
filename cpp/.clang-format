@@ -36,7 +36,7 @@ BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Custom
 BreakStringLiterals: true
 ColumnLimit: 90
-CommentPragmas: 'SPDX-(FileCopyrightText|License-Identifier): '
+CommentPragmas: '(IWYU pragma:|SPDX-)'
 DerivePointerAlignment: false
 IndentCaseBlocks: true
 IndentCaseLabels: false
@@ -58,7 +58,7 @@ IncludeCategories:
     Priority: 30 # CUDA includes
   - Regex: '^<(thrust|cub|cuda)/'
     Priority: 40 # CCCL includes
-  - Regex: '^<(cudf.*|rmm|cugraph|cuml|raft|kvikio|cucascade)'
+  - Regex: '^<(cudf|rmm|cugraph|cuml|raft|kvikio|cucascade)'
     Priority: 50 # RAPIDS includes
   - Regex: '^<rapidsmpf/'
     Priority: 70 # RapidsMPF project includes

@@ -3,20 +3,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
 #include <cstring>
+#include <optional>
 
 #include <benchmark/benchmark.h>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 using rapidsmpf::safe_cast;
+
+// When the RAPIDSMPF_SMOKE_TEST_MODE env var is set to a truthy value (e.g.
+// "1", "on", "true", "yes"), each benchmark's argument generator emits only a
+// tiny subset of cases so the suite finishes quickly during CI smoke tests.
+// Cached because Apply callbacks invoke this once per registered benchmark.
+//
+// We use an env var rather than a CLI flag because google-benchmark's
+// BENCHMARK(...)->Apply(...) macros run during static initialization, before
+// main() has a chance to parse argv. A CLI-flag approach would require moving
+// every benchmark registration into main() (via benchmark::RegisterBenchmark),
+// which is more invasive. std::getenv works fine during static init.
+static bool smoke_test_mode() {
+    static bool const value = []() {
+        char const* env = std::getenv("RAPIDSMPF_SMOKE_TEST_MODE");
+        return env != nullptr && rapidsmpf::parse_string<bool>(env);
+    }();
+    return value;
+}
 
 enum ResourceType : int {
     NEW_DELETE = 0,
@@ -76,6 +100,19 @@ class NewDelete {
     friend void get_property(NewDelete const&, cuda::mr::host_accessible) noexcept {}
 };
 
+// Build a buffer resource with the given (optional) pinned pool properties.
+std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
+    std::optional<rapidsmpf::PinnedPoolProperties> props
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        std::move(props),
+        {},
+        std::nullopt,  // disable the periodic spill-check thread
+        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking)
+    );
+}
+
 // Helper function to create a type-erased host memory resource.
 cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     ResourceType const& resource_type
@@ -84,16 +121,20 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     case ResourceType::NEW_DELETE:
         return NewDelete{};
     case ResourceType::HOST_MEMORY_RESOURCE:
-        return rapidsmpf::HostMemoryResource{};
+        {
+            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
+            return br->host_mr();  // br is kept alive by the back-reference
+        }
     case ResourceType::PINNED_MEMORY_RESOURCE:
         {
-            auto mr = rapidsmpf::PinnedMemoryResource::make_if_available();
+            auto br = make_pinned_buffer_resource(rapidsmpf::PinnedPoolProperties{});
+            auto mr = br->try_pinned_mr();
             RAPIDSMPF_EXPECTS(
                 mr.has_value(),
                 "pinned memory is not supported on this system",
                 std::runtime_error
             );
-            return *mr;
+            return *mr;  // br is kept alive by the back-reference
         }
     default:
         RAPIDSMPF_FAIL("Unknown memory resource type");
@@ -351,11 +392,15 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
 
 // Custom argument generator for the benchmark
 void CustomArguments(benchmark::Benchmark* b) {
-    // Test different allocation sizes
-    for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
-        // Test all memory resource types
+    constexpr std::array all_sizes{1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30};
+    auto num_sizes = all_sizes.size();
+    if (smoke_test_mode()) {
+        num_sizes = 1;
+        b->Iterations(1);
+    }
+    for (std::size_t i = 0; i < num_sizes; ++i) {
         for (auto resource_type : RESOURCE_TYPES) {
-            b->Args({size, resource_type});
+            b->Args({all_sizes[i], resource_type});
         }
     }
 }
@@ -418,9 +463,8 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 
     for (auto _ : state) {
         state.PauseTiming();
-        auto mr = rapidsmpf::PinnedMemoryResource::make_if_available(
-            rapidsmpf::get_current_numa_node(), props
-        );
+        auto br = make_pinned_buffer_resource(props);
+        auto mr = br->try_pinned_mr();
         state.ResumeTiming();
         void* ptr = mr->allocate(stream, allocation_size);
         stream.synchronize();
@@ -435,9 +479,15 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
 }
 
 void PinnedFirstAlloc_InitialPoolSize_Args(benchmark::Benchmark* b) {
-    for (auto size : {1, 256, 1024}) {  // in MB
-        b->Args({size, 1});  // primed
-        b->Args({size, 0});  // no priming
+    constexpr std::array all_sizes_mb{1, 256, 1024};
+    auto num_sizes = all_sizes_mb.size();
+    if (smoke_test_mode()) {
+        num_sizes = 1;
+        b->Iterations(1);
+    }
+    for (std::size_t i = 0; i < num_sizes; ++i) {
+        b->Args({all_sizes_mb[i], 1});  // primed
+        b->Args({all_sizes_mb[i], 0});  // no priming
     }
 }
 
@@ -445,5 +495,55 @@ BENCHMARK(BM_PinnedFirstAlloc_InitialPoolSize)
     ->Apply(PinnedFirstAlloc_InitialPoolSize_Args)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
+
+// Pool initialization time as a function of initial pool size.
+// max_pool_size is fixed at 100% of host memory per GPU.
+// initial_pool_size sweeps 0%, 10%, 20%, ..., 100% of max_pool_size.
+void BM_PinnedPoolInit_InitialPoolSize(benchmark::State& state) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage("pinned memory not supported on system");
+        return;
+    }
+
+    // Ensure CUDA device context is initialized.
+    RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+
+    auto const pct = safe_cast<std::size_t>(state.range(0));
+    std::size_t const max_pool_size = rapidsmpf::get_host_memory_per_gpu();
+    std::size_t const initial_pool_size =
+        safe_cast<std::size_t>(max_pool_size * pct / 100);
+
+    rapidsmpf::PinnedPoolProperties props{
+        .initial_pool_size = initial_pool_size,
+        .max_pool_size = max_pool_size,
+    };
+
+    for (auto _ : state) {
+        auto br = make_pinned_buffer_resource(props);
+        benchmark::DoNotOptimize(br);
+        // Destroy br at end of iteration (pool teardown excluded from timing).
+        state.PauseTiming();
+        br.reset();
+        state.ResumeTiming();
+    }
+
+    state.counters["initial_pool_size_bytes"] = static_cast<double>(initial_pool_size);
+    state.counters["max_pool_size_bytes"] = static_cast<double>(max_pool_size);
+    state.counters["initial_pool_pct"] = static_cast<double>(pct);
+}
+
+void PinnedPoolInit_InitialPoolSize_Args(benchmark::Benchmark* b) {
+    if (smoke_test_mode()) {
+        b->Iterations(1);
+        b->Args({1});  // only do 1% for the smoke test
+    } else {
+        b->DenseRange(0, 100, 10);
+    }
+}
+
+BENCHMARK(BM_PinnedPoolInit_InitialPoolSize)
+    ->Apply(PinnedPoolInit_InitialPoolSize_Args)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

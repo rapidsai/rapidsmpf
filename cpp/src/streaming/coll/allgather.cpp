@@ -15,14 +15,12 @@ AllGather::AllGather(
     std::shared_ptr<Context> ctx, std::shared_ptr<Communicator> comm, OpID op_id
 )
     : ctx_{std::move(ctx)},
-      gatherer_{coll::AllGather(
-          std::move(comm), op_id, ctx_->br().get(), ctx_->statistics(), [this]() {
-              // Schedule waiters to resume on the executor.
-              // This doesn't resume the frame immediately so we don't have to track
-              // completion of this callback with a task_group.
-              event_.set(ctx_->executor()->get());
-          }
-      )} {}
+      gatherer_{coll::AllGather(std::move(comm), op_id, ctx_->br().get(), [this]() {
+          // Schedule waiters to resume on the executor.
+          // This doesn't resume the frame immediately so we don't have to track
+          // completion of this callback with a task_group.
+          event_.set(ctx_->executor()->get());
+      })} {}
 
 AllGather::~AllGather() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(

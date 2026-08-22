@@ -4,9 +4,12 @@
  */
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <cstring>
 #include <exception>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -91,7 +94,21 @@ int connect_raw(SocketServer const& server) {
 // Send a line (appending '\n') to fd and return the first response line.
 std::string send_recv_line(int fd, std::string const& line) {
     std::string msg = line + "\n";
-    ::write(fd, msg.c_str(), msg.size());
+    auto bytes_left = msg.size();
+    auto const* ptr = msg.data();
+    while (bytes_left > 0) {
+        auto written = ::write(fd, ptr, bytes_left);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw std::runtime_error(
+                "write() failed: " + std::string{std::strerror(errno)}
+            );
+        }
+        bytes_left -= static_cast<std::size_t>(written);
+        ptr += written;
+    }
 
     std::string response;
     char ch;

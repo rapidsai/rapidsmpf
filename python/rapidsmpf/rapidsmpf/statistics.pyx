@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.bytes cimport PyBytes_FromStringAndSize
@@ -7,7 +7,7 @@ from cython.operator cimport preincrement
 from libc.stdint cimport uint8_t
 from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport make_shared, make_unique, shared_ptr
+from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.vector cimport vector
@@ -29,16 +29,47 @@ import os
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef shared_ptr[cpp_Statistics] cpp_from_options \
         "rapidsmpf::Statistics::from_options"(
-            cpp_RmmResourceAdaptor mr,
             cpp_Options options,
-            optional[cpp_PinnedMemoryResource] pinned_mr,
         ) except +ex_handler
 
 
 cdef extern from *:
     """
     #include <filesystem>
+    #include <optional>
     #include <sstream>
+    // Cython-friendly wrappers around `Statistics::create(Mode)`. Cython has
+    // limited support for nested C++ enums, so we keep a Python-facing
+    // `bool` signature and translate to the `Mode` enum here.
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_create(bool enabled) {
+        return rapidsmpf::Statistics::create(
+            enabled ? rapidsmpf::Statistics::Mode::Enabled
+                    : rapidsmpf::Statistics::Mode::Disabled
+        );
+    }
+    inline std::shared_ptr<rapidsmpf::Statistics> cpp_disabled() {
+        return rapidsmpf::Statistics::disabled();
+    }
+    std::string cpp_report(
+        rapidsmpf::Statistics const& stats,
+        rapidsmpf::RmmResourceAdaptor* mr_ptr,
+        std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr
+    ) {
+        std::optional<rapidsmpf::RmmResourceAdaptor> mr =
+            mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
+        return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr});
+    }
+    std::string cpp_report(
+        rapidsmpf::Statistics const& stats,
+        rapidsmpf::RmmResourceAdaptor* mr_ptr,
+        std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr,
+        std::string const& header
+    ) {
+        std::optional<rapidsmpf::RmmResourceAdaptor> mr =
+            mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
+        return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr,
+            .header = header});
+    }
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name
     ) {
@@ -89,6 +120,19 @@ cdef extern from *:
         );
     }
     """
+    shared_ptr[cpp_Statistics] cpp_create(bool_t enabled) except +ex_handler nogil
+    shared_ptr[cpp_Statistics] cpp_disabled() except +ex_handler nogil
+    string cpp_report(
+        cpp_Statistics stats,
+        cpp_RmmResourceAdaptor* mr_ptr,
+        optional[cpp_PinnedMemoryResource] pinned_mr,
+    ) except +ex_handler nogil
+    string cpp_report(
+        cpp_Statistics stats,
+        cpp_RmmResourceAdaptor* mr_ptr,
+        optional[cpp_PinnedMemoryResource] pinned_mr,
+        string header,
+    ) except +ex_handler nogil
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
         except +ex_handler nogil
     double cpp_get_statistic_value(cpp_Statistics stats, string name) \
@@ -115,53 +159,51 @@ cdef class Statistics:
     ----------
     enable
         Whether statistics tracking is enabled.
-    mr
-        Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __init__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
-        cdef cpp_RmmResourceAdaptor* mr_handle
-        self._mr = mr
-        if enable and mr is not None:
-            mr_handle = mr.get_handle()
-            with nogil:
-                self._handle = make_shared[cpp_Statistics](deref(mr_handle))
-        else:
-            with nogil:
-                self._handle = make_shared[cpp_Statistics](enable)
+    def __init__(self, *, bool_t enable):
+        with nogil:
+            self._handle = cpp_create(enable)
+
+    @staticmethod
+    cdef Statistics from_handle(shared_ptr[cpp_Statistics] handle):
+        cdef Statistics obj = Statistics.__new__(Statistics)
+        obj._handle = handle
+        return obj
 
     @classmethod
-    def from_options(
-        cls,
-        RmmResourceAdaptor mr not None,
-        Options options not None,
-        *,
-        PinnedMemoryResource pinned_mr=None,
-    ):
+    def from_options(cls, Options options not None):
         """
         Construct from configuration options.
 
         Parameters
         ----------
-        mr
-            Pointer to a memory resource used for memory profiling.
         options
             Configuration options.
-        pinned_mr
-            When given, the pinned memory resource held for profiling.
 
         Returns
         -------
         The constructed Statistics instance.
         """
         cdef Statistics ret = cls.__new__(cls)
-        cdef cpp_RmmResourceAdaptor* mr_handle = mr.get_handle()
-        cdef optional[cpp_PinnedMemoryResource] cpp_pinned
-        if pinned_mr is not None:
-            cpp_pinned = pinned_mr._handle
         with nogil:
-            ret._handle = cpp_from_options(deref(mr_handle), options._handle,
-                                           cpp_pinned)
-        ret._mr = mr
+            ret._handle = cpp_from_options(options._handle)
+        return ret
+
+    @classmethod
+    def disabled(cls):
+        """
+        Returns a disabled (no-op) Statistics instance.
+
+        Useful when you need to pass a Statistics argument but do not want to
+        collect any data.
+
+        Returns
+        -------
+        A Statistics instance with tracking disabled.
+        """
+        cdef Statistics ret = cls.__new__(cls)
+        with nogil:
+            ret._handle = cpp_disabled()
         return ret
 
     def __dealloc__(self):
@@ -181,19 +223,63 @@ cdef class Statistics:
         """
         return deref(self._handle).enabled()
 
-    def report(self):
+    def enable(self):
+        """
+        Enable statistics tracking on this instance.
+        """
+        return deref(self._handle).enable()
+
+    def disable(self):
+        """
+        Disable statistics tracking on this instance.
+        """
+        return deref(self._handle).disable()
+
+    def report(
+        self,
+        *,
+        RmmResourceAdaptor mr = None,
+        PinnedMemoryResource pinned_mr = None,
+        header = None,
+    ):
         """
         Generates a report of statistics in a formatted string.
 
         Operations on disabled statistics is no-ops.
+
+        Parameters
+        ----------
+        mr
+            When provided, a memory profiling section is included in the
+            report. When ``None``, the memory profiling section shows
+            "Disabled".
+        pinned_mr
+            When provided, a pinned memory section is included in the
+            report. Obtain the handle from
+            :attr:`rapidsmpf.memory.buffer_resource.BufferResource.pinned_mr`.
+        header
+            Header line prepended to the report. When ``None``, the C++
+            default is used.
 
         Returns
         -------
         A string representing the formatted statistics report.
         """
         cdef string ret
-        with nogil:
-            ret = deref(self._handle).report()
+        cdef cpp_RmmResourceAdaptor* mr_ptr = NULL
+        cdef optional[cpp_PinnedMemoryResource] cpp_pinned
+        cdef string cpp_header
+        if mr is not None:
+            mr_ptr = mr.get_handle()
+        if pinned_mr is not None:
+            cpp_pinned = pinned_mr._handle
+        if header is None:
+            with nogil:
+                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned)
+        else:
+            cpp_header = header.encode()
+            with nogil:
+                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned, cpp_header)
         return ret.decode('UTF-8')
 
     def get_stat(self, name):
@@ -352,17 +438,6 @@ cdef class Statistics:
             ret._handle = cpp_merge_statistics(v)
         return ret
 
-    @property
-    def memory_profiling_enabled(self):
-        """
-        Checks if memory profiling is enabled.
-
-        Returns
-        -------
-        True if memory profiling is enabled, otherwise False.
-        """
-        return deref(self._handle).is_memory_profiling_enabled()
-
     def get_memory_records(self):
         """
         Retrieves all memory profiling records stored by this instance.
@@ -383,7 +458,7 @@ cdef class Statistics:
             preincrement(it)
         return ret
 
-    def memory_profiling(self, name):
+    def memory_profiling(self, RmmResourceAdaptor mr, name):
         """
         Create a scoped memory profiling context for a named code region.
 
@@ -398,11 +473,13 @@ cdef class Statistics:
         - Global peak memory usage during the scope (``global_peak``)
         - Number of times the named scope was entered (``num_calls``)
 
-        If memory profiling is disabled or the memory resource is ``None``,
-        this is a no-op.
+        Pass ``mr=None`` to get a no-op recorder.
 
         Parameters
         ----------
+        mr
+            The memory resource through which allocations are tracked.
+            Pass ``None`` to get a no-op recorder.
         name
             A unique identifier for the profiling scope. Used as a key
             when accessing profiling data via :meth:`Statistics.get_memory_records`.
@@ -414,11 +491,13 @@ cdef class Statistics:
         Examples
         --------
         >>> import rmm
-        >>> mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-        >>> stats = Statistics(enable=True, mr=mr)
-        >>> with stats.memory_profiling("outer"):
+        >>> from rapidsmpf.memory.buffer_resource import BufferResource
+        >>> br = BufferResource(rmm.mr.CudaMemoryResource())
+        >>> mr = br.device_mr_adaptor()
+        >>> stats = Statistics(enable=True)
+        >>> with stats.memory_profiling(mr, "outer"):
         ...     b1 = rmm.DeviceBuffer(size=1024, mr=mr)
-        ...     with stats.memory_profiling("inner"):
+        ...     with stats.memory_profiling(mr, "inner"):
         ...         b2 = rmm.DeviceBuffer(size=1024, mr=mr)
         >>> inner = stats.get_memory_records()["inner"]
         >>> print(inner.scoped.peak())
@@ -427,7 +506,7 @@ cdef class Statistics:
         >>> print(outer.scoped.peak())
         2048
         """
-        return MemoryRecorder(self, self._mr, name)
+        return MemoryRecorder(self, mr, name)
 
     def clear(self) -> None:
         """
@@ -458,6 +537,55 @@ cdef class Statistics:
         cdef string path = <bytes>os.fsencode(filepath)
         with nogil:
             cpp_write_json(deref(self._handle), path)
+
+    def copy(self):
+        """
+        Creates a deep copy of this Statistics object.
+
+        Memory records are not copied.
+
+        Returns
+        -------
+        A new Statistics with the same stats and formatters.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        with nogil:
+            ret._handle = deref(self._handle).copy()
+        return ret
+
+    @staticmethod
+    def merge(stats):
+        """
+        Merge a sequence of Statistics into a new one.
+
+        For each stat name present in any input, the result has the summed
+        count, summed value, and the maximum of the maxes. Report entries
+        with the same name must agree on formatter and stat-name list;
+        otherwise the call raises ``ValueError``. Memory records are not
+        merged.
+
+        Parameters
+        ----------
+        stats
+            A non-empty sequence of :class:`Statistics` to merge.
+
+        Returns
+        -------
+        A new :class:`Statistics` containing the merged data.
+
+        Raises
+        ------
+        ValueError
+            If ``stats`` is empty or two inputs have conflicting report
+            entries.
+        """
+        cdef Statistics ret = Statistics.__new__(Statistics)
+        cdef vector[shared_ptr[cpp_Statistics]] v
+        for item in stats:
+            v.push_back((<Statistics?>item)._handle)
+        with nogil:
+            ret._handle = cpp_merge_statistics(v)
+        return ret
 
     def write_json_string(self) -> str:
         """
@@ -526,7 +654,6 @@ cdef class Statistics:
             vec.resize(size)
             memcpy(<void*>vec.data(), src, size)
             ret._handle = cpp_deserialize_statistics(vec)
-        ret._mr = None
         return ret
 
     def __getstate__(self):
@@ -535,7 +662,6 @@ cdef class Statistics:
     def __setstate__(self, bytes state not None):
         cdef Statistics restored = Statistics.deserialize(state)
         self._handle = restored._handle
-        self._mr = None
 
 
 @dataclass
@@ -599,7 +725,7 @@ cdef class MemoryRecorder:
         cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
         with nogil:
             self._handle = make_unique[cpp_MemoryRecorder](
-                self._stats._handle.get(), deref(mr), self._name
+                self._stats._handle, deref(mr), self._name
             )
 
     def __exit__(self, exc_type, exc_value, traceback):

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,18 +7,36 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdio>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
+#include <memory>
+#include <mutex>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
+#include <unordered_map>
+
+#include <cuda_runtime.h>
+#include <cupti.h>
 
 #include <rapidsmpf/cupti.hpp>
 
 namespace rapidsmpf {
 
 namespace {
+
+[[nodiscard]] CuptiCallbackId make_callback_id(CUpti_CallbackId cbid) noexcept {
+    return CuptiCallbackId{static_cast<CuptiCallbackId::value_type>(cbid)};
+}
+
+[[nodiscard]] CUpti_CallbackId to_cupti_callback_id(
+    CuptiCallbackId callback_id
+) noexcept {
+    return static_cast<CUpti_CallbackId>(callback_id.underlying());
+}
 
 // List of CUDA Runtime API callbacks we want to monitor. We don't monitor any runtime
 // callbacks by default because they are redundant with the driver API callbacks.
@@ -56,7 +74,124 @@ bool is_monitored_callback(
 
 }  // namespace
 
+struct CuptiMonitor::Impl {
+    Impl(bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms);
+
+    ~Impl();
+
+    Impl(Impl const&) = delete;
+    Impl& operator=(Impl const&) = delete;
+    Impl(Impl&&) = delete;
+    Impl& operator=(Impl&&) = delete;
+
+    void start_monitoring();
+    void stop_monitoring();
+    [[nodiscard]] bool is_monitoring() const noexcept;
+    void capture_memory_sample();
+    [[nodiscard]] std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
+    void clear_samples();
+    [[nodiscard]] std::size_t get_sample_count() const noexcept;
+    void write_csv(std::string const& filename) const;
+    void set_debug_output(bool enabled, std::size_t threshold_mb);
+    [[nodiscard]] std::unordered_map<CuptiCallbackId, std::size_t>
+    get_callback_counters() const;
+    void clear_callback_counters();
+    [[nodiscard]] std::size_t get_total_callback_count() const;
+    [[nodiscard]] std::string get_callback_summary() const;
+
+  private:
+    // Boolean fields grouped together at beginning to reduce padding.
+    bool enable_periodic_sampling_;
+    std::atomic<bool> monitoring_active_;
+    bool debug_output_enabled_{false};
+
+    std::chrono::milliseconds sampling_interval_ms_;
+    std::size_t debug_threshold_bytes_;
+    std::size_t last_used_mem_for_debug_{0};
+    CUpti_SubscriberHandle cupti_subscriber_{};
+    std::thread sampling_thread_;
+
+    std::unordered_map<CuptiCallbackId, std::size_t> callback_counters_;
+    mutable std::mutex mutex_;
+    std::vector<MemoryDataPoint> memory_samples_;
+
+    void capture_memory_usage_impl();
+    void periodic_memory_sampling();
+    CUptiResult subscribe();
+    void unsubscribe();
+
+    static void CUPTIAPI callback_wrapper(
+        void* userdata,
+        CUpti_CallbackDomain domain,
+        CUpti_CallbackId cbid,
+        void const* cbdata
+    );
+
+    void callback(CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata);
+};
+
 CuptiMonitor::CuptiMonitor(
+    bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms
+)
+    : impl_(std::make_unique<Impl>(enable_periodic_sampling, sampling_interval_ms)) {}
+
+CuptiMonitor::~CuptiMonitor() = default;
+
+void CuptiMonitor::start_monitoring() {
+    impl_->start_monitoring();
+}
+
+void CuptiMonitor::stop_monitoring() {
+    impl_->stop_monitoring();
+}
+
+[[nodiscard]] bool CuptiMonitor::is_monitoring() const noexcept {
+    return impl_->is_monitoring();
+}
+
+void CuptiMonitor::capture_memory_sample() {
+    impl_->capture_memory_sample();
+}
+
+[[nodiscard]] std::vector<MemoryDataPoint> const&
+CuptiMonitor::get_memory_samples() const noexcept {
+    return impl_->get_memory_samples();
+}
+
+void CuptiMonitor::clear_samples() {
+    impl_->clear_samples();
+}
+
+[[nodiscard]] std::size_t CuptiMonitor::get_sample_count() const noexcept {
+    return impl_->get_sample_count();
+}
+
+void CuptiMonitor::write_csv(std::string const& filename) const {
+    impl_->write_csv(filename);
+}
+
+void CuptiMonitor::set_debug_output(bool enabled, std::size_t threshold_mb) {
+    impl_->set_debug_output(enabled, threshold_mb);
+}
+
+[[nodiscard]] std::unordered_map<CuptiCallbackId, std::size_t>
+CuptiMonitor::get_callback_counters() const {
+    return impl_->get_callback_counters();
+}
+
+void CuptiMonitor::clear_callback_counters() {
+    impl_->clear_callback_counters();
+}
+
+[[nodiscard]] std::size_t CuptiMonitor::get_total_callback_count() const {
+    return impl_->get_total_callback_count();
+}
+
+[[nodiscard]] std::string CuptiMonitor::get_callback_summary() const {
+    return impl_->get_callback_summary();
+}
+
+CuptiMonitor::Impl::Impl(
     bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms
 )
     : enable_periodic_sampling_(enable_periodic_sampling),
@@ -64,11 +199,11 @@ CuptiMonitor::CuptiMonitor(
       sampling_interval_ms_(sampling_interval_ms),
       debug_threshold_bytes_(10 * 1024 * 1024) {}  // 10MB default
 
-CuptiMonitor::~CuptiMonitor() {
+CuptiMonitor::Impl::~Impl() {
     stop_monitoring();
 }
 
-void CuptiMonitor::start_monitoring() {
+void CuptiMonitor::Impl::start_monitoring() {
     if (monitoring_active_.load()) {
         return;
     }
@@ -92,12 +227,13 @@ void CuptiMonitor::start_monitoring() {
         capture_memory_usage_impl();
 
         if (enable_periodic_sampling_) {
-            sampling_thread_ = std::thread(&CuptiMonitor::periodic_memory_sampling, this);
+            sampling_thread_ =
+                std::thread(&CuptiMonitor::Impl::periodic_memory_sampling, this);
         }
     }
 }
 
-void CuptiMonitor::stop_monitoring() {
+void CuptiMonitor::Impl::stop_monitoring() {
     if (!monitoring_active_.load()) {
         return;
     }
@@ -117,33 +253,34 @@ void CuptiMonitor::stop_monitoring() {
     unsubscribe();
 }
 
-bool CuptiMonitor::is_monitoring() const noexcept {
+bool CuptiMonitor::Impl::is_monitoring() const noexcept {
     return monitoring_active_.load();
 }
 
-void CuptiMonitor::capture_memory_sample() {
+void CuptiMonitor::Impl::capture_memory_sample() {
     if (monitoring_active_.load()) {
         std::lock_guard<std::mutex> lock(mutex_);
         capture_memory_usage_impl();
     }
 }
 
-std::vector<MemoryDataPoint> const& CuptiMonitor::get_memory_samples() const noexcept {
+std::vector<MemoryDataPoint> const&
+CuptiMonitor::Impl::get_memory_samples() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return memory_samples_;
 }
 
-void CuptiMonitor::clear_samples() {
+void CuptiMonitor::Impl::clear_samples() {
     std::lock_guard<std::mutex> lock(mutex_);
     memory_samples_.clear();
 }
 
-std::size_t CuptiMonitor::get_sample_count() const noexcept {
+std::size_t CuptiMonitor::Impl::get_sample_count() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return memory_samples_.size();
 }
 
-void CuptiMonitor::write_csv(std::string const& filename) const {
+void CuptiMonitor::Impl::write_csv(std::string const& filename) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::ofstream file(filename);
@@ -162,24 +299,24 @@ void CuptiMonitor::write_csv(std::string const& filename) const {
     }
 }
 
-void CuptiMonitor::set_debug_output(bool enabled, std::size_t threshold_mb) {
+void CuptiMonitor::Impl::set_debug_output(bool enabled, std::size_t threshold_mb) {
     std::lock_guard<std::mutex> lock(mutex_);
     debug_output_enabled_ = enabled;
     debug_threshold_bytes_ = threshold_mb * 1024 * 1024;  // Convert MB to bytes
 }
 
-std::unordered_map<CUpti_CallbackId, std::size_t>
-CuptiMonitor::get_callback_counters() const {
+std::unordered_map<CuptiCallbackId, std::size_t>
+CuptiMonitor::Impl::get_callback_counters() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return callback_counters_;
 }
 
-void CuptiMonitor::clear_callback_counters() {
+void CuptiMonitor::Impl::clear_callback_counters() {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_counters_.clear();
 }
 
-std::size_t CuptiMonitor::get_total_callback_count() const {
+std::size_t CuptiMonitor::Impl::get_total_callback_count() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t total = 0;
     for (auto const& [cbid, count] : callback_counters_) {
@@ -189,8 +326,8 @@ std::size_t CuptiMonitor::get_total_callback_count() const {
 }
 
 // Helper function to get human-readable name for callback ID
-std::string get_callback_name(CUpti_CallbackId cbid) {
-    switch (cbid) {
+std::string get_callback_name(CuptiCallbackId cbid) {
+    switch (to_cupti_callback_id(cbid)) {
     // Runtime API callbacks
     case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020:
         return "cudaMalloc";
@@ -266,11 +403,11 @@ std::string get_callback_name(CUpti_CallbackId cbid) {
         return "cuMemFreeAsync_ptsz";
 
     default:
-        return "Unknown_" + std::to_string(cbid);
+        return "Unknown_" + std::to_string(cbid.underlying());
     }
 }
 
-std::string CuptiMonitor::get_callback_summary() const {
+std::string CuptiMonitor::Impl::get_callback_summary() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (callback_counters_.empty()) {
@@ -284,7 +421,7 @@ std::string CuptiMonitor::get_callback_summary() const {
     std::size_t total = 0;
 
     // Sort callbacks by count (descending) for better readability
-    std::vector<std::pair<CUpti_CallbackId, std::size_t>> sorted_callbacks(
+    std::vector<std::pair<CuptiCallbackId, std::size_t>> sorted_callbacks(
         callback_counters_.begin(), callback_counters_.end()
     );
     std::ranges::sort(sorted_callbacks, std::greater{}, [](auto const& v) {
@@ -304,7 +441,7 @@ std::string CuptiMonitor::get_callback_summary() const {
     return ss.str();
 }
 
-void CuptiMonitor::capture_memory_usage_impl() {
+void CuptiMonitor::Impl::capture_memory_usage_impl() {
     std::size_t free_mem, total_mem;
     cudaError_t cuda_status = cudaMemGetInfo(&free_mem, &total_mem);
 
@@ -345,14 +482,14 @@ void CuptiMonitor::capture_memory_usage_impl() {
     }
 }
 
-void CuptiMonitor::periodic_memory_sampling() {
+void CuptiMonitor::Impl::periodic_memory_sampling() {
     while (monitoring_active_.load()) {
         capture_memory_sample();
         std::this_thread::sleep_for(sampling_interval_ms_);
     }
 }
 
-CUptiResult CuptiMonitor::subscribe() {
+CUptiResult CuptiMonitor::Impl::subscribe() {
     CUptiResult cupti_err;
 
     cupti_err = cuptiSubscribe(&cupti_subscriber_, callback_wrapper, this);
@@ -381,18 +518,18 @@ CUptiResult CuptiMonitor::subscribe() {
     return cupti_err;
 }
 
-void CuptiMonitor::unsubscribe() {
+void CuptiMonitor::Impl::unsubscribe() {
     cuptiUnsubscribe(cupti_subscriber_);
 }
 
-void CUPTIAPI CuptiMonitor::callback_wrapper(
+void CUPTIAPI CuptiMonitor::Impl::callback_wrapper(
     void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
-    auto* monitor = static_cast<CuptiMonitor*>(userdata);
+    auto* monitor = static_cast<CuptiMonitor::Impl*>(userdata);
     monitor->callback(domain, cbid, cbdata);
 }
 
-void CuptiMonitor::callback(
+void CuptiMonitor::Impl::callback(
     CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     if (!monitoring_active_.load())
@@ -411,7 +548,7 @@ void CuptiMonitor::callback(
     if (should_monitor && cbInfo->callbackSite == CUPTI_API_EXIT) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            callback_counters_[cbid]++;
+            callback_counters_[make_callback_id(cbid)]++;
         }
 
         capture_memory_sample();

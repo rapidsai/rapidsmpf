@@ -7,7 +7,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <cudf/utilities/default_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
@@ -34,9 +34,7 @@ class BaseStreamingFixture : public ::testing::Test {
 
     void SetUpWithThreads(
         int num_streaming_threads,
-        std::unordered_map<
-            rapidsmpf::MemoryType,
-            rapidsmpf::BufferResource::MemoryAvailable> memory_available = {}
+        std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits = {}
     ) {
         // create a new options object, since we can not modify values in the global
         // options object
@@ -44,9 +42,9 @@ class BaseStreamingFixture : public ::testing::Test {
         env_vars["num_streaming_threads"] = std::to_string(num_streaming_threads);
         rapidsmpf::config::Options options(std::move(env_vars));
 
-        stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(
-            mr_cuda, rapidsmpf::PinnedMemoryResource::Disabled, memory_available
+        stream = rmm::cuda_stream_view{};
+        br = rapidsmpf::BufferResource::create(
+            mr_cuda, rapidsmpf::PinnedMemoryDisabled, std::move(memory_limits)
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             std::move(options), GlobalEnvironment->comm_->logger(), br

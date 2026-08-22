@@ -6,16 +6,17 @@
 #include <cstring>
 #include <memory>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include <cuda/memory>
 
-#include <cudf_test/base_fixture.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -53,10 +54,13 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
             GTEST_SKIP() << "Pinned memory resources are not supported on this system";
         }
 
-        br = std::make_unique<BufferResource>(
-            cudf::get_current_device_resource_ref(),
-            PinnedMemoryResource::make_if_available(),
-            std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{},
+        auto pinned_pool_properties = is_pinned_memory_resources_supported()
+                                          ? PinnedPoolProperties{}
+                                          : PinnedMemoryDisabled;
+        br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            std::move(pinned_pool_properties),
+            std::unordered_map<MemoryType, std::int64_t>{},
             std::nullopt,
             stream_pool
         );
@@ -73,7 +77,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
     static constexpr std::size_t chunk_size = 1_MiB;
 
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool;
-    std::unique_ptr<BufferResource> br;
+    std::shared_ptr<BufferResource> br;
     std::vector<std::uint8_t> random_data;
 };
 
@@ -96,7 +100,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
-    auto buffer1 = br->allocate(buffer_size, stream1, reserve1);
+    auto buffer1 = br->make_buffer(buffer_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
     EXPECT_EQ(buffer1->stream().value(), stream1.value());
 
@@ -115,7 +119,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 
     auto [reserve2, overbooking2] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
-    auto buffer2 = br->allocate(buffer_size, stream2, reserve2);
+    auto buffer2 = br->make_buffer(buffer_size, stream2, reserve2);
     EXPECT_EQ(buffer2->mem_type(), mem_type);
     EXPECT_EQ(buffer2->stream().value(), stream2.value());
 
@@ -143,7 +147,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer1 = br->allocate(test_size, stream1, reserve1);
+    auto buffer1 = br->make_buffer(test_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
 
     buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
@@ -179,7 +183,7 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
 
     constexpr std::size_t test_size = 2_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer = br->allocate(test_size, stream1, reserve);
+    auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
     buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
@@ -220,7 +224,7 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
 
     constexpr std::size_t test_size = 1_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
-    auto buffer = br->allocate(test_size, stream1, reserve);
+    auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
     auto* ptr = buffer->exclusive_data_access();
