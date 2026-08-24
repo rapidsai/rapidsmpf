@@ -33,13 +33,13 @@ SpillManager::~SpillManager() {
 SpillManager::SpillFunctionID SpillManager::add_spill_function(
     SpillFunction spill_function, int priority
 ) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock lock(mutex_);
     auto const id = spill_function_id_counter_++;
     RAPIDSMPF_EXPECTS(
         spill_functions_.insert({id, std::move(spill_function)}).second,
         "corrupted id counter"
     );
-    spill_function_priorities_.insert({priority, id});
+    spill_function_priorities_.emplace(priority, id);
 
     // Make sure the spill thread is running.
     if (periodic_spill_thread_.has_value()) {
@@ -49,10 +49,10 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
 }
 
 void SpillManager::remove_spill_function(SpillFunctionID fid) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock lock(mutex_);
     auto& prio = spill_function_priorities_;
     for (auto it = prio.begin(); it != prio.end(); ++it) {
-        if (it->second == fid) {
+        if (it->second.fid == fid) {
             prio.erase(it);  // Erase the first occurrence
             break;  // Exit after erasing to ensure only the first one is removed
         }
@@ -68,12 +68,20 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
 std::size_t SpillManager::spill(std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spilled{0};
-    std::unique_lock<std::mutex> lock(mutex_);
-    for (auto const [_, fid] : spill_function_priorities_) {
+    std::shared_lock lock(mutex_);
+    for (auto& [_, state] : spill_function_priorities_) {
         if (spilled >= amount) {
             break;
         }
-        spilled += spill_functions_.at(fid)(amount - spilled);
+        bool expected = false;
+        if (!state.in_use.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel
+            ))
+        {
+            continue;
+        }
+        spilled += spill_functions_.at(state.fid)(amount - spilled);
+        state.in_use.store(false, std::memory_order_release);
     }
     return spilled;
 }
