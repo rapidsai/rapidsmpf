@@ -39,6 +39,26 @@ jobs:
       branch: ${{ inputs.branch }}
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       date: ${{ inputs.date }}
+      matrix_filter: map(select(.GPU != "gb300"))
+      script: ci/test_cpp.sh
+      sha: ${{ inputs.sha }}
+  conda-cpp-tests-gb300:
+    if: inputs.build_type != 'pull-request'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+      continue-on-error: true
+      date: ${{ inputs.date }}
+      matrix_filter: map(select(.GPU == "gb300"))
       script: ci/test_cpp.sh
       sha: ${{ inputs.sha }}
   conda-cpp-memcheck:
@@ -72,6 +92,27 @@ jobs:
       branch: ${{ inputs.branch }}
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       date: ${{ inputs.date }}
+      matrix_filter: map(select(.GPU != "gb300"))
+      run_codecov: false
+      script: ci/test_python.sh
+      sha: ${{ inputs.sha }}
+  conda-python-tests-gb300:
+    if: inputs.build_type != 'pull-request'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+      continue-on-error: true
+      date: ${{ inputs.date }}
+      matrix_filter: map(select(.GPU == "gb300"))
       run_codecov: false
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
