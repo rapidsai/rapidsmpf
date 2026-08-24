@@ -377,22 +377,25 @@ cdef class BufferResource:
             return None
         return PinnedMemoryResource.from_handle(opt)
 
-    def memory_reserved(self, MemoryType mem_type):
+    def memory_available_for_reservation(self, MemoryType mem_type):
         """
-        Get the current reserved memory of the specified memory type.
+        Get the memory available to a new reservation, in bytes.
+
+        A snapshot of ``memory_available(mem_type)`` minus the outstanding
+        reservations of that memory type. May be negative.
 
         Parameters
         ----------
         mem_type
-            The target memory type.
+            The memory type to query.
 
         Returns
         -------
-        The memory reserved, in bytes.
+        The memory available for reservation, in bytes.
         """
-        cdef size_t ret
+        cdef int64_t ret
         with nogil:
-            ret = deref(self._handle).memory_reserved(mem_type)
+            ret = deref(self._handle).memory_available_for_reservation(mem_type)
         return ret
 
     def memory_available(self, MemoryType mem_type):

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -188,19 +188,19 @@ cdef class SpillManager:
 
     def spill_to_make_headroom(self, int64_t headroom = 0):
         """
-        Attempts to free memory by spilling until the requested headroom is available.
+        Attempts to free memory by spilling until the requested headroom is reservable.
 
-        This method checks the currently available memory and, if insufficient,
-        triggers spilling mechanisms to free up space. Spilling is performed in
-        order of the function priorities until the required headroom is reached
-        or no more spilling is possible.
+        Headroom is measured against ``BufferResource.memory_available_for_reservation()``.
+        Spilling is performed in order of the function priorities until the requested
+        headroom is reservable or no more spilling is possible. Spilling reduces
+        allocations, never outstanding reservations.
 
         Parameters
         ----------
         headroom
-            The target amount of headroom (in bytes). A negative headroom is
-            allowed and can be used to only trigger spilling when the available
-            memory becomes negative (as reported by the memory resource).
+            The target amount of headroom (in bytes). A negative headroom
+            triggers spilling only once the memory available for reservation
+            drops below ``headroom``.
 
         Returns
         -------

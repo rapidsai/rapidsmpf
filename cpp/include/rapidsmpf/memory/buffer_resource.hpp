@@ -282,14 +282,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
-     * @brief Get the current reserved memory of the specified memory type.
+     * @brief Returns the memory available to a new reservation, in bytes.
      *
-     * @param mem_type The target memory type.
-     * @return The memory reserved.
+     * A snapshot of `memory_available(mem_type)` minus the outstanding reservations
+     * of that memory type. May be negative.
+     *
+     * @param mem_type The memory type to query.
+     * @return The memory available for reservation in bytes.
      */
-    [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
-        return memory_reserved_[static_cast<std::size_t>(mem_type)];
-    }
+    [[nodiscard]] std::int64_t memory_available_for_reservation(
+        MemoryType mem_type
+    ) const;
 
     /**
      * @brief Reserve an amount of the specified memory type.
@@ -538,7 +541,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics
     );
 
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;

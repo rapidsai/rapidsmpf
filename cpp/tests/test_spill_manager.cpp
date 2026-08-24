@@ -73,3 +73,44 @@ TEST(SpillManager, SpillFunction) {
     EXPECT_EQ(br->spill_manager().spill_to_make_headroom(-100_KiB), 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 }
+
+TEST(SpillManager, HeadroomAccountsForReservations) {
+    // As in `SpillFunction`, availability is driven by the DEVICE limit since no real
+    // allocations occur.
+    std::int64_t mem_available = 100_KiB;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, mem_available}}
+    );
+    SpillManager::SpillFunction func =
+        [&br, &mem_available](std::size_t amount) -> std::size_t {
+        mem_available += safe_cast<std::int64_t>(amount);
+        br->set_memory_limit(MemoryType::DEVICE, mem_available);
+        return amount;
+    };
+    br->spill_manager().add_spill_function(func, /* priority = */ 0);
+
+    // Without a reservation, a headroom equal to the availability doesn't spill.
+    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 0);
+
+    // Reserve 40 KiB, leaving 60 KiB reservable out of 100 KiB available.
+    auto [reservation, overbooking] =
+        br->reserve(MemoryType::DEVICE, 40_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(reservation.size(), 40_KiB);
+    EXPECT_EQ(overbooking, 0);
+    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 60_KiB);
+
+    // The same headroom spills the reserved amount, since headroom is measured net
+    // of reservations rather than against `memory_available()`.
+    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 40_KiB);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 100_KiB);
+
+    // A headroom within what is reservable still doesn't spill.
+    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 0);
+
+    // Releasing the reservation makes the reserved bytes available again.
+    EXPECT_EQ(br->release(reservation, 40_KiB), 0);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 140_KiB);
+}
