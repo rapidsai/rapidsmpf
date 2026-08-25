@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -23,11 +23,12 @@ def KiB(x: int) -> int:
 def test_buffer_resource() -> None:
     mr = rmm.mr.CudaMemoryResource()
     br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(100)})
-    assert br.memory_reserved(MemoryType.DEVICE) == 0
-    assert br.memory_reserved(MemoryType.HOST) == 0
-
-    # Memory availability starts at the configured limit.
+    # Memory availability starts at the configured limit, with nothing reserved.
     assert br.memory_available(MemoryType.DEVICE) == KiB(100)
+    assert br.memory_available_for_reservation(MemoryType.DEVICE) == KiB(100)
+    assert br.memory_available_for_reservation(MemoryType.HOST) == br.memory_available(
+        MemoryType.HOST
+    )
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])

@@ -44,7 +44,9 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             shared_ptr[cuda_stream_pool],
             shared_ptr[cpp_Statistics],
         ) except +ex_handler
-        size_t memory_reserved(MemoryType mem_type) except +ex_handler
+        int64_t memory_available_for_reservation(
+            MemoryType mem_type
+        ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
