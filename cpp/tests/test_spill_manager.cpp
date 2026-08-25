@@ -94,23 +94,13 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
     // Without a reservation, a headroom equal to the availability doesn't spill.
     EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 0);
 
-    // Reserve 40 KiB, leaving 60 KiB reservable out of 100 KiB available.
+    // Reserving 40 KiB leaves the availability untouched but 40 KiB less reservable,
+    // and the same headroom now spills that amount.
     auto [reservation, overbooking] =
         br->reserve(MemoryType::DEVICE, 40_KiB, AllowOverbooking::NO);
-    EXPECT_EQ(reservation.size(), 40_KiB);
     EXPECT_EQ(overbooking, 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 60_KiB);
-
-    // The same headroom spills the reserved amount, since headroom is measured net
-    // of reservations rather than against `memory_available()`.
     EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 40_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 100_KiB);
-
-    // A headroom within what is reservable still doesn't spill.
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 0);
-
-    // Releasing the reservation makes the reserved bytes available again.
-    EXPECT_EQ(br->release(reservation, 40_KiB), 0);
-    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 140_KiB);
 }

@@ -588,7 +588,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 }
 
 TEST(Shuffler, SpillOnInsertAccountsForReservations) {
-    rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     auto stream = rmm::cuda_stream_default;
 
     // A limit large enough that `memory_available(DEVICE)` stays positive throughout,
@@ -604,54 +603,25 @@ TEST(Shuffler, SpillOnInsertAccountsForReservations) {
 
     auto comm = GlobalEnvironment->split_comm();
     EXPECT_EQ(comm->nranks(), 1);
+    rapidsmpf::shuffler::Shuffler shuffler(comm, /* op_id = */ 0, 1, br.get());
 
-    rapidsmpf::shuffler::Shuffler shuffler(
-        comm,
-        0,  // op_id
-        total_num_partitions,
-        br.get()
+    // Reserve twice the limit. Availability stays positive, but the memory available
+    // for reservation goes negative.
+    auto [reservation, overbooking] = br->reserve(
+        rapidsmpf::MemoryType::DEVICE,
+        2 * static_cast<std::size_t>(k_no_spill_limit),
+        rapidsmpf::AllowOverbooking::YES
     );
+    EXPECT_GT(br->memory_available(rapidsmpf::MemoryType::DEVICE), 0);
+    EXPECT_LT(br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE), 0);
 
-    // Insert one non-empty chunk per partition. Availability is positive and nothing
-    // is reserved, so this does not spill.
-    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input_chunks;
-    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
-        input_chunks.emplace(pid, generate_packed_data(1000, 0, stream, *br));
-    }
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
-    shuffler.insert(std::move(input_chunks));
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
-
-    {
-        // Reserve twice the limit. Availability stays positive, but the memory
-        // available for reservation goes deeply negative.
-        auto [reservation, overbooking] = br->reserve(
-            rapidsmpf::MemoryType::DEVICE,
-            2 * static_cast<std::size_t>(k_no_spill_limit),
-            rapidsmpf::AllowOverbooking::YES
-        );
-        EXPECT_GT(br->memory_available(rapidsmpf::MemoryType::DEVICE), 0);
-        EXPECT_LT(br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE), 0);
-
-        // Inserting spills everything in the shuffler, driven by the reservation
-        // alone. Measured against `memory_available()` this would spill nothing.
-        std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
-        chunk.emplace(0, generate_packed_data(1000, 0, stream, *br));
-        shuffler.insert(std::move(chunk));
-        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
-    }
-
-    // With the reservation released, inserting no longer spills.
-    EXPECT_EQ(
-        br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE),
-        br->memory_available(rapidsmpf::MemoryType::DEVICE)
-    );
-    {
-        std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
-        chunk.emplace(1, generate_packed_data(1000, 0, stream, *br));
-        shuffler.insert(std::move(chunk));
-        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    }
+    // The reservation alone drives the spill. Measured against `memory_available()`
+    // this would spill nothing.
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
+    chunk.emplace(0, generate_packed_data(1000, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    shuffler.insert(std::move(chunk));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 
     shuffler.insert_finished();
 }

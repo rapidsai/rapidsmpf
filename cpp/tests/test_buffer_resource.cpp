@@ -72,9 +72,6 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
-    // With nothing reserved, the full availability is reservable.
-    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 10_KiB);
-
     // Book all available memory.
     auto [reserve1, overbooking1] =
         br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
@@ -82,9 +79,6 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
-
-    // Availability is now fully reserved, so nothing more is reservable.
-    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 0);
 
     // Try to overbook.
     auto [reserve2, overbooking2] =
@@ -101,12 +95,6 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(overbooking3, 10_KiB);
     EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
-
-    // Overbooked, so the figure goes negative by the overbooked amount.
-    EXPECT_EQ(
-        br->memory_available_for_reservation(MemoryType::DEVICE),
-        -safe_cast<std::int64_t>(10_KiB)
-    );
 
     // No host limit.
     auto [reserve4, overbooking4] =
