@@ -587,6 +587,47 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     shuffler.insert_finished();
 }
 
+TEST(Shuffler, SpillOnInsertAccountsForReservations) {
+    auto stream = rmm::cuda_stream_default;
+
+    // A limit large enough that `memory_available(DEVICE)` stays positive throughout,
+    // so only the reservation can drive spilling.
+    constexpr std::int64_t k_no_spill_limit = (1LL << 40);
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
+        std::nullopt  // disable periodic spill check
+    );
+    auto const& mr = br->device_mr_adaptor();
+
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+    rapidsmpf::shuffler::Shuffler shuffler(comm, /* op_id = */ 0, 1, br.get());
+
+    // Reserve twice the limit. Availability stays positive, but the memory available
+    // for reservation goes negative.
+    constexpr std::size_t reservation_size =
+        2 * static_cast<std::size_t>(k_no_spill_limit);
+    auto [reservation, overbooking] = br->reserve(
+        rapidsmpf::MemoryType::DEVICE, reservation_size, rapidsmpf::AllowOverbooking::YES
+    );
+    EXPECT_EQ(reservation.size(), reservation_size);
+    EXPECT_GT(overbooking, 0);
+    EXPECT_GT(br->memory_available(rapidsmpf::MemoryType::DEVICE), 0);
+    EXPECT_LT(br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE), 0);
+
+    // The reservation alone drives the spill. Measured against `memory_available()`
+    // this would spill nothing.
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
+    chunk.emplace(0, generate_packed_data(1000, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    shuffler.insert(std::move(chunk));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    shuffler.insert_finished();
+}
+
 TEST(FinishCounterTests, zero_local_partitions_immediately_finished) {
     rapidsmpf::shuffler::detail::FinishCounter finish_counter(
         /*nranks=*/2, /*n_local_partitions=*/0

@@ -51,6 +51,17 @@ std::unique_ptr<Buffer> zeros(
     return ret;
 }
 
+/**
+ * @brief The outstanding reservations of a memory type, in bytes.
+ *
+ * @param br Buffer resource to query.
+ * @param mem_type The target memory type.
+ * @return The reserved bytes.
+ */
+std::int64_t reserved_bytes(BufferResource const& br, MemoryType mem_type) {
+    return br.memory_available(mem_type) - br.memory_available_for_reservation(mem_type);
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
@@ -58,63 +69,63 @@ TEST(BufferResource, ReservationOverbooking) {
         PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 10_KiB}}
     );
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Book all available memory.
     auto [reserve1, overbooking1] =
         br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Try to overbook.
     auto [reserve2, overbooking2] =
         br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve2.size(), 0);  // Reservation failed.
     EXPECT_EQ(overbooking2, 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Allow overbooking.
     auto [reserve3, overbooking3] =
         br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve3.size(), 10_KiB);
     EXPECT_EQ(overbooking3, 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // No host limit.
     auto [reserve4, overbooking4] =
         br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(overbooking4, 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
     EXPECT_THROW(br->release(reserve1, 20_KiB), rapidsmpf::reservation_error);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
     EXPECT_EQ(br->release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 15_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 15_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // We are still overbooking.
     auto [reserve5, overbooking5] =
         br->reserve(MemoryType::DEVICE, 5_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve5.size(), 5_KiB);
     EXPECT_EQ(overbooking5, 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 20_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 20_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
 TEST(BufferResource, ReservationReleasing) {
@@ -125,8 +136,8 @@ TEST(BufferResource, ReservationReleasing) {
         PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
     );
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Reserve all available host and device memory.
     auto [reserve1, overbooking1] =
@@ -137,23 +148,23 @@ TEST(BufferResource, ReservationReleasing) {
     EXPECT_EQ(overbooking1, 0);
     EXPECT_EQ(reserve2.size(), 10_KiB);
     EXPECT_EQ(overbooking2, 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
     EXPECT_THROW(br->release(reserve1, 20_KiB), rapidsmpf::reservation_error);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
     EXPECT_EQ(br->release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 
     // A reservation is released when it goes out of scope.
     {
@@ -161,11 +172,11 @@ TEST(BufferResource, ReservationReleasing) {
             br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
         EXPECT_EQ(reserve.size(), 10_KiB);
         EXPECT_EQ(overbooking, 10_KiB);
-        EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
-        EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 20_KiB);
+        EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
+        EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 20_KiB);
     }
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
 TEST(BufferResource, MemoryLimit) {
@@ -177,24 +188,24 @@ TEST(BufferResource, MemoryLimit) {
         mr_cuda, PinnedMemoryDisabled, {{MemoryType::DEVICE, 10_KiB}}
     );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Book all available device memory.
     auto [reserve1, overbooking1] =
         br->reserve(MemoryType::DEVICE, 10_KiB, AllowOverbooking::NO);
     EXPECT_EQ(reserve1.size(), 10_KiB);
     EXPECT_EQ(overbooking1, 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0);
 
     // Allocating a Buffer also requires a reservation, which are then released.
     auto dev_buf1 = zeros(*br, 10_KiB, stream, reserve1);
     EXPECT_EQ(dev_buf1->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf1->size, 10_KiB);
     EXPECT_EQ(reserve1.size(), 0);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 0);
 
     // Insufficent reservation for the allocation.
@@ -203,8 +214,8 @@ TEST(BufferResource, MemoryLimit) {
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0_KiB);
 
     // Moving buffers between memory types requires a reservation.
     auto [reserve2, overbooking2] =
@@ -213,29 +224,29 @@ TEST(BufferResource, MemoryLimit) {
     EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
     auto [reserve3, overbooking3] =
         br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 0);
 
     auto host_buf2 = br->move(std::move(dev_buf2), reserve3);
     EXPECT_EQ(host_buf2->mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
 
     // Moving buffers to the same memory type accepts an empty reservation.
     auto host_buf3 = br->move(std::move(host_buf2), reserve3);
     EXPECT_EQ(host_buf3->mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 0_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
 
     // The reservation must be of the correct memory type.
     auto [reserve4, overbooking4] =
         br->reserve(MemoryType::HOST, 10_KiB, AllowOverbooking::YES);
     EXPECT_EQ(reserve4.size(), 10_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
 class PinnedMaxPoolSizeReservationLimitTest
@@ -386,7 +397,7 @@ TEST_F(BufferResourceReserveOrFailTest, DeviceType) {
     auto res = br->reserve_or_fail(5_KiB, MemoryType::DEVICE);
     EXPECT_EQ(res.size(), 5_KiB);
     EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
     EXPECT_THROW(
         std::ignore = br->reserve_or_fail(100_KiB, MemoryType::DEVICE), std::runtime_error
     );
@@ -397,7 +408,7 @@ TEST_F(BufferResourceReserveOrFailTest, HostType) {
     auto res = br->reserve_or_fail(5_KiB, MemoryType::HOST);
     EXPECT_EQ(res.size(), 5_KiB);
     EXPECT_EQ(res.mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 5_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 5_KiB);
 }
 
 TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
@@ -407,12 +418,12 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
     auto res = br->reserve_or_fail(5_KiB, types);
     EXPECT_EQ(res.size(), 5_KiB);
     EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
-    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
 
     auto res1 = br->reserve_or_fail(10_KiB, types);  // this falls back to host
     EXPECT_EQ(res1.size(), 10_KiB);
     EXPECT_EQ(res1.mem_type(), MemoryType::HOST);
-    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
 class BaseBufferResourceCopyTest : public ::testing::Test {

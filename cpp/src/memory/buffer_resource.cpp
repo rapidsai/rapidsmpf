@@ -162,6 +162,16 @@ std::optional<PinnedMemoryResource> BufferResource::try_pinned_mr() const {
     return pinned_mr_;
 }
 
+std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_type) const {
+    // Sample availability before taking the lock, matching `reserve()`.
+    std::int64_t const available = memory_available(mem_type);
+    std::lock_guard<std::mutex> lock(mutex_);
+    return available
+           - safe_cast<std::int64_t>(
+               memory_reserved_[static_cast<std::size_t>(mem_type)]
+           );
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
