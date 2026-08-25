@@ -97,6 +97,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     auto rmm_buffer = std::make_unique<rmm::device_buffer>(
         random_data.data(), buffer_size, stream1, br->device_mr()
     );
+    stream1.synchronize();
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);

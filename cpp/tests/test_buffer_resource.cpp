@@ -435,12 +435,12 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
             br->reserve(mem_type, size, AllowOverbooking::NO);
         auto buf = br->make_buffer(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
-        // copy the host pattern to the Buffer
         buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(
                 cuda_memcpy_async(buf_data, host_pattern.data(), size, stream)
             );
         });
+        buf->latest_write_event().host_wait();
         return buf;
     }
 
