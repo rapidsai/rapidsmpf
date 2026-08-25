@@ -108,10 +108,10 @@ class SpillManager {
      * @brief Attempts to free up memory by spilling data until the requested headroom is
      * reservable.
      *
-     * Headroom is measured against `BufferResource::memory_available_for_reservation()`.
-     * Spilling is performed in order of the function priorities until the requested
-     * headroom is reservable or no more spilling is possible. Spilling reduces
-     * allocations, never outstanding reservations.
+     * The headroom measurement is a snapshot, so a later `reserve()` of `headroom` bytes
+     * is not guaranteed to succeed. Spilling is performed in order of the function
+     * priorities until the requested headroom is reservable or no more spilling is
+     * possible. Spilling reduces allocations, never outstanding reservations.
      *
      * @param headroom The target amount of headroom (in bytes). A negative headroom
      * triggers spilling only once the memory available for reservation drops below
@@ -119,6 +119,8 @@ class SpillManager {
      * @return The actual amount of memory spilled (in bytes), which may be less than
      * requested if there is insufficient spillable data, but may also be more
      * or equal to requested depending on the sizes of spillable data buffers.
+     *
+     * @see BufferResource::memory_available_for_reservation()
      */
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 

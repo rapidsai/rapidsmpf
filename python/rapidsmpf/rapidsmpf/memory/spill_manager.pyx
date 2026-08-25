@@ -190,9 +190,10 @@ cdef class SpillManager:
         """
         Attempts to free memory by spilling until the requested headroom is reservable.
 
-        Headroom is measured against ``BufferResource.memory_available_for_reservation()``.
-        Spilling is performed in order of the function priorities until the requested
-        headroom is reservable or no more spilling is possible. Spilling reduces
+        The headroom measurement is a snapshot, so a later ``reserve()`` of
+        ``headroom`` bytes is not guaranteed to succeed. Spilling is performed
+        in order of the function priorities until the requested headroom is
+        reservable or no more spilling is possible. Spilling reduces
         allocations, never outstanding reservations.
 
         Parameters
@@ -207,6 +208,10 @@ cdef class SpillManager:
         The actual amount of memory spilled (in bytes), which may be less than
         requested if there is insufficient spillable data, but may also be more
         or equal to requested depending on the sizes of spillable data buffers.
+
+        See Also
+        --------
+        BufferResource.memory_available_for_reservation
         """
         self._valid_buffer_resource()
         cdef size_t ret
