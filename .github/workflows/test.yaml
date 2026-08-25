@@ -43,6 +43,10 @@ jobs:
       script: ci/test_cpp.sh
       sha: ${{ inputs.sha }}
   conda-cpp-tests-gb300:
+    # Until nvbug 6565551 is fixed, multi-process virtualised runs on GB300
+    # can put the GPU in an unrecoverable state in the VM if two processes
+    # initialise a cuda context simultaneously. Hence we make the tests on
+    # GB300 optional.
     if: inputs.build_type != 'pull-request'
     permissions:
       actions: read
@@ -97,6 +101,10 @@ jobs:
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
   conda-python-tests-gb300:
+    # Until nvbug 6565551 is fixed, multi-process virtualised runs on GB300
+    # can put the GPU in an unrecoverable state in the VM if two processes
+    # initialise a cuda context simultaneously. Hence we make the tests on
+    # GB300 optional.
     if: inputs.build_type != 'pull-request'
     permissions:
       actions: read
