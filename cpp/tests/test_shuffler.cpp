@@ -607,11 +607,13 @@ TEST(Shuffler, SpillOnInsertAccountsForReservations) {
 
     // Reserve twice the limit. Availability stays positive, but the memory available
     // for reservation goes negative.
+    constexpr std::size_t reservation_size =
+        2 * static_cast<std::size_t>(k_no_spill_limit);
     auto [reservation, overbooking] = br->reserve(
-        rapidsmpf::MemoryType::DEVICE,
-        2 * static_cast<std::size_t>(k_no_spill_limit),
-        rapidsmpf::AllowOverbooking::YES
+        rapidsmpf::MemoryType::DEVICE, reservation_size, rapidsmpf::AllowOverbooking::YES
     );
+    EXPECT_EQ(reservation.size(), reservation_size);
+    EXPECT_GT(overbooking, 0);
     EXPECT_GT(br->memory_available(rapidsmpf::MemoryType::DEVICE), 0);
     EXPECT_LT(br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE), 0);
 
