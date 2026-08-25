@@ -23,14 +23,17 @@ namespace rapidsmpf::streaming {
 
 MemoryReserveOrWait::MemoryReserveOrWait(
     config::Options options,
+    std::shared_ptr<Logger> logger,
     MemoryType mem_type,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
     : mem_type_{mem_type},
+      logger_{std::move(logger)},
       executor_{std::move(executor)},
       br_{std::move(br)},
       timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
+    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }
@@ -78,7 +81,6 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 
     // Enqueue a reservation request under the mutex.
     std::unique_lock lock(mutex_);
-    bool const spawn_periodic_memory_check = reservation_requests_.empty();
     reservation_requests_.insert(
         Request{
             .size = size,
@@ -88,9 +90,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
         }
     );
 
-    // If this is the first pending request, start the periodic memory check task.
+    // If no periodic memory check task is running, start one.
     std::optional<coro::task<void>> previous_periodic_task;
-    if (spawn_periodic_memory_check) {
+    if (!periodic_task_running_) {
         // A previous periodic task may exist but is guaranteed to be either already
         // finished or about to finish. This can happen when the last request was
         // extracted and the task is in the process of exiting.
@@ -99,6 +101,8 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
         // ensuring that at most one periodic task is active at any time.
         previous_periodic_task = std::move(periodic_memory_check_task_);
         periodic_memory_check_task_ = executor_->spawn_joinable(periodic_memory_check());
+        // Claim the slot until the task releases it.
+        periodic_task_running_ = true;
     }
     lock.unlock();
 
@@ -164,9 +168,10 @@ Duration MemoryReserveOrWait::timeout() const noexcept {
 }
 
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
-    // Helper that returns available memory, clamped so negative values become zero.
+    // Helper that returns the memory available for new reservations, clamped so
+    // negative values become zero.
     auto memory_available = [this]() -> std::size_t {
-        std::int64_t const ret = br_->memory_available(mem_type_);
+        std::int64_t const ret = br_->memory_available_for_reservation(mem_type_);
         return safe_cast<std::size_t>(std::max(ret, std::int64_t{0}));
     };
 
@@ -198,13 +203,68 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         RAPIDSMPF_EXPECTS(err, "cannot spawn push-into-queue task");
     };
 
+    // Helper that spills until `headroom` bytes are reservable, swallowing a spill
+    // function that throws and logging it once per task. Returns false only when a
+    // non-blocking spill found the spill lock held.
+    bool spill_failure_logged = false;
+    auto make_headroom = [&](std::size_t headroom, bool blocking) -> bool {
+        // Only device memory is supported, see `spill_to_make_headroom()`.
+        if (mem_type_ != MemoryType::DEVICE) {
+            return true;
+        }
+        try {
+            auto const target = safe_cast<std::int64_t>(headroom);
+            if (blocking) {
+                br_->spill_manager().spill_to_make_headroom(target);
+                return true;
+            }
+            return br_->spill_manager().try_spill_to_make_headroom(target).has_value();
+        } catch (...) {
+            if (!std::exchange(spill_failure_logged, true)) {
+                try {
+                    logger_->warn(
+                        "a spill function threw while making headroom for ",
+                        format_nbytes(headroom),
+                        ", falling back to the reservation timeout"
+                    );
+                } catch (...) {  // NOLINT(bugprone-empty-catch)
+                }
+            }
+            return true;
+        }
+    };
+
+    // RAII helper that releases `periodic_task_running_` when this task exits without
+    // reaching one of the `co_return` paths below, such as on an exception. Those paths
+    // release the flag under the same lock acquisition that observes the empty request
+    // set, and dismiss the guard.
+    struct RunningFlagGuard {
+        MemoryReserveOrWait* self;
+
+        ~RunningFlagGuard() {
+            if (self != nullptr) {
+                std::lock_guard lock(self->mutex_);
+                self->periodic_task_running_ = false;
+            }
+        }
+
+        void dismiss() noexcept {
+            self = nullptr;
+        }
+    } running_flag_guard{.self = this};
+
     while (true) {
         auto last_reservation_success = Clock::now();
+        // Spilling is attempted once per timeout window, re-armed by each served
+        // request.
+        bool spill_attempted = false;
         while (true) {
             // Exit if no more pending requests remain.
             {
                 std::unique_lock lock(mutex_);
                 if (reservation_requests_.empty()) {
+                    periodic_task_running_ = false;
+                    running_flag_guard.dismiss();
                     co_return;
                 }
             }
@@ -222,6 +282,18 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             std::unique_lock lock(mutex_);
             auto eligibles = eligible_requests(max_size);
             if (eligibles.empty()) {
+                // Nothing fits. Spill enough to admit the request with the smallest
+                // net_memory_delta, then re-poll.
+                if (!spill_attempted && !reservation_requests_.empty()) {
+                    auto const target = std::ranges::min_element(
+                        reservation_requests_, std::less<>{}, &Request::net_memory_delta
+                    );
+                    auto const headroom = target->size;
+                    // Spill without holding the mutex, the spill functions take the
+                    // buffer resource's lock.
+                    lock.unlock();
+                    spill_attempted = make_headroom(headroom, /* blocking = */ false);
+                }
                 continue;  // No eligible requests.
             }
 
@@ -240,6 +312,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             lock.unlock();
             push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
+            spill_attempted = false;
         }
 
         // Reaching this point means we hit the timeout. We force progress by selecting
@@ -247,6 +320,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         // net_memory_delta.
         std::unique_lock lock(mutex_);
         if (reservation_requests_.empty()) {
+            periodic_task_running_ = false;
+            running_flag_guard.dismiss();
             co_return;
         }
 
@@ -270,6 +345,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
         Request request = reservation_requests_.extract(it).value();
         lock.unlock();
+
+        // Last chance before handing back a zero-size reservation.
+        make_headroom(request.size, /* blocking = */ true);
 
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.

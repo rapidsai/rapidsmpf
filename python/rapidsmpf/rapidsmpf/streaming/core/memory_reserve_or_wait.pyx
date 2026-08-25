@@ -42,7 +42,7 @@ cdef extern from * nogil:
         rapidsmpf::streaming::Context &ctx
     ) {
         return std::make_shared<rapidsmpf::streaming::MemoryReserveOrWait>(
-            std::move(options), mem_type, ctx.executor(), ctx.br()
+            std::move(options), ctx.logger(), mem_type, ctx.executor(), ctx.br()
         );
     }
     }  // namespace

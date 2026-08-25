@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <mutex>
+#include <optional>
 #include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -65,10 +67,8 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
 }
 
-std::size_t SpillManager::spill(std::size_t amount) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
+std::size_t SpillManager::spill_impl(std::size_t amount) {
     std::size_t spilled{0};
-    std::unique_lock<std::mutex> lock(mutex_);
     for (auto const [_, fid] : spill_function_priorities_) {
         if (spilled >= amount) {
             break;
@@ -78,13 +78,37 @@ std::size_t SpillManager::spill(std::size_t amount) {
     return spilled;
 }
 
-std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
+std::size_t SpillManager::spill_to_make_headroom_impl(std::int64_t headroom) {
     // TODO: check other memory types.
-    std::int64_t available = br_->memory_available_for_reservation(MemoryType::DEVICE);
+    std::int64_t const available =
+        br_->memory_available_for_reservation(MemoryType::DEVICE);
     if (headroom <= available) {
         return 0;
     }
-    return spill(safe_cast<std::size_t>(headroom - available));
+    return spill_impl(safe_cast<std::size_t>(headroom - available));
+}
+
+std::size_t SpillManager::spill(std::size_t amount) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    std::lock_guard<std::mutex> lock(mutex_);
+    return spill_impl(amount);
+}
+
+std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    std::lock_guard<std::mutex> lock(mutex_);
+    return spill_to_make_headroom_impl(headroom);
+}
+
+std::optional<std::size_t> SpillManager::try_spill_to_make_headroom(
+    std::int64_t headroom
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return std::nullopt;
+    }
+    return spill_to_make_headroom_impl(headroom);
 }
 
 }  // namespace rapidsmpf
