@@ -30,6 +30,11 @@ class Context;
  * memory with backpressure. Callers submit reservation requests via
  * `reserve_or_wait()`, which suspends until enough memory is available or
  * progress must be forced.
+ *
+ * While requests are pending and none of them fit into the available memory,
+ * spilling is triggered on the caller's behalf. This applies to `MemoryType::DEVICE`
+ * only, since `SpillManager` measures headroom against device memory. Requests of
+ * other memory types wait without spilling.
  */
 class MemoryReserveOrWait {
   public:
@@ -54,6 +59,8 @@ class MemoryReserveOrWait {
      * progress by selecting the smallest pending request and attempting to reserve
      * memory for it. This attempt may result in an empty reservation if the request
      * still cannot be satisfied.
+     *
+     * Spilling is attempted before that timeout is reached, see the class docs.
      *
      * @param options Configuration options.
      * @param logger Shared pointer to a logger.
@@ -87,12 +94,17 @@ class MemoryReserveOrWait {
      * (including other pending requests) makes progress within the configured
      * timeout.
      *
+     * While no pending request fits, spilling is attempted to free the memory the
+     * highest-priority one needs, and again just before progress is forced. Both are
+     * limited to `MemoryType::DEVICE`.
+     *
      * The timeout does not apply specifically to this request. Instead, it is used
      * as a global progress guarantee: if no pending reservation request can be
      * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
      * selecting the smallest pending request and attempting to reserve memory for
      * it. The forced reservation attempt may result in an empty `MemoryReservation`
-     * if the selected request still cannot be satisfied.
+     * if the selected request still cannot be satisfied, for example when nothing
+     * is spillable.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to

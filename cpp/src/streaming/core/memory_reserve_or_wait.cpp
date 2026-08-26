@@ -224,8 +224,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                 try {
                     logger_->warn(
                         "a spill function threw while making headroom for ",
-                        format_nbytes(headroom),
-                        ", falling back to the reservation timeout"
+                        format_nbytes(headroom)
                     );
                 } catch (...) {  // NOLINT(bugprone-empty-catch)
                 }
