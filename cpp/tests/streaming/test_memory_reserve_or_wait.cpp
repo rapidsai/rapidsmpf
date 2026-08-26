@@ -42,50 +42,6 @@ class StreamingMemoryReserveOrWait
         return br->memory_available(rapidsmpf::MemoryType::DEVICE);
     }
 
-    // Pins the memory available for reservation to `available` bytes and registers a
-    // spill function that frees exactly what it is asked for, recording each request.
-    // Pinning keeps the buffer resource's periodic spill thread out of the way, it only
-    // acts once the available memory goes negative.
-    class SpillRecorder {
-      public:
-        SpillRecorder(rapidsmpf::BufferResource* br, std::int64_t available)
-            : br_{br},
-              limit_{
-                  rapidsmpf::safe_cast<std::int64_t>(
-                      br->device_mr_adaptor().current_allocated()
-                  )
-                  + available
-              } {
-            br_->set_memory_limit(rapidsmpf::MemoryType::DEVICE, limit_);
-            fid_ = br_->spill_manager().add_spill_function(
-                [this](std::size_t amount) -> std::size_t {
-                    std::lock_guard lock(mutex_);
-                    amounts_.push_back(amount);
-                    limit_ += rapidsmpf::safe_cast<std::int64_t>(amount);
-                    br_->set_memory_limit(rapidsmpf::MemoryType::DEVICE, limit_);
-                    return amount;
-                },
-                /* priority = */ 1
-            );
-        }
-
-        ~SpillRecorder() {
-            br_->spill_manager().remove_spill_function(fid_);
-        }
-
-        [[nodiscard]] std::vector<std::size_t> amounts() const {
-            std::lock_guard lock(mutex_);
-            return amounts_;
-        }
-
-      private:
-        rapidsmpf::BufferResource* br_;
-        std::int64_t limit_;
-        std::size_t fid_{};
-        mutable std::mutex mutex_;
-        std::vector<std::size_t> amounts_;
-    };
-
     // Actor that reserves `size` bytes and expects a reservation of `expected` bytes.
     static Actor waiter(
         MemoryReserveOrWait& mrow,
@@ -330,6 +286,54 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     }
 }
 
+// Pins the memory available for reservation to `available` bytes and registers a spill
+// function backed by a finite pool of `spillable` bytes, recording each request. Frees
+// what it is asked for until the pool is exhausted, then returns 0.
+//
+// Pinning keeps the buffer resource's periodic spill thread out of the way, it only
+// acts once the available memory goes negative.
+class SpillRecorder {
+  public:
+    SpillRecorder(BufferResource* br, std::int64_t available, std::size_t spillable)
+        : br_{br},
+          limit_{
+              safe_cast<std::int64_t>(br->device_mr_adaptor().current_allocated())
+              + available
+          },
+          spillable_{spillable} {
+        br_->set_memory_limit(MemoryType::DEVICE, limit_);
+        fid_ = br_->spill_manager().add_spill_function(
+            [this](std::size_t amount) -> std::size_t {
+                std::lock_guard lock(mutex_);
+                amounts_.push_back(amount);
+                auto const spilled = std::min(amount, spillable_);
+                spillable_ -= spilled;
+                limit_ += safe_cast<std::int64_t>(spilled);
+                br_->set_memory_limit(MemoryType::DEVICE, limit_);
+                return spilled;
+            },
+            /* priority = */ 1
+        );
+    }
+
+    ~SpillRecorder() {
+        br_->spill_manager().remove_spill_function(fid_);
+    }
+
+    [[nodiscard]] std::vector<std::size_t> amounts() const {
+        std::lock_guard lock(mutex_);
+        return amounts_;
+    }
+
+  private:
+    BufferResource* br_;
+    std::int64_t limit_;
+    std::size_t spillable_;
+    std::size_t fid_{};
+    mutable std::mutex mutex_;
+    std::vector<std::size_t> amounts_;
+};
+
 TEST_P(StreamingMemoryReserveOrWait, SpillingUnblocksWaiter) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
@@ -346,7 +350,7 @@ TEST_P(StreamingMemoryReserveOrWait, SpillingUnblocksWaiter) {
 
     // The available memory covers the request on its own, but an outstanding
     // reservation consumes all of it, so only spilling can unblock the waiter.
-    SpillRecorder spills{br.get(), /* available = */ 10};
+    SpillRecorder spills{br.get(), /* available = */ 10, /* spillable = */ 10};
     auto [outstanding, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
     ASSERT_EQ(outstanding.size(), 10);
 
@@ -402,7 +406,7 @@ TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {
         ctx->br()
     };
 
-    SpillRecorder spills{br.get(), /* available = */ 1024};
+    SpillRecorder spills{br.get(), /* available = */ 1024, /* spillable = */ 0};
 
     std::vector<Actor> actors;
     actors.push_back(waiter(mrow, 10, 0, 10));

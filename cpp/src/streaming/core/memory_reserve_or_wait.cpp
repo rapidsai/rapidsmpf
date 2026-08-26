@@ -251,7 +251,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         void dismiss() noexcept {
             self = nullptr;
         }
-    } running_flag_guard{.self = this};
+    };
+
+    RunningFlagGuard running_flag_guard{.self = this};
 
     while (true) {
         auto last_reservation_success = Clock::now();

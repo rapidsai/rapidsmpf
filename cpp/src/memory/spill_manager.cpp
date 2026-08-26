@@ -67,7 +67,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
 }
 
-std::size_t SpillManager::spill_impl(std::size_t amount) {
+std::size_t SpillManager::spill_unsafe(std::size_t amount) {
     std::size_t spilled{0};
     for (auto const [_, fid] : spill_function_priorities_) {
         if (spilled >= amount) {
@@ -78,26 +78,26 @@ std::size_t SpillManager::spill_impl(std::size_t amount) {
     return spilled;
 }
 
-std::size_t SpillManager::spill_to_make_headroom_impl(std::int64_t headroom) {
+std::size_t SpillManager::spill_to_make_headroom_unsafe(std::int64_t headroom) {
     // TODO: check other memory types.
     std::int64_t const available =
         br_->memory_available_for_reservation(MemoryType::DEVICE);
     if (headroom <= available) {
         return 0;
     }
-    return spill_impl(safe_cast<std::size_t>(headroom - available));
+    return spill_unsafe(safe_cast<std::size_t>(headroom - available));
 }
 
 std::size_t SpillManager::spill(std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::lock_guard<std::mutex> lock(mutex_);
-    return spill_impl(amount);
+    return spill_unsafe(amount);
 }
 
 std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::lock_guard<std::mutex> lock(mutex_);
-    return spill_to_make_headroom_impl(headroom);
+    return spill_to_make_headroom_unsafe(headroom);
 }
 
 std::optional<std::size_t> SpillManager::try_spill_to_make_headroom(
@@ -108,7 +108,7 @@ std::optional<std::size_t> SpillManager::try_spill_to_make_headroom(
     if (!lock.owns_lock()) {
         return std::nullopt;
     }
-    return spill_to_make_headroom_impl(headroom);
+    return spill_to_make_headroom_unsafe(headroom);
 }
 
 }  // namespace rapidsmpf

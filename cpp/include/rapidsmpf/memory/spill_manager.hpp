@@ -144,21 +144,21 @@ class SpillManager {
 
   private:
     /**
-     * @brief Spills memory. The caller must hold `mutex_`.
+     * @brief Spills memory without locking. The caller must hold `mutex_`.
      *
      * @param amount The amount of memory (in bytes) to spill.
      * @return The actual amount of memory spilled (in bytes).
      */
-    std::size_t spill_impl(std::size_t amount);
+    std::size_t spill_unsafe(std::size_t amount);
 
     /**
-     * @brief Spills to reach the requested headroom, reading the available memory
-     * under the caller's lock. The caller must hold `mutex_`.
+     * @brief Spills to reach the requested headroom without locking, reading the
+     * available memory under the caller's lock. The caller must hold `mutex_`.
      *
      * @param headroom The target amount of headroom (in bytes).
      * @return The actual amount of memory spilled (in bytes).
      */
-    std::size_t spill_to_make_headroom_impl(std::int64_t headroom);
+    std::size_t spill_to_make_headroom_unsafe(std::int64_t headroom);
 
     mutable std::mutex mutex_;
     BufferResource* br_;
