@@ -55,12 +55,12 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
                 stream, br->reserve_or_fail(data_size, MemoryType::DEVICE)
             );
             // Fill with test data
+            std::vector<std::uint8_t> test_data(data_size);
+            std::iota(test_data.begin(), test_data.end(), 0);
             data_buffer->write_access(
-                [data_size](std::byte* ptr, rmm::cuda_stream_view stream) {
-                    std::vector<std::uint8_t> test_data(data_size);
-                    std::iota(test_data.begin(), test_data.end(), 0);
+                [&test_data](std::byte* ptr, rmm::cuda_stream_view stream) {
                     RAPIDSMPF_CUDA_TRY(
-                        cuda_memcpy_async(ptr, test_data.data(), data_size, stream)
+                        cuda_memcpy_async(ptr, test_data.data(), test_data.size(), stream)
                     );
                 }
             );

@@ -12,6 +12,7 @@
 #include <coro/coro.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -81,6 +82,9 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
             ),
             stream
         );
+        // If the copy to the device buffer is actually stream ordered, the host values
+        // might go out of scope before the copy completes.
+        stream.synchronize();
         ContentDescription cd{
             std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
             ContentDescription::Spillable::YES

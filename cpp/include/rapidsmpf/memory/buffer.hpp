@@ -376,6 +376,9 @@ class Buffer {
 /**
  * @brief Asynchronously copy data between buffers.
  *
+ * @note The copy is stream-ordered on @p dst's stream, correct cross-stream ordering
+ * between @p src's stream and @p dst's stream is provided automatically.
+ *
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.
  *

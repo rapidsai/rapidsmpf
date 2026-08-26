@@ -126,6 +126,7 @@ template <typename T>
     );
     auto data_ptr =
         std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
+    stream.synchronize();
     return rapidsmpf::PackedData{
         std::move(metadata_ptr), br->move(std::move(data_ptr), stream)
     };
@@ -166,6 +167,7 @@ template <typename T = int>
                        ) {
         RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(ptr, d_ptr, m_size, op_stream));
     });
+    data->latest_write_event().host_wait();
 
     return {std::move(metadata), std::move(data)};
 }
