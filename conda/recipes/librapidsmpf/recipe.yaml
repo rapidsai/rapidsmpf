@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 schema_version: 1
 
@@ -132,6 +132,11 @@ outputs:
           - cuda-cupti
           - librmm
           - openmpi
+    tests:
+      - script:
+          - test ! -d "${PREFIX}/include/cucascade"
+          - test ! -f "${PREFIX}/lib/libcucascade_topology_discovery.a"
+          - test ! -d "${PREFIX}/lib/cmake/cuCascade"
     about:
       homepage: https://github.com/rapidsai/rapidsmpf
       license: Apache-2.0
