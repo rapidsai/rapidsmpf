@@ -98,13 +98,15 @@ class MemoryReserveOrWait {
      * highest-priority one needs, and again just before progress is forced. Both are
      * limited to `MemoryType::DEVICE`.
      *
-     * The timeout does not apply specifically to this request. Instead, it is used
-     * as a global progress guarantee: if no pending reservation request can be
-     * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
-     * selecting the smallest pending request and attempting to reserve memory for
-     * it. The forced reservation attempt may result in an empty `MemoryReservation`
-     * if the selected request still cannot be satisfied, for example when nothing
-     * is spillable.
+     * The timeout does not apply specifically to this request. Instead, it bounds
+     * when a final recovery attempt begins, not when it completes: if no pending
+     * reservation request can be satisfied within the timeout, `MemoryReserveOrWait`
+     * forces progress by selecting the smallest pending request, spilling to make
+     * room for it, and attempting to reserve memory. That spill waits for any
+     * in-flight spill to finish, so the call can return later than the timeout. The
+     * forced reservation attempt may result in an empty `MemoryReservation` if the
+     * selected request still cannot be satisfied, for example when nothing is
+     * spillable.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
