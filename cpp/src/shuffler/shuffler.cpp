@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
@@ -232,7 +234,7 @@ Shuffler::Shuffler(
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
                         return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
+                            cuda::stream_ref{br_->stream_pool()->get_stream().value()},
                             br_->reserve_or_fail(size, MEMORY_TYPES)
                         );
                     },

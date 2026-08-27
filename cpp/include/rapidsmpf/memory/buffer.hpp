@@ -12,7 +12,8 @@
 
 #include <cuda_runtime.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
@@ -91,7 +92,7 @@ class Buffer {
      * (i.e., `this->stream()`).
      *
      * The callable must be invocable as:
-     *   - `R(std::byte*, rmm::cuda_stream_view)`.
+     *   - `R(std::byte*, cuda::stream_ref)`.
      *
      * All work performed by @p f must be stream-ordered on the buffer's stream.
      * Enqueuing work on any other stream without synchronizing with the buffer's
@@ -107,15 +108,15 @@ class Buffer {
      * outside of @p f is undefined behavior.
      *
      * @tparam F Callable type.
-     * @param f Callable that accepts `(std::byte*, rmm::cuda_stream_view)`.
+     * @param f Callable that accepts `(std::byte*, cuda::stream_ref)`.
      * @return Whatever @p f returns (`void` if none).
      *
      * @throws std::logic_error If the buffer is locked.
      *
      * @code{.cpp}
      * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
-     * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
-     *   assert(buffer.stream().value() == stream.value());
+     * buffer.write_access([&](std::byte* buffer_ptr, cuda::stream_ref stream) {
+     *   assert(buffer.stream().get() == stream.get());
      *   RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
      *       buffer_ptr,
      *       src_ptr,
@@ -126,14 +127,13 @@ class Buffer {
      * @endcode
      */
     template <typename F>
-    auto write_access(F&& f)
-        -> std::invoke_result_t<F, std::byte*, rmm::cuda_stream_view> {
+    auto write_access(F&& f) -> std::invoke_result_t<F, std::byte*, cuda::stream_ref> {
         using Fn = std::remove_reference_t<F>;
         static_assert(
-            std::is_invocable_v<Fn, std::byte*, rmm::cuda_stream_view>,
-            "write_access() expects callable R(std::byte*, rmm::cuda_stream_view)"
+            std::is_invocable_v<Fn, std::byte*, cuda::stream_ref>,
+            "write_access() expects callable R(std::byte*, cuda::stream_ref)"
         );
-        using R = std::invoke_result_t<Fn, std::byte*, rmm::cuda_stream_view>;
+        using R = std::invoke_result_t<Fn, std::byte*, cuda::stream_ref>;
 
         auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
@@ -201,7 +201,7 @@ class Buffer {
      *
      * @return The associated CUDA stream.
      */
-    [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
+    [[nodiscard]] constexpr cuda::stream_ref stream() const noexcept {
         return stream_;
     }
 
@@ -238,7 +238,7 @@ class Buffer {
      * buffer_copy(buffer_a, buffer_b, size);
      * @endcode
      */
-    void rebind_stream(rmm::cuda_stream_view new_stream);
+    void rebind_stream(cuda::stream_ref new_stream);
 
     /**
      * @brief Check whether the buffer's most recent write has completed.
@@ -269,7 +269,7 @@ class Buffer {
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * } else {
      *   // Ensure completion before handing to MPI.
-     *   buffer.stream().synchronize();
+     *   buffer.stream().sync();
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * }
      * @endcode
@@ -307,7 +307,7 @@ class Buffer {
      */
     Buffer(
         std::unique_ptr<HostBuffer> host_buffer,
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         MemoryType mem_type
     );
 
@@ -368,7 +368,7 @@ class Buffer {
   private:
     MemoryType const mem_type_;
     std::variant<DeviceBufferT, HostBufferT> storage_;
-    rmm::cuda_stream_view stream_;
+    cuda::stream_ref stream_{cudaStream_t{nullptr}};
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;
 };

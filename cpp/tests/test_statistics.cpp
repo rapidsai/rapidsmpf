@@ -12,7 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -189,7 +190,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     auto mr = br->device_mr_adaptor();
     auto pinned_mr = br->try_pinned_mr();
     auto stats = rapidsmpf::Statistics::create();
-    auto stream = rmm::cuda_stream_view{};
+    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
 
     // Outer scope
     {
@@ -215,7 +216,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
             pinned_mr->deallocate(stream, ptr4, 2_MiB);  // -2 MiB
             pinned_mr->deallocate(stream, ptr3, 1_MiB);  // -1 MiB
         }
-        stream.synchronize();
+        stream.sync();
     }
     auto const& records = stats->get_memory_records();
 

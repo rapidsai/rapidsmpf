@@ -22,8 +22,8 @@
 #include <unistd.h>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -115,7 +115,7 @@ template <typename T>
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
     std::span<std::uint8_t const> metadata,
     std::span<std::uint8_t const> data,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rapidsmpf::BufferResource* br
 ) {
     auto metadata_ptr =
@@ -126,7 +126,7 @@ template <typename T>
     );
     auto data_ptr =
         std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
-    stream.synchronize();
+    stream.sync();
     return rapidsmpf::PackedData{
         std::move(metadata_ptr), br->move(std::move(data_ptr), stream)
     };
@@ -148,7 +148,7 @@ template <typename T = int>
 [[nodiscard]] inline rapidsmpf::PackedData generate_packed_data(
     std::size_t n_elements,
     T offset,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rapidsmpf::BufferResource& br,
     rapidsmpf::AllowOverbooking allow_overbooking = rapidsmpf::AllowOverbooking::YES
 ) {
@@ -163,7 +163,7 @@ template <typename T = int>
     auto data = br.make_buffer(stream, std::move(reservation));
 
     data->write_access([d_ptr = metadata->data(), m_size = metadata->size()](
-                           std::byte* ptr, rmm::cuda_stream_view op_stream
+                           std::byte* ptr, cuda::stream_ref op_stream
                        ) {
         RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(ptr, d_ptr, m_size, op_stream));
     });
@@ -187,7 +187,7 @@ inline void validate_packed_data(
     rapidsmpf::PackedData&& packed_data,
     std::size_t n_elements,
     T offset,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rapidsmpf::BufferResource& br
 ) {
     auto const& metadata = *packed_data.metadata;
@@ -203,7 +203,7 @@ inline void validate_packed_data(
 
     auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
     auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
+    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
     EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
 }
 
@@ -232,21 +232,21 @@ class DelayedMemoryResource {
     }
 
     void* allocate(
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) {
         void* ptr = upstream_.allocate(stream, size, alignment);
         if (size > 0) {
             RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
-                stream.value(), sleep_on_stream, new std::chrono::milliseconds(delay_)
+                stream.get(), sleep_on_stream, new std::chrono::milliseconds(delay_)
             ));
         }
         return ptr;
     }
 
     void deallocate(
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         void* ptr,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT

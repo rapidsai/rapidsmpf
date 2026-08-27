@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from libcpp.optional cimport optional
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
@@ -144,8 +145,9 @@ cdef class PinnedMemoryResource:
         Integer address of the allocated memory.
         """
         cdef void* ptr
+        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
         with nogil:
-            ptr = self._handle.value().allocate(stream.view(), nbytes)
+            ptr = self._handle.value().allocate(cpp_stream, nbytes)
         return <size_t>ptr
 
     def deallocate(self, size_t ptr, size_t nbytes, Stream stream not None) -> None:
@@ -161,8 +163,9 @@ cdef class PinnedMemoryResource:
         stream
             CUDA stream associated with the allocation.
         """
+        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
         with nogil:
-            self._handle.value().deallocate(stream.view(), <void*>ptr, nbytes)
+            self._handle.value().deallocate(cpp_stream, <void*>ptr, nbytes)
 
     @staticmethod
     cdef PinnedMemoryResource from_handle(

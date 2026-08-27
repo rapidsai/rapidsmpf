@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,8 @@
 #include <cuda_runtime.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <cuda/stream>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -45,7 +47,7 @@ class CuptiMonitorTest : public ::testing::Test {
         // Allocate memory using rmm::device_buffer
         for (int i = 0; i < num_operations; ++i) {
             try {
-                buffers.emplace_back(size_bytes, rmm::cuda_stream_default);
+                buffers.emplace_back(size_bytes, cuda::stream_ref{cudaStream_t{nullptr}});
             } catch (const rmm::bad_alloc& e) {
                 FAIL() << "rmm::device_buffer allocation failed: " << e.what();
             }

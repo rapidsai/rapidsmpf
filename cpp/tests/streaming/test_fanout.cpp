@@ -9,6 +9,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <coro/coro.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
@@ -57,7 +59,8 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     inputs.reserve(n);
 
     Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
-        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
+        cuda::stream_ref stream =
+            cuda::stream_ref{br.stream_pool()->get_stream().value()};
         auto const cd = msg.content_description();
         auto buf_cpy = br.make_buffer(cd.content_size(), stream, res);
         // cd needs to be updated to reflect the new buffer
@@ -74,7 +77,8 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     for (int i = 0; i < n; ++i) {
         std::vector<int> values(1024, 0);
         std::iota(values.begin(), values.end(), i);
-        rmm::cuda_stream_view stream = br.stream_pool()->get_stream();
+        cuda::stream_ref stream =
+            cuda::stream_ref{br.stream_pool()->get_stream().value()};
         // allocate outside of buffer resource
         auto buffer = br.move(
             std::make_unique<rmm::device_buffer>(
@@ -84,7 +88,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
         );
         // If the copy to the device buffer is actually stream ordered, the host values
         // might go out of scope before the copy completes.
-        stream.synchronize();
+        stream.sync();
         ContentDescription cd{
             std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
             ContentDescription::Spillable::YES
@@ -227,7 +231,7 @@ TEST_P(StreamingFanout, SinkPerChannel_Buffer) {
             EXPECT_EQ(1024 * sizeof(int), buf.size);
 
             std::vector<int> recv(1024);
-            buf.stream().synchronize();
+            buf.stream().sync();
             RAPIDSMPF_CUDA_TRY(
                 cudaMemcpy(recv.data(), buf.data(), 1024 * sizeof(int), cudaMemcpyDefault)
             );

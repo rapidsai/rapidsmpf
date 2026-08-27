@@ -46,6 +46,7 @@ cdef extern from *:
         any_resource[device_accessible]&
     ) except +ex_handler
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
@@ -592,10 +593,11 @@ cdef class BufferResource:
             If ``size`` exceeds the reservation size.
         """
         cdef unique_ptr[cpp_Buffer] handle
+        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
         with nogil:
             handle = move(
                 deref(self._handle).make_buffer(
-                    size, stream.view(), deref(reservation._handle)
+                    size, cpp_stream, deref(reservation._handle)
                 )
             )
         return Buffer.from_handle(move(handle), self, stream)

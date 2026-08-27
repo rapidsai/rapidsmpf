@@ -10,7 +10,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allgather.hpp>
@@ -32,7 +33,7 @@ extern Environment* GlobalEnvironment;
 class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        stream = rmm::cuda_stream_view{};
+        stream = cuda::stream_ref{cudaStream_t{nullptr}};
         br = rapidsmpf::BufferResource::create(rmm::mr::cuda_memory_resource{});
     }
 
@@ -40,7 +41,7 @@ class BaseAllGatherTest : public ::testing::Test {
         br = nullptr;
     }
 
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream;
     std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
@@ -396,7 +397,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
 // (the largest chunk, since none covers 100 alone). The second must search for a chunk
 // >= 10 and pick the 20-byte chunk, totalling 110.
 TEST(PostBox, spill_uses_remaining_amount) {
-    auto stream = rmm::cuda_stream_view{};
+    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
     auto mr = std::make_unique<rmm::mr::cuda_memory_resource>();
     auto br = rapidsmpf::BufferResource::create(*mr);
 

@@ -9,8 +9,9 @@
 
 #include <benchmark/benchmark.h>
 
+#include <cuda/stream>
+
 #include <rmm/cuda_stream_pool.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -73,7 +74,7 @@ class NewDelete {
     }
 
     void* allocate(
-        rmm::cuda_stream_view,
+        cuda::stream_ref,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     ) {
@@ -81,7 +82,7 @@ class NewDelete {
     }
 
     void deallocate(
-        rmm::cuda_stream_view,
+        cuda::stream_ref,
         void* ptr,
         std::size_t,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
@@ -142,7 +143,7 @@ cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
 }
 
 void BM_Allocate(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const allocation_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -157,11 +158,11 @@ void BM_Allocate(benchmark::State& state) {
     for (auto _ : state) {
         void* ptr = mr.allocate(stream, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
         benchmark::DoNotOptimize(ptr);
-        stream.synchronize();
+        stream.sync();
 
         state.PauseTiming();
         mr.deallocate(stream, ptr, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
-        stream.synchronize();
+        stream.sync();
         state.ResumeTiming();
     }
 
@@ -175,7 +176,7 @@ void BM_Allocate(benchmark::State& state) {
 }
 
 void BM_Deallocate(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const allocation_size = safe_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -190,11 +191,11 @@ void BM_Deallocate(benchmark::State& state) {
     for (auto _ : state) {
         state.PauseTiming();
         void* ptr = mr.allocate(stream, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
-        stream.synchronize();
+        stream.sync();
         state.ResumeTiming();
 
         mr.deallocate(stream, ptr, allocation_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
-        stream.synchronize();
+        stream.sync();
     }
 
     state.SetBytesProcessed(
@@ -207,7 +208,7 @@ void BM_Deallocate(benchmark::State& state) {
 }
 
 void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -224,8 +225,8 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
     // Allocate device memory
     auto src = rmm::device_buffer(transfer_size, stream, *device_mr);
     // Initialize src to avoid optimization removal
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
-    stream.synchronize();
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream.get()));
+    stream.sync();
 
     for (auto _ : state) {
         void* dst =
@@ -233,7 +234,7 @@ void BM_DeviceToHostCopyInclAlloc(benchmark::State& state) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(dst, src.data(), transfer_size, stream)
         );
-        stream.synchronize();
+        stream.sync();
 
         state.PauseTiming();
         host_mr.deallocate(stream, dst, transfer_size, rmm::CUDA_ALLOCATION_ALIGNMENT);
@@ -256,16 +257,16 @@ void bench_copy(
     T& mr,
     void const* src,
     std::size_t size,
-    rmm::cuda_stream_view stream
+    cuda::stream_ref stream
 ) {
     for (auto _ : state) {
         state.PauseTiming();
         void* dst = mr.allocate(stream, size, rmm::CUDA_ALLOCATION_ALIGNMENT);
-        stream.synchronize();
+        stream.sync();
         state.ResumeTiming();
 
         RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(dst, src, size, stream));
-        stream.synchronize();
+        stream.sync();
 
         state.PauseTiming();
         mr.deallocate(stream, dst, size, rmm::CUDA_ALLOCATION_ALIGNMENT);
@@ -274,7 +275,7 @@ void bench_copy(
 }
 
 void BM_DeviceToHostCopy(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -290,7 +291,7 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
 
     auto src = rmm::device_buffer(transfer_size, stream, *device_mr);
     // Initialize src to avoid optimization removal
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream.get()));
 
     bench_copy(state, host_mr, src.data(), transfer_size, stream);
 
@@ -305,7 +306,7 @@ void BM_DeviceToHostCopy(benchmark::State& state) {
 }
 
 void BM_HostToDeviceCopy(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -340,7 +341,7 @@ void BM_HostToDeviceCopy(benchmark::State& state) {
 }
 
 void BM_HostToHostCopy(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const transfer_size = static_cast<std::size_t>(state.range(0));
     auto const resource_type = static_cast<ResourceType>(state.range(1));
 
@@ -370,7 +371,7 @@ void BM_HostToHostCopy(benchmark::State& state) {
 }
 
 void BM_DeviceToDeviceCopy(benchmark::State& state) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const transfer_size = static_cast<std::size_t>(state.range(0));
 
     // Device MR, independent of host resource type
@@ -379,7 +380,7 @@ void BM_DeviceToDeviceCopy(benchmark::State& state) {
     rmm::device_buffer src(transfer_size, stream, *device_mr);
 
     // Initialize src to avoid optimization removal
-    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream));
+    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(src.data(), 0xAB, transfer_size, stream.get()));
 
     bench_copy(state, *device_mr, src.data(), transfer_size, stream);
 
@@ -452,7 +453,7 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
 
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     auto const allocation_size = static_cast<std::size_t>(state.range(0)) << 20;
     auto const primed = static_cast<bool>(state.range(1));
 
@@ -467,10 +468,10 @@ void BM_PinnedFirstAlloc_InitialPoolSize(benchmark::State& state) {
         auto mr = br->try_pinned_mr();
         state.ResumeTiming();
         void* ptr = mr->allocate(stream, allocation_size);
-        stream.synchronize();
+        stream.sync();
         state.PauseTiming();
         mr->deallocate(stream, ptr, allocation_size);
-        stream.synchronize();
+        stream.sync();
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(allocation_size));

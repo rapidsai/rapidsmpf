@@ -16,7 +16,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
@@ -56,13 +57,13 @@ rapidsmpf::PackedData make_payload(
     int payload_value,
     rapidsmpf::MemoryType mem_type,
     rapidsmpf::BufferResource& br,
-    rmm::cuda_stream_view stream
+    cuda::stream_ref stream
 ) {
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
     auto data = br.make_buffer(stream, br.reserve_or_fail(sizeof(int), mem_type));
-    data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
+    data->write_access([&](std::byte* ptr, cuda::stream_ref op_stream) {
         if (mem_type == rapidsmpf::MemoryType::DEVICE) {
             RAPIDSMPF_CUDA_TRY(
                 rapidsmpf::cuda_memcpy_async(
@@ -96,7 +97,7 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
                 packed_data.data->stream()
             )
         );
-        packed_data.data->stream().synchronize();
+        packed_data.data->stream().sync();
     } else {
         std::memcpy(&result, packed_data.data->data(), sizeof(result));
     }
@@ -187,7 +188,7 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
                     comm->rank() * 100 + i,
                     mem_type,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             );
         }
@@ -225,7 +226,7 @@ TEST_F(SparseAlltoallTest, payload_statistics) {
                     comm->rank() * 100 + i,
                     rapidsmpf::MemoryType::HOST,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             );
         }
@@ -315,7 +316,7 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
                 comm->rank() * 100 + dst,
                 rapidsmpf::MemoryType::DEVICE,
                 *br,
-                br->stream_pool()->get_stream()
+                cuda::stream_ref{br->stream_pool()->get_stream().value()}
             )
         );
     }
@@ -330,7 +331,7 @@ TEST_F(SparseAlltoallTest, asymmetric_peer_sets) {
                     1,
                     rapidsmpf::MemoryType::HOST,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             ),
             std::logic_error
@@ -356,10 +357,11 @@ TEST_F(SparseAlltoallTest, ordered_by_sender_insertion_with_stream_reordering) {
     auto [srcs, dsts] = ring_peers(comm);
     rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
 
-    auto const delayed_stream = br->stream_pool()->get_stream(1);
-    auto const fast_stream = br->stream_pool()->get_stream(2);
+    auto const delayed_stream =
+        cuda::stream_ref{br->stream_pool()->get_stream(1).value()};
+    auto const fast_stream = cuda::stream_ref{br->stream_pool()->get_stream(2).value()};
     RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
-        delayed_stream.value(), sleep_on_stream, new std::chrono::milliseconds(100)
+        delayed_stream.get(), sleep_on_stream, new std::chrono::milliseconds(100)
     ));
 
     exchange.insert(
@@ -423,7 +425,7 @@ TEST_F(SparseAlltoallTest, concurrent_insertions) {
                         comm->rank() * total_messages + sequence,
                         rapidsmpf::MemoryType::HOST,
                         *br,
-                        br->stream_pool()->get_stream()
+                        cuda::stream_ref{br->stream_pool()->get_stream().value()}
                     )
                 );
             }
@@ -458,7 +460,11 @@ TEST_F(SparseAlltoallTest, invalid_usage) {
         exchange.insert(
             comm->rank(),
             make_payload(
-                1, 2, rapidsmpf::MemoryType::DEVICE, *br, br->stream_pool()->get_stream()
+                1,
+                2,
+                rapidsmpf::MemoryType::DEVICE,
+                *br,
+                cuda::stream_ref{br->stream_pool()->get_stream().value()}
             )
         ),
         std::logic_error
@@ -490,7 +496,7 @@ TEST_F(SparseAlltoallTest, tag_reuse_after_wait) {
                     comm->rank() * 1000 + iteration,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             );
         }
@@ -525,7 +531,7 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     comm->rank() * 1000 + 100 + i,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             );
             exchange1.insert(
@@ -535,7 +541,7 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
                     comm->rank() * 1000 + 200 + i,
                     rapidsmpf::MemoryType::DEVICE,
                     *br,
-                    br->stream_pool()->get_stream()
+                    cuda::stream_ref{br->stream_pool()->get_stream().value()}
                 )
             );
         }

@@ -12,10 +12,10 @@
 #include <cuda_runtime_api.h>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_device.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/config.hpp>

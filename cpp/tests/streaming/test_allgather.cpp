@@ -10,6 +10,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <coro/latch.hpp>
 
 #include <rapidsmpf/communicator/single.hpp>
@@ -73,10 +75,10 @@ TEST_P(StreamingAllGather, basic) {
 
         auto br = ctx->br();
         auto buf = br->make_buffer(
-            br->stream_pool()->get_stream(),
+            cuda::stream_ref{br->stream_pool()->get_stream().value()},
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
-        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
+        buf->write_access([&](std::byte* buf_data, cuda::stream_ref stream) {
             RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
                 buf_data, data.data(), data.size() * sizeof(int), stream
             ));
@@ -110,7 +112,7 @@ TEST_P(StreamingAllGather, basic) {
                 result.data() + offset, pd.data->data(), pd.data->size, pd.data->stream()
             ));
             offset += msize;
-            pd.data->stream().synchronize();
+            pd.data->stream().sync();
         }
     };
 
@@ -146,10 +148,10 @@ TEST_P(StreamingAllGather, streaming_actor) {
 
         auto br = ctx->br();
         auto buf = br->make_buffer(
-            br->stream_pool()->get_stream(),
+            cuda::stream_ref{br->stream_pool()->get_stream().value()},
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
-        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
+        buf->write_access([&](std::byte* buf_data, cuda::stream_ref stream) {
             RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
                 buf_data, data.data(), data.size() * sizeof(int), stream
             ));
@@ -192,7 +194,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
             actual.data() + offset, pd.data->data(), pd.data->size, pd.stream()
         ));
         offset += msize;
-        pd.stream().synchronize();
+        pd.stream().sync();
     }
     auto expected = iota_vector<int>(size * size * n_inserts);
     EXPECT_EQ(expected, actual);

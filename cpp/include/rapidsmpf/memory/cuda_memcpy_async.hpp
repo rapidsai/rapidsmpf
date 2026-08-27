@@ -10,7 +10,7 @@
 
 #include <cuda_runtime.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 namespace rapidsmpf {
 
@@ -39,10 +39,10 @@ namespace rapidsmpf {
     void const* const* srcs,
     std::size_t const* sizes,
     std::size_t count,
-    rmm::cuda_stream_view stream
+    cuda::stream_ref stream
 ) {
 #if CUDART_VERSION >= 13000
-    if (!stream.is_default()) {
+    if (stream.get() != cudaStream_t{nullptr} && stream.get() != cudaStreamLegacy) {
         // Filter out invalid copies; cudaMemcpyBatchAsync does not support
         // nullptr dst/src or size==0.
         auto is_invalid = [&](std::size_t i) {
@@ -95,7 +95,7 @@ namespace rapidsmpf {
         };
         std::size_t attrs_idx = 0;
         return cudaMemcpyBatchAsync(
-            dsts, srcs, sizes, count, &attrs, &attrs_idx, 1, stream.value()
+            dsts, srcs, sizes, count, &attrs, &attrs_idx, 1, stream.get()
         );
     }
 #endif  // CUDART_VERSION >= 13000
@@ -103,9 +103,8 @@ namespace rapidsmpf {
         if (dsts[i] == nullptr || srcs[i] == nullptr || sizes[i] == 0) {
             continue;
         }
-        cudaError_t status = cudaMemcpyAsync(
-            dsts[i], srcs[i], sizes[i], cudaMemcpyDefault, stream.value()
-        );
+        cudaError_t status =
+            cudaMemcpyAsync(dsts[i], srcs[i], sizes[i], cudaMemcpyDefault, stream.get());
         if (status != cudaSuccess) {
             return status;
         }
@@ -144,7 +143,7 @@ namespace rapidsmpf {
  * @return cudaError_t CUDA error code.
  */
 [[nodiscard]] inline cudaError_t cuda_memcpy_async(
-    void* dst, void const* src, std::size_t count, rmm::cuda_stream_view stream
+    void* dst, void const* src, std::size_t count, cuda::stream_ref stream
 ) {
     if (count == 0) {
         return cudaSuccess;

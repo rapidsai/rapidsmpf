@@ -10,6 +10,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
@@ -31,10 +33,10 @@ std::unique_ptr<Buffer> make_buffer(
     MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
-    auto stream = br->stream_pool()->get_stream();
+    auto stream = cuda::stream_ref{br->stream_pool()->get_stream().value()};
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->make_buffer(stream, std::move(reservation));
-    buffer->write_access([&](std::byte* buf_data, rmm::cuda_stream_view s) {
+    buffer->write_access([&](std::byte* buf_data, cuda::stream_ref s) {
         RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(buf_data, data, nbytes, s));
     });
     buffer->latest_write_event().host_wait();
@@ -51,7 +53,7 @@ std::vector<T> unpack_to_host(Buffer& buffer) {
     std::vector<T> out(count);
     auto* raw_ptr = buffer.exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(out.data(), raw_ptr, nbytes, buffer.stream()));
-    buffer.stream().synchronize();
+    buffer.stream().sync();
     buffer.unlock();
     return out;
 }

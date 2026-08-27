@@ -6,6 +6,8 @@
 #include <cstring>
 #include <sstream>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -96,7 +98,8 @@ Chunk Chunk::deserialize(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
         data = br->make_buffer(
-            br->stream_pool()->get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+            cuda::stream_ref{br->stream_pool()->get_stream().value()},
+            br->reserve_or_fail(data_size, MEMORY_TYPES)
         );
         if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
             br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);

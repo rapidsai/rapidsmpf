@@ -9,7 +9,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
@@ -25,11 +26,11 @@ class SpillingTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStream_t{nullptr}};
     }
 
     std::shared_ptr<BufferResource> br;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream;
 };
 
 TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {

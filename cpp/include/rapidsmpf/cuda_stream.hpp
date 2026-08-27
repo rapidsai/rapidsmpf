@@ -1,11 +1,13 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <memory>
 #include <ranges>
+
+#include <cuda/stream>
 
 #include <rapidsmpf/cuda_event.hpp>
 
@@ -18,8 +20,8 @@ namespace rapidsmpf {
  * This call is asynchronous with respect to the host thread; no host-side
  * blocking occurs.
  *
- * @tparam Range1 Iterable whose elements are rmm::cuda_stream_view.
- * @tparam Range2 Iterable whose elements are rmm::cuda_stream_view.
+ * @tparam Range1 Iterable whose elements are cuda::stream_ref.
+ * @tparam Range2 Iterable whose elements are cuda::stream_ref.
  *
  * @param downstreams Streams that must not run ahead.
  * @param upstreams Streams whose already-enqueued work must complete first.
@@ -36,9 +38,9 @@ void cuda_stream_join(
 ) {
     // Quick exit if all streams are identical.
     if ([&] {
-            for (rmm::cuda_stream_view const& upstream : upstreams) {
-                for (rmm::cuda_stream_view const& downstream : downstreams) {
-                    if (upstream.value() != downstream.value()) {
+            for (cuda::stream_ref const& upstream : upstreams) {
+                for (cuda::stream_ref const& downstream : downstreams) {
+                    if (upstream.get() != downstream.get()) {
                         return false;
                     }
                 }
@@ -59,10 +61,10 @@ void cuda_stream_join(
     }
 
     // Let all downstreams wait on all upstreams.
-    for (rmm::cuda_stream_view const& upstream : upstreams) {
+    for (cuda::stream_ref const& upstream : upstreams) {
         event->record(upstream);
-        for (rmm::cuda_stream_view const& downstream : downstreams) {
-            if (upstream.value() != downstream.value()) {
+        for (cuda::stream_ref const& downstream : downstreams) {
+            if (upstream.get() != downstream.get()) {
                 event->stream_wait(downstream);
             }
         }
@@ -89,9 +91,7 @@ void cuda_stream_join(
  * @see cuda_stream_join(Range1 const&, Range2 const&, CudaEvent*)
  */
 inline void cuda_stream_join(
-    rmm::cuda_stream_view downstream,
-    rmm::cuda_stream_view upstream,
-    CudaEvent* event = nullptr
+    cuda::stream_ref downstream, cuda::stream_ref upstream, CudaEvent* event = nullptr
 ) {
     return cuda_stream_join(
         std::views::single(downstream), std::views::single(upstream), event

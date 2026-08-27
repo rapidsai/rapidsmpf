@@ -6,6 +6,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -19,11 +21,11 @@ class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = rmm::cuda_stream_view{};
+        stream = cuda::stream_ref{cudaStream_t{nullptr}};
     }
 
     std::shared_ptr<BufferResource> br;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream;
 };
 
 TEST_F(StreamingMessage, ConstructAndGetInt) {

@@ -5,8 +5,6 @@
 
 #include <memory>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>

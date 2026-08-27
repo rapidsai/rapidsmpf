@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -18,8 +18,8 @@
 #include <thrust/functional.h>
 
 #include <cuda/std/functional>
+#include <cuda/stream>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/allreduce.hpp>
@@ -152,7 +152,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     rapidsmpf::BufferResource* br, T const* data, std::size_t count, MemoryType mem_type
 ) {
     auto const nbytes = count * sizeof(T);
-    auto stream = br->stream_pool()->get_stream();
+    auto stream = cuda::stream_ref{br->stream_pool()->get_stream().value()};
     auto reservation = br->reserve_or_fail(nbytes, mem_type);
     auto buffer = br->make_buffer(stream, std::move(reservation));
 
@@ -163,7 +163,7 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
 
     auto* raw_ptr = buffer->exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(raw_ptr, data, nbytes, stream));
-    stream.synchronize();
+    stream.sync();
     buffer->unlock();
 
     return buffer;
@@ -185,12 +185,12 @@ std::vector<T> unpack_to_host(rapidsmpf::Buffer& buffer) {
     std::vector<T> out(count);
     // Buffer is only guaranteed to be stream ordered on stream, not fully ready, so sync
     // first.
-    buffer.stream().synchronize();
+    buffer.stream().sync();
     auto* raw_ptr = buf->exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(
         rapidsmpf::cuda_memcpy_async(out.data(), raw_ptr, nbytes, buf->stream())
     );
-    buf->stream().synchronize();
+    buf->stream().sync();
     buf->unlock();
 
     return out;

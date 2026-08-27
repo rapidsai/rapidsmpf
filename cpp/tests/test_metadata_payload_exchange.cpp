@@ -6,6 +6,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -28,7 +30,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = BufferResource::create(*mr);
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStream_t{nullptr}};
         statistics = Statistics::create();
 
         auto allocate_fn = [this](std::size_t size) {
@@ -58,13 +60,13 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             std::vector<std::uint8_t> test_data(data_size);
             std::iota(test_data.begin(), test_data.end(), 0);
             data_buffer->write_access(
-                [&test_data](std::byte* ptr, rmm::cuda_stream_view stream) {
+                [&test_data](std::byte* ptr, cuda::stream_ref stream) {
                     RAPIDSMPF_CUDA_TRY(
                         cuda_memcpy_async(ptr, test_data.data(), test_data.size(), stream)
                     );
                 }
             );
-            data_buffer->stream().synchronize();
+            data_buffer->stream().sync();
         }
 
         return std::make_unique<MetadataPayloadExchange::Message>(
@@ -91,7 +93,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         RAPIDSMPF_CUDA_TRY(
             cuda_memcpy_async(received_data.data(), buffer->data(), expected_size, stream)
         );
-        stream.synchronize();
+        stream.sync();
 
         for (std::size_t i = 0; i < expected_size; ++i) {
             EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
@@ -100,7 +102,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
     Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream;
     std::shared_ptr<BufferResource> br;
     std::shared_ptr<Statistics> statistics;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
