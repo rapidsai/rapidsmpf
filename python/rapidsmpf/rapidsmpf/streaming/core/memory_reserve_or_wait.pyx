@@ -42,7 +42,7 @@ cdef extern from * nogil:
         rapidsmpf::streaming::Context &ctx
     ) {
         return std::make_shared<rapidsmpf::streaming::MemoryReserveOrWait>(
-            std::move(options), mem_type, ctx.executor(), ctx.br()
+            std::move(options), ctx.logger(), mem_type, ctx.executor(), ctx.br()
         );
     }
     }  // namespace
@@ -348,12 +348,20 @@ cdef class MemoryReserveOrWait:
         memory becomes available or no reservation request, including other pending
         requests, makes progress within the configured timeout.
 
-        The timeout does not apply specifically to this request. Instead, it serves as
-        a global progress guarantee. If no pending reservation request can be satisfied
-        within the timeout, ``MemoryReserveOrWait`` forces progress by selecting the
-        smallest pending request and attempting to reserve memory for it. The forced
-        reservation attempt may result in an empty :class:`MemoryReservation` if the
-        selected request still cannot be satisfied.
+        While no pending request fits, spilling is attempted to free the memory the
+        highest-priority one needs, and again just before progress is forced. Both are
+        limited to :attr:`MemoryType.DEVICE`, since ``SpillManager`` measures headroom
+        against device memory. Requests of other memory types wait without spilling.
+
+        The timeout does not apply specifically to this request. Instead, it bounds
+        when a final recovery attempt begins, not when it completes. If no pending
+        reservation request can be satisfied within the timeout,
+        ``MemoryReserveOrWait`` forces progress by selecting the smallest pending
+        request, spilling to make room for it, and attempting to reserve memory. That
+        spill waits for any in-flight spill to finish, so the call can return later
+        than the timeout. The forced reservation attempt may result in an empty
+        :class:`MemoryReservation` if the selected request still cannot be satisfied,
+        for example when nothing is spillable.
 
         When multiple reservation requests are eligible, ``MemoryReserveOrWait`` uses
         ``net_memory_delta`` as a heuristic to prefer requests that are expected to
