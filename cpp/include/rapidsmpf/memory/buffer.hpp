@@ -368,7 +368,7 @@ class Buffer {
   private:
     MemoryType const mem_type_;
     std::variant<DeviceBufferT, HostBufferT> storage_;
-    cuda::stream_ref stream_{cudaStream_t{nullptr}};
+    cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;
 };
