@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # numpydoc ignore=GL08
 # Configuration file for the Sphinx documentation builder.
@@ -15,11 +15,23 @@ import datetime
 from enum import IntEnum, IntFlag
 from typing import Any
 
+from packaging.version import Version
 from sphinx.ext.autodoc import ClassDocumenter
+
+import rapidsmpf
 
 project = "NVIDIA RapidsMPF"
 copyright = f"2025-{datetime.datetime.today().year}, NVIDIA Corporation"
 author = "NVIDIA Corporation"
+
+# The version info for the project you're documenting, acts as replacement for
+# |version| and |release|, also used in various other places throughout the
+# built documents.
+RAPIDSMPF_VERSION = Version(rapidsmpf.__version__)
+# The short X.Y version.
+version = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}"
+# The full version, including alpha/beta/rc tags.
+release = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}.{RAPIDSMPF_VERSION.micro:02}"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -63,9 +75,14 @@ html_theme_options = {
             "type": "fontawesome",
         },
     ],
-    "show_toc_level": 2,
     "navbar_align": "right",
+    "navbar_center": "navbar-nav, version-switcher, navbar-external-links",
     "navigation_with_keys": True,
+    "show_toc_level": 2,
+    "switcher": {
+        "json_url": "https://docs.nvidia.com/rapidsmpf/versions.json",
+        "version_match": version,
+    },
 }
 
 
