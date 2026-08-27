@@ -30,7 +30,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = BufferResource::create(*mr);
-        stream = cuda::stream_ref{cudaStream_t{nullptr}};
+        stream = cuda::stream_ref{cudaStreamLegacy};
         statistics = Statistics::create();
 
         auto allocate_fn = [this](std::size_t size) {
@@ -102,7 +102,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
     Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
-    cuda::stream_ref stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br;
     std::shared_ptr<Statistics> statistics;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;

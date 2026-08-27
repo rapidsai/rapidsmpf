@@ -190,7 +190,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     auto mr = br->device_mr_adaptor();
     auto pinned_mr = br->try_pinned_mr();
     auto stats = rapidsmpf::Statistics::create();
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Outer scope
     {

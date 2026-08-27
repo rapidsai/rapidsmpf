@@ -27,11 +27,11 @@ class ChunkTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = cuda::stream_ref{cudaStream_t{nullptr}};
+        stream = cuda::stream_ref{cudaStreamLegacy};
     }
 
     std::shared_ptr<BufferResource> br;
-    cuda::stream_ref stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
 };
 
 TEST_F(ChunkTest, FromFinishedPartition) {
@@ -69,7 +69,7 @@ TEST_P(ChunkFromPackedDataTest, RoundTrip) {
     );
 
     auto data = std::make_unique<rmm::device_buffer>(
-        data_size, cuda::stream_ref{cudaStream_t{nullptr}}
+        data_size, cuda::stream_ref{cudaStreamLegacy}
     );
     if (data_size > 0) {
         std::vector<std::uint8_t> host_data(data_size);

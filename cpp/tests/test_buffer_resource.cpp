@@ -182,7 +182,7 @@ TEST(BufferResource, ReservationReleasing) {
 
 TEST(BufferResource, MemoryLimit) {
     rmm::mr::cuda_memory_resource mr_cuda;
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Create a buffer resource that limits available device memory to 10 KiB.
     auto br = BufferResource::create(
@@ -310,7 +310,7 @@ TEST(BufferResource, AllocStatistics) {
         std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
         stats
     );
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     constexpr std::size_t device_size = 4_KiB;
     constexpr std::size_t pinned_size = 8_KiB;
@@ -431,7 +431,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = cuda::stream_ref{cudaStream_t{nullptr}};
+        stream = cuda::stream_ref{cudaStreamLegacy};
 
         // initialize the host pattern
         host_pattern.resize(buffer_size);
@@ -459,7 +459,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
     static constexpr std::size_t buffer_size = 1024;  // 1 KiB
 
     std::shared_ptr<BufferResource> br;
-    cuda::stream_ref stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
 
     std::vector<std::uint8_t> host_pattern;  // a predefined pattern for testing
 };
@@ -642,7 +642,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
     void SetUp() override {
         buffer_size = 1_KiB;
-        stream = cuda::stream_ref{cudaStream_t{nullptr}};
+        stream = cuda::stream_ref{cudaStreamLegacy};
 
         // Host pattern for initialization and verification
         host_pattern.resize(buffer_size);
@@ -688,7 +688,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
     }
 
     std::size_t buffer_size;
-    cuda::stream_ref stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::vector<std::uint8_t> host_pattern;
 
     std::shared_ptr<BufferResource> br1;
@@ -806,7 +806,7 @@ TEST(BufferResource, DeviceMrKeepsBufferResourceAlive) {
 
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     std::weak_ptr<BufferResource> weak_br = br;
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Construct a device_buffer using the BR memory resource. Internally,
     // `rmm::device_buffer` stores the resource as an owning `cuda::mr::any_resource`,
@@ -833,7 +833,7 @@ TEST(BufferResource, HostMrKeepsBufferResourceAlive) {
 
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     std::weak_ptr<BufferResource> weak_br = br;
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Allocate a HOST buffer. The underlying `HostBuffer` stores the host memory
     // resource as an owning `any_resource`, which copies the `HostMemoryResource`.
@@ -861,7 +861,7 @@ TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
         rmm::mr::get_current_device_resource_ref(), PinnedPoolProperties{}
     );
     std::weak_ptr<BufferResource> weak_br = br;
-    auto stream = cuda::stream_ref{cudaStream_t{nullptr}};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Allocate a PINNED_HOST buffer. The underlying `HostBuffer` stores the pinned
     // memory resource as an owning `any_resource`, which copies the
@@ -911,7 +911,7 @@ TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     {
         auto rec = stats->create_memory_recorder(br->device_mr(), "br-scope");
         rmm::device_buffer buf{
-            kAllocBytes, cuda::stream_ref{cudaStream_t{nullptr}}, br->device_mr()
+            kAllocBytes, cuda::stream_ref{cudaStreamLegacy}, br->device_mr()
         };
     }
 

@@ -221,7 +221,7 @@ class HostBuffer {
         std::function<void(cuda::stream_ref)> deallocate_fn
     );
 
-    cuda::stream_ref stream_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
     std::span<std::byte> span_{};
     /// @brief Callable that releases the underlying memory when invoked with the current
     /// stream. Null when the buffer is empty.

@@ -21,11 +21,11 @@ class StreamingMessage : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = cuda::stream_ref{cudaStream_t{nullptr}};
+        stream = cuda::stream_ref{cudaStreamLegacy};
     }
 
     std::shared_ptr<BufferResource> br;
-    cuda::stream_ref stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
 };
 
 TEST_F(StreamingMessage, ConstructAndGetInt) {

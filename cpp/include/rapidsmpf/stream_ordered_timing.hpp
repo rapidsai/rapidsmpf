@@ -91,7 +91,7 @@ class StreamOrderedTiming {
 
   private:
     std::uintptr_t uid_{0};
-    cuda::stream_ref stream_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
     std::shared_ptr<Statistics> statistics_;
 };
 

@@ -59,7 +59,7 @@ int main() {
             try {
                 // Allocate device memory using rmm::device_buffer
                 rmm::device_buffer buf(
-                    allocation_size, cuda::stream_ref{cudaStream_t{nullptr}}
+                    allocation_size, cuda::stream_ref{cudaStreamLegacy}
                 );
                 device_buffers.push_back(std::move(buf));
             } catch (rmm::bad_alloc const& e) {

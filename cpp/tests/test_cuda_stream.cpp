@@ -52,8 +52,13 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     // Streams and their views (created with explicit priorities).
     std::array<cudaStream_t, num_slices> upstream_raw{};
     std::array<cudaStream_t, num_slices> downstream_raw{};
-    std::array<cuda::stream_ref, num_slices> upstreams{};
-    std::array<cuda::stream_ref, num_slices> downstreams{};
+    auto const default_stream = cuda::stream_ref{cudaStreamLegacy};
+    std::array<cuda::stream_ref, num_slices> upstreams{
+        default_stream, default_stream, default_stream
+    };
+    std::array<cuda::stream_ref, num_slices> downstreams{
+        default_stream, default_stream, default_stream
+    };
 
     int least_priority = 0;  // numerically larger (often 0) => lower priority
     int greatest_priority = 0;  // numerically smaller (often negative) => higher priority

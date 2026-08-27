@@ -47,7 +47,7 @@ class CuptiMonitorTest : public ::testing::Test {
         // Allocate memory using rmm::device_buffer
         for (int i = 0; i < num_operations; ++i) {
             try {
-                buffers.emplace_back(size_bytes, cuda::stream_ref{cudaStream_t{nullptr}});
+                buffers.emplace_back(size_bytes, cuda::stream_ref{cudaStreamLegacy});
             } catch (const rmm::bad_alloc& e) {
                 FAIL() << "rmm::device_buffer allocation failed: " << e.what();
             }
