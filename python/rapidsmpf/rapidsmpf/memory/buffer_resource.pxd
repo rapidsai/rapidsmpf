@@ -35,8 +35,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_StreamPool "rapidsmpf::StreamPool":
-        @staticmethod
-        shared_ptr[cpp_StreamPool] from_rmm(shared_ptr[cuda_stream_pool])
+        cpp_StreamPool(shared_ptr[cuda_stream_pool])
 
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         @staticmethod

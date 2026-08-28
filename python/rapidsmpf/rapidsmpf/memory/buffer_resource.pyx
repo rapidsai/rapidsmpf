@@ -5,7 +5,7 @@ from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -237,7 +237,7 @@ cdef class BufferResource:
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
-                cpp_StreamPool.from_rmm(stream_pool.c_obj),
+                make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)

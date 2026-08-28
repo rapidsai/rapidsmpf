@@ -65,12 +65,6 @@ class StreamPool {
         RAPIDSMPF_EXPECTS(pool_ != nullptr, "the stream pool pointer cannot be NULL");
     }
 
-    [[nodiscard]] static std::shared_ptr<StreamPool> from_rmm(
-        std::shared_ptr<rmm::cuda_stream_pool> pool
-    ) {
-        return std::make_shared<StreamPool>(std::move(pool));
-    }
-
     [[nodiscard]] cuda::stream_ref get_stream() const {
         return cuda::stream_ref{pool_->get_stream().value()};
     }
