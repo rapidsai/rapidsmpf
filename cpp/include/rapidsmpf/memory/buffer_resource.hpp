@@ -73,6 +73,8 @@ class StreamPool {
         return cuda::stream_ref{pool_->get_stream(stream_id).value()};
     }
 
+    [[nodiscard]] std::size_t get_pool_size() const { return pool_->get_pool_size(); }
+
   private:
     std::shared_ptr<rmm::cuda_stream_pool> pool_;
 };
