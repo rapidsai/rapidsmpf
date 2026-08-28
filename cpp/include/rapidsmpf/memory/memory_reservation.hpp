@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,23 @@ class MemoryReservation {
      * @brief Clear the remaining size of the reservation.
      */
     void clear() noexcept;
+
+    /**
+     * @brief Split off a sub-reservation of @p size bytes.
+     *
+     * Reduces this reservation by @p size and returns a new reservation of that size
+     * on the same buffer resource and memory type. The total reserved by the buffer
+     * resource is unchanged, the bytes are only moved between the two reservations.
+     *
+     * Useful for scoping part of a reservation to the allocation it covers, since the
+     * returned reservation releases its bytes when it goes out of scope.
+     *
+     * @param size The number of bytes to split off.
+     * @return The new reservation.
+     *
+     * @throws rapidsmpf::reservation_error if @p size exceeds the remaining size.
+     */
+    [[nodiscard]] MemoryReservation split(std::size_t size);
 
     /**
      * @brief Move constructor for MemoryReservation.

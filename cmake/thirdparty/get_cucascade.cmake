@@ -21,7 +21,7 @@ function(find_and_configure_cucascade)
             "CUCASCADE_BUILD_STATIC_LIBS ON"
             "CUCASCADE_WARNINGS_AS_ERRORS OFF"
             "CUCASCADE_TOPOLOGY_ONLY ON"
-    EXCLUDE_FROM_ALL
+    EXCLUDE_FROM_ALL ON
   )
 endfunction()
 

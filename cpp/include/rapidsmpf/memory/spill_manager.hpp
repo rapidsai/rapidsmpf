@@ -124,7 +124,42 @@ class SpillManager {
      */
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
+    /**
+     * @brief Non-blocking version of `spill_to_make_headroom()`.
+     *
+     * Returns immediately instead of waiting when the spill lock is unavailable.
+     * Intended for pollers that retry, such as the streaming layer's memory
+     * reservation loop.
+     *
+     * @param headroom The target amount of headroom (in bytes). A negative headroom
+     * triggers spilling only once the memory available for reservation drops below
+     * `headroom`.
+     * @return The actual amount of memory spilled (in bytes), or `std::nullopt` if no
+     * spill was attempted. A `std::nullopt` result does not imply that spilling is
+     * impossible or that another spill is in progress. Callers should retry.
+     *
+     * @see spill_to_make_headroom()
+     */
+    std::optional<std::size_t> try_spill_to_make_headroom(std::int64_t headroom = 0);
+
   private:
+    /**
+     * @brief Spills memory without locking. The caller must hold `mutex_`.
+     *
+     * @param amount The amount of memory (in bytes) to spill.
+     * @return The actual amount of memory spilled (in bytes).
+     */
+    std::size_t spill_unsafe(std::size_t amount);
+
+    /**
+     * @brief Spills to reach the requested headroom without locking, reading the
+     * available memory under the caller's lock. The caller must hold `mutex_`.
+     *
+     * @param headroom The target amount of headroom (in bytes).
+     * @return The actual amount of memory spilled (in bytes).
+     */
+    std::size_t spill_to_make_headroom_unsafe(std::int64_t headroom);
+
     mutable std::mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -18,6 +18,17 @@ void MemoryReservation::clear() noexcept {
     if (size_ > 0) {
         br_->release(*this, size_);
     }
+}
+
+MemoryReservation MemoryReservation::split(std::size_t size) {
+    RAPIDSMPF_EXPECTS(
+        size <= size_,
+        "MemoryReservation(" + format_nbytes(size_) + ") isn't big enough ("
+            + format_nbytes(size) + ")",
+        rapidsmpf::reservation_error
+    );
+    size_ -= size;
+    return {mem_type_, br_, size};
 }
 
 MemoryReservation::MemoryReservation(MemoryReservation&& o)

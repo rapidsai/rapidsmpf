@@ -404,6 +404,26 @@ TEST_F(BufferResourceReserveOrFailTest, DeviceType) {
     );
 }
 
+TEST_F(BufferResourceReserveOrFailTest, Split) {
+    auto res = br->reserve_or_fail(5_KiB, MemoryType::DEVICE);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
+
+    {
+        auto sub = res.split(2_KiB);
+        EXPECT_EQ(sub.size(), 2_KiB);
+        EXPECT_EQ(sub.mem_type(), MemoryType::DEVICE);
+        EXPECT_EQ(sub.br(), br.get());
+        EXPECT_EQ(res.size(), 3_KiB);
+        // Splitting only moves bytes between the two reservations.
+        EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 5_KiB);
+
+        EXPECT_THROW(std::ignore = res.split(4_KiB), rapidsmpf::reservation_error);
+        EXPECT_EQ(res.size(), 3_KiB);  // The failed split changed nothing.
+    }
+    // The sub-reservation released its bytes when it went out of scope.
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 3_KiB);
+}
+
 TEST_F(BufferResourceReserveOrFailTest, HostType) {
     // Test reserve_or_fail with single host memory type
     auto res = br->reserve_or_fail(5_KiB, MemoryType::HOST);

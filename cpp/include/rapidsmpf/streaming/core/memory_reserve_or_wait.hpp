@@ -10,6 +10,7 @@
 
 #include <coro/task.hpp>
 
+#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
@@ -29,6 +30,11 @@ class Context;
  * memory with backpressure. Callers submit reservation requests via
  * `reserve_or_wait()`, which suspends until enough memory is available or
  * progress must be forced.
+ *
+ * While requests are pending and none of them fit into the available memory,
+ * spilling is triggered on the caller's behalf. This applies to `MemoryType::DEVICE`
+ * only, since `SpillManager` measures headroom against device memory. Requests of
+ * other memory types wait without spilling.
  */
 class MemoryReserveOrWait {
   public:
@@ -54,13 +60,17 @@ class MemoryReserveOrWait {
      * memory for it. This attempt may result in an empty reservation if the request
      * still cannot be satisfied.
      *
+     * Spilling is attempted before that timeout is reached, see the class docs.
+     *
      * @param options Configuration options.
+     * @param logger Shared pointer to a logger.
      * @param mem_type The memory type for which reservations are requested.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Buffer resource for memory allocation.*
      */
     MemoryReserveOrWait(
         config::Options options,
+        std::shared_ptr<Logger> logger,
         MemoryType mem_type,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
@@ -84,12 +94,19 @@ class MemoryReserveOrWait {
      * (including other pending requests) makes progress within the configured
      * timeout.
      *
-     * The timeout does not apply specifically to this request. Instead, it is used
-     * as a global progress guarantee: if no pending reservation request can be
-     * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
-     * selecting the smallest pending request and attempting to reserve memory for
-     * it. The forced reservation attempt may result in an empty `MemoryReservation`
-     * if the selected request still cannot be satisfied.
+     * While no pending request fits, spilling is attempted to free the memory the
+     * highest-priority one needs, and again just before progress is forced. Both are
+     * limited to `MemoryType::DEVICE`.
+     *
+     * The timeout does not apply specifically to this request. Instead, it bounds
+     * when a final recovery attempt begins, not when it completes: if no pending
+     * reservation request can be satisfied within the timeout, `MemoryReserveOrWait`
+     * forces progress by selecting the smallest pending request, spilling to make
+     * room for it, and attempting to reserve memory. That spill waits for any
+     * in-flight spill to finish, so the call can return later than the timeout. The
+     * forced reservation attempt may result in an empty `MemoryReservation` if the
+     * selected request still cannot be satisfied, for example when nothing is
+     * spillable.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
@@ -281,12 +298,14 @@ class MemoryReserveOrWait {
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
+    std::shared_ptr<Logger> logger_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     Duration const timeout_;
     std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;
+    bool periodic_task_running_{false};
 };
 
 /**
