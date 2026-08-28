@@ -16,6 +16,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_stream.hpp>

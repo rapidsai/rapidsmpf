@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -237,7 +238,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
-    std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+    std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
     StreamOrderedTiming timing{stream, statistics_};
@@ -272,16 +273,16 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
-    rmm::cuda_stream_view stream, MemoryReservation&& reservation
+    cuda::stream_ref stream, MemoryReservation&& reservation
 ) {
     return make_buffer(reservation.size(), stream, reservation);
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
 ) {
-    auto upstream = data->stream();
-    if (upstream.value() != stream.value()) {
+    cuda::stream_ref upstream = data->stream();
+    if (upstream.get() != stream.get()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
@@ -320,7 +321,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     auto stream = buffer->stream();
     auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
-        ret->stream().value() == stream.value(),
+        ret->stream().value() == stream.get(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
         "don't match"
     );

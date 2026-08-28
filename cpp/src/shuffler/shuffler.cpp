@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>

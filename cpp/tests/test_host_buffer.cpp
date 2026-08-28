@@ -13,7 +13,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
@@ -35,7 +36,7 @@ void test_buffer(auto&& buffer, std::vector<std::uint8_t> const& source_data) {
     ASSERT_NE(nullptr, buffer.data());
 
     // Synchronize on stream to ensure copy is complete
-    buffer.stream().synchronize();
+    buffer.stream().sync();
 
     const auto* data = buffer.data();
     // Check the contents using std::equal
@@ -90,7 +91,7 @@ class HostMemoryResource : public ::testing::TestWithParam<std::size_t> {
             rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
     }
 
-    rmm::cuda_stream_view stream{};
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
@@ -152,7 +153,7 @@ class PinnedResource : public ::testing::TestWithParam<std::size_t> {
                  ->try_pinned_mr();
     }
 
-    rmm::cuda_stream_view stream{};
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::optional<rapidsmpf::PinnedMemoryResource> mr;
 };
 
@@ -246,7 +247,7 @@ TEST(PinnedResource, transient_mr) {
         rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
     );
     auto mr = br->try_pinned_mr();
-    rmm::cuda_stream_view stream{};
+    cuda::stream_ref stream{cudaStreamLegacy};
 
     auto source_data = random_vector<std::uint8_t>(0, 1024);
 
@@ -274,7 +275,7 @@ namespace {
 /// Creates a pool with \p requested_max_pool_size (e.g. 1 MiB), then uses recursive
 /// doubling of allocation size until allocation fails; returns the last successful size.
 std::size_t discover_pinned_pool_actual_size(
-    rmm::cuda_stream_view stream, std::size_t requested_max_pool_size = 1_MiB
+    cuda::stream_ref stream, std::size_t requested_max_pool_size = 1_MiB
 ) {
     auto br = rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
@@ -323,7 +324,7 @@ std::size_t discover_pinned_pool_actual_size(
 TEST(PinnedResource, max_pool_size_limit) {
     // Ensure CUDA device context is initialized (required for pinned memory pools).
     RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
-    auto stream = rmm::cuda_stream_view{};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Create a PinnedMemoryResource with max pool size of 1 MiB; driver may round up.
     if (!rapidsmpf::is_pinned_memory_resources_supported()) {
@@ -346,7 +347,7 @@ TEST(PinnedResource, max_pool_size_limit) {
     // Find the actual pool size (driver may round up, e.g. to 32 MiB) experimentally.
     std::size_t const actual_pool_size = discover_pinned_pool_actual_size(stream, 1_MiB);
     EXPECT_THROW(alloc_and_dealloc(actual_pool_size + 1), cuda::cuda_error);
-    stream.synchronize();
+    stream.sync();
 }
 
 TEST(PinnedResource, from_default_options) {

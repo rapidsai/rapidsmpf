@@ -14,8 +14,8 @@
 #include <gtest/gtest.h>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>

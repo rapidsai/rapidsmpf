@@ -8,12 +8,12 @@ from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
                                          device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport Buffer, MemoryType, cpp_Buffer
@@ -58,7 +58,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
-            cuda_stream_view stream,
+            stream_ref stream,
             cpp_MemoryReservation& reservation,
         ) except +ex_handler
 

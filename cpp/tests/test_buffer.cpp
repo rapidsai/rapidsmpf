@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cuda/memory>
+#include <cuda/stream>
 
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_pool.hpp>
@@ -32,10 +33,10 @@ namespace {
 // unlike MemcpyAsync, MemsetAsync does not transparently handle host ptrs on all
 // architectures.
 void checked_memset(
-    void* ptr, std::size_t size, std::uint8_t value, rmm::cuda_stream_view stream
+    void* ptr, std::size_t size, std::uint8_t value, cuda::stream_ref stream
 ) {
     if (cuda::is_device_accessible(ptr, rmm::get_current_cuda_device().value())) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, value, size, stream));
+        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, value, size, stream.get()));
     } else {
         std::memset(ptr, value, size);
     }
@@ -90,25 +91,25 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     MemoryType mem_type = GetParam();
-    auto stream1 = stream_pool->get_stream();
-    auto stream2 = stream_pool->get_stream();
-    ASSERT_NE(stream1.value(), stream2.value());
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
+    ASSERT_NE(stream1.get(), stream2.get());
 
     auto rmm_buffer = std::make_unique<rmm::device_buffer>(
         random_data.data(), buffer_size, stream1, br->device_mr()
     );
-    stream1.synchronize();
+    stream1.sync();
 
     auto [reserve1, overbooking1] =
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
     auto buffer1 = br->make_buffer(buffer_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
-    EXPECT_EQ(buffer1->stream().value(), stream1.value());
+    EXPECT_EQ(buffer1->stream().get(), stream1.get());
 
     std::size_t num_chunks = buffer_size / chunk_size;
     for (std::size_t i = 0; i < num_chunks; ++i) {
         std::size_t offset = i * chunk_size;
-        buffer1->write_access([&](std::byte* dst, rmm::cuda_stream_view stream) {
+        buffer1->write_access([&](std::byte* dst, cuda::stream_ref stream) {
             RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
                 dst + offset,
                 static_cast<std::byte*>(rmm_buffer->data()) + offset,
@@ -122,10 +123,10 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
         br->reserve(mem_type, buffer_size, AllowOverbooking::YES);
     auto buffer2 = br->make_buffer(buffer_size, stream2, reserve2);
     EXPECT_EQ(buffer2->mem_type(), mem_type);
-    EXPECT_EQ(buffer2->stream().value(), stream2.value());
+    EXPECT_EQ(buffer2->stream().get(), stream2.get());
 
     buffer1->rebind_stream(stream2);
-    EXPECT_EQ(buffer1->stream().value(), stream2.value());
+    EXPECT_EQ(buffer1->stream().get(), stream2.get());
 
     buffer_copy(br->statistics(), *buffer2, *buffer1, buffer_size);
 
@@ -133,16 +134,16 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     RAPIDSMPF_CUDA_TRY(
         cuda_memcpy_async(result.data(), buffer2->data(), buffer_size, stream2)
     );
-    stream2.synchronize();
+    stream2.sync();
 
     EXPECT_EQ(result, random_data);
 }
 
 TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     MemoryType mem_type = GetParam();
-    auto stream1 = stream_pool->get_stream();
-    auto stream2 = stream_pool->get_stream();
-    ASSERT_NE(stream1.value(), stream2.value());
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
+    ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 4_MiB;
 
@@ -151,14 +152,14 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     auto buffer1 = br->make_buffer(test_size, stream1, reserve1);
     EXPECT_EQ(buffer1->mem_type(), mem_type);
 
-    buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
+    buffer1->write_access([&](std::byte* ptr, cuda::stream_ref stream) {
         checked_memset(ptr, test_size, 0xAB, stream);
     });
 
     buffer1->rebind_stream(stream2);
-    EXPECT_EQ(buffer1->stream().value(), stream2.value());
+    EXPECT_EQ(buffer1->stream().get(), stream2.get());
 
-    buffer1->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
+    buffer1->write_access([&](std::byte* ptr, cuda::stream_ref stream) {
         checked_memset(ptr, test_size / 2, 0xCD, stream);
     });
 
@@ -166,7 +167,7 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     RAPIDSMPF_CUDA_TRY(
         cuda_memcpy_async(result.data(), buffer1->data(), test_size, stream2)
     );
-    stream2.synchronize();
+    stream2.sync();
 
     for (std::size_t i = 0; i < test_size / 2; ++i) {
         EXPECT_EQ(result[i], 0xCD) << "Mismatch at index " << i;
@@ -178,28 +179,28 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 
 TEST_P(BufferRebindStreamTest, MultipleRebinds) {
     MemoryType mem_type = GetParam();
-    auto stream1 = stream_pool->get_stream();
-    auto stream2 = stream_pool->get_stream();
-    ASSERT_NE(stream1.value(), stream2.value());
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
+    ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 2_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
     auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
 
-    buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
+    buffer->write_access([&](std::byte* ptr, cuda::stream_ref stream) {
         checked_memset(ptr, test_size, 0x11, stream);
     });
 
     buffer->rebind_stream(stream2);
-    EXPECT_EQ(buffer->stream().value(), stream2.value());
-    buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
+    EXPECT_EQ(buffer->stream().get(), stream2.get());
+    buffer->write_access([&](std::byte* ptr, cuda::stream_ref stream) {
         checked_memset(ptr, test_size / 2, 0x22, stream);
     });
 
     buffer->rebind_stream(stream1);
-    EXPECT_EQ(buffer->stream().value(), stream1.value());
-    buffer->write_access([&](std::byte* ptr, rmm::cuda_stream_view stream) {
+    EXPECT_EQ(buffer->stream().get(), stream1.get());
+    buffer->write_access([&](std::byte* ptr, cuda::stream_ref stream) {
         checked_memset(ptr + test_size / 2, test_size / 2, 0x33, stream);
     });
 
@@ -207,7 +208,7 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
     RAPIDSMPF_CUDA_TRY(
         cuda_memcpy_async(result.data(), buffer->data(), test_size, stream1)
     );
-    stream1.synchronize();
+    stream1.sync();
 
     for (std::size_t i = 0; i < test_size / 2; ++i) {
         EXPECT_EQ(result[i], 0x22) << "Mismatch at index " << i;
@@ -219,9 +220,9 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
 
 TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     MemoryType mem_type = GetParam();
-    auto stream1 = stream_pool->get_stream();
-    auto stream2 = stream_pool->get_stream();
-    ASSERT_NE(stream1.value(), stream2.value());
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
+    ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 1_MiB;
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
@@ -233,8 +234,8 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     EXPECT_THROW(buffer->rebind_stream(stream2), std::logic_error);
     buffer->unlock();
     EXPECT_NO_THROW(buffer->rebind_stream(stream2));
-    EXPECT_EQ(buffer->stream().value(), stream2.value());
+    EXPECT_EQ(buffer->stream().get(), stream2.get());
 
     EXPECT_NO_THROW(buffer->rebind_stream(stream2));
-    EXPECT_EQ(buffer->stream().value(), stream2.value());
+    EXPECT_EQ(buffer->stream().get(), stream2.get());
 }

@@ -8,6 +8,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -25,14 +27,14 @@ class BaseCommunicatorTest : public ::testing::Test {
         comm = GlobalEnvironment->comm_.get();
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = rapidsmpf::BufferResource::create(*mr);
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStreamLegacy};
     }
 
     void TearDown() override {}
 
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
@@ -80,19 +82,19 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
     auto send_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
-    send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view stream) {
+    send_buf->write_access([&](std::byte* send_buf_data, cuda::stream_ref stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(
                 send_buf_data, send_data_h.data(), nelems, stream
             )
         );
     });
-    send_buf->stream().synchronize();
+    send_buf->stream().sync();
     rapidsmpf::Tag tag{0, 0};
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
 
     auto recv_buf = br->make_buffer(stream, br->reserve_or_fail(nelems, memory_type()));
-    recv_buf->stream().synchronize();
+    recv_buf->stream().sync();
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     std::ignore = comm->wait(std::move(send_fut));
     recv_buf = comm->wait(std::move(recv_fut));
@@ -100,6 +102,6 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
         rapidsmpf::MemoryType::HOST, nelems, rapidsmpf::AllowOverbooking::YES
     );
     auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
-    stream.synchronize();
+    stream.sync();
     EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());
 }

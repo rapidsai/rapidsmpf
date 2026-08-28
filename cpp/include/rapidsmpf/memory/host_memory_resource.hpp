@@ -8,8 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <cuda/stream>
+
 #include <rmm/aligned.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -87,7 +88,7 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
      * @throw std::invalid_argument If @p alignment is not a valid alignment.
      */
     void* allocate(
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
     );
@@ -104,7 +105,7 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
      * @param alignment Alignment originally used for the allocation.
      */
     void deallocate(
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         void* ptr,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT

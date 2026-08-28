@@ -1,15 +1,15 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
 from rmm.pylibrmm.device_buffer cimport DeviceBuffer
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -25,7 +25,7 @@ cdef extern from *:
     std::unique_ptr<rapidsmpf::PackedData> cpp_packed_data_from_buffers(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         rapidsmpf::BufferResource* br
     ) {
         return std::make_unique<rapidsmpf::PackedData>(
@@ -44,12 +44,12 @@ cdef extern from *:
         // Allocate host buffer and copy data into it
         auto reservation = br->reserve_or_fail(size, rapidsmpf::MemoryType::HOST);
         auto buffer = br->make_buffer(
-            rmm::cuda_stream_default, std::move(reservation)
+            cuda::stream_ref{cudaStreamLegacy}, std::move(reservation)
         );
 
         // Copy data into the buffer
         if (size > 0) {
-            buffer->write_access([&](std::byte* dst, rmm::cuda_stream_view) {
+            buffer->write_access([&](std::byte* dst, cuda::stream_ref) {
                 std::memcpy(dst, data, size);
             });
         }
@@ -63,7 +63,7 @@ cdef extern from *:
         const std::uint8_t* metadata,
         std::size_t metadata_size,
         std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         rapidsmpf::BufferResource* br
     ) {
         auto meta = std::make_unique<std::vector<std::uint8_t>>(
@@ -85,7 +85,7 @@ cdef extern from *:
             RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(
                 result.data(), buf->data(), nbytes, buf->stream()
             ));
-            buf->stream().synchronize();
+            buf->stream().sync();
         }
         return result;
     }
@@ -93,7 +93,7 @@ cdef extern from *:
     unique_ptr[cpp_PackedData] cpp_packed_data_from_buffers(
         unique_ptr[vector[uint8_t]] metadata,
         unique_ptr[device_buffer] gpu_data,
-        cuda_stream_view stream,
+        stream_ref stream,
         cpp_BufferResource* br,
     ) except +ex_handler nogil
 
@@ -107,7 +107,7 @@ cdef extern from *:
         const uint8_t* metadata,
         size_t metadata_size,
         unique_ptr[device_buffer] gpu_data,
-        cuda_stream_view stream,
+        stream_ref stream,
         cpp_BufferResource* br,
     ) except +ex_handler nogil
 
@@ -201,7 +201,7 @@ cdef class PackedData:
         cdef const uint8_t* meta_ptr = NULL
         if meta_size > 0:
             meta_ptr = <const uint8_t*>&metadata[0]
-        cdef cuda_stream_view sv = stream.view()
+        cdef stream_ref sv = stream_ref(stream.view().value())
         cdef unique_ptr[device_buffer] gpu = move(gpu_data.c_obj)
         cdef PackedData ret = cls.__new__(cls)
         with nogil:

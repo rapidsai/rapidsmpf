@@ -16,6 +16,7 @@
 #include <utility>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rmm/cuda_stream_pool.hpp>
 
@@ -413,7 +414,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> make_buffer(
-        std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+        std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
     );
 
     /**
@@ -427,7 +428,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return A unique pointer to the allocated Buffer.
      */
     std::unique_ptr<Buffer> make_buffer(
-        rmm::cuda_stream_view stream, MemoryReservation&& reservation
+        cuda::stream_ref stream, MemoryReservation&& reservation
     );
 
     /**
@@ -450,7 +451,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+        std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
     );
 
     /**
