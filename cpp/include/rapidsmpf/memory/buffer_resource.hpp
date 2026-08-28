@@ -55,25 +55,53 @@ enum class AllowOverbooking : bool {
  */
 class StreamPool {
   public:
+    /**
+     * @brief Construct a pool of non-blocking CUDA streams.
+     *
+     * @param num_streams Number of streams to create.
+     */
     explicit StreamPool(std::size_t num_streams)
         : pool_{std::make_shared<rmm::cuda_stream_pool>(
               num_streams, rmm::cuda_stream::flags::non_blocking
           )} {}
 
+    /**
+     * @brief Construct a stream pool backed by an existing RMM pool.
+     *
+     * @param pool RMM stream pool providing stream ownership.
+     */
     explicit StreamPool(std::shared_ptr<rmm::cuda_stream_pool> pool)
         : pool_{std::move(pool)} {
         RAPIDSMPF_EXPECTS(pool_ != nullptr, "the stream pool pointer cannot be NULL");
     }
 
+    /**
+     * @brief Get the next stream from the pool.
+     *
+     * @return A CUDA Core reference to the selected stream.
+     */
     [[nodiscard]] cuda::stream_ref get_stream() const {
         return cuda::stream_ref{pool_->get_stream().value()};
     }
 
+    /**
+     * @brief Get a stream from the pool by index.
+     *
+     * @param stream_id Index of the stream to retrieve.
+     * @return A CUDA Core reference to the selected stream.
+     */
     [[nodiscard]] cuda::stream_ref get_stream(std::size_t stream_id) const {
         return cuda::stream_ref{pool_->get_stream(stream_id).value()};
     }
 
-    [[nodiscard]] std::size_t get_pool_size() const { return pool_->get_pool_size(); }
+    /**
+     * @brief Get the number of streams in the pool.
+     *
+     * @return Number of streams in the pool.
+     */
+    [[nodiscard]] std::size_t get_pool_size() const {
+        return pool_->get_pool_size();
+    }
 
   private:
     std::shared_ptr<rmm::cuda_stream_pool> pool_;
