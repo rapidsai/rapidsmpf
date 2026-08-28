@@ -230,8 +230,8 @@ cdef class BufferResource:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
         with nogil:
-            # TODO: Replace this RMM pool with a cuda-python stream pool once one is
-            # available.
+            # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
+            # one is available with all the necessary CCCL interop.
             self._handle = cpp_BufferResource.create(
                 any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_pool,
