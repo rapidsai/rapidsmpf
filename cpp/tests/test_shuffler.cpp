@@ -976,7 +976,7 @@ TEST(Shuffler, concurrent_wait) {
                     total_num_partitions,
                     total_num_rows,
                     local_pidx,
-                    cuda::stream_ref{br->stream_pool()->get_stream().value()},
+                    br->stream_pool()->get_stream(),
                     *br
                 ));
             }));

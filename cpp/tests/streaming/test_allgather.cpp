@@ -75,7 +75,7 @@ TEST_P(StreamingAllGather, basic) {
 
         auto br = ctx->br();
         auto buf = br->make_buffer(
-            cuda::stream_ref{br->stream_pool()->get_stream().value()},
+            br->stream_pool()->get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
         buf->write_access([&](std::byte* buf_data, cuda::stream_ref stream) {
@@ -148,7 +148,7 @@ TEST_P(StreamingAllGather, streaming_actor) {
 
         auto br = ctx->br();
         auto buf = br->make_buffer(
-            cuda::stream_ref{br->stream_pool()->get_stream().value()},
+            br->stream_pool()->get_stream(),
             br->reserve_or_fail(data.size() * sizeof(int), mem_type)
         );
         buf->write_access([&](std::byte* buf_data, cuda::stream_ref stream) {

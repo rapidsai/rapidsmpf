@@ -281,7 +281,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
 ) {
-    auto upstream = cuda::stream_ref{data->stream().value()};
+    cuda::stream_ref upstream = data->stream();
     if (upstream.get() != stream.get()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);

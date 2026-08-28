@@ -91,8 +91,8 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
     MemoryType mem_type = GetParam();
-    auto stream1 = cuda::stream_ref{stream_pool->get_stream().value()};
-    auto stream2 = cuda::stream_ref{stream_pool->get_stream().value()};
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.get(), stream2.get());
 
     auto rmm_buffer = std::make_unique<rmm::device_buffer>(
@@ -141,8 +141,8 @@ TEST_P(BufferRebindStreamTest, RebindStreamAndCopy) {
 
 TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
     MemoryType mem_type = GetParam();
-    auto stream1 = cuda::stream_ref{stream_pool->get_stream().value()};
-    auto stream2 = cuda::stream_ref{stream_pool->get_stream().value()};
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 4_MiB;
@@ -179,8 +179,8 @@ TEST_P(BufferRebindStreamTest, RebindStreamSynchronizesCorrectly) {
 
 TEST_P(BufferRebindStreamTest, MultipleRebinds) {
     MemoryType mem_type = GetParam();
-    auto stream1 = cuda::stream_ref{stream_pool->get_stream().value()};
-    auto stream2 = cuda::stream_ref{stream_pool->get_stream().value()};
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 2_MiB;
@@ -220,8 +220,8 @@ TEST_P(BufferRebindStreamTest, MultipleRebinds) {
 
 TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     MemoryType mem_type = GetParam();
-    auto stream1 = cuda::stream_ref{stream_pool->get_stream().value()};
-    auto stream2 = cuda::stream_ref{stream_pool->get_stream().value()};
+    cuda::stream_ref stream1 = stream_pool->get_stream();
+    cuda::stream_ref stream2 = stream_pool->get_stream();
     ASSERT_NE(stream1.get(), stream2.get());
 
     constexpr std::size_t test_size = 1_MiB;
