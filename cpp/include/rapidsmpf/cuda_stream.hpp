@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <concepts>
 #include <memory>
 #include <ranges>
 
@@ -13,6 +14,11 @@
 
 namespace rapidsmpf {
 
+namespace detail {
+template <typename R, typename T>
+concept input_range_of = std::ranges::input_range<R>
+                         && std::convertible_to<std::ranges::range_reference_t<R>, T>;
+}  // namespace detail
 
 /**
  * @brief Make downstream CUDA streams wait on upstream CUDA streams.
@@ -32,7 +38,9 @@ namespace rapidsmpf {
  *
  * @note If all upstream and downstream streams are identical, this function is a no-op.
  */
-template <typename Range1, typename Range2>
+template <
+    detail::input_range_of<cuda::stream_ref> Range1,
+    detail::input_range_of<cuda::stream_ref> Range2>
 void cuda_stream_join(
     Range1 const& downstreams, Range2 const& upstreams, CudaEvent* event = nullptr
 ) {
