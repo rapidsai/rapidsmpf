@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -43,6 +44,43 @@ namespace rapidsmpf {
 enum class AllowOverbooking : bool {
     NO,  ///< Overbooking is not allowed.
     YES,  ///< Overbooking is allowed.
+};
+
+/**
+ * @brief Pool of non-blocking CUDA streams.
+ *
+ * The pool is backed by RMM until CUDA Core provides an owning stream-pool
+ * implementation. Its public interface returns CUDA Core stream references so
+ * callers do not need to bridge between stream abstractions.
+ */
+class StreamPool {
+  public:
+    explicit StreamPool(std::size_t num_streams)
+        : pool_{std::make_shared<rmm::cuda_stream_pool>(
+              num_streams, rmm::cuda_stream::flags::non_blocking
+          )} {}
+
+    explicit StreamPool(std::shared_ptr<rmm::cuda_stream_pool> pool)
+        : pool_{std::move(pool)} {
+        RAPIDSMPF_EXPECTS(pool_ != nullptr, "the stream pool pointer cannot be NULL");
+    }
+
+    [[nodiscard]] static std::shared_ptr<StreamPool> from_rmm(
+        std::shared_ptr<rmm::cuda_stream_pool> pool
+    ) {
+        return std::make_shared<StreamPool>(std::move(pool));
+    }
+
+    [[nodiscard]] cuda::stream_ref get_stream() const {
+        return cuda::stream_ref{pool_->get_stream().value()};
+    }
+
+    [[nodiscard]] cuda::stream_ref get_stream(std::size_t stream_id) const {
+        return cuda::stream_ref{pool_->get_stream(stream_id).value()};
+    }
+
+  private:
+    std::shared_ptr<rmm::cuda_stream_pool> pool_;
 };
 
 /**
@@ -114,8 +152,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<PinnedPoolProperties> pinned_pool_properties = PinnedMemoryDisabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
-        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
-            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
+        std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
@@ -512,9 +549,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Use this pool for operations that do not take an explicit CUDA stream.
      *
-     * @return Shared pointer to the underlying CUDA stream pool.
+     * @return Shared pointer to the CUDA stream pool.
      */
-    std::shared_ptr<rmm::cuda_stream_pool> const& stream_pool() const;
+    std::shared_ptr<StreamPool> const& stream_pool() const;
 
     /**
      * @brief Gets a reference to the spill manager used.
@@ -538,7 +575,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
-        std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+        std::shared_ptr<StreamPool> stream_pool,
         std::shared_ptr<Statistics> statistics
     );
 
@@ -549,7 +586,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
+    std::shared_ptr<StreamPool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
@@ -586,7 +623,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
  * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
  * not take an explicit CUDA stream.
  */
-std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf

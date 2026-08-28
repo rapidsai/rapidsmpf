@@ -11,7 +11,6 @@
 
 #include <cuda/stream>
 
-#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -110,7 +109,7 @@ std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
         std::move(props),
         {},
         std::nullopt,  // disable the periodic spill-check thread
-        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking)
+        std::make_shared<rapidsmpf::StreamPool>(1)
     );
 }
 

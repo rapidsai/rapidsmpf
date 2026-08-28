@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <rmm/cuda_stream_pool.hpp>
-
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 

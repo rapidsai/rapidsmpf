@@ -307,7 +307,7 @@ TEST(BufferResource, AllocStatistics) {
         pinned_available ? PinnedPoolProperties{} : PinnedMemoryDisabled,
         {},
         std::nullopt,
-        std::make_shared<rmm::cuda_stream_pool>(1, rmm::cuda_stream::flags::non_blocking),
+        std::make_shared<StreamPool>(1),
         stats
     );
     auto stream = cuda::stream_ref{cudaStreamLegacy};

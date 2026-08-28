@@ -235,7 +235,7 @@ cdef class BufferResource:
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
-                stream_pool.c_obj,
+                cpp_StreamPool.from_rmm(stream_pool.c_obj),
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
