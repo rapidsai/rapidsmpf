@@ -15,9 +15,17 @@
 namespace rapidsmpf {
 
 namespace detail {
+
+/**
+ * @brief Internal concept for identifying ranges of a given type.
+ *
+ * @tparam R Range type.
+ * @tparam T Expected content type.
+ */
 template <typename R, typename T>
 concept input_range_of = std::ranges::input_range<R>
                          && std::convertible_to<std::ranges::range_reference_t<R>, T>;
+
 }  // namespace detail
 
 /**
