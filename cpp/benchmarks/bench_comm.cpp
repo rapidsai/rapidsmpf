@@ -10,7 +10,6 @@
 
 #include <cuda/stream>
 
-#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -328,9 +327,7 @@ int main(int argc, char** argv) {
         PinnedMemoryDisabled,
         {},
         std::chrono::milliseconds{1},
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
+        std::make_shared<StreamPool>(16),
         stats
     );
 

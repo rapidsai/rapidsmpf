@@ -27,7 +27,7 @@ BufferResource::BufferResource(
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : owning_mr_{std::move(device_mr)},
@@ -54,7 +54,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<PinnedPoolProperties> pinned_pool_properties,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
@@ -339,7 +339,7 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
-std::shared_ptr<rmm::cuda_stream_pool> const& BufferResource::stream_pool() const {
+std::shared_ptr<StreamPool> const& BufferResource::stream_pool() const {
     return stream_pool_;
 }
 
@@ -371,7 +371,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
     );
 }
 
-std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
+std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options) {
     auto const num_streams =
         options.get<std::size_t>("num_streams", parse_string<std::size_t>);
     RAPIDSMPF_EXPECTS(
@@ -379,9 +379,7 @@ std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options 
         "The `num_streams` option must be greater than 0",
         std::invalid_argument
     );
-    return std::make_shared<rmm::cuda_stream_pool>(
-        num_streams, rmm::cuda_stream::flags::non_blocking
-    );
+    return std::make_shared<StreamPool>(num_streams);
 }
 
 }  // namespace rapidsmpf

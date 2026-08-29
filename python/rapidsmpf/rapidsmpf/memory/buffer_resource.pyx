@@ -5,7 +5,7 @@ from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -230,12 +230,14 @@ cdef class BufferResource:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
         with nogil:
+            # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
+            # one is available with all the necessary CCCL interop.
             self._handle = cpp_BufferResource.create(
                 any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
-                stream_pool.c_obj,
+                make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)

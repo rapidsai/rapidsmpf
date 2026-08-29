@@ -15,7 +15,6 @@
 #include <cuda/stream>
 
 #include <rmm/cuda_device.hpp>
-#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
@@ -47,7 +46,7 @@ void checked_memset(
 class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
   protected:
     void SetUp() override {
-        stream_pool = std::make_shared<rmm::cuda_stream_pool>(2);
+        stream_pool = std::make_shared<StreamPool>(2);
 
         if (GetParam() == MemoryType::PINNED_HOST
             && !is_pinned_memory_resources_supported())
@@ -77,7 +76,7 @@ class BufferRebindStreamTest : public ::testing::TestWithParam<MemoryType> {
     static constexpr std::size_t buffer_size = 32_MiB;
     static constexpr std::size_t chunk_size = 1_MiB;
 
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool;
+    std::shared_ptr<StreamPool> stream_pool;
     std::shared_ptr<BufferResource> br;
     std::vector<std::uint8_t> random_data;
 };
