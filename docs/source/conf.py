@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 
 from enum import IntEnum, IntFlag
 from typing import Any
@@ -66,6 +67,7 @@ html_css_files = ["custom.css"]
 
 
 html_theme_options = {
+    "public_docs_features": os.environ.get("CI") == "true",
     "external_links": [],
     "icon_links": [
         {
