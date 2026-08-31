@@ -81,7 +81,7 @@ class StreamPool {
      * @return A CUDA Core reference to the selected stream.
      */
     [[nodiscard]] cuda::stream_ref get_stream() const {
-        return cuda::stream_ref{pool_->get_stream().value()};
+        return pool_->get_stream();
     }
 
     /**
@@ -91,7 +91,7 @@ class StreamPool {
      * @return A CUDA Core reference to the selected stream.
      */
     [[nodiscard]] cuda::stream_ref get_stream(std::size_t stream_id) const {
-        return cuda::stream_ref{pool_->get_stream(stream_id).value()};
+        return pool_->get_stream(stream_id);
     }
 
     /**
