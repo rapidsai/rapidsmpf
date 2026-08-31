@@ -1,10 +1,27 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
 from contextlib import contextmanager
+
+from rapidsmpf._detail.exception_handling cimport ex_handler
+
+
+cdef extern from * nogil:
+    """
+    namespace {
+    std::unique_ptr<rapidsmpf::MemoryReservation>
+    cpp_reservation_split(rapidsmpf::MemoryReservation* res, std::size_t size) {
+        return std::make_unique<rapidsmpf::MemoryReservation>(res->split(size));
+    }
+    }  // namespace
+    """
+    unique_ptr[cpp_MemoryReservation] cpp_reservation_split(
+        cpp_MemoryReservation*,
+        size_t,
+    ) except +ex_handler
 
 
 cdef class MemoryReservation:
@@ -97,6 +114,43 @@ cdef class MemoryReservation:
         with nogil:
             deref(self._handle).clear()
 
+    def split(self, size_t size):
+        """
+        Split off a sub-reservation of ``size`` bytes.
+
+        Reduces this reservation by ``size`` and returns a new reservation of that
+        size on the same buffer resource and memory type. The total reserved by the
+        buffer resource is unchanged, the bytes are only moved between the two
+        reservations.
+
+        Parameters
+        ----------
+        size
+            The number of bytes to split off.
+
+        Returns
+        -------
+        The new reservation.
+
+        Raises
+        ------
+        rapidsmpf.error.ReservationError
+            If ``size`` exceeds the remaining size of this reservation.
+
+        Examples
+        --------
+        Scope part of a reservation to the allocation it covers:
+        >>> with opaque_memory_usage(reservation.split(scratch_nbytes)):
+        ...     # library call that allocates memory unknown to RapidsMPF.
+        ...     result = library_op(...)
+        >>> # the scratch bytes are released here, the rest of ``reservation``
+        >>> # is still available.
+        """
+        cdef unique_ptr[cpp_MemoryReservation] ret
+        with nogil:
+            ret = cpp_reservation_split(self._handle.get(), size)
+        return MemoryReservation.from_handle(move(ret), self._br)
+
 
 @contextmanager
 def opaque_memory_usage(MemoryReservation reservation not None):
@@ -126,7 +180,7 @@ def opaque_memory_usage(MemoryReservation reservation not None):
     Examples
     --------
     Account for allocations outside RapidsMPF:
-    >>> with opaque_memory_usage(ctx, reservation):
+    >>> with opaque_memory_usage(reservation):
     ...     # library call that allocates memory unknown to RapidsMPF.
     ...     result = library_op(...)
     """
