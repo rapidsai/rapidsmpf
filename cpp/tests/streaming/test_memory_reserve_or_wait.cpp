@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <chrono>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -334,13 +335,14 @@ class SpillRecorder {
     std::vector<std::size_t> amounts_;
 };
 
-TEST_P(StreamingMemoryReserveOrWait, SpillingUnblocksWaiter) {
+TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
     MemoryReserveOrWait mrow{
-        // Use a very high timeout, so only spilling can satisfy the request.
+        // A queued request must wait for the progress timeout before it can trigger
+        // the expensive spill path.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         ctx->logger(),
         MemoryType::DEVICE,
@@ -355,13 +357,30 @@ TEST_P(StreamingMemoryReserveOrWait, SpillingUnblocksWaiter) {
     ASSERT_EQ(outstanding.size(), 10);
 
     std::vector<Actor> actors;
-    actors.push_back(waiter(mrow, 10, 0, 10));
-    run_actor_network(std::move(actors));
+    actors.push_back([&](MemoryReserveOrWait& waiter) -> Actor {
+        try {
+            std::ignore = co_await waiter.reserve_or_wait(10, 0);
+        } catch (std::runtime_error const&) {
+            // `shutdown()` closes the pending request queue.
+        }
+    }(mrow));
+    std::thread thd(run_actor_network, std::move(actors));
 
-    EXPECT_THAT(spills.amounts(), ::testing::Contains(10u));
+    // Let the poller observe the pending request several times while the timeout
+    // remains far away. The current eager #1164 path spills here; the desired path
+    // leaves the request pending.
+    auto const deadline = Clock::now() + std::chrono::seconds(1);
+    while (mrow.size() < 1 && spills.amounts().empty() && Clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_TRUE(spills.amounts().empty());
+
+    coro::sync_wait(mrow.shutdown());
+    thd.join();
 }
 
-TEST_P(StreamingMemoryReserveOrWait, ThrowingSpillFunctionDoesNotStrandWaiter) {
+TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -375,26 +394,18 @@ TEST_P(StreamingMemoryReserveOrWait, ThrowingSpillFunctionDoesNotStrandWaiter) {
         ctx->br()
     };
 
-    br->set_memory_limit(
-        MemoryType::DEVICE,
-        safe_cast<std::int64_t>(br->device_mr_adaptor().current_allocated())
-    );
+    // A timeout must preserve its bounded-progress contract by handing back a
+    // zero-size reservation. It must not evict queued device data merely to turn
+    // that timeout into an immediate full reservation.
+    SpillRecorder spills{br.get(), /* available = */ 0, /* spillable = */ 10};
     ASSERT_EQ(get_mem_avail(), 0);
-
-    std::atomic<bool> spill_called{false};
-    SpillManager::SpillFunction func = [&](std::size_t) -> std::size_t {
-        spill_called = true;
-        throw std::runtime_error("spill function failed");
-    };
-    auto fid = br->spill_manager().add_spill_function(func, /* priority = */ 1);
 
     // The waiter completes via the timeout instead of hanging on its queue.
     std::vector<Actor> actors;
     actors.push_back(waiter(mrow, 10, 0, 0));
     run_actor_network(std::move(actors));
 
-    br->spill_manager().remove_spill_function(fid);
-    EXPECT_TRUE(spill_called.load());
+    EXPECT_TRUE(spills.amounts().empty());
 }
 
 TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {

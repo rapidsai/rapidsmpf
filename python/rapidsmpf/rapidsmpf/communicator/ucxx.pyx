@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """ucxx-based implementation of a RapidsMPF Communicator."""
 
@@ -10,12 +10,12 @@ from libcpp.optional cimport nullopt, nullopt_t
 from libcpp.pair cimport pair
 from libcpp.string cimport string
 from libcpp.utility cimport move
-from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.progress_thread cimport ProgressThread, cpp_ProgressThread
+from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 
 cdef extern from "<variant>" namespace "std" nogil:
