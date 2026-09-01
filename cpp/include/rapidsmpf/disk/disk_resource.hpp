@@ -9,9 +9,14 @@
 #include <memory>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 
-namespace rapidsmpf::disk {
+namespace rapidsmpf {
+
+class BufferResource;
+
+namespace disk {
 
 /**
  * @brief Future for a DiskResource read or write.
@@ -43,6 +48,18 @@ class DiskFuture {
     [[nodiscard]] virtual bool valid() const noexcept = 0;
 
     /**
+     * @brief Whether the transfer has completed without consuming the result.
+     *
+     * @return True if the I/O finished and `get()` has not been called yet.
+     *
+     * @note This is a point-in-time check and is subject to TOCTOU races:
+     *       another thread may call `get()` after this returns `true`. Like
+     *       `std::future`, concurrent `is_ready()`/`get()` from multiple
+     *       threads is undefined behavior.
+     */
+    [[nodiscard]] virtual bool is_ready() const = 0;
+
+    /**
      * @brief Wait for the transfer, release backend resources, and return the
      * byte count.
      *
@@ -65,16 +82,35 @@ class DiskFuture {
  * the default stream (`sync_default_stream=false`).
  *
  * Disk I/O is intentionally outside the MemoryType / BufferResource taxonomy.
+ * `BufferResource` owns a `std::shared_ptr<DiskResource>`; `DiskBuffer`s hold
+ * additional copies so the resource outlives those buffers.
  */
-class DiskResource {
+class DiskResource : public BackRefMixin<BufferResource> {
   public:
-    DiskResource() = default;
     ~DiskResource() = default;
 
     DiskResource(DiskResource const&) = delete;
     DiskResource& operator=(DiskResource const&) = delete;
     DiskResource(DiskResource&&) = delete;
     DiskResource& operator=(DiskResource&&) = delete;
+
+    /**
+     * @brief Directory used for file creation.
+     *
+     * @return Configured directory path.
+     */
+    [[nodiscard]] std::filesystem::path const& directory() const noexcept {
+        return dir_;
+    }
+
+    /**
+     * @brief Reserve a unique file path under `directory()`.
+     *
+     * Atomically creates an empty file using `mkstemp`.
+     *
+     * @return Path to the reserved empty file.
+     */
+    [[nodiscard]] std::filesystem::path create_unique_path() const;
 
     /**
      * @brief Write bytes to a file.
@@ -92,7 +128,7 @@ class DiskResource {
         std::size_t size,
         MemoryType mem_type,
         std::size_t file_offset = 0
-    );
+    ) const;
 
     /**
      * @brief Read bytes from a file.
@@ -110,7 +146,7 @@ class DiskResource {
         std::size_t size,
         MemoryType mem_type,
         std::size_t file_offset = 0
-    );
+    ) const;
 
     /**
      * @brief Durably synchronize file data to storage (fdatasync).
@@ -119,7 +155,22 @@ class DiskResource {
      *
      * @param path File path.
      */
-    void flush(std::filesystem::path const& path);
+    void flush(std::filesystem::path const& path) const;
+
+    /**
+     * @brief Compare two disk resources.
+     *
+     * @param other Resource to compare with.
+     * @return `true` if both have the same directory and back-reference state.
+     */
+    [[nodiscard]] bool operator==(DiskResource const& other) const noexcept = default;
+
+  private:
+    explicit DiskResource(std::filesystem::path dir) : dir_{std::move(dir)} {}
+
+    friend class rapidsmpf::BufferResource;
+
+    std::filesystem::path dir_;
 };
 
 /**
@@ -132,4 +183,5 @@ class DiskResource {
  */
 [[nodiscard]] std::filesystem::path default_spill_directory(config::Options options);
 
-}  // namespace rapidsmpf::disk
+}  // namespace disk
+}  // namespace rapidsmpf

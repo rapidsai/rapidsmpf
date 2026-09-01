@@ -4,6 +4,8 @@
  */
 
 #include <cerrno>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <future>
 #include <memory>
@@ -45,6 +47,13 @@ class KvikioDiskFuture final : public DiskFuture {
         return io_.valid();
     }
 
+    [[nodiscard]] bool is_ready() const override {
+        if (!io_.valid()) {
+            return false;
+        }
+        return io_.wait_for(std::chrono::seconds{0}) == std::future_status::ready;
+    }
+
     [[nodiscard]] std::size_t get() override {
         auto const n = io_.get();
         file_->close();
@@ -58,13 +67,43 @@ class KvikioDiskFuture final : public DiskFuture {
 
 }  // namespace
 
+std::filesystem::path DiskResource::create_unique_path() const {
+    std::error_code ec;
+    std::filesystem::create_directories(dir_, ec);
+    RAPIDSMPF_EXPECTS(
+        !ec,
+        "failed to create directory " + dir_.string() + ": " + ec.message(),
+        std::runtime_error
+    );
+
+    auto path_template = (dir_ / "XXXXXX").string();
+    auto const fd = ::mkstemp(path_template.data());
+    auto const open_error = errno;
+    RAPIDSMPF_EXPECTS(
+        fd >= 0,
+        "failed to reserve a unique file under " + dir_.string() + ": "
+            + std::string{std::strerror(open_error)},
+        std::runtime_error
+    );
+    if (::close(fd) != 0) {
+        auto const err = errno;
+        std::error_code remove_error;
+        std::filesystem::remove(path_template, remove_error);
+        RAPIDSMPF_FAIL(
+            "close after file reservation failed: " + std::string{std::strerror(err)},
+            std::runtime_error
+        );
+    }
+    return path_template;
+}
+
 std::unique_ptr<DiskFuture> DiskResource::write(
     std::filesystem::path const& path,
     void const* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
     std::size_t file_offset
-) {
+) const {
     auto file = std::make_unique<kvikio::FileHandle>(
         path.string(), "w+", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     );
@@ -85,7 +124,7 @@ std::unique_ptr<DiskFuture> DiskResource::read(
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
     std::size_t file_offset
-) {
+) const {
     auto file = std::make_unique<kvikio::FileHandle>(
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     );
@@ -100,7 +139,7 @@ std::unique_ptr<DiskFuture> DiskResource::read(
     return std::make_unique<KvikioDiskFuture>(std::move(file), std::move(io));
 }
 
-void DiskResource::flush(std::filesystem::path const& path) {
+void DiskResource::flush(std::filesystem::path const& path) const {
     auto const fd = ::open(path.c_str(), O_RDONLY);
     RAPIDSMPF_EXPECTS(
         fd >= 0,
