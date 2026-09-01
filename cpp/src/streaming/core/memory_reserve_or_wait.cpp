@@ -22,17 +22,14 @@ namespace rapidsmpf::streaming {
 
 MemoryReserveOrWait::MemoryReserveOrWait(
     config::Options options,
-    std::shared_ptr<Logger> logger,
     MemoryType mem_type,
     std::shared_ptr<CoroThreadPoolExecutor> executor,
     std::shared_ptr<BufferResource> br
 )
     : mem_type_{mem_type},
-      logger_{std::move(logger)},
       executor_{std::move(executor)},
       br_{std::move(br)},
       timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
-    RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
 }

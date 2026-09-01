@@ -10,7 +10,6 @@
 
 #include <coro/task.hpp>
 
-#include <rapidsmpf/communicator/logger.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
@@ -59,14 +58,12 @@ class MemoryReserveOrWait {
      * still cannot be satisfied.
      *
      * @param options Configuration options.
-     * @param logger Shared pointer to a logger.
      * @param mem_type The memory type for which reservations are requested.
      * @param executor Shared pointer to a coroutine executor.
      * @param br Buffer resource for memory allocation.*
      */
     MemoryReserveOrWait(
         config::Options options,
-        std::shared_ptr<Logger> logger,
         MemoryType mem_type,
         std::shared_ptr<CoroThreadPoolExecutor> executor,
         std::shared_ptr<BufferResource> br
@@ -291,7 +288,6 @@ class MemoryReserveOrWait {
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
-    std::shared_ptr<Logger> logger_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     Duration const timeout_;

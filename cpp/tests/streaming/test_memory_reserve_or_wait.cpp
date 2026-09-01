@@ -74,7 +74,7 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
     };
 
     MemoryReserveOrWait mrow{
-        options, ctx->logger(), MemoryType::DEVICE, ctx->executor(), ctx->br()
+        options, MemoryType::DEVICE, ctx->executor(), ctx->br()
     };
 
     // Executor and buffer resource should match the context.
@@ -92,7 +92,6 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -143,7 +142,6 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -209,7 +207,6 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -261,7 +258,6 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -342,7 +338,6 @@ TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
     MemoryReserveOrWait mrow{
         // Keep the timeout far away so the test exercises ordinary admission polling.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -383,7 +378,6 @@ TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
     MemoryReserveOrWait mrow{
         // Short timeout, the waiter can only make progress via the timeout path.
         config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -406,7 +400,6 @@ TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
 TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {
     MemoryReserveOrWait mrow{
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -430,7 +423,6 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
-            ctx->logger(),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
@@ -449,7 +441,6 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
-            ctx->logger(),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
