@@ -595,7 +595,7 @@ cdef class BufferResource:
             If ``size`` exceeds the reservation size.
         """
         cdef unique_ptr[cpp_Buffer] handle
-        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
+        cdef stream_ref cpp_stream = stream.view()
         with nogil:
             handle = move(
                 deref(self._handle).make_buffer(
