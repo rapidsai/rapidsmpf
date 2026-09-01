@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <atomic>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -203,36 +202,6 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         RAPIDSMPF_EXPECTS(err, "cannot spawn push-into-queue task");
     };
 
-    // Helper that spills until `headroom` bytes are reservable, swallowing a spill
-    // function that throws and logging it once per task. Returns false only when a
-    // non-blocking spill found the spill lock held.
-    bool spill_failure_logged = false;
-    auto make_headroom = [&](std::size_t headroom, bool blocking) -> bool {
-        // Only device memory is supported, see `spill_to_make_headroom()`.
-        if (mem_type_ != MemoryType::DEVICE) {
-            return true;
-        }
-        try {
-            auto const target = safe_cast<std::int64_t>(headroom);
-            if (blocking) {
-                br_->spill_manager().spill_to_make_headroom(target);
-                return true;
-            }
-            return br_->spill_manager().try_spill_to_make_headroom(target).has_value();
-        } catch (...) {
-            if (!std::exchange(spill_failure_logged, true)) {
-                try {
-                    logger_->warn(
-                        "a spill function threw while making headroom for ",
-                        format_nbytes(headroom)
-                    );
-                } catch (...) {  // NOLINT(bugprone-empty-catch)
-                }
-            }
-            return true;
-        }
-    };
-
     // RAII helper that releases `periodic_task_running_` when this task exits without
     // reaching one of the `co_return` paths below, such as on an exception. Those paths
     // release the flag under the same lock acquisition that observes the empty request
@@ -256,9 +225,6 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
     while (true) {
         auto last_reservation_success = Clock::now();
-        // Spilling is attempted once per timeout window, re-armed by each served
-        // request.
-        bool spill_attempted = false;
         while (true) {
             // Exit if no more pending requests remain.
             {
@@ -283,18 +249,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             std::unique_lock lock(mutex_);
             auto eligibles = eligible_requests(max_size);
             if (eligibles.empty()) {
-                // Nothing fits. Spill enough to admit the request with the smallest
-                // net_memory_delta, then re-poll.
-                if (!spill_attempted && !reservation_requests_.empty()) {
-                    auto const target = std::ranges::min_element(
-                        reservation_requests_, std::less<>{}, &Request::net_memory_delta
-                    );
-                    auto const headroom = target->size;
-                    // Spill without holding the mutex, the spill functions take the
-                    // buffer resource's lock.
-                    lock.unlock();
-                    spill_attempted = make_headroom(headroom, /* blocking = */ false);
-                }
+                // Nothing currently fits. Preserve resident data while ordinary
+                // admission waits for a reservation release; the timeout path
+                // below remains responsible for bounded progress.
                 continue;  // No eligible requests.
             }
 
@@ -313,12 +270,13 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             lock.unlock();
             push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
-            spill_attempted = false;
         }
 
-        // Reaching this point means we hit the timeout. We force progress by selecting
-        // among the smallest pending requests, preferring the one with the smallest
-        // net_memory_delta.
+        // Reaching this point means we hit the timeout. Force bounded progress by
+        // selecting among the smallest pending requests, preferring the one with the
+        // smallest net_memory_delta. Do not spill queued data here: callers that
+        // permit overbooking receive the zero-size reservation below and decide how
+        // to proceed, while non-overbooking callers retain the existing failure path.
         std::unique_lock lock(mutex_);
         if (reservation_requests_.empty()) {
             periodic_task_running_ = false;
@@ -346,9 +304,6 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
         Request request = reservation_requests_.extract(it).value();
         lock.unlock();
-
-        // Last chance before handing back a zero-size reservation.
-        make_headroom(request.size, /* blocking = */ true);
 
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
