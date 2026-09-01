@@ -20,6 +20,7 @@ files:
       - cuda
       - cuda_version
       - depends_on_cupy
+      - depends_on_libkvikio
       - depends_on_librmm
       - depends_on_libucxx
       - depends_on_rmm
@@ -45,6 +46,7 @@ files:
       - cuda
       - cuda_version
       - depends_on_cupy
+      - depends_on_libkvikio
       - depends_on_librmm
       - depends_on_libucxx
       - depends_on_rmm
@@ -84,6 +86,7 @@ files:
     includes:
       - build-cpp
       - build-universal
+      - depends_on_libkvikio
       - depends_on_librmm
       - depends_on_libucxx
       - clang_tidy
@@ -118,6 +121,7 @@ files:
     includes:
       - build-universal
       - build-nvml
+      - depends_on_libkvikio
       - depends_on_librmm
       - depends_on_libucxx
   py_run_librapidsmpf:
@@ -126,6 +130,7 @@ files:
     extras:
       table: project
     includes:
+      - depends_on_libkvikio
       - depends_on_librmm
       - depends_on_libucxx
   py_build_rapidsmpf:
@@ -516,6 +521,31 @@ dependencies:
           - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton
+  depends_on_libkvikio:
+    common:
+      - output_types: conda
+        packages:
+          - &libkvikio_unsuffixed libkvikio==26.10.*,>=0.0.0a0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - libkvikio-cu12==26.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - libkvikio-cu13==26.10.*,>=0.0.0a0
+          - matrix:
+            packages:
+              - *libkvikio_unsuffixed
   depends_on_librmm:
     common:
       - output_types: conda

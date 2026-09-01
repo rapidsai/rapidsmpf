@@ -26,6 +26,7 @@ dependencies:
 - gcc_linux-aarch64=14.*
 - gdb
 - ipython
+- libkvikio==26.10.*,>=0.0.0a0
 - libnuma
 - libpmix-devel >=5.0,<6.0
 - librmm==26.10.*,>=0.0.0a0
