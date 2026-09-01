@@ -73,9 +73,7 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
         {{"memory_reserve_timeout", config::OptionValue("12345 ms")}}
     };
 
-    MemoryReserveOrWait mrow{
-        options, MemoryType::DEVICE, ctx->executor(), ctx->br()
-    };
+    MemoryReserveOrWait mrow{options, MemoryType::DEVICE, ctx->executor(), ctx->br()};
 
     // Executor and buffer resource should match the context.
     EXPECT_EQ(mrow.executor(), ctx->executor());
@@ -357,16 +355,18 @@ TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
             // `shutdown()` closes the pending request queue.
         }
     }(mrow));
-    actors.push_back([](MemoryReserveOrWait& waiter, SpillRecorder const& spills) -> Actor {
-        // The counter increments before each yield. Reaching two iterations proves
-        // the first no-fit admission pass completed without relying on wall-clock
-        // sleeps or a scheduling deadline.
-        while (waiter.periodic_memory_check_counter() < 2) {
-            co_await waiter.executor()->yield();
-        }
-        EXPECT_TRUE(spills.amounts().empty());
-        co_await waiter.shutdown();
-    }(mrow, spills));
+    actors.push_back(
+        [](MemoryReserveOrWait& waiter, SpillRecorder const& spills) -> Actor {
+            // The counter increments before each yield. Reaching two iterations proves
+            // the first no-fit admission pass completed without relying on wall-clock
+            // sleeps or a scheduling deadline.
+            while (waiter.periodic_memory_check_counter() < 2) {
+                co_await waiter.executor()->yield();
+            }
+            EXPECT_TRUE(spills.amounts().empty());
+            co_await waiter.shutdown();
+        }(mrow, spills)
+    );
     run_actor_network(std::move(actors));
 }
 
