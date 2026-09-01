@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <chrono>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -341,8 +340,7 @@ TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
     }
 
     MemoryReserveOrWait mrow{
-        // A queued request must wait for the progress timeout before it can trigger
-        // the expensive spill path.
+        // Keep the timeout far away so the test exercises ordinary admission polling.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         ctx->logger(),
         MemoryType::DEVICE,
@@ -350,34 +348,31 @@ TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
         ctx->br()
     };
 
-    // The available memory covers the request on its own, but an outstanding
-    // reservation consumes all of it, so only spilling can unblock the waiter.
+    // An outstanding reservation consumes all available memory. Before the fix, the
+    // ordinary admission loop calls this spill function to unblock the waiter.
     SpillRecorder spills{br.get(), /* available = */ 10, /* spillable = */ 10};
     auto [outstanding, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
     ASSERT_EQ(outstanding.size(), 10);
 
     std::vector<Actor> actors;
-    actors.push_back([&](MemoryReserveOrWait& waiter) -> Actor {
+    actors.push_back([](MemoryReserveOrWait& waiter) -> Actor {
         try {
             std::ignore = co_await waiter.reserve_or_wait(10, 0);
         } catch (std::runtime_error const&) {
             // `shutdown()` closes the pending request queue.
         }
     }(mrow));
-    std::thread thd(run_actor_network, std::move(actors));
-
-    // Let the poller observe the pending request several times while the timeout
-    // remains far away. The current eager #1164 path spills here; the desired path
-    // leaves the request pending.
-    auto const deadline = Clock::now() + std::chrono::seconds(1);
-    while (mrow.size() < 1 && spills.amounts().empty() && Clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    EXPECT_TRUE(spills.amounts().empty());
-
-    coro::sync_wait(mrow.shutdown());
-    thd.join();
+    actors.push_back([](MemoryReserveOrWait& waiter, SpillRecorder const& spills) -> Actor {
+        // The counter increments before each yield. Reaching two iterations proves
+        // the first no-fit admission pass completed without relying on wall-clock
+        // sleeps or a scheduling deadline.
+        while (waiter.periodic_memory_check_counter() < 2) {
+            co_await waiter.executor()->yield();
+        }
+        EXPECT_TRUE(spills.amounts().empty());
+        co_await waiter.shutdown();
+    }(mrow, spills));
+    run_actor_network(std::move(actors));
 }
 
 TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
