@@ -77,6 +77,7 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cuda-cupti-dev
       - cuda-nvml-dev
+      - libkvikio =${{ minor_version }}
       - libnuma
       - libpmix-devel >=5.0,<6.0
       - librmm =${{ minor_version }}
@@ -111,6 +112,7 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cuda-cupti-dev
         - cuda-nvml-dev
+        - libkvikio =${{ minor_version }}
         - libpmix-devel >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
         - openmpi >=5.0
@@ -118,6 +120,7 @@ outputs:
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cupti
+        - libkvikio =${{ minor_version }}
         - librmm =${{ minor_version }}
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
@@ -130,6 +133,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cupti
+          - libkvikio
           - librmm
           - openmpi
     tests:
