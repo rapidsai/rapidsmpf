@@ -43,6 +43,7 @@ release = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}.{RAPIDSMPF
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.autosummary",
     "sphinx_copybutton",
     "numpydoc",
@@ -51,6 +52,10 @@ extensions = [
     "myst_nb",
     "breathe",
 ]
+
+# Disambiguate section anchors across documents
+autosectionlabel_prefix_document = True
+
 # Breathe Configuration
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
