@@ -10,12 +10,14 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -30,6 +32,8 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -299,6 +303,47 @@ TEST_P(DiskResourceTest, DiskBufferFromBufferRestoreRoundTrip) {
     auto reservation = br_->reserve_or_fail(pattern.size(), GetParam());
     auto destination = DiskBuffer::restore(std::move(disk_buf), reservation, stream_);
     EXPECT_EQ(copy_from_buffer(*destination, pattern.size(), 0), pattern);
+}
+
+TEST_P(DiskResourceTest, DiskBufferRecordsCopyStats) {
+    auto stats = Statistics::create();
+    auto pinned_pool_properties = is_pinned_memory_resources_supported()
+                                      ? PinnedPoolProperties{}
+                                      : PinnedMemoryDisabled;
+    br_ = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        std::move(pinned_pool_properties),
+        {},
+        std::chrono::milliseconds{1},
+        std::make_shared<StreamPool>(16),
+        stats
+    );
+    disk_ = br_->disk_resource();
+
+    auto const pattern = make_pattern(64 * 1024);
+    auto source = make_buffer(pattern.size());
+    fill_buffer(*source, pattern, 0);
+
+    auto const mem_name = to_lower(to_string(GetParam()));
+    auto const to_disk_bytes = "copy-" + mem_name + "-to-disk-bytes";
+    auto const to_disk_time = "copy-" + mem_name + "-to-disk-time";
+    auto const from_disk_bytes = "copy-disk-to-" + mem_name + "-bytes";
+    auto const from_disk_time = "copy-disk-to-" + mem_name + "-time";
+
+    auto disk_buf = DiskBuffer::from_buffer(std::move(source), *br_);
+    EXPECT_EQ(stats->get_stat(to_disk_bytes).count(), 1);
+    EXPECT_EQ(stats->get_stat(to_disk_bytes).value(), pattern.size());
+    EXPECT_GE(stats->get_stat(to_disk_time).value(), 0.0);
+    EXPECT_THROW(std::ignore = stats->get_stat(from_disk_bytes), std::out_of_range);
+
+    auto reservation = br_->reserve_or_fail(pattern.size(), GetParam());
+    auto destination = DiskBuffer::restore(std::move(disk_buf), reservation, stream_);
+    EXPECT_EQ(copy_from_buffer(*destination, pattern.size(), 0), pattern);
+    EXPECT_EQ(stats->get_stat(from_disk_bytes).count(), 1);
+    EXPECT_EQ(stats->get_stat(from_disk_bytes).value(), pattern.size());
+    EXPECT_GE(stats->get_stat(from_disk_time).value(), 0.0);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("copy-" + mem_name + "-to-disk"));
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("copy-disk-to-" + mem_name));
 }
 
 TEST_P(DiskResourceTest, DiskBufferZeroSizeRoundTrip) {

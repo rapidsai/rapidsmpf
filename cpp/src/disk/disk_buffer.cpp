@@ -9,6 +9,7 @@
 #include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::disk {
@@ -64,9 +65,11 @@ std::unique_ptr<DiskBuffer> DiskBuffer::from_buffer(
         std::logic_error
     );
 
+    auto const mem_type = source->mem_type();
+    auto const t0 = Clock::now();
     try {
         auto const transferred =
-            disk->write(path, source->data(), nbytes, source->mem_type())->get();
+            disk->write(path, source->data(), nbytes, mem_type)->get();
         RAPIDSMPF_EXPECTS(
             transferred == nbytes,
             "disk write transferred " + format_nbytes(transferred) + " of "
@@ -78,6 +81,9 @@ std::unique_ptr<DiskBuffer> DiskBuffer::from_buffer(
         std::filesystem::remove(path, ec);
         throw;
     }
+    br.statistics()->record_disk_copy(
+        mem_type, Statistics::Disk::WRITE, nbytes, Clock::now() - t0
+    );
 
     return make_disk_buffer(nbytes);
 }
@@ -105,6 +111,9 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
         return buffer;
     }
 
+    auto const nbytes = source->size();
+    auto const mem_type = buffer->mem_type();
+    auto const t0 = Clock::now();
     buffer->write_access([&](std::byte* ptr, cuda::stream_ref buf_stream) {
         RAPIDSMPF_EXPECTS(
             buf_stream.get() == stream.get(),
@@ -112,16 +121,18 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
             std::logic_error
         );
         auto const transferred =
-            source->disk_->read(source->path_, ptr, source->size(), buffer->mem_type())
-                ->get();
+            source->disk_->read(source->path_, ptr, nbytes, mem_type)->get();
         RAPIDSMPF_EXPECTS(
-            transferred == source->size(),
+            transferred == nbytes,
             "disk read transferred " + format_nbytes(transferred) + " of "
-                + format_nbytes(source->size()),
+                + format_nbytes(nbytes),
             std::runtime_error
         );
     });
     stream.sync();
+    reservation.br()->statistics()->record_disk_copy(
+        mem_type, Statistics::Disk::READ, nbytes, Clock::now() - t0
+    );
 
     return buffer;
 }
