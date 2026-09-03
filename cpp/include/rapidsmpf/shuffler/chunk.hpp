@@ -4,10 +4,12 @@
  */
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -45,6 +47,12 @@ using ChunkID = std::uint64_t;
  * - `expected_num_chunks` > 0 (indicates total number of data chunks expected).
  * - `is_control_message()` returns true.
  * - No metadata or data buffers (metadata_size = 0, data_size = 0).
+ *
+ * A non-empty data chunk owns its payload in exactly one place: either the
+ * in-memory `data_` buffer or the disk-backed `disk_data_` handle. Checked
+ * transition methods enforce that exclusive ownership. Disk-resident chunks
+ * are not send-ready (`is_ready()` is false) and must be restored before
+ * `release_data_buffer()`.
  *
  * When serialized, the format is:
  * - chunk_id: std::uint64_t, ID of the chunk.
@@ -145,23 +153,60 @@ class Chunk {
     }
 
     /**
-     * @brief Set the data buffer.
+     * @brief Set the in-memory data buffer.
      *
      * @param data The data buffer.
+     *
+     * @throws std::logic_error if an in-memory buffer is already set, or if the
+     * chunk is disk-resident.
      */
     void set_data_buffer(std::unique_ptr<Buffer> data) {
         RAPIDSMPF_EXPECTS(!data_, "buffer is already set");
+        RAPIDSMPF_EXPECTS(
+            !disk_data_, "cannot set in-memory data of a disk-resident chunk"
+        );
         data_ = std::move(data);
     }
 
     /**
-     * @brief Whether the data buffer is set.
+     * @brief Whether the in-memory data buffer is set.
      *
-     * @return True if the data buffer is set, false otherwise.
+     * @return True if the in-memory data buffer is set, false otherwise.
+     *
+     * @note Disk-resident chunks return false. Use `is_on_disk()` to test
+     * disk residency.
      */
     [[nodiscard]] bool is_data_buffer_set() const {
         return data_ != nullptr;
     }
+
+    /**
+     * @brief Whether the payload is disk-resident.
+     *
+     * @return True if the chunk owns a disk buffer, false otherwise.
+     */
+    [[nodiscard]] bool is_on_disk() const {
+        return disk_data_ != nullptr;
+    }
+
+    /**
+     * @brief Whether the chunk has an in-memory payload that can be spilled.
+     *
+     * @return True if the chunk has a non-empty in-memory data buffer and is
+     * not disk-resident.
+     */
+    [[nodiscard]] bool is_spillable() const {
+        return data_size_ > 0 && is_data_buffer_set() && !is_on_disk();
+    }
+
+    /**
+     * @brief Path of the backing file when the chunk is disk-resident.
+     *
+     * @return Filesystem path of the disk buffer.
+     *
+     * @throws std::logic_error if the chunk is not disk-resident.
+     */
+    [[nodiscard]] std::filesystem::path const& disk_path() const;
 
     /**
      * @brief Whether the metadata buffer is set.
@@ -173,11 +218,16 @@ class Chunk {
     }
 
     /**
-     * @brief Get the memory type of the data buffer.
+     * @brief Get the memory type of the in-memory data buffer.
      *
      * @return The memory type of the data buffer.
+     *
+     * @throws std::logic_error if the in-memory data buffer is not set. Disk-resident
+     * chunks have no in-memory buffer; callers must check `!is_on_disk()` before
+     * calling.
      */
     [[nodiscard]] MemoryType data_memory_type() const {
+        RAPIDSMPF_EXPECTS(!disk_data_, "disk-resident chunk has no in-memory data type");
         RAPIDSMPF_EXPECTS(data_, "data buffer is not set");
         return data_->mem_type();
     }
@@ -192,13 +242,60 @@ class Chunk {
     }
 
     /**
-     * @brief Release the ownership of the data buffer.
+     * @brief Release the ownership of the in-memory data buffer.
      *
      * @return The data buffer.
+     *
+     * @throws std::logic_error if the chunk is disk-resident. Restore the
+     * payload with `restore_from_disk()` first.
      */
     [[nodiscard]] std::unique_ptr<Buffer> release_data_buffer() {
+        RAPIDSMPF_EXPECTS(
+            !disk_data_,
+            "cannot release in-memory data of a disk-resident chunk; restore it first"
+        );
         return std::move(data_);
     }
+
+    /**
+     * @brief Spill a device payload to an immediately available host tier, or to disk.
+     *
+     * Tries a non-overbooking reservation of pinned then pageable host memory.
+     * If neither host tier can accept the payload, writes it to disk. Host-tier
+     * and already disk-resident chunks are left unchanged.
+     *
+     * @param br Buffer resource used for host reservations and disk I/O.
+     */
+    void spill_from_device(BufferResource& br);
+
+    /**
+     * @brief Write the in-memory payload to disk and release the memory buffer.
+     *
+     * Empty chunks are left unchanged. Otherwise blocks until any pending
+     * stream-ordered write has completed, then transfers ownership to a
+     * `disk::DiskBuffer`.
+     *
+     * @param br Buffer resource supplying disk I/O and directory configuration.
+     *
+     * @throws std::logic_error if there is no in-memory payload, or if the
+     * chunk is already disk-resident.
+     */
+    void spill_to_disk(BufferResource& br);
+
+    /**
+     * @brief Restore a disk-resident payload into memory.
+     *
+     * Tries a non-overbooking reservation of device, pinned host, then pageable
+     * host memory. If none succeed, retries pinned then pageable host with
+     * overbooking so extract can progress. The backing file is deleted when the
+     * disk handle is released.
+     *
+     * @param br Buffer resource used for host reservations and disk I/O.
+     *
+     * @throws std::logic_error if the chunk is not disk-resident.
+     * @throws std::runtime_error if memory cannot be reserved.
+     */
+    void restore_from_disk(BufferResource& br);
 
     /**
      * @brief Create a chunk from a packed data.
@@ -261,13 +358,15 @@ class Chunk {
      * @brief Whether the chunk is ready for consumption.
      *
      * @return True if the chunk is ready, false otherwise.
-     * @note chunk is ready if it has no data or if the data is ready. data_ buffer
-     * could be set later, so we need to check if it is non-null.
+     * @note A chunk is ready if it has no data, or if its in-memory data buffer
+     * is set and the latest write is done. Disk-resident chunks are not ready
+     * to send.
      */
     [[nodiscard]] bool is_ready() const {
         // data_size_ contains the size of the data buffer. If it is 0, the chunk
         // has no data, so it is ready. Else, the chunk is ready if the data
-        // buffer is non-null and the data buffer is ready.
+        // buffer is non-null and the data buffer is ready. A disk-resident
+        // payload leaves `data_` null, so the chunk is not send-ready.
         return data_size_ == 0 || (data_ && data_->is_latest_write_done());
     }
 
@@ -307,8 +406,11 @@ class Chunk {
     /// Metadata buffer that contains information about the message in the chunk.
     std::unique_ptr<std::vector<std::uint8_t>> metadata_;
 
-    /// Data buffer of the message in the chunk.
+    /// In-memory data buffer of the message in the chunk. Exclusive with `disk_data_`.
     std::unique_ptr<Buffer> data_;
+
+    /// Disk-backed payload. Exclusive with `data_` for non-empty data chunks.
+    std::unique_ptr<disk::DiskBuffer> disk_data_;
 };
 
 /**

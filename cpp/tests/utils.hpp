@@ -12,10 +12,13 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -24,6 +27,7 @@
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -88,6 +92,31 @@ constexpr std::size_t operator"" _MiB(unsigned long long val) {
 /// @brief User-defined literal for specifying memory sizes in GiB.
 constexpr std::size_t operator"" _GiB(unsigned long long val) {
     return val * (1 << 30);
+}
+
+/**
+ * @brief Create a buffer resource that forces device spills to disk.
+ *
+ * Pinned memory is disabled, pageable host capacity is zero, and periodic spilling is
+ * disabled for deterministic tests.
+ *
+ * @param device_limit Optional device-memory limit.
+ * @return Buffer resource configured for disk-spill tests.
+ */
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource>
+make_disk_spill_buffer_resource(std::optional<std::int64_t> device_limit = std::nullopt) {
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> limits{
+        {rapidsmpf::MemoryType::HOST, 0}
+    };
+    if (device_limit.has_value()) {
+        limits.emplace(rapidsmpf::MemoryType::DEVICE, *device_limit);
+    }
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        std::move(limits),
+        std::nullopt
+    );
 }
 
 template <typename T>

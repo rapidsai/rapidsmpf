@@ -114,7 +114,8 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
     enabled. When unset or empty, the pool is capped at 80% of total host memory
     available in the current NUMA node divided by the number of GPUs in that NUMA node.
-    Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
+    Accepts positive byte counts or percentages (e.g. `"4GiB"`, `"2048MiB"`).
+    Use `"disabled"` for an unbounded pool; zero is not valid.
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
@@ -124,6 +125,19 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     not always be enforceable. The value can be specified either as an absolute byte
     count (e.g. `"10GiB"`, `"512MB"`) or as a percentage of the total memory of the
     current device (e.g. `"80%"`).
+
+- **`spill_host_limit`**
+  - **Environment Variable**: `RAPIDSMPF_SPILL_HOST_LIMIT`
+  - **Default**: disabled (unbounded)
+  - **Description**: Soft upper limit on pageable host memory configured for
+    RapidsMPF, independent of `pinned_max_pool_size`. When both limits are
+    bounded, their sum cannot exceed the summed host memory of the nodes in the
+    calling thread's memory policy; the pinned maximum also cannot exceed its
+    NUMA node's host memory. This is a coarse validation because other processes
+    and allocations may consume the same host memory. It accepts absolute byte
+    counts (for example, `"10GiB"` or `"512MB"`). Percentages are not supported
+    because the appropriate host-memory share depends on the job's process and
+    NUMA topology.
 
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`

@@ -3,19 +3,49 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
 #include <cstring>
+#include <optional>
+#include <ranges>
 #include <sstream>
+#include <utility>
 
 #include <cuda/stream>
 
+#include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler::detail {
+
+namespace {
+
+template <std::ranges::input_range Range>
+    requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+[[nodiscard]] std::optional<MemoryReservation> try_reserve_spill_targets(
+    BufferResource& br,
+    std::size_t size,
+    Range mem_types,
+    AllowOverbooking allow_overbooking
+) {
+    for (auto const mem_type : mem_types) {
+        if (mem_type == MemoryType::PINNED_HOST && !br.try_pinned_mr().has_value()) {
+            continue;
+        }
+        auto [reservation, _] = br.reserve(mem_type, size, allow_overbooking);
+        if (reservation.size() == size) {
+            return std::move(reservation);
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
 
 Chunk::Chunk(
     ChunkID chunk_id,
@@ -138,6 +168,64 @@ bool Chunk::validate_format(std::vector<std::uint8_t> const& serialized_buf) {
     return true;
 }
 
+std::filesystem::path const& Chunk::disk_path() const {
+    RAPIDSMPF_EXPECTS(disk_data_, "chunk is not disk-resident");
+    return disk_data_->path();
+}
+
+void Chunk::spill_from_device(BufferResource& br) {
+    if (data_size_ == 0 || disk_data_ || !data_) {
+        return;
+    }
+    if (data_->mem_type() != MemoryType::DEVICE) {
+        return;
+    }
+    if (auto reservation = try_reserve_spill_targets(
+            br, data_size_, SPILL_TARGET_MEMORY_TYPES, AllowOverbooking::NO
+        ))
+    {
+        data_ = br.move(std::move(data_), *reservation);
+        return;
+    }
+    spill_to_disk(br);
+}
+
+void Chunk::spill_to_disk(BufferResource& br) {
+    if (data_size_ == 0) {
+        return;
+    }
+    RAPIDSMPF_EXPECTS(
+        data_ && !disk_data_, "spill_to_disk requires an exclusive in-memory payload"
+    );
+    data_->latest_write_event().host_wait();
+    disk_data_ = disk::DiskBuffer::from_buffer(std::move(data_), br);
+}
+
+void Chunk::restore_from_disk(BufferResource& br) {
+    RAPIDSMPF_EXPECTS(
+        disk_data_ && !data_, "restore_from_disk requires an exclusive disk payload"
+    );
+    auto const size = disk_data_->size();
+    constexpr std::array restore_mem_types{
+        MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST
+    };
+    auto reservation =
+        try_reserve_spill_targets(br, size, restore_mem_types, AllowOverbooking::NO);
+    if (!reservation.has_value()) {
+        reservation = try_reserve_spill_targets(
+            br, size, SPILL_TARGET_MEMORY_TYPES, AllowOverbooking::YES
+        );
+    }
+    RAPIDSMPF_EXPECTS(
+        reservation.has_value(),
+        "failed to reserve memory to restore a disk-resident chunk",
+        std::runtime_error
+    );
+    data_ = disk::DiskBuffer::restore(
+        std::move(disk_data_), *reservation, br.stream_pool()->get_stream()
+    );
+}
+
 std::string Chunk::str() const {
     std::stringstream ss;
     ss << "Chunk(id=" << chunk_id();
@@ -145,6 +233,9 @@ std::string Chunk::str() const {
     ss << ", expected_num_chunks=" << expected_num_chunks_;
     ss << ", metadata_size=" << metadata_size_;
     ss << ", data_size=" << data_size_;
+    if (disk_data_) {
+        ss << ", on_disk";
+    }
     ss << ")";
     return ss.str();
 }

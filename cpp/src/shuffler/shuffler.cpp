@@ -338,11 +338,20 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
         if (headroom < 0 && packed_data.data) {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
-            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
+            Rank const dst_rank =
+                partition_owner(comm_, chunk.part_id(), total_num_partitions);
+            if (dst_rank == comm_->rank()) {
+                // Local received chunks may fall back to disk when host is full.
+                chunk.spill_from_device(*br_);
+            } else {
+                // Outgoing chunks stay in host-tier memory.
+                auto reservation =
+                    br_->reserve_or_fail(chunk.data_size(), SPILL_TARGET_MEMORY_TYPES);
+                chunk.set_data_buffer(
+                    br_->move(chunk.release_data_buffer(), reservation)
+                );
+            }
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));
@@ -393,7 +402,10 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     ret.reserve(chunks.size());
 
     std::ranges::transform(
-        chunks, std::back_inserter(ret), [](auto&& chunk) -> PackedData {
+        chunks, std::back_inserter(ret), [this](auto&& chunk) -> PackedData {
+            if (chunk.is_on_disk()) {
+                chunk.restore_from_disk(*br_);
+            }
             return {chunk.release_metadata_buffer(), chunk.release_data_buffer()};
         }
     );

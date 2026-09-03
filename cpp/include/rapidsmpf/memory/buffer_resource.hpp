@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -21,6 +22,7 @@
 
 #include <rmm/cuda_stream_pool.hpp>
 
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
@@ -143,9 +145,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -167,9 +168,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param stream_pool CUDA stream pool used for operations that do not take an
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
+     * @param spill_directory Directory for disk files. A per-process subdirectory
+     * named after the PID is created under this path.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
+     * @throws std::invalid_argument if the pinned maximum pool size is zero.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -177,7 +181,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::filesystem::path spill_directory = std::filesystem::temp_directory_path()
     );
 
     /**
@@ -592,6 +597,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      */
     std::shared_ptr<Statistics> statistics() const noexcept;
 
+    /**
+     * @brief Disk I/O resource and spill directory configuration.
+     *
+     * Returned as a `std::shared_ptr`; `DiskBuffer`s keep a copy so the disk
+     * resource outlives those buffers if this `BufferResource` is destroyed.
+     *
+     * @return Shared pointer to the disk resource owned by this buffer resource.
+     */
+    [[nodiscard]] std::shared_ptr<disk::DiskResource> disk_resource() const {
+        return disk_resource_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -600,13 +617,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<StreamPool> stream_pool,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<Statistics> statistics,
+        std::shared_ptr<disk::DiskResource> disk_resource
     );
 
     mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
+    std::shared_ptr<disk::DiskResource> disk_resource_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
@@ -629,6 +648,22 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Parse the `spill_host_limit` parameter from configuration options.
+ *
+ * The limit must be an absolute byte count. Disabled values produce an
+ * unbounded pageable-host budget. This limit is independent of
+ * `pinned_max_pool_size`. When both limits are bounded,
+ * `BufferResource::from_options()` rejects configurations where their sum
+ * exceeds the summed host memory of the nodes in the calling thread's memory
+ * policy. The pinned maximum is also constrained by the host memory of its
+ * NUMA node.
+ *
+ * @param options Configuration options.
+ * @return Pageable-host soft limit in bytes.
+ */
+std::int64_t host_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

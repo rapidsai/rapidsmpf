@@ -591,6 +591,84 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     shuffler.insert_finished();
 }
 
+TEST(Shuffler, SpillToDiskAndExtract) {
+    rapidsmpf::shuffler::PartID const total_num_partitions = 1;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::int64_t k_force_spill_limit = -(1LL << 40);
+    constexpr std::size_t k_num_rows = 1000;
+    constexpr std::size_t k_data_size = k_num_rows * sizeof(int);
+
+    auto br = make_disk_spill_buffer_resource();
+    auto const& mr = br->device_mr_adaptor();
+
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input_chunks;
+    input_chunks.emplace(0, generate_packed_data(k_num_rows, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+
+    // Insert while device memory is available so the chunk first enters ReceivedChunks
+    // in device memory. Then force pressure and explicitly exercise
+    // ReceivedChunks::spill.
+    shuffler.insert(std::move(input_chunks));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_force_spill_limit);
+    EXPECT_EQ(shuffler.spill(k_data_size), k_data_size);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_NE(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+
+    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 1LL << 40);
+    std::vector<rapidsmpf::PackedData> output = rapidsmpf::unspill_partitions(
+        std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::YES
+    );
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    validate_packed_data(std::move(output.at(0)), k_num_rows, 0, stream, *br);
+
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, SpillToDiskOnInsert) {
+    constexpr rapidsmpf::shuffler::PartID k_num_partitions = 1;
+    constexpr std::int64_t k_force_spill_limit = -(1LL << 40);
+    constexpr std::int64_t k_available_limit = 1LL << 40;
+    constexpr std::size_t k_num_rows = 1000;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    auto br = make_disk_spill_buffer_resource(k_force_spill_limit);
+    auto const& mr = br->device_mr_adaptor();
+
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, k_num_partitions, br.get());
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input_chunks;
+    input_chunks.emplace(0, generate_packed_data(k_num_rows, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+
+    // Device is already over its limit and no host tier is available, so local
+    // insertion must write the received chunk directly to disk.
+    shuffler.insert(std::move(input_chunks));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    // Make device memory available so extraction restores directly from disk to device.
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_available_limit);
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+
+    br->set_memory_limit(rapidsmpf::MemoryType::HOST, k_available_limit);
+    validate_packed_data(std::move(extracted.at(0)), k_num_rows, 0, stream, *br);
+
+    shuffler.insert_finished();
+}
+
 TEST(Shuffler, SpillOnInsertAccountsForReservations) {
     auto stream = cuda::stream_ref{cudaStreamLegacy};
 
