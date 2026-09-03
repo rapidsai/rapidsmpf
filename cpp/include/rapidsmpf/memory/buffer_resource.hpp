@@ -143,9 +143,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -170,6 +169,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
+     * @throws std::invalid_argument if the pinned maximum pool size is zero.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -629,6 +629,22 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Parse the `spill_host_limit` parameter from configuration options.
+ *
+ * The limit must be an absolute byte count. Disabled values produce an
+ * unbounded pageable-host budget. This limit is independent of
+ * `pinned_max_pool_size`. When both limits are bounded,
+ * `BufferResource::from_options()` rejects configurations where their sum
+ * exceeds the summed host memory of the nodes in the calling thread's memory
+ * policy. The pinned maximum is also constrained by the host memory of its
+ * NUMA node.
+ *
+ * @param options Configuration options.
+ * @return Pageable-host soft limit in bytes.
+ */
+std::int64_t host_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.
