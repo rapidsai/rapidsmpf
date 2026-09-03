@@ -126,13 +126,17 @@ class ReceivedChunks {
     [[nodiscard]] std::string str() const;
 
     /**
-     * @brief Spill device data.
+     * @brief Spill received device payloads.
      *
-     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     * Device-ready buffers are moved to an immediately available host tier
+     * without overbooking. If neither pinned nor pageable host memory can
+     * accept the payload, it is written to disk.
      *
-     * @param br The buffer resource for host and device allocations.
-     * @param amount Requested amount of data to spill in bytes.
-     * @return Actual amount of data spilled in bytes.
+     * The returned byte count is the device memory released.
+     *
+     * @param br The buffer resource for host, device, and disk allocations.
+     * @param amount Requested amount of device data to spill in bytes.
+     * @return Actual amount of device data spilled in bytes.
      */
     [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
 

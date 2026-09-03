@@ -22,6 +22,7 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
@@ -193,6 +194,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         /// Optional pinned memory resource. When provided, a pinned memory section
         /// is included in the report.
         std::optional<any_host_device_resource> pinned_mr = std::nullopt;
+        /// Optional pageable-host memory resource. When provided, a host-memory
+        /// main record is included in the report.
+        std::optional<any_host_resource> host_mr = std::nullopt;
         /// Header line prepended to the report.
         std::string_view header = "Statistics:";
     };
@@ -535,6 +539,38 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      */
     void record_alloc(
         MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
+    );
+
+    /**
+     * @brief Direction of a disk transfer recorded by `record_disk_copy()`.
+     */
+    enum class Disk : bool {
+        WRITE,  ///< Copy from in-memory buffers to disk.
+        READ,  ///< Copy from disk to in-memory buffers.
+    };
+
+    /**
+     * @brief Record byte count and host wall-clock duration for a disk transfer.
+     *
+     * Records three statistics entries for `"copy-{memtype}-to-disk"` when
+     * @p direction is `Disk::WRITE`, or `"copy-disk-to-{memtype}"` when it is
+     * `Disk::READ`:
+     *  - `"-bytes"`        — the number of bytes transferred.
+     *  - `"-time"`         — host wall-clock duration of the blocking I/O.
+     *  - `"-stream-delay"` — always zero; disk I/O is host-synchronous.
+     *
+     * All three entries are aggregated into a single combined report line under
+     * the same `copy-...` name, matching `record_copy()`.
+     *
+     * @param mem_type In-memory side of the transfer (`device`, `pinned_host`,
+     * or `host`).
+     * @param direction `Disk::WRITE` for a spill to disk, `Disk::READ` for a
+     * restore from disk.
+     * @param nbytes Number of bytes transferred.
+     * @param elapsed Host wall-clock duration of the blocking I/O.
+     */
+    void record_disk_copy(
+        MemoryType mem_type, Disk direction, std::size_t nbytes, Duration elapsed
     );
 
     /**

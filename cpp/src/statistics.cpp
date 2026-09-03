@@ -11,6 +11,7 @@
 #include <ranges>
 #include <sstream>
 #include <unordered_set>
+#include <utility>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
@@ -361,6 +362,8 @@ std::string Statistics::report(ReportArgs report_args) const {
     auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
     auto* pinned_adaptor =
         get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
+    auto* host_adaptor =
+        get_optional_resource_as<HostMemoryResource>(report_args.host_mr);
     if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();
@@ -388,6 +391,16 @@ std::string Statistics::report(ReportArgs report_args) const {
                 .scoped = pinned_record,
                 .global_peak = pinned_record.peak(),
                 .num_calls = 1
+            }
+        );
+    }
+
+    if (host_adaptor) {
+        auto const host_record = host_adaptor->get_main_memory_record();
+        sorted_records.emplace_back(
+            "main (all allocations using HostMemoryResource)",
+            MemoryRecord{
+                .scoped = host_record, .global_peak = host_record.peak(), .num_calls = 1
             }
         );
     }
@@ -738,6 +751,45 @@ void Statistics::record_alloc(
     add_stat(n.nbytes, static_cast<double>(nbytes));
     add_report_entry(
         n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemoryThroughput
+    );
+}
+
+void Statistics::record_disk_copy(
+    MemoryType mem_type, Disk direction, std::size_t nbytes, Duration elapsed
+) {
+    static auto const name_maps = [] {
+        std::array<NamesArray, 2> ret;
+        for (MemoryType mt : MEMORY_TYPES) {
+            auto const mem_name = to_lower(to_string(mt));
+            auto to_base = "copy-" + mem_name + "-to-disk";
+            ret[static_cast<std::size_t>(Disk::WRITE)][static_cast<std::size_t>(mt)] =
+                Names{
+                    .base = to_base,
+                    .nbytes = to_base + "-bytes",
+                    .time = to_base + "-time",
+                    .stream_delay = to_base + "-stream-delay",
+                };
+            auto from_base = "copy-disk-to-" + mem_name;
+            ret[static_cast<std::size_t>(Disk::READ)][static_cast<std::size_t>(mt)] =
+                Names{
+                    .base = from_base,
+                    .nbytes = from_base + "-bytes",
+                    .time = from_base + "-time",
+                    .stream_delay = from_base + "-stream-delay",
+                };
+        }
+        return ret;
+    }();
+    auto const& names = name_maps[static_cast<std::size_t>(direction)]
+                                 [static_cast<std::size_t>(mem_type)];
+
+    add_stat(names.nbytes, static_cast<double>(nbytes));
+    add_stat(names.time, elapsed.count());
+    add_stat(names.stream_delay, 0.0);
+    add_report_entry(
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        Formatter::MemoryThroughput
     );
 }
 
