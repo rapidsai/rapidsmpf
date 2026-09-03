@@ -112,8 +112,7 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
             std::logic_error
         );
         auto const transferred =
-            source->disk_
-                ->read(source->path_, ptr, source->size(), buffer->mem_type())
+            source->disk_->read(source->path_, ptr, source->size(), buffer->mem_type())
                 ->get();
         RAPIDSMPF_EXPECTS(
             transferred == source->size(),
