@@ -5,13 +5,17 @@
 
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <utility>
+
+#include <unistd.h>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
@@ -28,11 +32,13 @@ BufferResource::BufferResource(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::shared_ptr<disk::DiskResource> disk_resource
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
+      disk_resource_{std::move(disk_resource)},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
@@ -47,6 +53,9 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        disk_resource_ != nullptr, "the disk resource pointer cannot be NULL"
+    );
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -55,7 +64,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::filesystem::path spill_directory
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -71,13 +81,18 @@ std::shared_ptr<BufferResource> BufferResource::create(
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
+    // create a dir for each pid under the spill directory
+    std::shared_ptr<disk::DiskResource> disk_res{
+        new disk::DiskResource{std::move(spill_directory) / std::to_string(::getpid())}
+    };
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
         std::move(stream_pool),
-        std::move(statistics)
+        std::move(statistics),
+        std::move(disk_res)
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -89,6 +104,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     auto const weak = br->weak_from_this();
     br->owning_mr_.set_backref(weak);
     br->host_mr_.set_backref(weak);
+    br->disk_resource_->set_backref(weak);
     if (br->pinned_mr_.has_value()) {
         br->pinned_mr_->set_backref(weak);
     }
@@ -109,7 +125,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
-        std::move(statistics)
+        std::move(statistics),
+        disk::default_spill_directory(options)
     );
 }
 
