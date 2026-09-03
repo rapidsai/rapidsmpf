@@ -11,6 +11,10 @@
 from __future__ import annotations
 
 import datetime
+import glob
+import os
+import re
+import xml.etree.ElementTree as ET
 
 from enum import IntEnum, IntFlag
 from typing import Any
@@ -39,6 +43,7 @@ release = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}.{RAPIDSMPF
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.autosummary",
     "sphinx_copybutton",
     "numpydoc",
@@ -47,9 +52,60 @@ extensions = [
     "myst_nb",
     "breathe",
 ]
+
+# Disambiguate section anchors across documents
+autosectionlabel_prefix_document = True
+
 # Breathe Configuration
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
+
+
+def clean_doxygen_xml(path: str) -> None:
+    # Doxygen 1.9.1 misparses concepts and requires clauses in its XML output.
+    return_types = {
+        "rapidsmpf::BufferResource::reserve_or_fail": "MemoryReservation",
+        "rapidsmpf::ContentDescription::ContentDescription": "",
+        "rapidsmpf::owner_equal": "bool",
+        "rapidsmpf::safe_cast": "To",
+    }
+
+    for filename in glob.glob(os.path.join(path, "*.xml")):
+        tree = ET.parse(filename)
+        changed = False
+        for section in tree.findall(".//sectiondef"):
+            for member in list(section.findall("./memberdef")):
+                type_node = member.find("type")
+                type_text = "".join(type_node.itertext()) if type_node is not None else ""
+                if type_text == "concept":
+                    section.remove(member)
+                    changed = True
+                    continue
+
+                definition = member.find("definition")
+                if type_text.startswith("requires ") and definition is not None:
+                    qualified_name = "".join(definition.itertext()).rsplit(" ", 1)[-1]
+                    if qualified_name in return_types:
+                        return_type = return_types[qualified_name]
+                        type_node.clear()
+                        type_node.text = return_type
+                        definition.clear()
+                        definition.text = f"{return_type} {qualified_name}".lstrip()
+                        changed = True
+
+                args = member.find("argsstring")
+                if args is not None and args.text is not None:
+                    cleaned_args = re.sub(r"\) requires.*", ")", args.text)
+                    if cleaned_args != args.text:
+                        args.text = cleaned_args
+                        changed = True
+
+        if changed:
+            tree.write(filename, encoding="UTF-8", xml_declaration=True)
+
+
+for project_path in breathe_projects.values():
+    clean_doxygen_xml(project_path)
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -66,6 +122,7 @@ html_css_files = ["custom.css"]
 
 
 html_theme_options = {
+    "public_docs_features": os.environ.get("CI") == "true",
     "external_links": [],
     "icon_links": [
         {
@@ -146,7 +203,51 @@ class CythonIntEnumDocumenter(ClassDocumenter):
             self.add_line("", source_name)
 
 
+def on_missing_reference(app, env, node, contnode):
+    if (refid := node.get("refid")) is not None and "hpp" in refid:
+        return contnode
+
+    if node["refdomain"] in ("std", "cpp") and (
+        reftarget := node.get("reftarget")
+    ) is not None:
+        if match := re.search("(.*)<.*>", reftarget):
+            reftarget = match.group(1)
+
+        prefixes = [
+            "rapidsmpf::",
+            "rapidsmpf::bootstrap::",
+            "rapidsmpf::coll::",
+            "rapidsmpf::communicator::",
+            "rapidsmpf::config::",
+            "rapidsmpf::mpi::",
+            "rapidsmpf::rrun::",
+            "rapidsmpf::shuffler::",
+            "rapidsmpf::streaming::",
+            "rapidsmpf::streaming::actor::",
+            "",
+        ]
+        for name, _, _, _, _, _ in env.domains["cpp"].get_objects():
+            for prefix in prefixes:
+                if name == f"{prefix}{reftarget}" or f"{prefix}{name}" == reftarget:
+                    if (
+                        ref := env.domains["cpp"].resolve_xref(
+                            env,
+                            node.get("refdoc"),
+                            app.builder,
+                            node["reftype"],
+                            name,
+                            node,
+                            contnode,
+                        )
+                    ) is not None:
+                        return ref
+        return contnode
+
+    return None
+
+
 def setup(app):
+    app.connect("missing-reference", on_missing_reference)
     app.registry.add_documenter("enum", CythonIntEnumDocumenter)
 
     # Prevent Sphinx from replacing native Cython modules with .pyi stubs.
