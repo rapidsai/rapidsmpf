@@ -276,10 +276,21 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     };
     auto metadata = header.to_metadata();
     auto const* fill_byte = metadata->data() + offsetof(ChunkHeader, fill_byte);
-    auto [reservation, _] = br.reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
-    auto data = br.make_buffer(stream, std::move(reservation));
-    data->write_access([fill_byte, size](std::byte* ptr, cuda::stream_ref op_stream) {
-        RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, *fill_byte, size, op_stream.get()));
+    auto reservation = br.try_reserve(size, MEMORY_TYPES);
+    RAPIDSMPF_EXPECTS(
+        reservation.has_value(),
+        "failed to reserve input chunk memory",
+        std::runtime_error
+    );
+    auto data = br.make_buffer(stream, std::move(*reservation));
+    data->write_access([fill_byte, size, mem_type = data->mem_type()](
+                           std::byte* ptr, cuda::stream_ref op_stream
+                       ) {
+        if (contains(Buffer::host_buffer_types, mem_type)) {
+            std::memset(ptr, *fill_byte, size);
+        } else {
+            RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, *fill_byte, size, op_stream.get()));
+        }
     });
     return PackedData{std::move(metadata), std::move(data)};
 }
