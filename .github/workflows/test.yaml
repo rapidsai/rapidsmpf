@@ -79,7 +79,7 @@ jobs:
       branch: ${{ inputs.branch }}
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       date: ${{ inputs.date }}
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       script: ci/test_cpp_memcheck.sh
       sha: ${{ inputs.sha }}
   conda-python-tests:
