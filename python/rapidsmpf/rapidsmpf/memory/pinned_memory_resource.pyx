@@ -145,7 +145,7 @@ cdef class PinnedMemoryResource:
         Integer address of the allocated memory.
         """
         cdef void* ptr
-        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
+        cdef stream_ref cpp_stream = stream_ref(stream.view().get())
         with nogil:
             ptr = self._handle.value().allocate(cpp_stream, nbytes)
         return <size_t>ptr
@@ -163,7 +163,7 @@ cdef class PinnedMemoryResource:
         stream
             CUDA stream associated with the allocation.
         """
-        cdef stream_ref cpp_stream = stream_ref(stream.view().value())
+        cdef stream_ref cpp_stream = stream_ref(stream.view().get())
         with nogil:
             self._handle.value().deallocate(cpp_stream, <void*>ptr, nbytes)
 
