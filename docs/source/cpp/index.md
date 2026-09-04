@@ -4,8 +4,20 @@ RapidsMPF exposes a full C++ API for building high-performance distributed GPU
 workloads without a Python runtime. The C++ layer is the foundation on which the
 Python bindings are built.
 
-The C++ API reference is available at
-[docs.rapids.ai/api/librapidsmpf/nightly](https://docs.rapids.ai/api/librapidsmpf/nightly/).
+## API Reference
+
+```{toctree}
+:maxdepth: 2
+
+core
+bootstrap
+collectives
+configuration
+metadata-payload-exchange
+shuffler
+streaming
+rrun
+```
 
 ## Coverage
 
