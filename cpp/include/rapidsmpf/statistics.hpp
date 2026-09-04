@@ -542,6 +542,38 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     );
 
     /**
+     * @brief Direction of a disk transfer recorded by `record_disk_copy()`.
+     */
+    enum class Disk : bool {
+        WRITE,  ///< Copy from in-memory buffers to disk.
+        READ,  ///< Copy from disk to in-memory buffers.
+    };
+
+    /**
+     * @brief Record byte count and host wall-clock duration for a disk transfer.
+     *
+     * Records three statistics entries for `"copy-{memtype}-to-disk"` when
+     * @p direction is `Disk::WRITE`, or `"copy-disk-to-{memtype}"` when it is
+     * `Disk::READ`:
+     *  - `"-bytes"`        — the number of bytes transferred.
+     *  - `"-time"`         — host wall-clock duration of the blocking I/O.
+     *  - `"-stream-delay"` — always zero; disk I/O is host-synchronous.
+     *
+     * All three entries are aggregated into a single combined report line under
+     * the same `copy-...` name, matching `record_copy()`.
+     *
+     * @param mem_type In-memory side of the transfer (`device`, `pinned_host`,
+     * or `host`).
+     * @param direction `Disk::WRITE` for a spill to disk, `Disk::READ` for a
+     * restore from disk.
+     * @param nbytes Number of bytes transferred.
+     * @param elapsed Host wall-clock duration of the blocking I/O.
+     */
+    void record_disk_copy(
+        MemoryType mem_type, Disk direction, std::size_t nbytes, Duration elapsed
+    );
+
+    /**
      * @brief Get the names of all statistics.
      *
      * @return A vector of all statistic names.
