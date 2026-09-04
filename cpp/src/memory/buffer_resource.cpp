@@ -321,7 +321,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     auto stream = buffer->stream();
     auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
-        ret->stream().value() == stream.get(),
+        ret->stream().get() == stream.get(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
         "don't match"
     );
