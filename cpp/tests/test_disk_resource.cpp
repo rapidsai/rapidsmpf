@@ -390,6 +390,21 @@ TEST_P(DiskResourceTest, DiskBufferDeallocateRemovesFile) {
     EXPECT_NO_THROW(disk_buf->deallocate());
 }
 
+TEST_P(DiskResourceTest, DiskBufferDeallocateRetainsDiskResource) {
+    auto source = make_buffer(1024);
+    auto disk_buf = DiskBuffer::from_buffer(std::move(source), *br_);
+    std::weak_ptr<DiskResource> weak_disk = disk_;
+    disk_.reset();
+    br_.reset();
+
+    ASSERT_FALSE(weak_disk.expired());
+    disk_buf->deallocate();
+    EXPECT_FALSE(weak_disk.expired());
+
+    disk_buf.reset();
+    EXPECT_TRUE(weak_disk.expired());
+}
+
 TEST_P(DiskResourceTest, DiskBufferDestructorRemovesFile) {
     std::filesystem::path path;
     {

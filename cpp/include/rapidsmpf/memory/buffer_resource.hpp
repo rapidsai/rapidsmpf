@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -409,6 +410,139 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Try to reserve memory from the given order of memory types.
+     *
+     * Iterates over @p mem_types in preference order. For each type, requests a
+     * reservation without overbooking. Returns the first reservation that fully
+     * satisfies @p size.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_types Range of memory types to try to reserve memory from.
+     * @return A reservation of @p size, or `std::nullopt` if no type could satisfy
+     * the request.
+     */
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, Range mem_types
+    ) {
+        for (auto const& mem_type : mem_types) {
+            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
+                // Pinned host memory is only available if the memory resource is
+                // available.
+                continue;
+            }
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
+            if (res.size() == size) {
+                return std::move(res);
+            }
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to reserve memory of a single memory type.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_type The memory type to try to reserve memory from.
+     * @return A reservation of @p size, or `std::nullopt` if the type could not
+     * satisfy the request.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, MemoryType mem_type
+    ) {
+        return try_reserve(size, std::ranges::single_view{mem_type});
+    }
+
+    /**
+     * @brief Try to reserve memory, spilling and retrying under memory pressure.
+     *
+     * Tries each requested memory type in preference order. If no reservation is
+     * immediately available, spills only enough device memory to satisfy the retained
+     * device reservation, retrying up to @p num_spill_retries times. Only device memory
+     * is spilled, because spilling other memory types is not supported yet.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_types Range of memory types to consider.
+     * @param num_spill_retries Maximum number of spill attempts. Only applies to device
+     * memory.
+     * @return A reservation of @p size, or `std::nullopt` after all retries fail.
+     */
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, Range mem_types, std::size_t num_spill_retries = 8
+    ) {
+        std::bitset<MEMORY_TYPES.size()> requested_mem_types;
+        for (auto const& mem_type : mem_types) {
+            requested_mem_types.set(
+                static_cast<std::size_t>(static_cast<MemoryType>(mem_type))
+            );
+        }
+        auto const requested = [&](MemoryType mem_type) {
+            return requested_mem_types.test(static_cast<std::size_t>(mem_type));
+        };
+
+        std::optional<MemoryReservation> device_reservation;
+        std::size_t device_overbooking = 0;
+
+        if (requested(MemoryType::DEVICE)) {
+            auto [reservation, overbooking] =
+                reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+            if (overbooking == 0) {
+                return std::move(reservation);
+            }
+            device_overbooking = overbooking;
+            device_reservation.emplace(std::move(reservation));
+        }
+
+        if (requested(MemoryType::PINNED_HOST) && pinned_mr_.has_value()) {
+            auto [reservation, _] =
+                reserve(MemoryType::PINNED_HOST, size, AllowOverbooking::NO);
+            if (reservation.size() == size) {
+                return std::move(reservation);
+            }
+        }
+
+        if (requested(MemoryType::HOST)) {
+            auto [reservation, _] = reserve(MemoryType::HOST, size, AllowOverbooking::NO);
+            if (reservation.size() == size) {
+                return std::move(reservation);
+            }
+        }
+
+        if (!device_reservation.has_value()) {
+            return std::nullopt;
+        }
+
+        for (std::size_t attempt = 0; attempt < num_spill_retries; ++attempt) {
+            auto const spilled = spill_manager_.spill(device_overbooking);
+            if (spilled >= device_overbooking) {
+                return device_reservation;
+            }
+            device_overbooking -= spilled;
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to reserve one memory type, spilling and retrying.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_type The memory type to reserve from.
+     * @param num_spill_retries Maximum number of spill attempts. Only applies to device
+     * memory.
+     * @return A reservation of @p size, or `std::nullopt` after all retries fail.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, MemoryType mem_type, std::size_t num_spill_retries = 8
+    ) {
+        return try_reserve_or_spill(
+            size, std::ranges::single_view{mem_type}, num_spill_retries
+        );
+    }
+
+    /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * The function attempts to reserve memory by iterating over @p mem_types in the given
@@ -424,17 +558,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        // try to reserve memory from the given order
-        for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
-                // Pinned host memory is only available if the memory resource is
-                // available.
-                continue;
-            }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
-            if (res.size() == size) {
-                return std::move(res);
-            }
+        if (auto res = try_reserve(size, mem_types)) {
+            return std::move(*res);
         }
         RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
     }

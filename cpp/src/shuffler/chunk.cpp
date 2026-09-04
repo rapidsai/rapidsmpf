@@ -5,8 +5,6 @@
 
 #include <array>
 #include <cstring>
-#include <optional>
-#include <ranges>
 #include <sstream>
 #include <utility>
 
@@ -22,30 +20,6 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler::detail {
-
-namespace {
-
-template <std::ranges::input_range Range>
-    requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
-[[nodiscard]] std::optional<MemoryReservation> try_reserve_spill_targets(
-    BufferResource& br,
-    std::size_t size,
-    Range mem_types,
-    AllowOverbooking allow_overbooking
-) {
-    for (auto const mem_type : mem_types) {
-        if (mem_type == MemoryType::PINNED_HOST && !br.try_pinned_mr().has_value()) {
-            continue;
-        }
-        auto [reservation, _] = br.reserve(mem_type, size, allow_overbooking);
-        if (reservation.size() == size) {
-            return std::move(reservation);
-        }
-    }
-    return std::nullopt;
-}
-
-}  // namespace
 
 Chunk::Chunk(
     ChunkID chunk_id,
@@ -127,9 +101,13 @@ Chunk Chunk::deserialize(
         RAPIDSMPF_EXPECTS(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
-        data = br->make_buffer(
-            br->stream_pool()->get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+        auto reservation = br->try_reserve_or_spill(data_size, MEMORY_TYPES);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve receive buffer after spilling",
+            std::runtime_error
         );
+        data = br->make_buffer(br->stream_pool()->get_stream(), std::move(*reservation));
         if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
             br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);
         }
@@ -180,10 +158,7 @@ void Chunk::spill_from_device(BufferResource& br) {
     if (data_->mem_type() != MemoryType::DEVICE) {
         return;
     }
-    if (auto reservation = try_reserve_spill_targets(
-            br, data_size_, SPILL_TARGET_MEMORY_TYPES, AllowOverbooking::NO
-        ))
-    {
+    if (auto reservation = br.try_reserve(data_size_, SPILL_TARGET_MEMORY_TYPES)) {
         data_ = br.move(std::move(data_), *reservation);
         return;
     }
@@ -209,16 +184,10 @@ void Chunk::restore_from_disk(BufferResource& br) {
     constexpr std::array restore_mem_types{
         MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST
     };
-    auto reservation =
-        try_reserve_spill_targets(br, size, restore_mem_types, AllowOverbooking::NO);
-    if (!reservation.has_value()) {
-        reservation = try_reserve_spill_targets(
-            br, size, SPILL_TARGET_MEMORY_TYPES, AllowOverbooking::YES
-        );
-    }
+    auto reservation = br.try_reserve_or_spill(size, restore_mem_types);
     RAPIDSMPF_EXPECTS(
         reservation.has_value(),
-        "failed to reserve memory to restore a disk-resident chunk",
+        "failed to reserve memory to restore a disk-resident chunk after spilling",
         std::runtime_error
     );
     data_ = disk::DiskBuffer::restore(

@@ -213,7 +213,6 @@ make_partition_data(
  * @param total_num_partitions Total number of shuffle partitions `P`.
  * @param total_num_rows       Total row count `N` used to tile sub-regions.
  * @param j                    Destination partition index being validated.
- * @param br                   Buffer resource used for unpacking received data.
  * @param base                 Offset that was added to every generated value (default 0).
  */
 void validate_partition_data(
@@ -221,7 +220,6 @@ void validate_partition_data(
     rapidsmpf::shuffler::PartID total_num_partitions,
     std::size_t total_num_rows,
     rapidsmpf::shuffler::PartID j,
-    rapidsmpf::BufferResource& br,
     std::int64_t base = 0
 ) {
     auto const P = static_cast<std::size_t>(total_num_partitions);
@@ -250,9 +248,8 @@ void validate_partition_data(
 
     for (std::size_t k = 0; k < received.size() && k < expected.size(); ++k) {
         auto const [off, cnt] = expected[k];
-        auto const cs = received[k].stream();
         EXPECT_NO_FATAL_FAILURE(
-            validate_packed_data<std::int64_t>(std::move(received[k]), cnt, off, cs, br)
+            validate_packed_data<std::int64_t>(std::move(received[k]), cnt, off)
         );
     }
 }
@@ -298,7 +295,6 @@ void test_shuffler(
             total_num_partitions,
             total_num_rows,
             local_pidx,
-            *br,
             base
         );
     }
@@ -594,11 +590,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 TEST(Shuffler, SpillToDiskAndExtract) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 1;
     auto stream = cuda::stream_ref{cudaStreamLegacy};
-    constexpr std::int64_t k_force_spill_limit = -(1LL << 40);
     constexpr std::size_t k_num_rows = 1000;
     constexpr std::size_t k_data_size = k_num_rows * sizeof(int);
 
-    auto br = make_disk_spill_buffer_resource();
+    auto br =
+        make_disk_spill_buffer_resource(rapidsmpf::safe_cast<std::int64_t>(k_data_size));
     auto const& mr = br->device_mr_adaptor();
 
     auto comm = GlobalEnvironment->split_comm();
@@ -609,28 +605,24 @@ TEST(Shuffler, SpillToDiskAndExtract) {
     input_chunks.emplace(0, generate_packed_data(k_num_rows, 0, stream, *br));
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
-    // Insert while device memory is available so the chunk first enters ReceivedChunks
-    // in device memory. Then force pressure and explicitly exercise
-    // ReceivedChunks::spill.
+    // Insert with exactly enough device memory so the chunk first enters
+    // ReceivedChunks in device memory, then explicitly exercise ReceivedChunks::spill.
     shuffler.insert(std::move(input_chunks));
+    shuffler.insert_finished();
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, k_force_spill_limit);
     EXPECT_EQ(shuffler.spill(k_data_size), k_data_size);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 
     auto extracted = shuffler.extract(0);
     ASSERT_EQ(extracted.size(), 1);
     ASSERT_NE(extracted[0].data, nullptr);
-    EXPECT_NE(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
 
-    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 1LL << 40);
     std::vector<rapidsmpf::PackedData> output = rapidsmpf::unspill_partitions(
         std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::YES
     );
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    validate_packed_data(std::move(output.at(0)), k_num_rows, 0, stream, *br);
-
-    shuffler.insert_finished();
+    validate_packed_data(std::move(output.at(0)), k_num_rows, 0);
 }
 
 TEST(Shuffler, SpillToDiskOnInsert) {
@@ -664,7 +656,7 @@ TEST(Shuffler, SpillToDiskOnInsert) {
     EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
 
     br->set_memory_limit(rapidsmpf::MemoryType::HOST, k_available_limit);
-    validate_packed_data(std::move(extracted.at(0)), k_num_rows, 0, stream, *br);
+    validate_packed_data(std::move(extracted.at(0)), k_num_rows, 0);
 
     shuffler.insert_finished();
 }
@@ -1070,7 +1062,7 @@ TEST(Shuffler, concurrent_wait) {
         futures.push_back(std::async(std::launch::async, [&, j] {
             EXPECT_NO_THROW(shuffler.wait(wait_timeout));
             validate_partition_data(
-                shuffler.extract(j), total_num_partitions, total_num_rows, j, *br
+                shuffler.extract(j), total_num_partitions, total_num_rows, j
             );
         }));
     }
@@ -1125,7 +1117,7 @@ TEST(Shuffler, opid_reuse) {
                                 std::int64_t base) {
         for (auto j : shuffler.local_partitions()) {
             validate_partition_data(
-                shuffler.extract(j), total_num_partitions, total_num_rows, j, *br, base
+                shuffler.extract(j), total_num_partitions, total_num_rows, j, base
             );
         }
     };
@@ -1193,7 +1185,7 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
                                 std::int64_t base) {
         for (auto j : shuffler.local_partitions()) {
             validate_partition_data(
-                shuffler.extract(j), total_num_partitions, total_num_rows, j, *br, base
+                shuffler.extract(j), total_num_partitions, total_num_rows, j, base
             );
         }
     };

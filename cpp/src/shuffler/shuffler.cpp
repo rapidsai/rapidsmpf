@@ -233,10 +233,21 @@ Shuffler::Shuffler(
                     comm_,
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, MEMORY_TYPES)
+                        auto reservation = br_->try_reserve_or_spill(size, MEMORY_TYPES);
+                        RAPIDSMPF_EXPECTS(
+                            reservation.has_value(),
+                            "failed to reserve receive buffer after spilling",
+                            std::runtime_error
                         );
+                        auto data = br_->make_buffer(
+                            br_->stream_pool()->get_stream(), std::move(*reservation)
+                        );
+                        if (contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
+                            br_->statistics()->add_bytes_stat(
+                                "recv-into-host-memory", size
+                            );
+                        }
+                        return data;
                     },
                     comm_->progress_thread()->statistics()
                 )

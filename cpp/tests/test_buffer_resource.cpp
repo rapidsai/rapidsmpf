@@ -472,6 +472,103 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
+TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
+    auto res = br->try_reserve(5_KiB, MemoryType::DEVICE);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res->size(), 5_KiB);
+    EXPECT_EQ(res->mem_type(), MemoryType::DEVICE);
+
+    std::vector<MemoryType> types{MemoryType::DEVICE, MemoryType::HOST};
+    auto res1 = br->try_reserve(10_KiB, types);
+    ASSERT_TRUE(res1.has_value());
+    EXPECT_EQ(res1->size(), 10_KiB);
+    EXPECT_EQ(res1->mem_type(), MemoryType::HOST);
+
+    EXPECT_FALSE(br->try_reserve(100_KiB, MemoryType::DEVICE).has_value());
+}
+
+TEST(BufferResourceTryReserveOrSpill, RetriesAfterSpilling) {
+    constexpr std::size_t data_size = 16;
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        std::nullopt
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [br = br.get(), &spill_calls](std::size_t amount) {
+            ++spill_calls;
+            br->set_memory_limit(MemoryType::DEVICE, safe_cast<std::int64_t>(amount));
+            return amount;
+        },
+        0
+    );
+
+    auto reservation = br->try_reserve_or_spill(data_size, MEMORY_TYPES);
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(spill_calls, 1);
+    EXPECT_EQ(reservation->size(), data_size);
+    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
+
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
+TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
+    constexpr std::size_t data_size = 16;
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, data_size}},
+        std::nullopt
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [&spill_calls](std::size_t) {
+            ++spill_calls;
+            return std::size_t{0};
+        },
+        0
+    );
+    constexpr std::array mem_types{
+        MemoryType::HOST, MemoryType::DEVICE, MemoryType::DEVICE
+    };
+
+    auto reservation = br->try_reserve_or_spill(data_size, mem_types);
+
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(reservation->mem_type(), MemoryType::HOST);
+    EXPECT_EQ(spill_calls, 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
+
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
+TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptAfterRetryLimit) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        std::nullopt
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [&spill_calls](std::size_t) {
+            ++spill_calls;
+            return std::size_t{0};
+        },
+        0
+    );
+
+    EXPECT_FALSE(br->try_reserve_or_spill(16, MEMORY_TYPES).has_value());
+    EXPECT_EQ(spill_calls, 8);
+
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {

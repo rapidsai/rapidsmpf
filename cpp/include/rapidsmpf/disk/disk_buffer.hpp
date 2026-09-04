@@ -70,7 +70,9 @@ class DiskBuffer {
      * @brief Delete the backing file, if any.
      *
      * After deallocation the buffer is empty (`path()` is empty and `size()`
-     * is zero). Safe to call multiple times.
+     * is zero). The associated disk resource is retained until destruction,
+     * matching the resource-lifetime behavior of `rmm::device_buffer`. Safe to
+     * call multiple times.
      */
     void deallocate() noexcept;
 

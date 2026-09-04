@@ -31,7 +31,6 @@ void DiskBuffer::deallocate() noexcept {
         path_.clear();
     }
     size_ = 0;
-    disk_.reset();
 }
 
 DiskBuffer::~DiskBuffer() {
@@ -103,9 +102,9 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
         rapidsmpf::reservation_error
     );
     RAPIDSMPF_EXPECTS(reservation.br() != nullptr, "reservation has no BufferResource");
-    RAPIDSMPF_EXPECTS(source->disk_ != nullptr, "DiskBuffer has no DiskResource");
 
-    auto buffer = reservation.br()->make_buffer(source->size(), stream, reservation);
+    auto& br = *reservation.br();
+    auto buffer = br.make_buffer(source->size(), stream, reservation);
 
     if (source->size() == 0) {
         return buffer;
@@ -130,7 +129,7 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
         );
     });
     stream.sync();
-    reservation.br()->statistics()->record_disk_copy(
+    br.statistics()->record_disk_copy(
         mem_type, Statistics::Disk::READ, nbytes, Clock::now() - t0
     );
 

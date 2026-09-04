@@ -128,9 +128,9 @@ TEST_P(AllGatherTest, basic_allgather) {
                 for (int i = 0; i < n_inserts; i++) {
                     auto& result = results[r * n_inserts + i];
                     int exp_offset = gen_offset(i, r);
-                    EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-                        std::move(result), n_elements, exp_offset, stream, *br
-                    ));
+                    EXPECT_NO_FATAL_FAILURE(
+                        validate_packed_data(std::move(result), n_elements, exp_offset)
+                    );
                 }
             }
         } else {  // unordered
@@ -148,9 +148,9 @@ TEST_P(AllGatherTest, basic_allgather) {
                 auto it = std::ranges::find(exp_offsets, offset);
                 EXPECT_NE(it, exp_offsets.end());
                 exp_offsets.erase(it);
-                EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-                    std::move(result), n_elements, offset, stream, *br
-                ));
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(std::move(result), n_elements, offset)
+                );
             }
             if (n_elements != 0) {
                 EXPECT_TRUE(exp_offsets.empty());
@@ -237,9 +237,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
             for (int i = 0; i < n_inserts; i++) {
                 auto& result = *it;
                 EXPECT_EQ(r, static_cast<int>(result.metadata->size() / sizeof(int)));
-                EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-                    std::move(result), r, gen_offset(i, r), stream, *br
-                ));
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(std::move(result), r, gen_offset(i, r))
+                );
                 it++;
             }
         }
@@ -249,7 +249,7 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
             int offset =
                 n_elements > 0 ? *reinterpret_cast<int*>(result.metadata->data()) : 0;
             EXPECT_NO_FATAL_FAILURE(
-                validate_packed_data(std::move(result), n_elements, offset, stream, *br)
+                validate_packed_data(std::move(result), n_elements, offset)
             );
         }
     }
@@ -287,9 +287,9 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
         for (int r = 0; r < n_ranks; r++) {
             for (int i = 0; i < r; i++) {
                 auto& result = *it;
-                EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-                    std::move(result), n_elements, gen_offset(i, r), stream, *br
-                ));
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(std::move(result), n_elements, gen_offset(i, r))
+                );
                 it++;
             }
         }
@@ -297,9 +297,9 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
         for (auto&& result : results) {
             if (result.data->size > 0) {
                 int offset = *reinterpret_cast<int*>(result.metadata->data());
-                EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-                    std::move(result), n_elements, offset, stream, *br
-                ));
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(std::move(result), n_elements, offset)
+                );
             }
         }
     }
@@ -374,7 +374,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     for (auto&& result : results1) {
         int offset = *reinterpret_cast<int*>(result.metadata->data());
         EXPECT_NO_FATAL_FAILURE(
-            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
+            validate_packed_data(std::move(result), n_elements, offset)
         );
     }
 
@@ -385,7 +385,7 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
         int offset = *reinterpret_cast<int*>(result.metadata->data());
         EXPECT_GE(offset, second_offset);
         EXPECT_NO_FATAL_FAILURE(
-            validate_packed_data(std::move(result), n_elements, offset, stream, *br)
+            validate_packed_data(std::move(result), n_elements, offset)
         );
     }
 }

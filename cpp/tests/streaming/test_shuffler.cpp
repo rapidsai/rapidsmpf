@@ -172,9 +172,7 @@ TEST_P(StreamingShuffler, basic_shuffler) {
                 validate_packed_data<int64_t>(
                     std::move(p_vec.data[r * num_chunks + c_idx]),
                     end - start,
-                    r_base + static_cast<int64_t>(start),
-                    stream,
-                    *br
+                    r_base + static_cast<int64_t>(start)
                 );
             }
         }
