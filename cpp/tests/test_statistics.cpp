@@ -189,6 +189,7 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     );
     auto mr = br->device_mr_adaptor();
     auto pinned_mr = br->try_pinned_mr();
+    auto host_mr = br->host_mr();
     auto stats = rapidsmpf::Statistics::create();
     auto stream = cuda::stream_ref{cudaStreamLegacy};
 
@@ -218,6 +219,12 @@ TEST_F(StatisticsTest, MemoryProfiler) {
         }
         stream.sync();
     }
+
+    {
+        auto reservation = br->reserve_or_fail(1_MiB, MemoryType::HOST);
+        auto host_buffer = br->make_buffer(1_MiB, stream, reservation);
+        EXPECT_EQ(host_buffer->mem_type(), MemoryType::HOST);
+    }
     auto const& records = stats->get_memory_records();
 
     // Verify outer
@@ -242,14 +249,17 @@ TEST_F(StatisticsTest, MemoryProfiler) {
     EXPECT_EQ(records.at("outer").scoped.peak(), 2_MiB);
     EXPECT_EQ(records.at("outer").scoped.total(), 4_MiB);
 
-    auto const report = stats->report({.mr = mr, .pinned_mr = pinned_mr});
+    auto const report =
+        stats->report({.mr = mr, .pinned_mr = pinned_mr, .host_mr = host_mr});
 
     // Split the report on newlines and find the "main" record line.
-    std::string main_line, pinned_line;
+    std::string main_line, pinned_line, host_line;
     {
         std::istringstream ss(report);
         std::string line;
-        while (std::getline(ss, line) && (main_line.empty() || pinned_line.empty())) {
+        while (std::getline(ss, line)
+               && (main_line.empty() || pinned_line.empty() || host_line.empty()))
+        {
             if (line.find("main (all allocations using RmmResourceAdaptor)")
                 != std::string::npos)
             {
@@ -260,11 +270,17 @@ TEST_F(StatisticsTest, MemoryProfiler) {
             {
                 pinned_line = line;
             }
+            if (line.find("main (all allocations using HostMemoryResource)")
+                != std::string::npos)
+            {
+                host_line = line;
+            }
         }
     }
     ASSERT_FALSE(main_line.empty()) << "main record line not found in report";
     ASSERT_FALSE(pinned_mr && pinned_line.empty())
         << "pinned record line found in report";
+    ASSERT_FALSE(host_line.empty()) << "host record line not found in report";
 
     // The report format is (statistics.cpp, lines 319-322):
     //   setw(8):num_calls  setw(12):peak  setw(12):g-peak  setw(12):accum  "  " name
@@ -279,6 +295,11 @@ TEST_F(StatisticsTest, MemoryProfiler) {
             : "       1       3 MiB       3 MiB       4 MiB       2 MiB"
               "  main (all allocations using PinnedMemoryResource)";
     EXPECT_EQ(pinned_line, kExpectedPinnedLine);
+    EXPECT_EQ(
+        host_line,
+        "       1       1 MiB       1 MiB       1 MiB       1 MiB"
+        "  main (all allocations using HostMemoryResource)"
+    );
 }
 
 TEST_F(StatisticsTest, MemoryProfilerDisabled) {

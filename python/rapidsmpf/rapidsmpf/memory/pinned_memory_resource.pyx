@@ -78,6 +78,10 @@ class PinnedPoolProperties:
     max_pool_size: object = None
     numa_id: object = None
 
+    def __post_init__(self):
+        if self.max_pool_size is not None and int(self.max_pool_size) <= 0:
+            raise ValueError("max_pool_size must be greater than zero")
+
 
 cdef object create_pinned_pool_properties_from_cpp(cpp_PinnedPoolProperties props):
     """Build a Python ``PinnedPoolProperties`` from a C++ ``PinnedPoolProperties``."""

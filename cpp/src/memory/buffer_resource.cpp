@@ -18,6 +18,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
@@ -68,6 +69,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
@@ -100,12 +107,47 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
+    auto pinned_pool_properties = pinned_pool_properties_from_options(options);
+    constexpr auto unbounded = std::numeric_limits<std::int64_t>::max();
+    auto host_limit = host_limit_from_options(options);
+    std::int64_t pinned_limit = 0;
+
+    if (pinned_pool_properties.has_value()) {
+        auto const& max_pool_size = pinned_pool_properties->max_pool_size;
+        pinned_limit = max_pool_size.has_value() ? safe_cast<std::int64_t>(*max_pool_size)
+                                                 : unbounded;
+
+        if (host_limit != unbounded && pinned_limit != unbounded) {
+            auto const numa_host = safe_cast<std::int64_t>(
+                get_numa_node_host_memory(pinned_pool_properties->numa_id)
+            );
+            RAPIDSMPF_EXPECTS(
+                pinned_limit <= numa_host,
+                "pinned_max_pool_size exceeds NUMA node host memory",
+                std::invalid_argument
+            );
+            std::int64_t total_host = 0;
+            for (auto const numa_id : get_current_numa_nodes()) {
+                total_host += safe_cast<std::int64_t>(get_numa_node_host_memory(numa_id));
+            }
+            RAPIDSMPF_EXPECTS(
+                host_limit <= total_host - pinned_limit,
+                "spill_host_limit exceeds host memory in the current NUMA policy "
+                "after pinned_max_pool_size",
+                std::invalid_argument
+            );
+        }
+    }
+
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)}
+        {MemoryType::DEVICE, device_limit_from_options(options)},
+        {MemoryType::HOST, host_limit},
+        {MemoryType::PINNED_HOST, pinned_limit}
     };
+
     return create(
         std::move(mr),
-        pinned_pool_properties_from_options(options),
+        std::move(pinned_pool_properties),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
@@ -127,7 +169,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        return limit - host_mr_.current_allocated();
     }
     return std::numeric_limits<std::int64_t>::max();
 }
@@ -356,6 +398,18 @@ std::int64_t device_limit_from_options(config::Options options) {
         auto const [_, total_mem] = rmm::available_device_memory();
         return rmm::align_down(
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
+        );
+    });
+}
+
+std::int64_t host_limit_from_options(config::Options options) {
+    return options.get<std::int64_t>("spill_host_limit", [](auto const& s) {
+        auto const value = parse_optional(s);
+        if (!value.has_value()) {
+            return std::numeric_limits<std::int64_t>::max();
+        }
+        return safe_cast<std::int64_t>(
+            rmm::align_down(parse_nbytes_unsigned(*value), rmm::CUDA_ALLOCATION_ALIGNMENT)
         );
     });
 }

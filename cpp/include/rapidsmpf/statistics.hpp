@@ -22,6 +22,7 @@
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
@@ -193,6 +194,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         /// Optional pinned memory resource. When provided, a pinned memory section
         /// is included in the report.
         std::optional<any_host_device_resource> pinned_mr = std::nullopt;
+        /// Optional pageable-host memory resource. When provided, a host-memory
+        /// main record is included in the report.
+        std::optional<any_host_resource> host_mr = std::nullopt;
         /// Header line prepended to the report.
         std::string_view header = "Statistics:";
     };
