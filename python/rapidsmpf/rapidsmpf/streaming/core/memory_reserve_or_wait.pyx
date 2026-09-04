@@ -42,7 +42,7 @@ cdef extern from * nogil:
         rapidsmpf::streaming::Context &ctx
     ) {
         return std::make_shared<rapidsmpf::streaming::MemoryReserveOrWait>(
-            std::move(options), ctx.logger(), mem_type, ctx.executor(), ctx.br()
+            std::move(options), mem_type, ctx.executor(), ctx.br()
         );
     }
     }  // namespace
@@ -357,11 +357,9 @@ cdef class MemoryReserveOrWait:
         when a final recovery attempt begins, not when it completes. If no pending
         reservation request can be satisfied within the timeout,
         ``MemoryReserveOrWait`` forces progress by selecting the smallest pending
-        request, spilling to make room for it, and attempting to reserve memory. That
-        spill waits for any in-flight spill to finish, so the call can return later
-        than the timeout. The forced reservation attempt may result in an empty
-        :class:`MemoryReservation` if the selected request still cannot be satisfied,
-        for example when nothing is spillable.
+        request and attempting to reserve memory without spilling queued data. The
+        forced reservation attempt may result in an empty :class:`MemoryReservation`
+        if the selected request still cannot be satisfied.
 
         When multiple reservation requests are eligible, ``MemoryReserveOrWait`` uses
         ``net_memory_delta`` as a heuristic to prefer requests that are expected to
