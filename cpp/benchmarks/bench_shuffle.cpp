@@ -523,6 +523,7 @@ int main(int argc, char** argv) {
     auto br = BufferResource::from_options(
         rmm::mr::get_current_device_resource_ref(), options, stats
     );
+    std::ignore = rmm::mr::set_current_device_resource(br->device_mr_adaptor());
 
     auto const total_num_partitions = safe_cast<PartID>(
         args.output_partitions_per_rank * static_cast<std::uint64_t>(comm->nranks())
@@ -609,7 +610,11 @@ int main(int argc, char** argv) {
            << " | nranks: " << comm->nranks();
         log->print(ss.str());
     }
-    log->print(stats->report({.header = "Statistics (of the last run):"}));
+    log->print(stats->report({
+        .mr = br->device_mr_adaptor(),
+        .host_mr = br->host_mr(),
+        .header = "Statistics (of the last run):",
+    }));
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
     if (args.enable_cupti_monitoring && cupti_monitor) {

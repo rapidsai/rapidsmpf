@@ -24,7 +24,7 @@ runs=1
 warmup_runs=0
 discard_output=false
 
-input_batch_size=$((nranks * payload_size)) # send to each rank 
+input_batch_size=$((nranks * output_partitions_per_rank * payload_size))
 
 spill_device_limit=$((insertion_batches * input_batch_size))
 spill_host_limit=0B
