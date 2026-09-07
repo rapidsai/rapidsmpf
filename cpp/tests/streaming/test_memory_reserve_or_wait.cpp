@@ -73,9 +73,7 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
         {{"memory_reserve_timeout", config::OptionValue("12345 ms")}}
     };
 
-    MemoryReserveOrWait mrow{
-        options, ctx->logger(), MemoryType::DEVICE, ctx->executor(), ctx->br()
-    };
+    MemoryReserveOrWait mrow{options, MemoryType::DEVICE, ctx->executor(), ctx->br()};
 
     // Executor and buffer resource should match the context.
     EXPECT_EQ(mrow.executor(), ctx->executor());
@@ -92,7 +90,6 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -143,7 +140,6 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -209,7 +205,6 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -261,7 +256,6 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -334,34 +328,49 @@ class SpillRecorder {
     std::vector<std::size_t> amounts_;
 };
 
-TEST_P(StreamingMemoryReserveOrWait, SpillingUnblocksWaiter) {
+TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
     MemoryReserveOrWait mrow{
-        // Use a very high timeout, so only spilling can satisfy the request.
+        // Keep the timeout far away so the test exercises ordinary admission polling.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
     };
 
-    // The available memory covers the request on its own, but an outstanding
-    // reservation consumes all of it, so only spilling can unblock the waiter.
+    // An outstanding reservation consumes all available memory. Before the fix, the
+    // ordinary admission loop calls this spill function to unblock the waiter.
     SpillRecorder spills{br.get(), /* available = */ 10, /* spillable = */ 10};
     auto [outstanding, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
     ASSERT_EQ(outstanding.size(), 10);
 
     std::vector<Actor> actors;
-    actors.push_back(waiter(mrow, 10, 0, 10));
+    actors.push_back([](MemoryReserveOrWait& waiter) -> Actor {
+        try {
+            std::ignore = co_await waiter.reserve_or_wait(10, 0);
+        } catch (std::runtime_error const&) {
+            // `shutdown()` closes the pending request queue.
+        }
+    }(mrow));
+    actors.push_back(
+        [](MemoryReserveOrWait& waiter, SpillRecorder const& spills) -> Actor {
+            // The counter increments before each yield. Reaching two iterations proves
+            // the first no-fit admission pass completed without relying on wall-clock
+            // sleeps or a scheduling deadline.
+            while (waiter.periodic_memory_check_counter() < 2) {
+                co_await waiter.executor()->yield();
+            }
+            EXPECT_TRUE(spills.amounts().empty());
+            co_await waiter.shutdown();
+        }(mrow, spills)
+    );
     run_actor_network(std::move(actors));
-
-    EXPECT_THAT(spills.amounts(), ::testing::Contains(10u));
 }
 
-TEST_P(StreamingMemoryReserveOrWait, ThrowingSpillFunctionDoesNotStrandWaiter) {
+TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
@@ -369,38 +378,28 @@ TEST_P(StreamingMemoryReserveOrWait, ThrowingSpillFunctionDoesNotStrandWaiter) {
     MemoryReserveOrWait mrow{
         // Short timeout, the waiter can only make progress via the timeout path.
         config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
     };
 
-    br->set_memory_limit(
-        MemoryType::DEVICE,
-        safe_cast<std::int64_t>(br->device_mr_adaptor().current_allocated())
-    );
+    // A timeout must preserve its bounded-progress contract by handing back a
+    // zero-size reservation. It must not evict queued device data merely to turn
+    // that timeout into an immediate full reservation.
+    SpillRecorder spills{br.get(), /* available = */ 0, /* spillable = */ 10};
     ASSERT_EQ(get_mem_avail(), 0);
-
-    std::atomic<bool> spill_called{false};
-    SpillManager::SpillFunction func = [&](std::size_t) -> std::size_t {
-        spill_called = true;
-        throw std::runtime_error("spill function failed");
-    };
-    auto fid = br->spill_manager().add_spill_function(func, /* priority = */ 1);
 
     // The waiter completes via the timeout instead of hanging on its queue.
     std::vector<Actor> actors;
     actors.push_back(waiter(mrow, 10, 0, 0));
     run_actor_network(std::move(actors));
 
-    br->spill_manager().remove_spill_function(fid);
-    EXPECT_TRUE(spill_called.load());
+    EXPECT_TRUE(spills.amounts().empty());
 }
 
 TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {
     MemoryReserveOrWait mrow{
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
-        ctx->logger(),
         MemoryType::DEVICE,
         ctx->executor(),
         ctx->br()
@@ -424,7 +423,6 @@ TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
-            ctx->logger(),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
@@ -443,7 +441,6 @@ TEST_P(StreamingMemoryReserveOrWait, FailOnTimeoutThrowsOverflowError) {
         MemoryReserveOrWait mrow{
             // Use a very small timeout to trigger timeout immediately.
             config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
-            ctx->logger(),
             MemoryType::DEVICE,
             ctx->executor(),
             ctx->br()
