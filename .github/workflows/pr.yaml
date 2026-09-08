@@ -302,7 +302,7 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_cpp_memcheck.sh"
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
   conda-python-build:
     needs: [build-details, conda-cpp-build]
     permissions:
