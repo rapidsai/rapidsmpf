@@ -15,7 +15,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+#include <rmm/mr/cuda_memory_resource.hpp>
+
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 using rapidsmpf::detail::PausableThreadLoop;
 
@@ -84,4 +89,45 @@ TEST(PausableThreadLoop, MultiplePauseAndResume) {
     // loop could be running/paused. But all calls should have completed.
     loop.stop();
     EXPECT_FALSE(loop.is_running());
+}
+
+// Regression test for a bug where PausableThreadLoop's spawned std::thread never
+// established a CUDA context before running the caller's function. Low-level CUDA
+// driver-API calls (unlike the Runtime API) do not lazily establish a context on
+// first use, so a thread's first real CUDA touch could fail with "invalid device
+// context". This is exactly what happened to SpillManager's periodic spill thread:
+// it ticks constantly but, before this fix, only crashed the first time real memory
+// pressure actually forced it to spill (i.e. the first time its loop body did real
+// CUDA work). This test reproduces the same call chain (BufferResource::reserve +
+// BufferResource::make_buffer, allocating pinned-host memory, which goes through an
+// async CUDA memory pool at the driver-API level) directly from a freshly spawned
+// PausableThreadLoop thread that has never touched CUDA before.
+TEST(PausableThreadLoop, CanDoRealCudaWorkOnFirstTick) {
+    using namespace rapidsmpf;
+
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    auto br = BufferResource::create(cuda_mr, PinnedPoolProperties{});
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    std::exception_ptr eptr;
+    PausableThreadLoop loop([&]() {
+        try {
+            auto [reservation, _] =
+                br->reserve(MemoryType::PINNED_HOST, 1024, AllowOverbooking::YES);
+            auto buf = br->make_buffer(1024, stream, reservation);
+        } catch (...) {
+            eptr = std::current_exception();
+        }
+    });
+    loop.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    loop.stop();
+
+    if (eptr) {
+        std::rethrow_exception(eptr);
+    }
 }

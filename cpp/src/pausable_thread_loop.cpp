@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuda_runtime_api.h>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 
@@ -10,6 +12,12 @@ namespace rapidsmpf::detail {
 
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
+        // Establish a CUDA context on this thread before any user code runs. A
+        // freshly spawned std::thread does not inherit the constructing thread's
+        // CUDA context, and low-level driver-API calls (unlike the CUDA Runtime
+        // API) do not lazily establish one on first use.
+        RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+
         while (true) {
             // wait until the thread is not paused
             state_.wait(State::Paused, std::memory_order_acquire);
