@@ -36,12 +36,13 @@ namespace rapidsmpf::detail {
  * `cuda::mr::resource` concept and is held by `RmmResourceAdaptor` via
  * `cuda::mr::shared_resource` for reference-counted ownership.
  *
- * @tparam PrimaryMR The type of the primary memory resource. Its properties are
- * forwarded via `cuda::forward_property`. Use a concrete resource type (e.g.
- * `cuda::pinned_memory_pool`) to store the resource directly inside the shared
- * control block, avoiding an extra heap allocation.
+ * @tparam PrimaryMR The type of the primary memory resource. It must provide
+ * stream-ordered `allocate`/`deallocate`; it need not model `cuda::mr::resource`
+ * itself. Its properties are forwarded via `cuda::forward_property`. Use a
+ * concrete resource type (e.g. `cuda::pinned_memory_pool`) to store the resource
+ * directly inside the shared control block, avoiding an extra heap allocation.
  */
-template <cuda::mr::resource PrimaryMR>
+template <typename PrimaryMR>
 class RmmResourceAdaptorImpl
     : public cuda::forward_property<RmmResourceAdaptorImpl<PrimaryMR>, PrimaryMR> {
   public:
@@ -75,7 +76,6 @@ class RmmResourceAdaptorImpl
         : primary_mr_{std::forward<Args>(args)...} {}
 
     ~RmmResourceAdaptorImpl() = default;
-
     RmmResourceAdaptorImpl(RmmResourceAdaptorImpl const&) = delete;
     RmmResourceAdaptorImpl(RmmResourceAdaptorImpl&&) = delete;
     RmmResourceAdaptorImpl& operator=(RmmResourceAdaptorImpl const&) = delete;
