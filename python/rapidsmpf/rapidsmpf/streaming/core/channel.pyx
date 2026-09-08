@@ -336,6 +336,11 @@ cdef class Channel:
     """
     A coroutine-based, bounded channel for asynchronously sending and
     receiving `Message` objects.
+
+    Optional ``on_send`` and ``on_recv`` callbacks can inspect messages as they
+    pass through the channel. Each callback is a Python callable
+    ``(Context, Message) -> None``. Callbacks must not consume, empty, or
+    otherwise take ownership of the message.
     """
     def __init__(self):
         raise ValueError(
@@ -346,7 +351,43 @@ cdef class Channel:
     cdef from_handle(shared_ptr[cpp_Channel] ch):
         cdef Channel self = Channel.__new__(Channel)
         self._handle = ch
+        self._on_send = None
+        self._on_recv = None
         return self
+
+    @property
+    def on_send(self):
+        """
+        Callback invoked immediately before a message is sent.
+
+        The callable receives ``(ctx, msg)`` and must not consume the message.
+        ``None`` disables the hook. This callback is not invoked for metadata
+        messages.
+        """
+        return self._on_send
+
+    @on_send.setter
+    def on_send(self, callback):
+        if callback is not None and not callable(callback):
+            raise TypeError("on_send must be a callable or None")
+        self._on_send = callback
+
+    @property
+    def on_recv(self):
+        """
+        Callback invoked after a message is received.
+
+        The callable receives ``(ctx, msg)`` and must not consume the message.
+        ``None`` disables the hook. Not invoked when ``recv`` returns ``None``
+        (channel shut down and empty), and not invoked for metadata messages.
+        """
+        return self._on_recv
+
+    @on_recv.setter
+    def on_recv(self, callback):
+        if callback is not None and not callable(callback):
+            raise TypeError("on_recv must be a callable or None")
+        self._on_recv = callback
 
     def __dealloc__(self):
         with nogil:
@@ -459,6 +500,8 @@ cdef class Channel:
         --------
         `msg` is released and left empty after this call.
         """
+        if self._on_send is not None:
+            self._on_send(ctx, msg)
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         with nogil:
@@ -525,7 +568,10 @@ cdef class Channel:
         await await_cpp_future(ret, on_cancel=lambda: self.shutdown(ctx))
         if deref(c_msg).empty():
             return None
-        return Message.from_handle(move(deref(c_msg)))
+        msg = Message.from_handle(move(deref(c_msg)))
+        if self._on_recv is not None:
+            self._on_recv(ctx, msg)
+        return msg
 
     async def recv_metadata(self, Context ctx not None):
         """

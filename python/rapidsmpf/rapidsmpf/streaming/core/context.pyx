@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython cimport no_gc_clear
@@ -180,9 +180,19 @@ cdef class Context:
         """
         return self._br.statistics
 
-    def create_channel(self):
+    def create_channel(self, *, on_send=None, on_recv=None):
         """
         Create a new channel associated with this context.
+
+        Parameters
+        ----------
+        on_send
+            Optional callback ``(ctx, msg) -> None`` invoked immediately before
+            a message is sent. Must not consume the message.
+        on_recv
+            Optional callback ``(ctx, msg) -> None`` invoked after a message is
+            received. Must not consume the message. Not called when ``recv``
+            returns ``None``.
 
         Returns
         -------
@@ -191,7 +201,10 @@ cdef class Context:
         cdef shared_ptr[cpp_Channel] ret
         with nogil:
             ret = deref(self._handle).create_channel()
-        return Channel.from_handle(move(ret))
+        cdef Channel channel = Channel.from_handle(move(ret))
+        channel.on_send = on_send
+        channel.on_recv = on_recv
+        return channel
 
     def spillable_messages(self):
         """

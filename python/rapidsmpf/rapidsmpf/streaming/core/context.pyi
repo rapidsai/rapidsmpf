@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Self
 
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
@@ -14,7 +15,7 @@ from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.memory_reserve_or_wait import MemoryReserveOrWait
-from rapidsmpf.streaming.core.message import PayloadT
+from rapidsmpf.streaming.core.message import Message, PayloadT
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 
 class Context:
@@ -44,6 +45,11 @@ class Context:
     def logger(self) -> Logger: ...
     def br(self) -> BufferResource: ...
     def statistics(self) -> Statistics: ...
-    def create_channel(self) -> Channel[PayloadT]: ...
+    def create_channel(
+        self,
+        *,
+        on_send: Callable[[Context, Message[PayloadT]], None] | None = None,
+        on_recv: Callable[[Context, Message[PayloadT]], None] | None = None,
+    ) -> Channel[PayloadT]: ...
     def spillable_messages(self) -> SpillableMessages: ...
     def memory(self, mem_type: MemoryType) -> MemoryReserveOrWait: ...

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -187,3 +187,52 @@ def test_consumer_raises_with_metadata(context: Context) -> None:
     ]
     with pytest.RaisesGroup(pytest.RaisesExc(RuntimeError, match="consumer failed")):
         run_actor_network(context, actors=actors)
+
+
+def test_send_recv_callbacks(context: Context) -> None:
+    sent: list[int] = []
+    received: list[int] = []
+    contexts: list[Context] = []
+
+    def on_send(ctx: Context, msg: Message[ArbitraryChunk[int]]) -> None:
+        assert not msg.empty()
+        sent.append(msg.sequence_number)
+        contexts.append(ctx)
+
+    def on_recv(ctx: Context, msg: Message[ArbitraryChunk[int]]) -> None:
+        assert not msg.empty()
+        received.append(msg.sequence_number)
+        contexts.append(ctx)
+
+    ch: Channel[ArbitraryChunk[int]] = context.create_channel(
+        on_send=on_send, on_recv=on_recv
+    )
+    outputs: list[int] = []
+    actors: list[Awaitable[None]] = [
+        send_data(context, ch, 10, 3),
+    ]
+
+    @define_actor()
+    async def consume_only_data(
+        ctx: Context, ch_in: Channel[ArbitraryChunk[int]]
+    ) -> None:
+        while (msg := await ch_in.recv(ctx)) is not None:
+            outputs.append(ArbitraryChunk.from_message(msg).release())
+
+    actors.append(consume_only_data(context, ch))
+    run_actor_network(context, actors=actors)
+
+    assert outputs == [10, 11, 12]
+    assert sent == [10, 11, 12]
+    assert received == [10, 11, 12]
+    assert all(ctx is context for ctx in contexts)
+
+
+def test_callback_must_be_callable(context: Context) -> None:
+    ch: Channel[ArbitraryChunk[int]] = context.create_channel()
+    with pytest.raises(TypeError, match="on_send must be a callable or None"):
+        ch.on_send = 1  # type: ignore[assignment]
+    with pytest.raises(TypeError, match="on_recv must be a callable or None"):
+        ch.on_recv = 1  # type: ignore[assignment]
+    ch.on_send = None
+    ch.on_recv = None
