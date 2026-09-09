@@ -40,6 +40,9 @@ TEST_F(StreamingChannel, DataRoundTripWithoutMetadata) {
     run_actor_network(std::move(actors));
 
     ASSERT_EQ(outputs.size(), num_messages);
+    auto metrics = ch->metrics();
+    EXPECT_EQ(metrics.message_count, num_messages);
+    EXPECT_EQ(metrics.spillable_count, 0);
     for (int i = 0; i < 4; ++i) {
         EXPECT_EQ(outputs[static_cast<std::size_t>(i)].release<int>(), i);
     }
