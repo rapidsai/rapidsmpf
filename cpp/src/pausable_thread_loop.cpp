@@ -12,11 +12,7 @@ namespace rapidsmpf::detail {
 
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
-        // Establish a CUDA context on this thread before any user code runs. A
-        // freshly spawned std::thread does not inherit the constructing thread's
-        // CUDA context, and low-level driver-API calls (unlike the CUDA Runtime
-        // API) do not lazily establish one on first use.
-        RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+        bool is_thread_initialized = false;
 
         while (true) {
             // wait until the thread is not paused
@@ -46,6 +42,17 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
             {
                 state_.notify_all();
                 return;
+            }
+
+            if (!is_thread_initialized) {
+                // Establish a CUDA context on this thread before the first user callback.
+                // A freshly spawned std::thread does not inherit the constructing
+                // thread's CUDA context, and low-level driver-API calls (unlike the CUDA
+                // Runtime API) do not lazily establish one on first use. Defer
+                // initialization until the loop is resumed so construction does not
+                // contend with CUDA setup by the calling thread.
+                RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+                is_thread_initialized = true;
             }
 
             f();
