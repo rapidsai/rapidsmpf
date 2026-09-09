@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from rmm.pylibrmm.stream cimport Stream
@@ -19,4 +19,4 @@ def is_equal_streams(Stream s1 not None, Stream s2 not None):
     -------
     ``True`` if both inputs reference the same stream; ``False`` otherwise.
     """
-    return s1.view().value() == s2.view().value()
+    return s1.view().get() == s2.view().get()
