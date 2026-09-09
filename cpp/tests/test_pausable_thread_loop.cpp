@@ -92,18 +92,7 @@ TEST(PausableThreadLoop, MultiplePauseAndResume) {
     EXPECT_FALSE(loop.is_running());
 }
 
-// Regression test for a bug where PausableThreadLoop's spawned std::thread never
-// established a CUDA context before running the caller's function. Low-level CUDA
-// driver-API calls (unlike the Runtime API) do not lazily establish a context on
-// first use, so a thread's first real CUDA touch could fail with "invalid device
-// context". This is exactly what happened to SpillManager's periodic spill thread:
-// it ticks constantly but, before this fix, only crashed the first time real memory
-// pressure actually forced it to spill (i.e. the first time its loop body did real
-// CUDA work). This test reproduces the same call chain (BufferResource::reserve +
-// BufferResource::make_buffer, allocating pinned-host memory, which goes through an
-// async CUDA memory pool at the driver-API level) directly from a freshly spawned
-// PausableThreadLoop thread that has never touched CUDA before.
-TEST(PausableThreadLoop, CanDoRealCudaWorkOnFirstTick) {
+TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
     using namespace rapidsmpf;
 
     if (!is_pinned_memory_resources_supported()) {

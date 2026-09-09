@@ -114,13 +114,7 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
     future.get();
 }
 
-// Regression test for a bug where ProgressThread's spawned thread had not established
-// a CUDA context before calling a registered function. Low-level CUDA driver-API calls
-// (unlike the Runtime API) do not lazily establish a context on first use, so a
-// function's first real CUDA touch could fail with "invalid device context". Exercise
-// the public ProgressThread API with the same pinned-host allocation path used by the
-// PausableThreadLoop regression test.
-TEST(ProgressThreadTests, CanDoRealCudaWorkOnFirstTick) {
+TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {
     using namespace rapidsmpf;
 
     if (!is_pinned_memory_resources_supported()) {
