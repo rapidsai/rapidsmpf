@@ -556,13 +556,31 @@ TEST(OptionsTest, DeviceLimitFromOptionsUsesDefaultWhenNotSet) {
 TEST(OptionsTest, HostLimitFromOptionsReturnsConfiguredLimit) {
     std::unordered_map<std::string, std::string> strings = {{"spill_host_limit", "1GiB"}};
     Options opts(strings);
-    EXPECT_EQ(host_limit_from_options(opts), static_cast<std::int64_t>(1_GiB));
+    ASSERT_TRUE(host_limit_from_options(opts).has_value());
+    EXPECT_EQ(*host_limit_from_options(opts), std::uint64_t{1_GiB});
 }
 
 TEST(OptionsTest, HostLimitFromOptionsIsUnboundedByDefault) {
-    EXPECT_EQ(
-        host_limit_from_options(Options{}), std::numeric_limits<std::int64_t>::max()
-    );
+    EXPECT_FALSE(host_limit_from_options(Options{}).has_value());
+}
+
+TEST(OptionsTest, HostLimitFromOptionsDisabledIsUnbounded) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_host_limit", "disabled"}
+    };
+    EXPECT_FALSE(host_limit_from_options(Options{strings}).has_value());
+}
+
+TEST(OptionsTest, HostLimitFromOptionsNumericValueIsNotDisabled) {
+    // A numeric byte count is a finite limit. Disabled tokens are the only way
+    // to get `nullopt`; INT64_MAX as a number is not special-cased.
+    std::uint64_t const bytes = std::uint64_t{1} << 40;  // 1 TiB, exact in IEEE-754
+    std::unordered_map<std::string, std::string> strings = {
+        {"spill_host_limit", std::to_string(bytes)}
+    };
+    auto const limit = host_limit_from_options(Options{strings});
+    ASSERT_TRUE(limit.has_value());
+    EXPECT_EQ(*limit, bytes);
 }
 
 TEST(OptionsTest, HostLimitFromOptionsRejectsPercentages) {

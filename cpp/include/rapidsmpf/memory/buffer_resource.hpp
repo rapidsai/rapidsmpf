@@ -634,17 +634,17 @@ std::int64_t device_limit_from_options(config::Options options);
  * @brief Parse the `spill_host_limit` parameter from configuration options.
  *
  * The limit must be an absolute byte count. Disabled values produce an
- * unbounded pageable-host budget. This limit is independent of
- * `pinned_max_pool_size`. When both limits are bounded,
+ * unbounded pageable-host budget (`std::nullopt`). This limit is independent
+ * of `pinned_max_pool_size`. When both limits are bounded,
  * `BufferResource::from_options()` rejects configurations where their sum
  * exceeds the summed host memory of the nodes in the calling thread's memory
  * policy. The pinned maximum is also constrained by the host memory of its
- * NUMA node.
+ * NUMA node. An explicit numeric value is always a finite limit.
  *
  * @param options Configuration options.
- * @return Pageable-host soft limit in bytes.
+ * @return Pageable-host soft limit in bytes, or `std::nullopt` if unbounded.
  */
-std::int64_t host_limit_from_options(config::Options options);
+std::optional<std::uint64_t> host_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

@@ -137,7 +137,8 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     and allocations may consume the same host memory. It accepts absolute byte
     counts (for example, `"10GiB"` or `"512MB"`). Percentages are not supported
     because the appropriate host-memory share depends on the job's process and
-    NUMA topology.
+    NUMA topology. Use `"disabled"` for an unbounded (unset) limit. An explicit
+    numeric value is always treated as a finite cap, including `INT64_MAX`.
 
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`

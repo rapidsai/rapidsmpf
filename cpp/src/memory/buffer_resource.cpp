@@ -107,43 +107,52 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
+    // BufferResource defaults to unlimited memory for each memory type. Setting limits
+    // only if they are provided.
+    std::unordered_map<MemoryType, std::int64_t> memory_limits{
+        {MemoryType::DEVICE, device_limit_from_options(options)}
+    };
+
     auto pinned_pool_properties = pinned_pool_properties_from_options(options);
-    constexpr auto unbounded = std::numeric_limits<std::int64_t>::max();
-    auto host_limit = host_limit_from_options(options);
-    std::int64_t pinned_limit = 0;
+    auto const host_limit = host_limit_from_options(options);
 
     if (pinned_pool_properties.has_value()) {
-        auto const& max_pool_size = pinned_pool_properties->max_pool_size;
-        pinned_limit = max_pool_size.has_value() ? safe_cast<std::int64_t>(*max_pool_size)
-                                                 : unbounded;
-
-        if (host_limit != unbounded && pinned_limit != unbounded) {
-            auto const numa_host = safe_cast<std::int64_t>(
-                get_numa_node_host_memory(pinned_pool_properties->numa_id)
-            );
+        auto const& pinned_max_pool_size = pinned_pool_properties->max_pool_size;
+        if (pinned_max_pool_size.has_value()) {
+            auto const numa_host =
+                get_numa_node_host_memory(pinned_pool_properties->numa_id);
             RAPIDSMPF_EXPECTS(
-                pinned_limit <= numa_host,
+                *pinned_max_pool_size <= numa_host,
                 "pinned_max_pool_size exceeds NUMA node host memory",
                 std::invalid_argument
             );
-            std::int64_t total_host = 0;
-            for (auto const numa_id : get_current_numa_nodes()) {
-                total_host += safe_cast<std::int64_t>(get_numa_node_host_memory(numa_id));
+            if (host_limit.has_value()) {
+                // while pinned pool is tied to a specific NUMA node, total addressable
+                // host memory depends on the NUMA policy (eg. MPOL_BIND). Hence we need
+                // to accumulate the total host memory across all current NUMA nodes for
+                // this thread.
+                std::uint64_t total_host = 0;
+                for (auto const numa_id : get_current_numa_nodes()) {
+                    total_host += get_numa_node_host_memory(numa_id);
+                }
+                RAPIDSMPF_EXPECTS(
+                    *pinned_max_pool_size <= total_host
+                        && *host_limit <= (total_host - *pinned_max_pool_size),
+                    "spill_host_limit exceeds host memory in the current NUMA policy "
+                    "after pinned_max_pool_size",
+                    std::invalid_argument
+                );
             }
-            RAPIDSMPF_EXPECTS(
-                host_limit <= total_host - pinned_limit,
-                "spill_host_limit exceeds host memory in the current NUMA policy "
-                "after pinned_max_pool_size",
-                std::invalid_argument
-            );
+            memory_limits[MemoryType::PINNED_HOST] =
+                safe_cast<std::int64_t>(*pinned_pool_properties->max_pool_size);
         }
+    } else {
+        memory_limits[MemoryType::PINNED_HOST] = 0;  // Disable pinned memory.
     }
 
-    std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)},
-        {MemoryType::HOST, host_limit},
-        {MemoryType::PINNED_HOST, pinned_limit}
-    };
+    if (host_limit.has_value()) {
+        memory_limits[MemoryType::HOST] = safe_cast<std::int64_t>(*host_limit);
+    }
 
     return create(
         std::move(mr),
@@ -402,16 +411,18 @@ std::int64_t device_limit_from_options(config::Options options) {
     });
 }
 
-std::int64_t host_limit_from_options(config::Options options) {
-    return options.get<std::int64_t>("spill_host_limit", [](auto const& s) {
-        auto const value = parse_optional(s);
-        if (!value.has_value()) {
-            return std::numeric_limits<std::int64_t>::max();
+std::optional<std::uint64_t> host_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::uint64_t>>(
+        "spill_host_limit", [](auto const& s) -> std::optional<std::uint64_t> {
+            auto const value = parse_optional(s);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            return rmm::align_down(
+                parse_nbytes_unsigned(*value), rmm::CUDA_ALLOCATION_ALIGNMENT
+            );
         }
-        return safe_cast<std::int64_t>(
-            rmm::align_down(parse_nbytes_unsigned(*value), rmm::CUDA_ALLOCATION_ALIGNMENT)
-        );
-    });
+    );
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {
