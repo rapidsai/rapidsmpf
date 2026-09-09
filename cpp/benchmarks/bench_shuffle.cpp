@@ -31,10 +31,6 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
-#ifdef RAPIDSMPF_HAVE_CUPTI
-#include <rapidsmpf/cupti.hpp>
-#endif
-
 #include "utils/misc.hpp"
 #include "utils/rmm_utils.hpp"
 
@@ -87,7 +83,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:M:s")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:s")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -108,11 +104,6 @@ class ArgumentParser {
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -s         Discard extracted output (skip validation)\n"
-#ifdef RAPIDSMPF_HAVE_CUPTI
-                           << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
-                              "files with given path prefix. For example, /tmp/test will "
-                              "write files to /tmp/test_<rank>.csv (default: disabled)\n"
-#endif
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -167,12 +158,6 @@ class ArgumentParser {
                 case 's':
                     discard_output = true;
                     break;
-#ifdef RAPIDSMPF_HAVE_CUPTI
-                case 'M':
-                    cupti_csv_prefix = std::string{optarg};
-                    enable_cupti_monitoring = true;
-                    break;
-#endif
                 case '?':
                     if (use_mpi) {
                         RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -223,9 +208,6 @@ class ArgumentParser {
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         ss << "  -s " << (discard_output ? "true" : "false") << " (discard output)\n";
-        if (enable_cupti_monitoring) {
-            ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
-        }
         comm.logger()->print(ss.str());
     }
 
@@ -237,8 +219,6 @@ class ArgumentParser {
     std::uint64_t num_batches{1};
     std::uint64_t output_partitions_per_rank{1};
     bool discard_output{false};
-    bool enable_cupti_monitoring{false};
-    std::string cupti_csv_prefix;
 };
 
 void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialized) {
@@ -550,15 +530,6 @@ int main(int argc, char** argv) {
         log->print(ss.str());
     }
 
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
-    if (args.enable_cupti_monitoring) {
-        cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
-        cupti_monitor->start_monitoring();
-        log->print("CUPTI memory monitoring enabled");
-    }
-#endif
-
     auto const nranks = static_cast<std::uint64_t>(comm->nranks());
     auto const local_logical_bytes =
         args.payload_size * args.num_batches * args.output_partitions_per_rank * nranks;
@@ -615,32 +586,6 @@ int main(int argc, char** argv) {
         .host_mr = br->host_mr(),
         .header = "Statistics (of the last run):",
     }));
-
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    if (args.enable_cupti_monitoring && cupti_monitor) {
-        cupti_monitor->stop_monitoring();
-
-        std::string csv_filename =
-            args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
-        try {
-            cupti_monitor->write_csv(csv_filename);
-            log->print(
-                "CUPTI memory data written to " + csv_filename + " ("
-                + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
-                + std::to_string(cupti_monitor->get_total_callback_count())
-                + " callbacks)"
-            );
-
-            if (comm->rank() == 0) {
-                log->print(
-                    "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
-                );
-            }
-        } catch (std::exception const& e) {
-            log->print("Failed to write CUPTI CSV file: " + std::string(e.what()));
-        }
-    }
-#endif
 
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Finalize());

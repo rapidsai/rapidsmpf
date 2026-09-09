@@ -7,12 +7,15 @@ set -euo pipefail
 repo_root="$(git -C "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" rev-parse --show-toplevel)"
 cd "${repo_root}"
 
-# rrun
-nranks=8
+# executor
+executor=mpirun # rrun
+executor_args=""
+nranks=4
 bench=cpp/build/benchmarks/bench_shuffle
 
 # RAPIDSMPF env
-disk_spill_dir=/raid/nperera/spilldir
+# disk_spill_dir=/raid/nperera/spilldir
+disk_spill_dir=/tmp/spilldir
 
 # bench_shuffle
 communicator=ucxx
@@ -43,10 +46,11 @@ if [[ "${discard_output}" == true ]]; then
     bench_args+=(-s)
 fi
 
-rrun -n "${nranks}" \
+${executor} -n "${nranks}" \
     -x RAPIDSMPF_DISK_SPILL_DIR="${disk_spill_dir}" \
     -x RAPIDSMPF_SPILL_DEVICE_LIMIT="${spill_device_limit}" \
     -x RAPIDSMPF_SPILL_HOST_LIMIT="${spill_host_limit}" \
     -x RAPIDSMPF_PINNED_MEMORY="${pinned_memory}" \
+    "${executor_args}" \
     "${bench}" \
     "${bench_args[@]}"
