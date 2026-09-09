@@ -87,9 +87,7 @@ Context::Context(
 
     for (auto mem_type : MEMORY_TYPES) {
         memory_[static_cast<std::size_t>(mem_type)] =
-            std::make_shared<MemoryReserveOrWait>(
-                options_, logger_, mem_type, executor_, br_
-            );
+            std::make_shared<MemoryReserveOrWait>(options_, mem_type, executor_, br_);
     }
 }
 

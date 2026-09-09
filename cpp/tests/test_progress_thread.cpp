@@ -8,8 +8,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
+#include <rmm/mr/cuda_memory_resource.hpp>
+
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 #include "environment.hpp"
 
@@ -106,4 +112,34 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
     progress_thread.remove_function(id);
 
     future.get();
+}
+
+TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {
+    using namespace rapidsmpf;
+
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    auto br = BufferResource::create(cuda_mr, PinnedPoolProperties{});
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    std::exception_ptr eptr;
+    ProgressThread progress_thread;
+    auto id = progress_thread.add_function([&]() {
+        try {
+            auto [reservation, _] =
+                br->reserve(MemoryType::PINNED_HOST, 1024, AllowOverbooking::YES);
+            auto buf = br->make_buffer(1024, stream, reservation);
+        } catch (...) {
+            eptr = std::current_exception();
+        }
+        return ProgressThread::ProgressState::Done;
+    });
+    progress_thread.remove_function(id);
+
+    if (eptr) {
+        std::rethrow_exception(eptr);
+    }
 }
