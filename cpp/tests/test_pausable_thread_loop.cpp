@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
