@@ -12,7 +12,6 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -95,8 +94,7 @@ struct ExclusiveBufferAccess {
         std::size_t file_offset = 0
     ) {
         EXPECT_EQ(
-            disk.write(path, ptr_ + ptr_offset, size, buffer_.mem_type(), file_offset)
-                ->get(),
+            disk.write(path, ptr_ + ptr_offset, size, buffer_.mem_type(), file_offset),
             size
         );
     }
@@ -109,8 +107,7 @@ struct ExclusiveBufferAccess {
         std::size_t file_offset = 0
     ) {
         EXPECT_EQ(
-            disk.read(path, ptr_ + ptr_offset, size, buffer_.mem_type(), file_offset)
-                ->get(),
+            disk.read(path, ptr_ + ptr_offset, size, buffer_.mem_type(), file_offset),
             size
         );
     }
@@ -223,25 +220,6 @@ TEST_P(DiskResourceTest, UnalignedOffsetRoundTrip) {
     );
     EXPECT_EQ(copy_from_buffer(*destination, pattern.size(), ptr_offset), pattern);
 
-    ASSERT_TRUE(std::filesystem::remove(path));
-}
-
-TEST_P(DiskResourceTest, DiskFutureIsReadyBeforeGet) {
-    auto const path = test_path("is-ready");
-    auto const pattern = make_pattern(64 * 1024);
-    auto source = make_buffer(pattern.size());
-    fill_buffer(*source, pattern, 0);
-    source->stream().sync();
-
-    auto future = disk_->write(path, source->data(), pattern.size(), source->mem_type());
-    ASSERT_TRUE(future->valid());
-    while (!future->is_ready()) {
-        std::this_thread::yield();
-    }
-    EXPECT_TRUE(future->is_ready());
-    EXPECT_EQ(future->get(), pattern.size());
-    EXPECT_FALSE(future->valid());
-    EXPECT_FALSE(future->is_ready());
     ASSERT_TRUE(std::filesystem::remove(path));
 }
 

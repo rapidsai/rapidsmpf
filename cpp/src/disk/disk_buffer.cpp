@@ -66,7 +66,7 @@ std::unique_ptr<DiskBuffer> DiskBuffer::from_buffer(
 
     try {
         auto const transferred =
-            disk->write(path, source->data(), nbytes, source->mem_type())->get();
+            disk->write(path, source->data(), nbytes, source->mem_type());
         RAPIDSMPF_EXPECTS(
             transferred == nbytes,
             "disk write transferred " + format_nbytes(transferred) + " of "
@@ -112,9 +112,7 @@ std::unique_ptr<Buffer> DiskBuffer::restore(
             std::logic_error
         );
         auto const transferred =
-            source->disk_
-                ->read(source->path_, ptr, source->size(), buffer->mem_type())
-                ->get();
+            source->disk_->read(source->path_, ptr, source->size(), buffer->mem_type());
         RAPIDSMPF_EXPECTS(
             transferred == source->size(),
             "disk read transferred " + format_nbytes(transferred) + " of "

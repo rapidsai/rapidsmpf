@@ -4,11 +4,9 @@
  */
 
 #include <cerrno>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <future>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -27,43 +25,11 @@ namespace rapidsmpf::disk {
 
 namespace {
 
-class KvikioDiskFuture final : public DiskFuture {
-  public:
-    KvikioDiskFuture(
-        std::unique_ptr<kvikio::FileHandle> file, std::future<std::size_t> io
-    )
-        : file_{std::move(file)}, io_{std::move(io)} {}
-
-    ~KvikioDiskFuture() override {
-        if (io_.valid()) {
-            try {
-                std::ignore = get();
-            } catch (...) {
-            }
-        }
-    }
-
-    [[nodiscard]] bool valid() const noexcept override {
-        return io_.valid();
-    }
-
-    [[nodiscard]] bool is_ready() const override {
-        if (!io_.valid()) {
-            return false;
-        }
-        return io_.wait_for(std::chrono::seconds{0}) == std::future_status::ready;
-    }
-
-    [[nodiscard]] std::size_t get() override {
-        auto const n = io_.get();
-        file_->close();
-        return n;
-    }
-
-  private:
-    std::unique_ptr<kvikio::FileHandle> file_;
-    std::future<std::size_t> io_;
-};
+std::size_t wait_io(kvikio::FileHandle& file, std::future<std::size_t> io) {
+    auto const n = io.get();
+    file.close();
+    return n;
+}
 
 }  // namespace
 
@@ -97,46 +63,50 @@ std::filesystem::path DiskResource::create_unique_path() const {
     return path_template;
 }
 
-std::unique_ptr<DiskFuture> DiskResource::write(
+std::size_t DiskResource::write(
     std::filesystem::path const& path,
     void const* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
     std::size_t file_offset
 ) const {
-    auto file = std::make_unique<kvikio::FileHandle>(
+    kvikio::FileHandle file{
         path.string(), "w+", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
+    };
+    return wait_io(
+        file,
+        file.pwrite(
+            data,
+            size,
+            file_offset,
+            kvikio::defaults::task_size(),
+            kvikio::defaults::gds_threshold(),
+            false  // sync_default_stream
+        )
     );
-    auto io = file->pwrite(
-        data,
-        size,
-        file_offset,
-        kvikio::defaults::task_size(),
-        kvikio::defaults::gds_threshold(),
-        false  // sync_default_stream
-    );
-    return std::make_unique<KvikioDiskFuture>(std::move(file), std::move(io));
 }
 
-std::unique_ptr<DiskFuture> DiskResource::read(
+std::size_t DiskResource::read(
     std::filesystem::path const& path,
     void* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
     std::size_t file_offset
 ) const {
-    auto file = std::make_unique<kvikio::FileHandle>(
+    kvikio::FileHandle file{
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
+    };
+    return wait_io(
+        file,
+        file.pread(
+            data,
+            size,
+            file_offset,
+            kvikio::defaults::task_size(),
+            kvikio::defaults::gds_threshold(),
+            false  // sync_default_stream
+        )
     );
-    auto io = file->pread(
-        data,
-        size,
-        file_offset,
-        kvikio::defaults::task_size(),
-        kvikio::defaults::gds_threshold(),
-        false  // sync_default_stream
-    );
-    return std::make_unique<KvikioDiskFuture>(std::move(file), std::move(io));
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {
