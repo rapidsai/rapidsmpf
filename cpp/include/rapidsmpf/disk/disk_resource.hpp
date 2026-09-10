@@ -128,11 +128,12 @@ class DiskResource : public BackRefMixin<BufferResource> {
  * @brief Spill directory from `disk_spill_dir` (`RAPIDSMPF_DISK_SPILL_DIR`).
  *
  * Disabled values (`false`, `none`, …) yield `std::nullopt`. An empty
- * string is rejected.
+ * string is treated as unset and uses the default (`false`). A
+ * whitespace-only value is rejected.
  *
  * @param options Configuration options.
  * @return Configured directory, if disk spilling is enabled.
- * @throws std::invalid_argument if the option is an empty string.
+ * @throws std::invalid_argument if the option is whitespace-only.
  */
 [[nodiscard]] std::optional<std::filesystem::path> spill_dir_from_options(
     config::Options options

@@ -255,8 +255,13 @@ TEST(DiskSpillDirectory, DisabledOptionIsEmpty) {
     EXPECT_EQ(spill_dir_from_options(options), std::nullopt);
 }
 
-TEST(DiskSpillDirectory, EmptyStringThrows) {
+TEST(DiskSpillDirectory, EmptyStringUsesDefault) {
     config::Options options{{{"disk_spill_dir", config::OptionValue("")}}};
+    EXPECT_EQ(spill_dir_from_options(options), std::nullopt);
+}
+
+TEST(DiskSpillDirectory, WhitespaceOnlyThrows) {
+    config::Options options{{{"disk_spill_dir", config::OptionValue("   ")}}};
     EXPECT_THROW(std::ignore = spill_dir_from_options(options), std::invalid_argument);
 }
 
