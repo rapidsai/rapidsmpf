@@ -21,6 +21,10 @@ from typing import Any
 
 from packaging.version import Version
 from sphinx.ext.autodoc import ClassDocumenter
+from sphinx.ext.intersphinx import (
+    inventory_exists,
+    resolve_reference_in_inventory,
+)
 
 import rapidsmpf
 
@@ -43,6 +47,7 @@ release = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}.{RAPIDSMPF
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.autosummary",
     "sphinx_copybutton",
     "numpydoc",
@@ -51,6 +56,10 @@ extensions = [
     "myst_nb",
     "breathe",
 ]
+
+# Disambiguate section anchors across documents
+autosectionlabel_prefix_document = True
+
 # Breathe Configuration
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
@@ -144,16 +153,35 @@ html_theme_options = {
 
 html_theme = "nvidia_sphinx_theme"
 
+# The nvidia theme sets these two at builder-inited, which defeats all of
+# sphinx's incremental builds. If we set them to their defaults here,
+# everything works nicely.
+toc_object_entries_show_parents = "hide"
+maximum_signature_line_length = 70
+
+
 numpydoc_class_members_toctree = False
 
 
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-default_role
 default_role = "any"
 
+with open("../../RAPIDS_BRANCH", "r") as f:
+    branch = f.read().strip()
+intersphinx_version = "latest" if branch == "main" else version
 
+if branch == "main":
+    ucxx_version = "latest"
+else:
+  from urllib.request import urlopen
+
+  with urlopen(f"https://version.gpuci.io/rapids/{version}") as response:
+      ucxx_version = response.read().decode()
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
+    "ucxx": (f"https://docs.rapids.ai/api/ucxx/{ucxx_version}", None),
+    "rmm": (f"https://docs.nvidia.com/rmm/{intersphinx_version}", None),
 }
 
 
@@ -198,7 +226,45 @@ class CythonIntEnumDocumenter(ClassDocumenter):
             self.add_line("", source_name)
 
 
+_RMM_INHERITED_MEMBER_TARGETS = {
+    "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate": (
+        "rmm.mr.DeviceMemoryResource.allocate"
+    ),
+    "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate": (
+        "rmm.mr.DeviceMemoryResource.deallocate"
+    ),
+    "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate": (
+        "rmm.mr.DeviceMemoryResource.allocate"
+    ),
+    "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate": (
+        "rmm.mr.DeviceMemoryResource.deallocate"
+    ),
+}
+
+
 def on_missing_reference(app, env, node, contnode):
+    if (
+        node.get("refdomain") == "py"
+        and node.get("reftype") == "obj"
+        and (
+            rmm_target := _RMM_INHERITED_MEMBER_TARGETS.get(
+                node.get("reftarget")
+            )
+        )
+        is not None
+    ):
+        # numpydoc names inherited methods after the concrete subclass, but RMM
+        # publishes only the defining DeviceMemoryResource methods. Resolve this
+        # deliberately small alias set against the named RMM inventory.
+        if not inventory_exists(env, "rmm"):
+            return None
+        original_target = node["reftarget"]
+        node["reftarget"] = rmm_target
+        try:
+            return resolve_reference_in_inventory(env, "rmm", node, contnode)
+        finally:
+            node["reftarget"] = original_target
+
     if (refid := node.get("refid")) is not None and "hpp" in refid:
         return contnode
 
@@ -242,7 +308,9 @@ def on_missing_reference(app, env, node, contnode):
 
 
 def setup(app):
-    app.connect("missing-reference", on_missing_reference)
+    # Run after intersphinx's ordinary lookup so this cannot rewrite a target
+    # which an inventory starts publishing under its original name.
+    app.connect("missing-reference", on_missing_reference, priority=501)
     app.registry.add_documenter("enum", CythonIntEnumDocumenter)
 
     # Prevent Sphinx from replacing native Cython modules with .pyi stubs.
@@ -258,9 +326,4 @@ def setup(app):
 
 
 nitpick_ignore_regex = [
-    # We're subclassing this from RMM, and sphinx can't find these methods.
-    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
-    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
-    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate"),
-    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate"),
 ]

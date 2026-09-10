@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -106,7 +106,14 @@ def test_data_roundtrip_without_metadata(context: Context) -> None:
     actors.append(consume_only_data(context, ch))
     run_actor_network(context, actors=actors)
 
+    metrics = ch.metrics()
     assert outputs == [0, 1, 2]
+    assert metrics.message_count == len(outputs)
+    assert metrics.spillable_count == 0
+    for v in metrics.recv_bytes.values():
+        assert v == 0
+    for v in metrics.send_bytes.values():
+        assert v == 0
 
 
 def test_metadata_then_data_roundtrip(context: Context) -> None:

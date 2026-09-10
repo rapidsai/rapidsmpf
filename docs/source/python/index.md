@@ -6,11 +6,19 @@ frameworks.
 
 ## Quickstart
 
-- {doc}`quickstart` — Streaming Engine overview
+- {doc}`quickstart`: Streaming Engine overview
 
 ## API Reference
 
-- {doc}`api` — Full Python API reference (integrations, shuffler, communicator, memory, config)
+- {doc}`api`: Full Python API reference (integrations, shuffler, communicator, memory, config)
+
+### Streaming API Reference
+
+- {doc}`streaming_api`: API reference for streaming engine components
+
+### `rrun` API
+
+- {doc}`rrun`: API reference for `rrun` process binding and launching
 
 ## Integrations
 
@@ -25,4 +33,6 @@ hidden:
 ---
 quickstart.md
 api.md
+streaming_api.md
+rrun.md
 ```

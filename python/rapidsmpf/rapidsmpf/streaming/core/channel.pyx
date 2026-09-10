@@ -12,7 +12,8 @@ from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
-
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer cimport MemoryType as cpp_MemoryType
 import asyncio
 
 from rapidsmpf.streaming.core.cancellation import await_cpp_future
@@ -332,6 +333,48 @@ cdef extern from * nogil:
     )
 
 
+cdef class ChannelMetrics:
+    """
+    Metrics for a channel.
+
+    Note
+    ----
+    Byte counts for message volume rely on the message having an accurate
+    content description.
+    """
+    @staticmethod
+    cdef from_handle(cpp_ChannelMetricsSnapshot metrics):
+        cdef ChannelMetrics self = ChannelMetrics.__new__(ChannelMetrics)
+        self._handle = move(metrics)
+        return self
+
+    @property
+    def message_count(self):
+        """The number of messages pushed into the channel."""
+        return self._handle.message_count
+
+    @property
+    def spillable_count(self):
+        """The number of spillable messages pushed into the channel."""
+        return self._handle.spillable_count
+
+    @property
+    def send_bytes(self):
+        """The total byte count of sent messages, stratified by memory type."""
+        return {
+            t: cpp_metrics_send_bytes(self._handle, <cpp_MemoryType>(t))
+            for t in MemoryType
+        }
+
+    @property
+    def recv_bytes(self):
+        """The total byte count of received messages, stratified by memory type."""
+        return {
+            t: cpp_metrics_recv_bytes(self._handle, <cpp_MemoryType>(t))
+            for t in MemoryType
+        }
+
+
 cdef class Channel:
     """
     A coroutine-based, bounded channel for asynchronously sending and
@@ -355,6 +398,17 @@ cdef class Channel:
     @classmethod
     def __class_getitem__(cls, args):
         return cls
+
+    def metrics(self):
+        """
+        A snapshot of metrics for this channel.
+
+        Returns
+        -------
+        ChannelMetrics
+            A point in time snapshot of the metrics in the channel.
+        """
+        return ChannelMetrics.from_handle(deref(self._handle).metrics())
 
     async def drain(self, Context ctx not None):
         """
@@ -457,7 +511,7 @@ cdef class Channel:
 
         Warnings
         --------
-        `msg` is released and left empty after this call.
+        ``msg`` is released and left empty after this call.
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
@@ -484,7 +538,7 @@ cdef class Channel:
 
         Warnings
         --------
-        `msg` is released and left empty after this call.
+        ``msg`` is released and left empty after this call.
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
