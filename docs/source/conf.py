@@ -170,10 +170,17 @@ with open("../../RAPIDS_BRANCH", "r") as f:
     branch = f.read().strip()
 intersphinx_version = "latest" if branch == "main" else version
 
+if branch == "main":
+    ucxx_version = "latest"
+else:
+  from urllib.request import urlopen
+
+  with urlopen(f"https://version.gpuci.io/rapids/{version}") as response:
+      ucxx_version = response.read().decode()
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
-    "ucxx": (f"https://docs.rapids.ai/api/ucxx/{intersphinx_version}", None),
+    "ucxx": (f"https://docs.rapids.ai/api/ucxx/{ucxx_version}", None),
     "rmm": (f"https://docs.nvidia.com/rmm/{intersphinx_version}", None),
 }
 
