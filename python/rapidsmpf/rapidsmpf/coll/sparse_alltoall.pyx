@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Sparse alltoall interface for RapidsMPF."""
 
@@ -20,13 +20,13 @@ cdef class SparseAlltoall:
     """
     Sparse all-to-all collective over explicit source and destination peer sets.
 
-    Each rank may send zero or more messages to ranks listed in `dsts` and
-    receives zero or more messages from ranks listed in `srcs`. Sender
-    order is defined by the local order of calls to `insert(dst, ...)` for
+    Each rank may send zero or more messages to ranks listed in ``dsts`` and
+    receives zero or more messages from ranks listed in ``srcs``. Sender
+    order is defined by the local order of calls to ``insert(dst, ...)`` for
     each destination rank.
 
     This object is logically collective over the communicator and
-    identified by `op_id`. Local extraction is only valid after `wait()`
+    identified by ``op_id``. Local extraction is only valid after `wait()`
     has completed.
 
     Parameters

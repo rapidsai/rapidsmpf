@@ -181,8 +181,8 @@ def define_actor(*, extra_channels=()):
     The decorated coroutine must take a `Context` as its first positional argument
     and return None. When the coroutine finishes (whether successfully or with an
     exception), the wrapper automatically shuts down:
-      * any channels discovered from the coroutine's arguments.
-      * all channels listed in ``extra_channels``.
+    * any channels discovered from the coroutine's arguments.
+    * all channels listed in ``extra_channels``.
 
     Channels are discovered by recursively inspecting the coroutine's bound arguments.
     Mapping values and general iterables are traversed but byte-like objects (``str``,
@@ -205,21 +205,20 @@ def define_actor(*, extra_channels=()):
 
     Examples
     --------
-    In the following example, `python_actor` is defined as a Python actor.
+    In the following example, ``python_actor`` is defined as a Python actor.
     When it completes, ``ch1`` is shut down automatically because it is passed
     as a coroutine argument, and ``ch2`` is shut down because it is listed in
-    ``extra_channels``:
-    >>> ch1: Channel[TableChunk] = context.create_channel()
-    >>> ch2: Channel[TableChunk] = context.create_channel()
-    ...
-    >>> @define_actor(extra_channels=(ch2,))
-    ... async def python_actor(ctx: Context, /, ch_in: Channel) -> None:
-    ...     msg = await ch_in.recv()
-    ...     await ch2.send(msg)
-    ...
-    ... # Calling the coroutine doesn't run it but we can provide its arguments.
-    >>> actor = python_actor(context, ch_in=ch1)
-    ... # Later we need to call run_actor_network() to actually run the actor.
+    ``extra_channels``.
+
+        >>> ch1: Channel[TableChunk] = context.create_channel()
+        >>> ch2: Channel[TableChunk] = context.create_channel()
+        >>> @define_actor(extra_channels=(ch2,))
+        ... async def python_actor(ctx: Context, /, ch_in: Channel) -> None:
+        ...     msg = await ch_in.recv()
+        ...     await ch2.send(msg)
+        ... # Calling the coroutine doesn't run it but we can provide its arguments.
+        >>> actor = python_actor(context, ch_in=ch1)
+        ... # Later we need to call run_actor_network() to actually run the actor.
     """
 
     return partial(decorate_actor, extra_channels)
