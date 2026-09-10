@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -17,12 +17,12 @@ cdef class Message:
     sequence_number
         Ordering identifier for the message.
     payload
-        A payload object that implements the `Payload` protocol. The payload is
+        A payload object that implements the ``Payload`` protocol. The payload is
         moved into this message.
 
     Warnings
     --------
-    `payload` is released by this call and must not be used afterwards.
+    ``payload`` is released by this call and must not be used afterwards.
     """
     def __init__(self, uint64_t sequence_number, payload):
         payload.into_message(sequence_number, self)
@@ -40,7 +40,7 @@ cdef class Message:
 
         Returns
         -------
-        A new Python `Message` object owning `handle`.
+        A new Python `Message` object owning ``handle``.
         """
         cdef Message ret = Message.__new__(Message)
         ret._handle = move(handle)

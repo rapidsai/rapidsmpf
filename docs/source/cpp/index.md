@@ -7,7 +7,7 @@ Python bindings are built.
 ## API Reference
 
 ```{toctree}
-:maxdepth: 2
+:maxdepth: 1
 
 core
 bootstrap
@@ -23,11 +23,11 @@ rrun
 
 The C++ API provides access to all core RapidsMPF subsystems:
 
-- **Communicator** — MPI and UCXX backends for inter-process communication.
-- **Shuffler** — Out-of-core, distributed payload shuffle service.
-- **Streaming Engine** — Asynchronous multi-GPU pipeline with Channels, Actors, and Messages.
-- **Memory** — BufferResource, spilling, pinned memory, and packed data utilities.
-- **Config** — Configuration options and environment-variable parsing.
+- **{doc}`Communicator <core>`**: MPI and UCXX backends for inter-process communication.
+- **{doc}`Shuffler <shuffler>`**: Out-of-core, distributed payload shuffle service.
+- **{doc}`Streaming Engine <streaming>`**: Asynchronous multi-GPU pipeline with Channels, Actors, and Messages.
+- **{doc}`Memory <core>`**: BufferResource, spilling, pinned memory, and packed data utilities.
+- **{doc}`Config <core>`**: Configuration options and environment-variable parsing.
 
 ## Shuffle Service
 

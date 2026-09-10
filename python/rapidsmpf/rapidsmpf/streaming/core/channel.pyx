@@ -457,7 +457,7 @@ cdef class Channel:
 
         Warnings
         --------
-        `msg` is released and left empty after this call.
+        ``msg`` is released and left empty after this call.
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
@@ -484,7 +484,7 @@ cdef class Channel:
 
         Warnings
         --------
-        `msg` is released and left empty after this call.
+        ``msg`` is released and left empty after this call.
         """
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)

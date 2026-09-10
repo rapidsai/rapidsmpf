@@ -5,7 +5,7 @@ Contributions to `rapidsmpf` fall into the following categories:
 
 1. To report a bug, request a new feature, or report a problem with documentation, please file an
    [issue](https://github.com/rapidsai/rapidsmpf/issues/new/choose) describing the problem or new feature
-   in detail. The RAPIDS team evaluates and triages issues, and schedules them for a release. If you
+   in detail. The team evaluates and triages issues, and schedules them for a release. If you
    believe the issue needs priority attention, please comment on the issue to notify the team.
 2. To propose and implement a new feature, please file a new feature request
    [issue](https://github.com/rapidsai/rapidsmpf/issues/new/choose). Describe the intended feature and
@@ -16,7 +16,7 @@ Contributions to `rapidsmpf` fall into the following categories:
    contributions](#code-contributions) guide below. If you need more context on a particular issue,
    please ask in a comment.
 
-As contributors and maintainers to this project, you are expected to abide by the RAPIDS's code of
+As contributors and maintainers to this project, you are expected to abide by its code of
 conduct. More information can be found at:
 [Contributor Code of Conduct](https://docs.rapids.ai/resources/conduct/).
 
@@ -39,7 +39,7 @@ conduct. More information can be found at:
 8. Verify that CI passes all [status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/about-status-checks).
    Fix if needed.
 9. Wait for other developers to review your code and update code as needed.
-10. Once reviewed and approved, a RAPIDS developer will merge your pull request.
+10. Once reviewed and approved, a developer will merge your pull request.
 
 If you are unsure about anything, don't hesitate to comment on issues and ask for clarification!
 
@@ -51,7 +51,7 @@ prioritized issues for our next release in our
 
 **Note:** Always look at the release board that is
 [currently under development](https://docs.rapids.ai/maintainers) for issues to work on. This is
-where RAPIDS developers also focus their efforts.
+where the main developers also focus their efforts.
 
 Look at the unassigned issues, and find an issue to which you are comfortable contributing. Start
 with _Step 3_ above, commenting on the issue to let others know you are working on it. If you have
