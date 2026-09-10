@@ -7,6 +7,7 @@ import pytest
 
 import rmm
 import rmm.mr
+from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
@@ -76,6 +77,20 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
+
+
+def test_host_memory_availability_tracks_live_allocations() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.HOST: KiB(10)},
+        periodic_spill_check=None,
+    )
+    reservation, _ = br.reserve(MemoryType.HOST, KiB(4), allow_overbooking=False)
+    buffer = br.make_buffer(KiB(4), Stream(), reservation)
+    assert br.memory_available(MemoryType.HOST) == KiB(6)
+
+    del buffer
+    assert br.memory_available(MemoryType.HOST) == KiB(10)
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])

@@ -42,7 +42,7 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
 
 }  // namespace
 
-void* HostMemoryResource::allocate(
+void* detail::HostMemoryResourceImpl::allocate(
     cuda::stream_ref, std::size_t size, std::size_t alignment
 ) {
     void* ret = ::operator new(size, std::align_val_t{alignment});
@@ -50,7 +50,7 @@ void* HostMemoryResource::allocate(
     return ret;
 }
 
-void HostMemoryResource::deallocate(
+void detail::HostMemoryResourceImpl::deallocate(
     cuda::stream_ref stream, void* ptr, std::size_t, std::size_t alignment
 ) noexcept {
     stream.sync();

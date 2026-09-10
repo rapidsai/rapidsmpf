@@ -1,7 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint64_t
+from libcpp.vector cimport vector
 
 
 cdef extern from "<rapidsmpf/system_info.hpp>" nogil:
@@ -10,6 +11,9 @@ cdef extern from "<rapidsmpf/system_info.hpp>" nogil:
 
     cdef uint64_t cpp_get_current_numa_node \
         "rapidsmpf::get_current_numa_node"() noexcept
+
+    cdef vector[int] cpp_get_current_numa_nodes \
+        "rapidsmpf::get_current_numa_nodes"() noexcept
 
     cdef uint64_t cpp_get_numa_node_host_memory \
         "rapidsmpf::get_numa_node_host_memory"(int numa_id) noexcept
@@ -60,6 +64,17 @@ def get_current_numa_node():
     NUMA node ID of the calling thread, or 0 if NUMA is unavailable.
     """
     return cpp_get_current_numa_node()
+
+
+def get_current_numa_nodes():
+    """
+    Get the NUMA nodes in the calling thread's memory policy.
+
+    Returns
+    -------
+    NUMA node IDs in the current memory-policy mask.
+    """
+    return cpp_get_current_numa_nodes()
 
 
 def get_numa_node_host_memory(numa_id = None):

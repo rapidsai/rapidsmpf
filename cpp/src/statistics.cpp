@@ -361,6 +361,8 @@ std::string Statistics::report(ReportArgs report_args) const {
     auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
     auto* pinned_adaptor =
         get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
+    auto* host_adaptor =
+        get_optional_resource_as<HostMemoryResource>(report_args.host_mr);
     if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();
@@ -388,6 +390,16 @@ std::string Statistics::report(ReportArgs report_args) const {
                 .scoped = pinned_record,
                 .global_peak = pinned_record.peak(),
                 .num_calls = 1
+            }
+        );
+    }
+
+    if (host_adaptor) {
+        auto const host_record = host_adaptor->get_main_memory_record();
+        sorted_records.emplace_back(
+            "main (all allocations using HostMemoryResource)",
+            MemoryRecord{
+                .scoped = host_record, .global_peak = host_record.peak(), .num_calls = 1
             }
         );
     }

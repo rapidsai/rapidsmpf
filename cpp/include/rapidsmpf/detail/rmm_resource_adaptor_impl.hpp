@@ -36,12 +36,15 @@ namespace rapidsmpf::detail {
  * `cuda::mr::resource` concept and is held by `RmmResourceAdaptor` via
  * `cuda::mr::shared_resource` for reference-counted ownership.
  *
- * @tparam PrimaryMR The type of the primary memory resource. Use a concrete
- * resource type (e.g. `cuda::pinned_memory_pool`) to store the resource
+ * @tparam PrimaryMR The type of the primary memory resource. It must provide
+ * stream-ordered `allocate`/`deallocate`; it need not model `cuda::mr::resource`
+ * itself. Its properties are forwarded via `cuda::forward_property`. Use a
+ * concrete resource type (e.g. `cuda::pinned_memory_pool`) to store the resource
  * directly inside the shared control block, avoiding an extra heap allocation.
  */
-template <cuda::mr::resource_with<cuda::mr::device_accessible> PrimaryMR>
-class RmmResourceAdaptorImpl {
+template <typename PrimaryMR>
+class RmmResourceAdaptorImpl
+    : public cuda::forward_property<RmmResourceAdaptorImpl<PrimaryMR>, PrimaryMR> {
   public:
     /**
      * @brief Construct with a primary memory resource.
@@ -73,7 +76,6 @@ class RmmResourceAdaptorImpl {
         : primary_mr_{std::forward<Args>(args)...} {}
 
     ~RmmResourceAdaptorImpl() = default;
-
     RmmResourceAdaptorImpl(RmmResourceAdaptorImpl const&) = delete;
     RmmResourceAdaptorImpl(RmmResourceAdaptorImpl&&) = delete;
     RmmResourceAdaptorImpl& operator=(RmmResourceAdaptorImpl const&) = delete;
@@ -91,10 +93,19 @@ class RmmResourceAdaptorImpl {
 
     /**
      * @brief Returns a reference to the primary upstream resource.
+     *
+     * Named `upstream_resource` so `cuda::forward_property` can forward stateful
+     * properties and `cuda::mr::dynamic_accessibility_property`.
+     *
      * @return Reference to the primary resource.
      */
-    [[nodiscard]] PrimaryMR const& get_upstream_resource() const noexcept {
+    [[nodiscard]] PrimaryMR const& upstream_resource() const noexcept {
         return primary_mr_;
+    }
+
+    /// @copydoc upstream_resource
+    [[nodiscard]] PrimaryMR const& get_upstream_resource() const noexcept {
+        return upstream_resource();
     }
 
     /// @copydoc RmmResourceAdaptor::get_main_record
@@ -223,11 +234,6 @@ class RmmResourceAdaptorImpl {
         deallocate(sync_stream_, ptr, bytes, alignment);
         sync_stream_.synchronize_no_throw();
     }
-
-    /// @brief Tag this resource as device-accessible for the CCCL concept.
-    friend void get_property(
-        RmmResourceAdaptorImpl const&, cuda::mr::device_accessible
-    ) noexcept {}
 
   private:
     mutable std::mutex mutex_;
