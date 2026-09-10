@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -180,6 +180,42 @@ class TestBindResolution:
             os.environ["CUDA_VISIBLE_DEVICES"] = "GPU-abcdef12-3456"
             with pytest.raises(RuntimeError, match="not a valid GPU ID"):
                 bind(cpu=False, memory=False, network=False)
+
+        _run_in_subprocess(body)
+
+    def test_bind_does_not_initialize_cuda(self) -> None:
+        """bind() must not latch CUDA while it temporarily clears CVD.
+
+        Topology discovery unsets CUDA_VISIBLE_DEVICES so cuCascade can see
+        physical GPU indices. If the CUDA driver initializes in that window,
+        the process permanently sees every GPU on the node even after CVD is
+        restored. On single-GPU CI that cannot be detected via UUID collision,
+        so we instead require that CUDA remain uninitialized after bind():
+        clearing CVD and then querying the device count must yield
+        cudaErrorNoDevice.
+        """
+
+        def body() -> None:
+            import os
+
+            from cuda.bindings import runtime
+
+            from rapidsmpf.rrun.rrun import bind
+
+            # Restrict visibility, but do not touch CUDA before bind().
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            bind(gpu_id=0, cpu=True, memory=True, network=False, verify=False)
+
+            # If bind() left CUDA uninitialized, an empty CUDA_VISIBLE_DEVICES takes
+            # effect. If bind() latched "all devices" (or even just GPU 0), this change
+            # is ignored and cudaGetDeviceCount succeeds.
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            err, count = runtime.cudaGetDeviceCount()
+            assert err == runtime.cudaError_t.cudaErrorNoDevice, (
+                f"bind() initialized CUDA (cudaGetDeviceCount -> err={err}, "
+                f"count={count}); discovery must not touch the CUDA driver "
+                f"while CUDA_VISIBLE_DEVICES is temporarily cleared"
+            )
 
         _run_in_subprocess(body)
 
