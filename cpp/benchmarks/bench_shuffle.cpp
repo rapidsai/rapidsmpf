@@ -13,7 +13,9 @@
 
 #include <cuda/stream>
 
+#include <rmm/device_buffer.hpp>
 #include <rmm/mr/per_device_resource.hpp>
+#include <rmm/mr/pinned_host_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
@@ -83,7 +85,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:s")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:sud")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -104,6 +106,9 @@ class ArgumentParser {
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -s         Discard extracted output (skip validation)\n"
+                           << "  -d         Disable extraction after wait\n"
+                           << "  -u         Allocate input chunks in pinned host memory "
+                              "(outside device accounting)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -158,6 +163,12 @@ class ArgumentParser {
                 case 's':
                     discard_output = true;
                     break;
+                case 'd':
+                    disable_extraction = true;
+                    break;
+                case 'u':
+                    unaccounted_input = true;
+                    break;
                 case '?':
                     if (use_mpi) {
                         RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -208,6 +219,10 @@ class ArgumentParser {
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         ss << "  -s " << (discard_output ? "true" : "false") << " (discard output)\n";
+        ss << "  -d " << (disable_extraction ? "true" : "false")
+           << " (disable extraction)\n";
+        ss << "  -u " << (unaccounted_input ? "true" : "false")
+           << " (pinned input outside device accounting)\n";
         comm.logger()->print(ss.str());
     }
 
@@ -219,6 +234,8 @@ class ArgumentParser {
     std::uint64_t num_batches{1};
     std::uint64_t output_partitions_per_rank{1};
     bool discard_output{false};
+    bool disable_extraction{false};
+    bool unaccounted_input{false};
 };
 
 void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialized) {
@@ -245,7 +262,9 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     PartID dest_partition,
     std::uint64_t size,
     cuda::stream_ref stream,
-    BufferResource& br
+    BufferResource& br,
+    rmm::mr::pinned_host_memory_resource& pinned_input_mr,
+    bool unaccounted_input
 ) {
     ChunkHeader const header{
         src_rank,
@@ -256,13 +275,20 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     };
     auto metadata = header.to_metadata();
     auto const* fill_byte = metadata->data() + offsetof(ChunkHeader, fill_byte);
-    auto reservation = br.try_reserve(size, MEMORY_TYPES);
-    RAPIDSMPF_EXPECTS(
-        reservation.has_value(),
-        "failed to reserve input chunk memory",
-        std::runtime_error
-    );
-    auto data = br.make_buffer(stream, std::move(*reservation));
+    std::unique_ptr<Buffer> data;
+    if (unaccounted_input) {
+        data = br.move(
+            std::make_unique<rmm::device_buffer>(size, stream, pinned_input_mr), stream
+        );
+    } else {
+        auto reservation = br.try_reserve(size, MEMORY_TYPES);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve input chunk memory",
+            std::runtime_error
+        );
+        data = br.make_buffer(stream, std::move(*reservation));
+    }
     data->write_access([fill_byte, size, mem_type = data->mem_type()](
                            std::byte* ptr, cuda::stream_ref op_stream
                        ) {
@@ -280,7 +306,8 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     ArgumentParser const& args,
     PartID total_num_partitions,
     cuda::stream_ref stream,
-    BufferResource& br
+    BufferResource& br,
+    rmm::mr::pinned_host_memory_resource& pinned_input_mr
 ) {
     std::vector<std::unordered_map<PartID, PackedData>> batches;
     batches.reserve(args.num_batches);
@@ -289,7 +316,17 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
         chunks.reserve(total_num_partitions);
         for (PartID pid = 0; pid < total_num_partitions; ++pid) {
             chunks.emplace(
-                pid, make_chunk(comm.rank(), batch, pid, args.payload_size, stream, br)
+                pid,
+                make_chunk(
+                    comm.rank(),
+                    batch,
+                    pid,
+                    args.payload_size,
+                    stream,
+                    br,
+                    pinned_input_mr,
+                    args.unaccounted_input
+                )
             );
         }
         batches.push_back(std::move(chunks));
@@ -430,20 +467,22 @@ Duration run_shuffle(
     shuffler.wait(std::chrono::seconds{3600});
 
     std::unordered_map<PartID, std::vector<PackedData>> extracted;
-    if (!args.discard_output) {
-        for (PartID const pid : shuffler.local_partitions()) {
-            extracted.emplace(pid, shuffler.extract(pid));
-        }
-    } else {
-        for (PartID const pid : shuffler.local_partitions()) {
-            std::ignore = shuffler.extract(pid);
+    if (!args.disable_extraction) {
+        if (!args.discard_output) {
+            for (PartID const pid : shuffler.local_partitions()) {
+                extracted.emplace(pid, shuffler.extract(pid));
+            }
+        } else {
+            for (PartID const pid : shuffler.local_partitions()) {
+                std::ignore = shuffler.extract(pid);
+            }
         }
     }
 
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto const elapsed = Clock::now() - t0_elapsed;
 
-    if (!args.discard_output) {
+    if (!args.disable_extraction && !args.discard_output) {
         validate_extracted(extracted, comm, args, total_num_partitions);
     }
 
@@ -504,6 +543,7 @@ int main(int argc, char** argv) {
         rmm::mr::get_current_device_resource_ref(), options, stats
     );
     std::ignore = rmm::mr::set_current_device_resource(br->device_mr_adaptor());
+    rmm::mr::pinned_host_memory_resource pinned_input_mr;
 
     auto const total_num_partitions = safe_cast<PartID>(
         args.output_partitions_per_rank * static_cast<std::uint64_t>(comm->nranks())
@@ -524,8 +564,9 @@ int main(int argc, char** argv) {
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        ss << "  Total partitions: " << total_num_partitions << "\n";
-        ss << "  Local partitions: " << args.output_partitions_per_rank << "\n";
+        ss << "  Total partitions per batch: " << total_num_partitions << "\n";
+        ss << "  Local partitions per batch: " << args.output_partitions_per_rank << "\n";
+        ss << "  Num batches: " << args.num_batches << "\n";
         ss << "  BufferResource configured from environment options\n";
         log->print(ss.str());
     }
@@ -543,7 +584,9 @@ int main(int argc, char** argv) {
             stats->enable();
         }
 
-        auto batches = generate_batches(*comm, args, total_num_partitions, stream, *br);
+        auto batches = generate_batches(
+            *comm, args, total_num_partitions, stream, *br, pinned_input_mr
+        );
         auto const elapsed =
             run_shuffle(comm, args, total_num_partitions, *br, batches).count();
 
