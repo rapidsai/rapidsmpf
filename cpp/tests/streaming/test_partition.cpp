@@ -43,8 +43,8 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     EXPECT_EQ(m2.content_description().content_size(rapidsmpf::MemoryType::DEVICE), 80);
 
     auto chunk2 = m2.release<rapidsmpf::streaming::PartitionMapChunk>();
-    validate_packed_data(std::move(chunk2.data.at(0)), 10, 0, stream, *br);
-    validate_packed_data(std::move(chunk2.data.at(1)), 10, 10, stream, *br);
+    validate_packed_data(std::move(chunk2.data.at(0)), 10, 0);
+    validate_packed_data(std::move(chunk2.data.at(1)), 10, 10);
 }
 
 TEST_F(StreamingPartition, PartitionMapChunkContentDescription) {

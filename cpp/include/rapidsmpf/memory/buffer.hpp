@@ -269,7 +269,7 @@ class Buffer {
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * } else {
      *   // Ensure completion before handing to MPI.
-     *   buffer.stream().sync();
+     *   buffer.latest_write_event().host_wait();
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * }
      * @endcode

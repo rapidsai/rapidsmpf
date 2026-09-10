@@ -7,8 +7,10 @@
 
 #include <array>
 #include <atomic>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -21,6 +23,7 @@
 
 #include <rmm/cuda_stream_pool.hpp>
 
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
@@ -143,9 +146,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -167,9 +169,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param stream_pool CUDA stream pool used for operations that do not take an
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
+     * @param spill_directory Directory for disk files. A per-process subdirectory
+     * named after the PID is created under this path.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
+     * @throws std::invalid_argument if the pinned maximum pool size is zero.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -177,7 +182,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::filesystem::path spill_directory = std::filesystem::temp_directory_path()
     );
 
     /**
@@ -404,6 +410,139 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Try to reserve memory from the given order of memory types.
+     *
+     * Iterates over @p mem_types in preference order. For each type, requests a
+     * reservation without overbooking. Returns the first reservation that fully
+     * satisfies @p size.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_types Range of memory types to try to reserve memory from.
+     * @return A reservation of @p size, or `std::nullopt` if no type could satisfy
+     * the request.
+     */
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, Range mem_types
+    ) {
+        for (auto const& mem_type : mem_types) {
+            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
+                // Pinned host memory is only available if the memory resource is
+                // available.
+                continue;
+            }
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
+            if (res.size() == size) {
+                return std::move(res);
+            }
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to reserve memory of a single memory type.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_type The memory type to try to reserve memory from.
+     * @return A reservation of @p size, or `std::nullopt` if the type could not
+     * satisfy the request.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, MemoryType mem_type
+    ) {
+        return try_reserve(size, std::ranges::single_view{mem_type});
+    }
+
+    /**
+     * @brief Try to reserve memory, spilling and retrying under memory pressure.
+     *
+     * Tries each requested memory type in preference order. If no reservation is
+     * immediately available, spills only enough device memory to satisfy the retained
+     * device reservation, retrying up to @p num_spill_retries times. Only device memory
+     * is spilled, because spilling other memory types is not supported yet.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_types Range of memory types to consider.
+     * @param num_spill_retries Maximum number of spill attempts. Only applies to device
+     * memory.
+     * @return A reservation of @p size, or `std::nullopt` after all retries fail.
+     */
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, Range mem_types, std::size_t num_spill_retries = 8
+    ) {
+        std::bitset<MEMORY_TYPES.size()> requested_mem_types;
+        for (auto const& mem_type : mem_types) {
+            requested_mem_types.set(
+                static_cast<std::size_t>(static_cast<MemoryType>(mem_type))
+            );
+        }
+        auto const requested = [&](MemoryType mem_type) {
+            return requested_mem_types.test(static_cast<std::size_t>(mem_type));
+        };
+
+        std::optional<MemoryReservation> device_reservation;
+        std::size_t device_overbooking = 0;
+
+        if (requested(MemoryType::DEVICE)) {
+            auto [reservation, overbooking] =
+                reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+            if (overbooking == 0) {
+                return std::move(reservation);
+            }
+            device_overbooking = overbooking;
+            device_reservation.emplace(std::move(reservation));
+        }
+
+        if (requested(MemoryType::PINNED_HOST) && pinned_mr_.has_value()) {
+            auto [reservation, _] =
+                reserve(MemoryType::PINNED_HOST, size, AllowOverbooking::NO);
+            if (reservation.size() == size) {
+                return std::move(reservation);
+            }
+        }
+
+        if (requested(MemoryType::HOST)) {
+            auto [reservation, _] = reserve(MemoryType::HOST, size, AllowOverbooking::NO);
+            if (reservation.size() == size) {
+                return std::move(reservation);
+            }
+        }
+
+        if (!device_reservation.has_value()) {
+            return std::nullopt;
+        }
+
+        for (std::size_t attempt = 0; attempt < num_spill_retries; ++attempt) {
+            auto const spilled = spill_manager_.spill(device_overbooking);
+            if (spilled >= device_overbooking) {
+                return device_reservation;
+            }
+            device_overbooking -= spilled;
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to reserve one memory type, spilling and retrying.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_type The memory type to reserve from.
+     * @param num_spill_retries Maximum number of spill attempts. Only applies to device
+     * memory.
+     * @return A reservation of @p size, or `std::nullopt` after all retries fail.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, MemoryType mem_type, std::size_t num_spill_retries = 8
+    ) {
+        return try_reserve_or_spill(
+            size, std::ranges::single_view{mem_type}, num_spill_retries
+        );
+    }
+
+    /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * The function attempts to reserve memory by iterating over @p mem_types in the given
@@ -419,17 +558,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        // try to reserve memory from the given order
-        for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
-                // Pinned host memory is only available if the memory resource is
-                // available.
-                continue;
-            }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
-            if (res.size() == size) {
-                return std::move(res);
-            }
+        if (auto res = try_reserve(size, mem_types)) {
+            return std::move(*res);
         }
         RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
     }
@@ -592,6 +722,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      */
     std::shared_ptr<Statistics> statistics() const noexcept;
 
+    /**
+     * @brief Disk I/O resource and spill directory configuration.
+     *
+     * Returned as a `std::shared_ptr`; `DiskBuffer`s keep a copy so the disk
+     * resource outlives those buffers if this `BufferResource` is destroyed.
+     *
+     * @return Shared pointer to the disk resource owned by this buffer resource.
+     */
+    [[nodiscard]] std::shared_ptr<disk::DiskResource> disk_resource() const {
+        return disk_resource_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -600,13 +742,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<StreamPool> stream_pool,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<Statistics> statistics,
+        std::shared_ptr<disk::DiskResource> disk_resource
     );
 
     mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
+    std::shared_ptr<disk::DiskResource> disk_resource_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
@@ -629,6 +773,22 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Parse the `spill_host_limit` parameter from configuration options.
+ *
+ * The limit must be an absolute byte count. Disabled values produce an
+ * unbounded pageable-host budget. This limit is independent of
+ * `pinned_max_pool_size`. When both limits are bounded,
+ * `BufferResource::from_options()` rejects configurations where their sum
+ * exceeds the summed host memory of the nodes in the calling thread's memory
+ * policy. The pinned maximum is also constrained by the host memory of its
+ * NUMA node.
+ *
+ * @param options Configuration options.
+ * @return Pageable-host soft limit in bytes.
+ */
+std::int64_t host_limit_from_options(config::Options options);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

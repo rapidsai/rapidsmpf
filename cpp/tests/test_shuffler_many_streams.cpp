@@ -86,9 +86,8 @@ TEST(ShufflerManyStreams, Test) {
     for (auto pid : shuffler.local_partitions()) {
         std::vector<PackedData> partition_chunks = shuffler.extract(pid);
         for (PackedData& chunk : partition_chunks) {
-            auto stream = chunk.data->stream();
             EXPECT_NO_FATAL_FAILURE(
-                validate_packed_data(std::move(chunk), chunksize, pid, stream, *br)
+                validate_packed_data(std::move(chunk), chunksize, pid)
             );
         }
     }

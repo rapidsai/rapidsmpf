@@ -7,21 +7,27 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
+#include <utility>
 
 #include <cuda/stream>
 
 #include <rmm/aligned.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
+#include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
 
 class BufferResource;
 
+namespace detail {
+
 /**
- * @brief Host memory resource using standard CPU allocation.
+ * @brief Untracked host memory resource using standard CPU allocation.
  *
  * This resource allocates pageable host memory using the ``new`` and ``delete``
  * operators. It is intended for use with `cuda::mr::resource` and related
@@ -33,20 +39,26 @@ class BufferResource;
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
  */
-class HostMemoryResource : public BackRefMixin<BufferResource> {
+class HostMemoryResourceImpl {
   public:
-    ~HostMemoryResource() = default;
+    HostMemoryResourceImpl() = default;
+    ~HostMemoryResourceImpl() = default;
 
-    HostMemoryResource(HostMemoryResource const&) = default;  ///< Copyable.
-    HostMemoryResource(HostMemoryResource&&) = default;  ///< Movable.
+    /// @brief Copy-construct a host memory resource.
+    /// @param other Resource to copy.
+    HostMemoryResourceImpl(HostMemoryResourceImpl const& other) = default;
+
+    /// @brief Move-construct a host memory resource.
+    /// @param other Resource to move.
+    HostMemoryResourceImpl(HostMemoryResourceImpl&& other) = default;
 
     /// @brief Copy assignment.
     /// @return Reference to this object after assignment.
-    HostMemoryResource& operator=(HostMemoryResource const&) = default;
+    HostMemoryResourceImpl& operator=(HostMemoryResourceImpl const&) = default;
 
     /// @brief Move assignment.
     /// @return Reference to this object after assignment.
-    HostMemoryResource& operator=(HostMemoryResource&&) = default;
+    HostMemoryResourceImpl& operator=(HostMemoryResourceImpl&&) = default;
 
     /**
      * @brief Synchronously allocates host memory is disabled.
@@ -121,30 +133,123 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
      * @return true
      */
     [[nodiscard]] bool operator==(
-        [[maybe_unused]] HostMemoryResource const& other
+        [[maybe_unused]] HostMemoryResourceImpl const& other
     ) const noexcept {
         return true;
     }
 
-    /// @copydoc operator==
-    [[nodiscard]] bool operator!=(
-        [[maybe_unused]] HostMemoryResource const& other
-    ) const noexcept {
-        return false;
-    }
-
     /**
-     * @brief Enables the `cuda::mr::host_accessible` property
+     * @brief Enables the `cuda::mr::host_accessible` property.
      *
-     * This property declares that a `HostMemoryResource` provides host accessible memory
+     * This property declares that a `HostMemoryResourceImpl` provides host-accessible
+     * memory.
      */
     friend void get_property(
-        HostMemoryResource const&, cuda::mr::host_accessible
+        HostMemoryResourceImpl const&, cuda::mr::host_accessible
     ) noexcept {}
+};
+
+static_assert(cuda::mr::resource<HostMemoryResourceImpl>);
+static_assert(cuda::mr::resource_with<HostMemoryResourceImpl, cuda::mr::host_accessible>);
+static_assert(
+    !cuda::mr::resource_with<HostMemoryResourceImpl, cuda::mr::device_accessible>
+);
+
+}  // namespace detail
+
+/**
+ * @brief Shared, tracked pageable-host memory resource.
+ *
+ * Wraps the standard CPU allocator in `RmmResourceAdaptorImpl` so live
+ * allocations and lifetime memory records are available to `BufferResource`.
+ * Copies share allocation statistics and the upstream resource.
+ */
+class HostMemoryResource final
+    : public cuda::mr::shared_resource<
+          detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>,
+      public BackRefMixin<BufferResource> {
+    using shared_base = cuda::mr::shared_resource<
+        detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>;
+
+  public:
+    ~HostMemoryResource() = default;
+
+    /// @brief Copy-construct a shared host memory resource.
+    /// @param other Resource to copy.
+    HostMemoryResource(HostMemoryResource const& other) = default;
+
+    /// @brief Move-construct a shared host memory resource.
+    /// @param other Resource to move.
+    HostMemoryResource(HostMemoryResource&& other) = default;
+
+    /// @brief Copy-assign a shared host memory resource.
+    /// @param other Resource to copy.
+    /// @return Reference to this object after assignment.
+    HostMemoryResource& operator=(HostMemoryResource const& other) = default;
+
+    /// @brief Move-assign a shared host memory resource.
+    /// @param other Resource to move.
+    /// @return Reference to this object after assignment.
+    HostMemoryResource& operator=(HostMemoryResource&& other) = default;
+
+    /// @copydoc detail::HostMemoryResourceImpl::allocate_sync
+    void* allocate_sync(std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL(
+            "only async stream-ordered allocation must be used in RapidsMPF",
+            std::invalid_argument
+        );
+    }
+
+    /// @copydoc detail::HostMemoryResourceImpl::deallocate_sync
+    void deallocate_sync(void*, std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL(
+            "only async stream-ordered allocation must be used in RapidsMPF",
+            std::invalid_argument
+        );
+    }
+
+    /// @copydoc detail::HostMemoryResourceImpl::allocate
+    void* allocate(
+        cuda::stream_ref stream,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) {
+        return get().allocate(stream, size, alignment);
+    }
+
+    /// @copydoc detail::HostMemoryResourceImpl::deallocate
+    void deallocate(
+        cuda::stream_ref stream,
+        void* ptr,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept {
+        get().deallocate(stream, ptr, size, alignment);
+    }
+
+    /// @copydoc detail::HostMemoryResourceImpl::operator==
+    [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
+        return get() == other.get();
+    }
+
+    /// @copydoc RmmResourceAdaptor::current_allocated
+    [[nodiscard]] std::int64_t current_allocated() const noexcept {
+        return get().current_allocated();
+    }
+
+    /// @copydoc RmmResourceAdaptor::get_main_record
+    [[nodiscard]] ScopedMemoryRecord get_main_memory_record() const {
+        return get().get_main_record();
+    }
 
   private:
-    /// @brief Default construct. Private: only `BufferResource` creates instances.
-    HostMemoryResource() = default;
+    HostMemoryResource()
+        : shared_base(
+              cuda::mr::make_shared_resource<
+                  detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>(
+                  std::in_place
+              )
+          ) {}
 
     friend class BufferResource;
 };

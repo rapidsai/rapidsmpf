@@ -7,6 +7,8 @@ This table gives an overview of the different statistics collected.
 | --- | --- |
 | `alloc-{memtype}` | Bytes allocated via `BufferResource::allocate()`, broken down by memory type (`device`, `pinned_host`, `host`). Shows total bytes, total time, allocation throughput, and average stream delay. |
 | `copy-{src}-to-{dst}` | Amount of data copied between memory types by RapidsMPF. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. Shows total bytes, total copy time, throughput, and average stream delay (time between CPU submission and GPU execution of the copy). |
+| `copy-{memtype}-to-disk` | Amount of data spilled from in-memory buffers to disk. `{memtype}` is `device`, `pinned_host`, or `host`. Shows total bytes, blocking I/O time, and throughput. Stream delay is always zero. |
+| `copy-disk-to-{memtype}` | Amount of data restored from disk into in-memory buffers. `{memtype}` is `device`, `pinned_host`, or `host`. Shows total bytes, blocking I/O time, and throughput. Stream delay is always zero. |
 | `event-loop-total` | Time spent in in the background `ProgressThread` event-loop. |
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
 | `shuffle-payload-recv` | Shuffle data received by this rank, excluding self-transfers. |

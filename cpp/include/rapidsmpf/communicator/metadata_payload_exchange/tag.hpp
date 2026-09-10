@@ -30,7 +30,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data. May
+     * return `nullptr` when allocation is temporarily unavailable; allocation is
+     * retried by subsequent calls to `progress()`.
      * @param statistics The statistics to use for tracking communication operations.
      */
     TagMetadataPayloadExchange(
@@ -124,6 +126,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         peer_expected_;  ///< Expected application messages per peer (0 = unknown).
     std::vector<bool>
         peer_terminated_;  ///< Whether we received the termination marker from each peer.
+    std::vector<bool>
+        peer_allocation_deferred_;  ///< Whether payload allocation is deferred per peer.
 
     /// Sentinel message_id value used to identify protocol-level termination markers.
     static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
@@ -158,8 +162,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @return A vector of completed metadata-only messages.
      *
-     * @throw std::runtime_error if an in-transit message or future is not found, or
-     * if a data buffer is not available.
+     * @throw std::runtime_error if an in-transit message or future is not found.
      */
     std::vector<std::unique_ptr<Message>> setup_data_receives();
 

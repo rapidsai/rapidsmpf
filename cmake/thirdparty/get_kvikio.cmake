@@ -1,0 +1,12 @@
+# =============================================================================
+# cmake-format: off
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
+# =============================================================================
+
+rapids_find_package(
+  kvikio REQUIRED
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
+)

@@ -30,6 +30,7 @@ inline const std::unordered_map<std::string, std::string> DEFAULTS{
     {"pinned_initial_pool_size", "0%"},
     {"pinned_max_pool_size", "80%"},
     {"spill_device_limit", "80%"},
+    {"spill_host_limit", "disabled"},
     {"periodic_spill_check", "1ms"},
     {"num_streams", "16"},
     {"num_streaming_threads", "1"},
@@ -37,6 +38,7 @@ inline const std::unordered_map<std::string, std::string> DEFAULTS{
     {"allow_overbooking_by_default", "true"},
     {"log", "WARN"},
     {"ucxx_progress_mode", "thread-blocking"},
+    {"disk_spill_dir", ""},
 };
 
 }  // namespace rapidsmpf::config

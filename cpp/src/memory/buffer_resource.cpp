@@ -5,19 +5,24 @@
 
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <utility>
+
+#include <unistd.h>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
@@ -28,11 +33,13 @@ BufferResource::BufferResource(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::shared_ptr<disk::DiskResource> disk_resource
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
+      disk_resource_{std::move(disk_resource)},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
@@ -47,6 +54,9 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        disk_resource_ != nullptr, "the disk resource pointer cannot be NULL"
+    );
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -55,7 +65,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::filesystem::path spill_directory
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -68,16 +79,27 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
+    // create a dir for each pid under the spill directory
+    std::shared_ptr<disk::DiskResource> disk_res{
+        new disk::DiskResource{std::move(spill_directory) / std::to_string(::getpid())}
+    };
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
         std::move(stream_pool),
-        std::move(statistics)
+        std::move(statistics),
+        std::move(disk_res)
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -89,6 +111,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     auto const weak = br->weak_from_this();
     br->owning_mr_.set_backref(weak);
     br->host_mr_.set_backref(weak);
+    br->disk_resource_->set_backref(weak);
     if (br->pinned_mr_.has_value()) {
         br->pinned_mr_->set_backref(weak);
     }
@@ -100,16 +123,52 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
+    auto pinned_pool_properties = pinned_pool_properties_from_options(options);
+    constexpr auto unbounded = std::numeric_limits<std::int64_t>::max();
+    auto host_limit = host_limit_from_options(options);
+    std::int64_t pinned_limit = 0;
+
+    if (pinned_pool_properties.has_value()) {
+        auto const& max_pool_size = pinned_pool_properties->max_pool_size;
+        pinned_limit = max_pool_size.has_value() ? safe_cast<std::int64_t>(*max_pool_size)
+                                                 : unbounded;
+
+        if (host_limit != unbounded && pinned_limit != unbounded) {
+            auto const numa_host = safe_cast<std::int64_t>(
+                get_numa_node_host_memory(pinned_pool_properties->numa_id)
+            );
+            RAPIDSMPF_EXPECTS(
+                pinned_limit <= numa_host,
+                "pinned_max_pool_size exceeds NUMA node host memory",
+                std::invalid_argument
+            );
+            std::int64_t total_host = 0;
+            for (auto const numa_id : get_current_numa_nodes()) {
+                total_host += safe_cast<std::int64_t>(get_numa_node_host_memory(numa_id));
+            }
+            RAPIDSMPF_EXPECTS(
+                host_limit <= total_host - pinned_limit,
+                "spill_host_limit exceeds host memory in the current NUMA policy "
+                "after pinned_max_pool_size",
+                std::invalid_argument
+            );
+        }
+    }
+
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)}
+        {MemoryType::DEVICE, device_limit_from_options(options)},
+        {MemoryType::HOST, host_limit},
+        {MemoryType::PINNED_HOST, pinned_limit}
     };
+
     return create(
         std::move(mr),
-        pinned_pool_properties_from_options(options),
+        std::move(pinned_pool_properties),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
-        std::move(statistics)
+        std::move(statistics),
+        disk::default_spill_directory(options)
     );
 }
 
@@ -127,7 +186,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        return limit - host_mr_.current_allocated();
     }
     return std::numeric_limits<std::int64_t>::max();
 }
@@ -356,6 +415,18 @@ std::int64_t device_limit_from_options(config::Options options) {
         auto const [_, total_mem] = rmm::available_device_memory();
         return rmm::align_down(
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
+        );
+    });
+}
+
+std::int64_t host_limit_from_options(config::Options options) {
+    return options.get<std::int64_t>("spill_host_limit", [](auto const& s) {
+        auto const value = parse_optional(s);
+        if (!value.has_value()) {
+            return std::numeric_limits<std::int64_t>::max();
+        }
+        return safe_cast<std::int64_t>(
+            rmm::align_down(parse_nbytes_unsigned(*value), rmm::CUDA_ALLOCATION_ALIGNMENT)
         );
     });
 }

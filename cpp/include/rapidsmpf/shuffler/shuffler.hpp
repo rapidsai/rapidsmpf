@@ -247,17 +247,18 @@ class Shuffler {
     void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
-     * @brief Spills data to device if necessary.
+     * @brief Spill received data out of device memory if necessary.
      *
      * This function has two modes:
      *  - If `amount` is specified, it tries to spill at least `amount` bytes of
-     *    device memory.
+     *    device memory from received chunks (host-tier first, disk if host is
+     *    full).
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
      *
-     * @param amount An optional amount of memory to spill. If not provided, the
+     * @param amount An optional amount of device memory to spill. If not provided, the
      * function will check the current available device memory.
-     * @return The amount of memory actually spilled.
+     * @return The amount of device memory actually spilled.
      */
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 

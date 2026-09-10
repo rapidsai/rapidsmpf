@@ -12,10 +12,13 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -24,6 +27,7 @@
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -88,6 +92,31 @@ constexpr std::size_t operator"" _MiB(unsigned long long val) {
 /// @brief User-defined literal for specifying memory sizes in GiB.
 constexpr std::size_t operator"" _GiB(unsigned long long val) {
     return val * (1 << 30);
+}
+
+/**
+ * @brief Create a buffer resource that forces device spills to disk.
+ *
+ * Pinned memory is disabled, pageable host capacity is zero, and periodic spilling is
+ * disabled for deterministic tests.
+ *
+ * @param device_limit Optional device-memory limit.
+ * @return Buffer resource configured for disk-spill tests.
+ */
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource>
+make_disk_spill_buffer_resource(std::optional<std::int64_t> device_limit = std::nullopt) {
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> limits{
+        {rapidsmpf::MemoryType::HOST, 0}
+    };
+    if (device_limit.has_value()) {
+        limits.emplace(rapidsmpf::MemoryType::DEVICE, *device_limit);
+    }
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        std::move(limits),
+        std::nullopt
+    );
 }
 
 template <typename T>
@@ -179,16 +208,10 @@ template <typename T = int>
  * @param packed_data Packed data object to validate.
  * @param n_elements Expected number of elements.
  * @param offset Expected starting value of the sequence.
- * @param stream CUDA stream used for device-host transfers.
- * @param br Buffer resource used for host allocation.
  */
 template <typename T = int>
 inline void validate_packed_data(
-    rapidsmpf::PackedData&& packed_data,
-    std::size_t n_elements,
-    T offset,
-    cuda::stream_ref stream,
-    rapidsmpf::BufferResource& br
+    rapidsmpf::PackedData&& packed_data, std::size_t n_elements, T offset
 ) {
     auto const& metadata = *packed_data.metadata;
     EXPECT_EQ(n_elements * sizeof(T), metadata.size());
@@ -201,10 +224,15 @@ inline void validate_packed_data(
 
     EXPECT_EQ(n_elements * sizeof(T), packed_data.data->size);
 
-    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
-    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-    EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
+    auto const stream = packed_data.data->stream();
+    std::vector<std::uint8_t> data_on_host(packed_data.data->size);
+    RAPIDSMPF_CUDA_TRY(
+        rapidsmpf::cuda_memcpy_async(
+            data_on_host.data(), packed_data.data->data(), packed_data.data->size, stream
+        )
+    );
+    stream.sync();
+    EXPECT_EQ(metadata, data_on_host);
 }
 
 /**
